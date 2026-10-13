@@ -44,7 +44,9 @@ const STALE_TEMPORARY_FILE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 pub enum StoreSpec {
     /// A directory on the control-plane host. Writes go through
     /// `<root>/.tmp` and a rename, so a reader never sees a partial object.
-    Fs { root: String },
+    Fs {
+        root: String,
+    },
     /// An S3 bucket or an S3-compatible service such as Cloudflare R2.
     S3 {
         bucket: String,
@@ -60,6 +62,15 @@ pub enum StoreSpec {
         #[serde(default)]
         secret_access_key: Option<String>,
     },
+    Azblob(services::AzblobConfig),
+    D1(services::D1Config),
+    Cos(services::CosConfig),
+    Postgresql(services::PostgresqlConfig),
+    Oss(services::OssConfig),
+    Tos(services::TosConfig),
+    Gcs(services::GcsConfig),
+    Sftp(services::SftpConfig),
+    Webdav(services::WebdavConfig),
 }
 
 /// An opened store. Cloning it is cheap and shares the same operator.
@@ -133,6 +144,10 @@ pub fn open(spec_json: &str) -> Result<Store, StoreError> {
     let spec: StoreSpec = serde_json::from_str(spec_json)
         .map_err(|reason| StoreError::new("invalid_spec", reason.to_string()))?;
 
+    let uses_http = !matches!(
+        &spec,
+        StoreSpec::Fs { .. } | StoreSpec::Postgresql(_) | StoreSpec::Sftp(_)
+    );
     let operator = match spec {
         StoreSpec::Fs { root } => {
             let atomic_write_dir = Path::new(&root).join(".tmp");
@@ -170,9 +185,22 @@ pub fn open(spec_json: &str) -> Result<Store, StoreError> {
                     ));
                 }
             }
-            let operator = Operator::new(builder)?;
-            operator.with_context(OperationContext::new().with_http_transport(http_transport()?))
+            Operator::new(builder)?
         }
+        StoreSpec::Azblob(config) => Operator::from_config(config)?,
+        StoreSpec::D1(config) => Operator::from_config(config)?,
+        StoreSpec::Cos(config) => Operator::from_config(config)?,
+        StoreSpec::Postgresql(config) => Operator::from_config(config)?,
+        StoreSpec::Oss(config) => Operator::from_config(config)?,
+        StoreSpec::Tos(config) => Operator::from_config(config)?,
+        StoreSpec::Gcs(config) => Operator::from_config(config)?,
+        StoreSpec::Sftp(config) => Operator::from_config(config)?,
+        StoreSpec::Webdav(config) => Operator::from_config(config)?,
+    };
+    let operator = if uses_http {
+        operator.with_context(OperationContext::new().with_http_transport(http_transport()?))
+    } else {
+        operator
     };
 
     Ok(Store {
@@ -250,22 +278,45 @@ async fn copy_to_file(operator: &Operator, key: &str, path: &Path) -> Result<Out
     Ok(Outcome::Done)
 }
 
-/// Writes one object in parts of `WRITE_CHUNK_BYTES`. Each part is one I/O
-/// call, so the I/O timeout bounds a part and not the whole object: one S3
-/// `PUT` of a large object would fail on a slow uplink however steadily it
-/// progresses.
+/// Uses one write for backends that cannot accept multiple parts. Other
+/// backends use `WRITE_CHUNK_BYTES` parts, so the I/O timeout bounds each part
+/// while a slow but progressing transfer can continue.
 async fn write_parts(
     operator: &Operator,
     key: &str,
     mut source: impl AsyncRead + Unpin,
 ) -> Result<Outcome, StoreError> {
-    let mut writer = operator.writer_with(key).chunk(WRITE_CHUNK_BYTES).await?;
+    if !operator.info().capability().write_can_multi {
+        // WebDAV requires one complete PUT. Database backends also store one
+        // complete value, so keep this buffer in native memory.
+        let mut bytes = Vec::new();
+        source
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(local_file_error)?;
+        operator.write(key, bytes).await?;
+        return Ok(Outcome::Done);
+    }
+
+    // SFTP writes directly to its target. A sibling temporary file and rename
+    // keep a failed replacement from truncating a referenced object.
+    let temporary_key =
+        (operator.info().scheme() == "sftp").then(|| format!("{key}.{}.tmp", uuid::Uuid::new_v4()));
+    let write_key = temporary_key.as_deref().unwrap_or(key);
+    let mut writer = operator
+        .writer_with(write_key)
+        .chunk(WRITE_CHUNK_BYTES)
+        .await?;
     let mut buffer = vec![0_u8; WRITE_CHUNK_BYTES];
 
     let copied: Result<(), StoreError> = async {
         loop {
             let read = source.read(&mut buffer).await.map_err(local_file_error)?;
             if read == 0 {
+                writer.close().await?;
+                if let Some(temporary_key) = &temporary_key {
+                    operator.rename(temporary_key, key).await?;
+                }
                 return Ok(());
             }
             writer
@@ -276,14 +327,14 @@ async fn write_parts(
     .await;
 
     match copied {
-        Ok(()) => {
-            writer.close().await?;
-            Ok(Outcome::Done)
-        }
+        Ok(()) => Ok(Outcome::Done),
         Err(reason) => {
             // An unfinished S3 multipart upload keeps its parts until it is
             // aborted, so a failed copy must not leave it open.
             let _ = writer.abort().await;
+            if let Some(temporary_key) = &temporary_key {
+                let _ = operator.delete(temporary_key).await;
+            }
             Err(reason)
         }
     }

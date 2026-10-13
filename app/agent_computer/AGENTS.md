@@ -9,7 +9,7 @@ The production Worker runs inside its Linux image. Unit tests and portable integ
 - `bun run test` runs the unit suite on the host and excludes `test/integration/`.
 - `bun run test ./test/example.test.ts` runs one unit test file on the host.
 - `bun run test:docker` runs the unit suite through the Docker devkit.
-- `bun run test:integration` runs `test/integration/host/` on the host. It needs Codex 0.158.0, MCPorter 0.14.1 running with Bun, native `apply_patch`, and GNU `stat` (`gstat` on macOS).
+- `bun run test:integration` runs `test/integration/host/` on the host. It needs Codex 0.162.1, MCPorter 0.14.3 running with Bun, native `apply_patch`, and GNU `stat` (`gstat` on macOS).
 - `bun run test:integration:linux` runs `test/integration/linux/` on a Linux host. It also needs `setsid` and util-linux `flock` with `-F` support. These tests check the supervisor and managed Codex runtime without a Worker image.
 - `bun run test:integration:docker` runs `test/integration/worker-image/` through the Docker devkit. These tests check the Worker entrypoint, image configuration, `tini`, pinned Codex bindings, browser, OCR, and installed Lark CLI.
 

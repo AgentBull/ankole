@@ -1,11 +1,11 @@
 ---
 title: Control-plane drive storage
-description: Configure local folders, AWS S3, or S3-compatible storage for OpenDAL-based Agent drives, including migration and backup.
+description: Configure local files, cloud buckets, database tables, SFTP, or WebDAV for OpenDAL-based Agent drives, including migration and backup.
 section: Guides
 order: 318
 ---
 
-The control plane manages each Agent's drive, which remains available when its Worker is stopped. PostgreSQL stores paths, permissions, and content references. An OpenDAL backend stores file bytes. Ankole currently exposes only `fs` and `s3`; other OpenDAL services do not have Ankole configuration support.
+The control plane manages each Agent's drive, which remains available when its Worker is stopped. PostgreSQL stores paths, permissions, and content references. An OpenDAL backend stores file bytes. Ankole supports `fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and `webdav`.
 
 This is site bootstrap configuration. All tenants use the same object store. WorkerProvider Home, cache, and Cloudflare R2 backups have separate configuration. See [WorkerProviders and cache disks](../worker-providers/) and [File management](../file-management/).
 
@@ -18,15 +18,15 @@ This is site bootstrap configuration. All tenants use the same object store. Wor
 | Cloudflare R2 | `s3` | S3 API endpoint, region `auto`, and R2 credentials |
 | Other S3-compatible services | `s3` | Service endpoint, signing region, credentials, and compatibility checks |
 
-Use `s3` for multiple control-plane replicas. They must use the same bucket and prefix. Official Helm rejects `files.store: fs` with more than one replica. An S3 drive does not remove replica limits imposed by individual WorkerProviders.
+Multiple control-plane replicas need shared remote storage, with the same backend location and root on each replica. Official Helm rejects `files.store: fs` with more than one replica. An S3 drive does not remove replica limits imposed by individual WorkerProviders.
 
-The current deployment guide still requires `controlPlane.replicaCount: 1` until singleton processes such as schedule firing, chat connections, and scheduler recovery are verified on multiple nodes. S3 is a shared-storage prerequisite, not proof of a verified multi-replica deployment. See [Control-plane replicas](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas).
+The current deployment guide still requires `controlPlane.replicaCount: 1` until singleton processes such as schedule firing, chat connections, and scheduler recovery are verified on multiple nodes. Shared remote storage is required for multiple replicas. It does not prove that the whole deployment supports multiple replicas. See [Control-plane replicas](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas).
 
 ## Environment variables
 
 | Variable | Backend | Requirement |
 | --- | --- | --- |
-| `ANKOLE_FILES_STORE` | All | Required in production: `fs` or `s3` |
+| `ANKOLE_FILES_STORE` | All | Required in production; choose a supported backend |
 | `ANKOLE_FILES_FS_ROOT` | `fs` | Writable absolute path inside the control plane |
 | `ANKOLE_FILES_S3_BUCKET` | `s3` | Name of an existing bucket |
 | `ANKOLE_FILES_S3_REGION` | `s3` | Required; bucket region for AWS, `auto` for R2 |
@@ -36,6 +36,30 @@ The current deployment guide still requires `controlPlane.replicaCount: 1` until
 | `ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | `s3` | Optional static credential; set with the previous variable |
 
 Without static credentials, the default AWS credential chain applies, including configured EKS Pod Identity. Give credentials or workload identity only to the control plane. Workers access their drive through RuntimeFabric and do not need bucket keys. Configuration is read at startup; restart the control plane after changes. Other OpenDAL options are not Ankole environment variables.
+
+## Additional OpenDAL backends
+
+Use `ANKOLE_FILES_<SCHEME>_<FIELD>`, with both names in uppercase. For example, Azure Blob requires `ANKOLE_FILES_STORE=azblob`, `ANKOLE_FILES_AZBLOB_CONTAINER`, and `ANKOLE_FILES_AZBLOB_ENDPOINT`. The following table lists all fields exposed by Ankole. Missing or empty required values fail at startup.
+
+| Backend | Required fields | Optional fields |
+| --- | --- | --- |
+| `azblob` | `CONTAINER`, `ENDPOINT` | `ROOT`, `ACCOUNT_NAME`, `ACCOUNT_KEY`, `SAS_TOKEN` |
+| `d1` | `ACCOUNT_ID`, `DATABASE_ID`, `TOKEN`, `TABLE`, `KEY_FIELD`, `VALUE_FIELD` | `ROOT` |
+| `cos` | `BUCKET`, `ENDPOINT` | `ROOT`, `SECRET_ID`, `SECRET_KEY`, `SECURITY_TOKEN` |
+| `postgresql` | `CONNECTION_STRING`, `TABLE`, `KEY_FIELD`, `VALUE_FIELD` | `ROOT` |
+| `oss` | `BUCKET`, `ENDPOINT` | `ROOT`, `ACCESS_KEY_ID`, `ACCESS_KEY_SECRET`, `SECURITY_TOKEN` |
+| `tos` | `BUCKET`, `ENDPOINT`, `REGION` | `ROOT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `SECURITY_TOKEN` |
+| `gcs` | `BUCKET` | `ROOT`, `ENDPOINT`, `CREDENTIAL`, `CREDENTIAL_PATH` |
+| `sftp` | `ENDPOINT` | `ROOT`, `USER`, `KEY`, `KNOWN_HOSTS_STRATEGY` |
+| `webdav` | `ENDPOINT` | `ROOT`, `USERNAME`, `PASSWORD`, `TOKEN` |
+
+Credentials belong in control-plane secrets. GCS `CREDENTIAL` contains base64-encoded credential JSON; `CREDENTIAL_PATH` points to the original JSON file. Without explicit credentials, the upstream Google credential chain applies. SFTP uses the control-plane image's `ssh` client; `KEY` is a private key file path. Host checks default to `strict`, so provision the control-plane user's `~/.ssh/known_hosts`. WebDAV supports Basic credentials or a bearer `TOKEN`.
+
+D1 and PostgreSQL require an existing table. Use a `TEXT` primary key and `BLOB` value for D1, or a `TEXT` primary key and `BYTEA` value for PostgreSQL. Set `TABLE`, `KEY_FIELD`, and `VALUE_FIELD` to those names. Ankole does not create this table. D1, PostgreSQL, and WebDAV buffer complete objects in the native backend. D1's [string, BLOB, and row limit is 2,000,000 bytes](https://developers.cloudflare.com/d1/platform/limits/); Ankole does not split objects across rows. Use a bucket backend for large files.
+
+SFTP uploads to a temporary file beside the object and renames it after close. The server must support atomic replacement, such as OpenSSH `posix-rename`. A stopped control plane can leave `blobs/<digest>.<uuid>.tmp`; remove these during maintenance with all writers stopped.
+
+In Helm, set `files.store` to the backend name. Put the listed non-secret variables in `controlPlane.extraEnv` and credential variables in `secrets.existingSecret`. The chart loads that Secret into the control-plane and migration environments. Files from the same Secret are mounted at `/etc/ankole/bootstrap` in the control-plane container. Provision SSH key permissions and `known_hosts` for uid 10001. In Compose, use the override pattern below and pass the selected backend's variables to both services. Verify read, write, replacement, delete, and large-file transfers against the selected service before deployment.
 
 ## Local folders and persistent volumes
 
@@ -114,7 +138,7 @@ ANKOLE_FILES_S3_SECRET_ACCESS_KEY=YOUR_R2_SECRET_ACCESS_KEY
 
 Use R2 S3 API credentials and the account's S3 API endpoint, not a public bucket domain or Worker URL. See [R2 S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/) for region `auto` and supported operations. Helm uses `files.s3.endpoint`, `files.s3.region`, and `files.s3.root`.
 
-Services such as MinIO also use `s3`. Set their actual endpoint and signing region. An S3 compatibility claim alone is not a verification: check reads, writes, deletes, multipart uploads, and large-file transfers before deployment. Ankole does not expose arbitrary OpenDAL backends, virtual-host addressing, or custom signing options. See the [OpenDAL S3 backend](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html) for upstream options.
+Services such as MinIO also use `s3`. Set their actual endpoint and signing region. An S3 compatibility claim alone is not a verification: check reads, writes, deletes, multipart uploads, and large-file transfers before deployment. Ankole exposes the backends and bootstrap fields listed here; S3 virtual-host addressing and custom signing options remain unavailable. See the [OpenDAL S3 backend](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html) for upstream options.
 
 ## Use S3 with Compose
 

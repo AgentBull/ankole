@@ -139,6 +139,7 @@ RUN sed -i \
     libncurses6 \
     libstdc++6 \
     locales \
+    openssh-client \
     openssl \
     tini \
   && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \

@@ -51,6 +51,6 @@ defmodule Ankole.Kernel.ObjectStoreTest do
   end
 
   test "rejects an invalid spec" do
-    assert {:error, %{"code" => "invalid_spec"}} = ObjectStore.open(%{scheme: "oss"})
+    assert {:error, %{"code" => "invalid_spec"}} = ObjectStore.open(%{scheme: "unknown"})
   end
 end

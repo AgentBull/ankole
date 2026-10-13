@@ -20,7 +20,7 @@ data:
   ANKOLE_FILES_STORE: {{ .Values.files.store | quote }}
   {{- if eq .Values.files.store "fs" }}
   ANKOLE_FILES_FS_ROOT: /var/lib/ankole/files
-  {{- else }}
+  {{- else if eq .Values.files.store "s3" }}
   ANKOLE_FILES_S3_BUCKET: {{ .Values.files.s3.bucket | quote }}
   ANKOLE_FILES_S3_REGION: {{ .Values.files.s3.region | quote }}
   {{- with .Values.files.s3.endpoint }}

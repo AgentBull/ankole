@@ -1,11 +1,11 @@
 ---
 title: 控制面云盘存储配置
-description: 为基于 OpenDAL 的 Agent 云盘选择本地文件夹、AWS S3 或 S3 兼容存储，配置部署、迁移与备份。
+description: 为基于 OpenDAL 的 Agent 云盘配置本地文件、云存储桶、数据库表、SFTP 或 WebDAV，并说明迁移与备份要求。
 section: Guides
 order: 318
 ---
 
-每个 Agent 的云盘由控制面管理，Worker 停止时仍可使用。PostgreSQL 保存路径、权限和内容引用，OpenDAL 后端保存文件字节。当前 Ankole 只开放 `fs` 与 `s3` 两种后端；OpenDAL 支持其他服务，不代表 Ankole 已提供相应配置。
+每个 Agent 的云盘由控制面管理，Worker 停止时仍可使用。PostgreSQL 保存路径、权限和内容引用，OpenDAL 后端保存文件字节。Ankole 支持 `fs`、`s3`、`azblob`、`d1`、`cos`、`postgresql`、`oss`、`tos`、`gcs`、`sftp` 和 `webdav`。
 
 这份配置属于站点启动配置，所有租户共用同一个对象存储。WorkerProvider 的 Home、缓存和 Cloudflare R2 备份另行配置，见 [WorkerProvider 与缓存盘](../worker-providers/)。用户操作见 [文件管理](../file-management/)。
 
@@ -18,15 +18,15 @@ order: 318
 | Cloudflare R2 | `s3` | S3 API endpoint、region `auto`、R2 凭据 |
 | 其他 S3 兼容服务 | `s3` | 服务的 endpoint、签名 region 和凭据，并验证实际兼容性 |
 
-多个控制面副本使用 `s3`，且必须配置同一桶和前缀。官方 Helm 在 `files.store: fs` 且副本数大于 1 时拒绝渲染。云盘使用 S3 不改变个别 WorkerProvider 对控制面副本数的限制。
+多个控制面副本需要共享远程存储，并使用相同的后端位置和根路径。官方 Helm 在 `files.store: fs` 且副本数大于 1 时拒绝渲染。云盘使用 S3 不改变个别 WorkerProvider 对控制面副本数的限制。
 
-当前部署指南仍要求保持 `controlPlane.replicaCount: 1`，直到定时触发、聊天连接和调度器恢复等单例进程在多节点上通过验证。S3 是共享文件存储的前提，不是多副本部署已通过验证的保证。见 [控制面副本说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)。
+当前部署指南仍要求保持 `controlPlane.replicaCount: 1`，直到定时触发、聊天连接和调度器恢复等单例进程在多节点上通过验证。共享远程存储是多副本的必要条件；完整部署仍需通过多副本验证。见 [控制面副本说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)。
 
 ## 环境变量
 
 | 变量 | 适用后端 | 要求 |
 | --- | --- | --- |
-| `ANKOLE_FILES_STORE` | 全部 | 生产必填，`fs` 或 `s3` |
+| `ANKOLE_FILES_STORE` | 全部 | 生产必填，选择受支持的后端 |
 | `ANKOLE_FILES_FS_ROOT` | `fs` | 控制面内可写的绝对路径 |
 | `ANKOLE_FILES_S3_BUCKET` | `s3` | 已创建的桶名称 |
 | `ANKOLE_FILES_S3_REGION` | `s3` | 必填；AWS 使用桶所在 region，R2 使用 `auto` |
@@ -36,6 +36,30 @@ order: 318
 | `ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | `s3` | 可选静态凭据，须与上一项同时设置 |
 
 没有静态凭据时使用默认 AWS 凭据链，包括配置好的 EKS Pod Identity。凭据和工作负载身份只提供给控制面；Worker 通过 RuntimeFabric 访问自己的云盘，不需要桶密钥。这些变量在启动时读取，修改后重启控制面。不要把 OpenDAL 的其他参数直接当作 Ankole 环境变量。
+
+## 其他 OpenDAL 后端
+
+环境变量采用 `ANKOLE_FILES_<SCHEME>_<FIELD>`，后端名和字段名均为大写。例如，Azure Blob 需要 `ANKOLE_FILES_STORE=azblob`、`ANKOLE_FILES_AZBLOB_CONTAINER` 和 `ANKOLE_FILES_AZBLOB_ENDPOINT`。下表列出 Ankole 开放的字段；必填字段缺失或为空时，启动失败。
+
+| 后端 | 必填字段 | 可选字段 |
+| --- | --- | --- |
+| `azblob` | `CONTAINER`, `ENDPOINT` | `ROOT`, `ACCOUNT_NAME`, `ACCOUNT_KEY`, `SAS_TOKEN` |
+| `d1` | `ACCOUNT_ID`, `DATABASE_ID`, `TOKEN`, `TABLE`, `KEY_FIELD`, `VALUE_FIELD` | `ROOT` |
+| `cos` | `BUCKET`, `ENDPOINT` | `ROOT`, `SECRET_ID`, `SECRET_KEY`, `SECURITY_TOKEN` |
+| `postgresql` | `CONNECTION_STRING`, `TABLE`, `KEY_FIELD`, `VALUE_FIELD` | `ROOT` |
+| `oss` | `BUCKET`, `ENDPOINT` | `ROOT`, `ACCESS_KEY_ID`, `ACCESS_KEY_SECRET`, `SECURITY_TOKEN` |
+| `tos` | `BUCKET`, `ENDPOINT`, `REGION` | `ROOT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `SECURITY_TOKEN` |
+| `gcs` | `BUCKET` | `ROOT`, `ENDPOINT`, `CREDENTIAL`, `CREDENTIAL_PATH` |
+| `sftp` | `ENDPOINT` | `ROOT`, `USER`, `KEY`, `KNOWN_HOSTS_STRATEGY` |
+| `webdav` | `ENDPOINT` | `ROOT`, `USERNAME`, `PASSWORD`, `TOKEN` |
+
+凭据保存在控制面的部署 Secret 中。GCS 的 `CREDENTIAL` 是经过 Base64 编码的凭据 JSON，`CREDENTIAL_PATH` 指向原始 JSON 文件；未提供显式凭据时，使用上游 Google 凭据链。SFTP 使用控制面镜像中的 `ssh` 客户端，`KEY` 是私钥文件路径。主机校验默认采用 `strict`，需要配置控制面用户的 `~/.ssh/known_hosts`。WebDAV 支持 Basic 凭据或 bearer `TOKEN`。
+
+D1 和 PostgreSQL 需要预先创建存储表。D1 使用 `TEXT` 主键和 `BLOB` 值，PostgreSQL 使用 `TEXT` 主键和 `BYTEA` 值；`TABLE`、`KEY_FIELD` 和 `VALUE_FIELD` 指定对应名称。Ankole 不创建这张表。D1、PostgreSQL 和 WebDAV 的原生后端会缓冲整份对象。D1 的[字符串、BLOB 和行大小上限为 2,000,000 字节](https://developers.cloudflare.com/d1/platform/limits/)，Ankole 不跨行拆分对象。大文件应使用存储桶后端。
+
+SFTP 先写入对象旁边的临时文件，关闭后重命名。服务端必须支持原子替换，例如 OpenSSH 的 `posix-rename`。控制面进程中途停止后，可能留下 `blobs/<digest>.<uuid>.tmp`；在所有写入进程停止的维护窗口中清理这些文件。
+
+Helm 使用 `files.store` 选择后端；普通变量放在 `controlPlane.extraEnv`，凭据变量放在 `secrets.existingSecret`。Chart 将这个 Secret 注入控制面和迁移容器的环境；同一 Secret 的文件在控制面容器中只读挂载到 `/etc/ankole/bootstrap`。SFTP 私钥权限和 `known_hosts` 必须允许 uid 10001 使用。Compose 沿用下方 override 方法，将所选后端的变量同时传给两个服务。部署前验证读取、写入、替换、删除和大文件传输。
 
 ## 本地文件夹与持久卷
 
@@ -114,7 +138,7 @@ ANKOLE_FILES_S3_SECRET_ACCESS_KEY=YOUR_R2_SECRET_ACCESS_KEY
 
 使用 R2 的 S3 API 凭据，endpoint 为账户级 S3 API 地址，不是公开桶域名或 Worker URL。region `auto` 与支持的操作见 [R2 S3 API 兼容说明](https://developers.cloudflare.com/r2/api/s3/api/)。Helm 对应设置 `files.s3.endpoint`、`files.s3.region` 和 `files.s3.root`。
 
-MinIO 等服务也使用 `s3`，填写实际 endpoint 与签名 region。只声明 S3 兼容还不足以确认可用；部署前验证读取、写入、删除、multipart upload 与大文件传输。Ankole 没有开放任意 OpenDAL backend、虚拟主机寻址或自定义签名参数。OpenDAL 参数说明见 [S3 后端](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html)。
+MinIO 等服务也使用 `s3`，填写实际 endpoint 与签名 region。只声明 S3 兼容还不足以确认可用；部署前验证读取、写入、删除、multipart upload 与大文件传输。Ankole 开放本页列出的后端和启动字段；S3 虚拟主机寻址和自定义签名参数仍未开放。OpenDAL 参数说明见 [S3 后端](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html)。
 
 ## Compose 使用 S3
 

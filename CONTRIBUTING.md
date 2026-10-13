@@ -563,7 +563,7 @@ the commands later in this guide.
 `bun run agent-computer:test` runs Agent Computer unit tests on the host. The
 host needs Bun, Bash, GNU `timeout`, and Python 3. In `app/agent_computer`,
 `bun run test:integration` runs portable integration tests on the host with
-Codex 0.158.0, MCPorter 0.14.1 running with Bun, native `apply_patch`, and GNU
+Codex 0.162.1, MCPorter 0.14.3 running with Bun, native `apply_patch`, and GNU
 `stat` (`gstat` on macOS). `ANKOLE_CODEX_BINARY` can select a local Codex binary.
 The command sets `TMPDIR=/tmp` to keep Unix socket paths short.
 

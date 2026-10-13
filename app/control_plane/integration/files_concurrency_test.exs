@@ -13,9 +13,10 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
   alias Ecto.Adapters.SQL.Sandbox
 
   setup %{tenant: tenant} do
-    {agent_uid, sha256, updated_sha256} =
+    {agent_uid, provider_id, sha256, updated_sha256} =
       Sandbox.unboxed_run(Repo, fn ->
-        %{principal: agent} = agent_fixture()
+        provider = worker_provider_fixture()
+        %{principal: agent} = agent_fixture(%{worker_provider_id: provider.provider_id})
 
         content = """
         ---
@@ -30,14 +31,14 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
         {:ok, %{sha256: updated_sha256}} =
           Files.store(String.replace(content, "Concurrent installed Skill.", "Updated Skill."))
 
-        {agent.uid, sha256, updated_sha256}
+        {agent.uid, provider.provider_id, sha256, updated_sha256}
       end)
 
     on_exit(fn ->
       Repo.put_tenant_id(tenant.id)
 
       Sandbox.unboxed_run(Repo, fn ->
-        delete_agent_fixture_rows(agent_uid)
+        delete_agent_fixture_rows(agent_uid, provider_id)
 
         for sha <- [sha256, updated_sha256] do
           digest = Base.decode16!(sha, case: :lower)

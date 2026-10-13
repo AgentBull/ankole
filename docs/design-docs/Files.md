@@ -87,10 +87,11 @@ contract.
 ## Bytes
 
 The object key of a content is `blobs/<sha256 hex>`. The Rust kernel module
-`object_store`, built on OpenDAL, reads and writes objects. It has two
-backends: a local directory (`fs`) and S3 or an S3-compatible service such as
-Cloudflare R2 (`s3`). Every operation runs on the kernel's Tokio runtime, and
-large files move through local files, never through one large binary.
+`object_store`, built on OpenDAL, reads and writes objects. It supports `fs`,
+`s3` (including Cloudflare R2), `azblob`, `d1`, `cos`, `postgresql`, `oss`,
+`tos`, `gcs`, `sftp`, and `webdav`. Every operation runs on the kernel's Tokio
+runtime. Large files cross the BEAM boundary through local files. D1,
+PostgreSQL, and WebDAV buffer the complete object in the native backend.
 `Ankole.ObjectStore` opens the store once per node; only the file service
 (`Ankole.Files` and its collection job) calls it.
 
@@ -100,22 +101,59 @@ through `<root>/.tmp` and a rename; opening the store removes temporary files
 that did not change for one day. The `s3` backend writes a large object as a
 multipart upload and aborts the upload when the write fails, but a stopped
 process cannot abort it. Give the bucket a lifecycle rule that aborts
-incomplete multipart uploads.
+incomplete multipart uploads. SFTP writes to a temporary file beside the
+object, then renames it. The server must support atomic replacement; OpenSSH
+uses `posix-rename`. Failed writes remove the temporary file. A stopped
+process can leave `blobs/<digest>.<uuid>.tmp`; remove these files during a
+maintenance window with all control-plane writers stopped.
 
 The store is a bootstrap fact:
 
 | Variable | Meaning |
 | --- | --- |
-| `ANKOLE_FILES_STORE` | `fs` or `s3`; required in production |
+| `ANKOLE_FILES_STORE` | One of the supported backends above; required in production |
 | `ANKOLE_FILES_FS_ROOT` | `fs`: absolute directory on a persistent volume of the control plane |
 | `ANKOLE_FILES_S3_BUCKET`, `ANKOLE_FILES_S3_REGION` | `s3`: bucket and region; R2 uses the region `auto` |
 | `ANKOLE_FILES_S3_ENDPOINT` | `s3`: optional endpoint of an S3-compatible service |
 | `ANKOLE_FILES_S3_ACCESS_KEY_ID`, `ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | `s3`: optional static credentials; without them the default AWS credential chain applies, including EKS Pod Identity |
 | `ANKOLE_FILES_S3_ROOT` | `s3`: optional key prefix |
 
+Other backends use `ANKOLE_FILES_<SCHEME>_<FIELD>`, with the scheme and field
+in uppercase. For example, `azblob` requires `ANKOLE_FILES_AZBLOB_CONTAINER`
+and `ANKOLE_FILES_AZBLOB_ENDPOINT`. Empty required values fail at startup;
+empty optional values are omitted.
+
+| Backend | Required fields | Optional fields |
+| --- | --- | --- |
+| `azblob` | `CONTAINER`, `ENDPOINT` | `ROOT`, `ACCOUNT_NAME`, `ACCOUNT_KEY`, `SAS_TOKEN` |
+| `d1` | `ACCOUNT_ID`, `DATABASE_ID`, `TOKEN`, `TABLE`, `KEY_FIELD`, `VALUE_FIELD` | `ROOT` |
+| `cos` | `BUCKET`, `ENDPOINT` | `ROOT`, `SECRET_ID`, `SECRET_KEY`, `SECURITY_TOKEN` |
+| `postgresql` | `CONNECTION_STRING`, `TABLE`, `KEY_FIELD`, `VALUE_FIELD` | `ROOT` |
+| `oss` | `BUCKET`, `ENDPOINT` | `ROOT`, `ACCESS_KEY_ID`, `ACCESS_KEY_SECRET`, `SECURITY_TOKEN` |
+| `tos` | `BUCKET`, `ENDPOINT`, `REGION` | `ROOT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `SECURITY_TOKEN` |
+| `gcs` | `BUCKET` | `ROOT`, `ENDPOINT`, `CREDENTIAL`, `CREDENTIAL_PATH` |
+| `sftp` | `ENDPOINT` | `ROOT`, `USER`, `KEY`, `KNOWN_HOSTS_STRATEGY` |
+| `webdav` | `ENDPOINT` | `ROOT`, `USERNAME`, `PASSWORD`, `TOKEN` |
+
+Credentials stay in the control plane. GCS `CREDENTIAL` is a base64-encoded
+credential JSON document; `CREDENTIAL_PATH` names the original JSON file.
+Without explicit GCS credentials, the upstream Google credential chain
+applies. SFTP uses the control-plane image's `ssh` client. `KEY` is a private
+key file path, and host checks default to `strict`; provision the control-plane
+user's `~/.ssh/known_hosts`. WebDAV accepts Basic credentials or a bearer token.
+
+Provision the database table before using D1 or PostgreSQL. Use a `TEXT`
+primary key and a `BLOB` value in D1, or a `TEXT` primary key and a `BYTEA`
+value in PostgreSQL. Ankole does not create the table. The table and column
+variables select those names. D1 uses the Cloudflare REST API and has a
+[2,000,000-byte string, BLOB, and row limit](https://developers.cloudflare.com/d1/platform/limits/).
+The backend does not split one object across rows. Use a bucket backend for
+large files. Backend configuration does not prove a particular remote service
+works; verify reads, writes, replacement, deletion, and large-file transfers.
+
 An `fs` directory must be visible to every control-plane replica, so more than
-one replica needs `s3`. Development uses `var/ankole-dev/files`; tests use one
-directory per test partition.
+one replica needs shared remote storage. Development uses
+`var/ankole-dev/files`; tests use one directory per test partition.
 
 ## Writes
 

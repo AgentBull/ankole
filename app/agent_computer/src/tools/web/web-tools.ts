@@ -42,6 +42,10 @@ const WebFetchParams = z.object({
 /** Job transport and browser fallback for the shared control-plane web tools. */
 export async function createWebTools(opts: CreateWebToolsOptions): Promise<WorkerAgentTool[]> {
   const cache: JSONObject = {}
+  const fallback = opts.renderedFallback
+  const renderedFetch = fallback
+    ? (urls: string[], signal?: AbortSignal) => renderedFallbackFetch(urls, fallback, signal)
+    : undefined
   return [
     defineWorkerTool({
       name: 'web_search',
@@ -67,7 +71,7 @@ export async function createWebTools(opts: CreateWebToolsOptions): Promise<Worke
       describeActivity: params => webFetchActivity(params.urls),
       describeCompletedActivity: (params, result) => completedWebFetchActivity(params.urls, result.details),
       execute: (_id, params, signal) =>
-        readTool(opts.rpc, opts.turn, 'web_fetch', params, { cache, signal, renderedFallback: opts.renderedFallback })
+        readTool(opts.rpc, opts.turn, 'web_fetch', params, { cache, signal, renderedFetch })
     })
   ]
 }
