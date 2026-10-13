@@ -8,15 +8,13 @@
   Keep each saved instance's lifetime and fix site-level cloud instance lookup.
 - Include OSSFS2 and FUSE3 in the amd64 Worker image. Keep Home empty before
   mounting storage and keep build caches out of the image's Home directory.
+  Pin local Worker builds to the verified Agent OS base.
   Reconnect OSSFS2 after Aliyun memory resume to prevent reads from waiting
   on unusable TCP connections; a failed reconnection ends the instance so the
   next reconciliation rebuilds it from Home.
 - Limit Agent owners to Humans and explain when no owner is available. Repair
   lifecycle and conversation test fixtures, and update verification limits
-  and provider setup guidance.
-
-## Version 2.0.0-alpha.2 (2026-10-14)
-
+  and provider setup guidance. Record the reviewed site-level Worker queries.
 - Add Agent drive storage through Azure Blob, D1, COS, PostgreSQL, OSS, TOS,
   GCS, SFTP, and WebDAV. Configure the backend at control-plane startup. D1
   and PostgreSQL need an existing storage table; D1 retains its row size limit.
@@ -29,6 +27,8 @@
 - Remove the Worker read-tool import cycle and unused AIGateway fetch code.
 - Use a local model catalog in the image validation test and remove unused
   fixture providers after file concurrency tests.
+
+## Version 2.0.0-alpha.2 (2026-10-12)
 
 - Preserve scheduled replies when a model ends with nonempty ordinary text.
   Silent success still requires the permitted termination tool. Keep legacy
