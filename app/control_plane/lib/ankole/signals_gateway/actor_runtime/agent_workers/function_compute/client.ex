@@ -62,6 +62,72 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.FunctionCompute.Client
   end
 
   def file(provider, sandbox, method, path, content \\ nil) do
+    {origin, headers} = envd(provider, sandbox)
+    opts = [headers: headers, params: [path: path, username: "root"]]
+
+    opts =
+      if content,
+        do: Keyword.put(opts, :form_multipart, file: {content, filename: path}),
+        else: opts
+
+    with {:ok, response} <- request(method, origin <> "/files", opts),
+         do: {:ok, response.body}
+  end
+
+  def restore_oss_connections(provider, sandbox) do
+    {origin, headers} = envd(provider, sandbox)
+
+    payload =
+      Ankole.JSON.encode!(%{
+        process: %{
+          cmd: "/usr/bin/python3",
+          args: ["/usr/local/libexec/function-compute-resume-oss.py"]
+        }
+      })
+
+    headers =
+      headers ++
+        [
+          {"authorization", "Basic " <> Base.encode64("root:")},
+          {"content-type", "application/connect+json"},
+          {"connect-protocol-version", "1"},
+          {"connect-timeout-ms", "15000"}
+        ]
+
+    with {:ok, response} <-
+           request(:post, origin <> "/process.Process/Start",
+             headers: headers,
+             body: <<0, byte_size(payload)::32, payload::binary>>,
+             decode_body: false,
+             receive_timeout: 20_000
+           ),
+         do: command_result(response.body, nil)
+  end
+
+  defp command_result(<<flags, size::32, payload::binary-size(size), rest::binary>>, result) do
+    case {flags, Ankole.JSON.decode(payload)} do
+      {0, {:ok, %{"event" => %{"end" => %{"exited" => true} = ended}}}} ->
+        case Map.get(ended, "exitCode", 0) do
+          0 -> command_result(rest, :ok)
+          code -> command_result(rest, {:error, {:function_compute_storage_resume, code}})
+        end
+
+      {0, {:ok, %{"event" => event}}} when is_map(event) ->
+        command_result(rest, result)
+
+      {2, {:ok, trailers}} when is_map(trailers) and rest == "" ->
+        if Map.has_key?(trailers, "error"),
+          do: {:error, {:function_compute_storage_resume, trailers["error"]}},
+          else: result || {:error, :function_compute_command_incomplete}
+
+      _ ->
+        {:error, :function_compute_command_invalid}
+    end
+  end
+
+  defp command_result(_, _), do: {:error, :function_compute_command_incomplete}
+
+  defp envd(provider, sandbox) do
     domain =
       sandbox["domain"] || String.replace_prefix(provider.settings["apiDomain"], "api.", "")
 
@@ -73,15 +139,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.FunctionCompute.Client
         do: [{"x-access-token", sandbox["envdAccessToken"]} | headers],
         else: headers
 
-    opts = [headers: headers, params: [path: path, username: "root"]]
-
-    opts =
-      if content,
-        do: Keyword.put(opts, :form_multipart, file: {content, filename: path}),
-        else: opts
-
-    with {:ok, response} <- request(method, "https://49983-#{id}.#{domain}/files", opts),
-         do: {:ok, response.body}
+    {"https://49983-#{id}.#{domain}", headers}
   end
 
   def path(value), do: Signature.path(value)

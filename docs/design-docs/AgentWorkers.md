@@ -300,10 +300,10 @@ Pure questions send no Worker messages. `worker.workspace_prepared` records
 `duration_ms` for each successful workspace preparation.
 
 `request/1` keeps `wanted_until` at least five minutes ahead.
-Agent creation requests a Worker after its transaction commits. The background
-reconciliation prepares storage and starts the computer. Environment calls,
-Codex placement, and Automation runs also request Workers. Pure questions and
-control-plane tools do not request or wait for a Worker.
+Agent creation leaves the Worker absent with no demand. Environment calls,
+Codex placement, and Automation runs request Workers. Reconciliation then
+prepares storage and starts the computer. Pure questions and control-plane
+tools do not request or wait for a Worker.
 
 All provider types default `idleReleaseAfter` to `15m`. An explicit `never`
 remains an operator choice. Existing saved provider YAML keeps its explicit
@@ -451,7 +451,10 @@ sandbox that returns 404.
 Vercel deletion can affect all sessions of a named sandbox. The adapter first
 stops the selected session and only deletes sandbox metadata when no other
 session runs. Drive deletion waits for detachment. The maximum instance
-lifetime is 24 hours and requires a plan that permits it. A real Pro-account
+lifetime is set by `sessionTimeoutSeconds`, with a default and maximum of
+86,400 seconds. Set 2,700 seconds for an account with a 45-minute limit.
+Creation and replacement use the same value. The saved instance settings
+keep a generation's lifetime when provider configuration changes. A real Pro-account
 check covered root command startup, uid 1000 without sudo, repeated entry,
 files after instance deletion and external stop, image replacement, provider
 isolation, and Drive deletion. OOM, host failure, and the full 24-hour lifetime
@@ -539,7 +542,15 @@ exports the environment that the image recorded at build time, so the sudo
 start command does not change the Worker environment. Provider `env` adds
 variables; it cannot change a variable that the image sets. Repeated uploads cannot start
 another Worker. Pause requests include `memory: true`; resume uses `connect`
-with a new 24-hour timeout.
+with a new 24-hour timeout. For OSS storage, the provider then runs the image's
+reconnection script through authenticated envd and waits for successful exit.
+The script shuts down only TCP connections owned by the OSSFS2 Home process.
+It preserves the process, mount, and open files. This makes OSSFS2 replace
+connections that became unusable while memory was paused. The resumed Worker
+rejoins as soon as `connect` returns, so a failed script cannot be retried on
+that instance. On a command failure, stream error, or incomplete response, the
+provider deletes the instance and reports the error; the next reconciliation
+rebuilds the generation from Home. AgenticFS does not use this step.
 
 AgenticFS uses a stable root directory named
 `/ankole-<installation>-<agent-hash>`. Configuration requires byte capacity
@@ -550,6 +561,11 @@ all this Agent's Volume and access point records, then deletes the space by
 its platform ID. Repeated access point creates can leave extra metadata, but
 do not create another data copy. Agent deletion removes these records too.
 
+The amd64 Worker image includes OSSFS2 2.0.10 and FUSE3 for the custom
+template's OSS mounts. Function Compute does not install OSSFS2 in
+second-generation custom images. The image keeps `/workspace` empty because
+OSSFS2 cannot mount a nonempty directory. Build caches use a temporary mount;
+the existing entry creates runtime directories after the storage mount.
 OSS mounts only the absolute path `<root>/<agent_uid>` at Home. It does not
 have full POSIX semantics. The entry first checks that uid 1000 can write Home.
 It changes Home ownership only if that check fails. A writable OSS mount can
@@ -565,9 +581,14 @@ Sandbox management uses the `2026-08-20` ROA protocol. NAS uses `2017-06-26`
 RPC. Both use ACS3; E2B and envd use their own API tokens. Protocol fixtures
 come from the official SDKs and real base-sandbox responses. Real checks cover
 POP signing, root envd uploads, uid 1000 OSS writes, file retention through
-sandbox deletion, and removal of one prefix without removing another. These
-checks do not use the Worker image or coordinator. AgenticFS, template capture,
-memory pause, and the full Worker lifecycle still need cloud validation.
+sandbox deletion, and removal of one prefix without removing another.
+A memory-resume probe isolated unusable OSSFS2 TCP connections: reads waited
+for consecutive 60-second request timeouts. Closing those connections released
+the pending reads without unmounting Home. The production resume method also
+passed a 90-second pause and immediate retained-file reads. The complete cloud
+suite passed with the new image, including that pause, termination recovery,
+image replacement, retained files, deletion, and peer isolation.
+AgenticFS still needs cloud validation.
 Old templates are not collected automatically.
 
 ## Worker Process

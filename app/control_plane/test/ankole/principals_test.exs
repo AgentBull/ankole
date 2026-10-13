@@ -115,15 +115,13 @@ defmodule Ankole.PrincipalsTest do
 
       assert %AgentWorker{
                state: "absent",
-               wanted_until: %DateTime{} = wanted_until,
+               wanted_until: nil,
                provider_id: provider_id
              } =
                Repo.get!(AgentWorker, principal.uid)
 
       assert provider_id == context.worker_provider_id
-      assert DateTime.diff(wanted_until, DateTime.utc_now(), :second) in 290..300
-
-      assert_enqueued(worker: ReconcileJob, args: %{"agent_uid" => principal.uid})
+      refute_enqueued(worker: ReconcileJob, args: %{"agent_uid" => principal.uid})
     end
 
     test "create_agent/1 explicitly rejects a request with only the retired uid field" do

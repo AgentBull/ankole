@@ -23,7 +23,7 @@ defmodule Ankole.DockerWorkerStorageIntegrationTest do
     script = ~S"""
     cat > /tmp/test-worker.sh <<'WORKER'
     set -eu
-    test "$EUID" -eq 1000
+    test "$EUID" -eq 0
     test "$PPID" -ne 1
     if [ -e /workspace/previous-writer ]; then
       pid=$(cat /workspace/previous-writer)
@@ -31,12 +31,12 @@ defmodule Ankole.DockerWorkerStorageIntegrationTest do
       before=$(wc -l < /workspace/writes)
       sleep 0.2
       test "$(wc -l < /workspace/writes)" -eq "$before"
-      setsid bash -c 'while :; do echo write >> /workspace/drain-writes; sleep 0.01; done' &
+      setpriv --reuid=1000 --regid=1000 --clear-groups --inh-caps=-all --ambient-caps=-all --no-new-privs setsid bash -c 'while :; do echo write >> /workspace/drain-writes; sleep 0.01; done' &
       echo $! > /workspace/drain-writer
       while [ ! -s /workspace/drain-writes ]; do sleep 0.01; done
       exit 0
     fi
-    setsid bash -c 'while :; do echo write >> /workspace/writes; sleep 0.01; done' &
+    setpriv --reuid=1000 --regid=1000 --clear-groups --inh-caps=-all --ambient-caps=-all --no-new-privs setsid bash -c 'while :; do echo write >> /workspace/writes; sleep 0.01; done' &
     echo $! > /workspace/previous-writer
     while [ ! -s /workspace/writes ]; do sleep 0.01; done
     exit 7
@@ -86,7 +86,7 @@ defmodule Ankole.DockerWorkerStorageIntegrationTest do
 
     script = ~S"""
     /usr/local/bin/ankole-worker-command-entry bash -ec '
-      setsid bash -c "while :; do echo write >> /workspace/writes; sleep 0.01; done" &
+      setpriv --reuid=1000 --regid=1000 --clear-groups --inh-caps=-all --ambient-caps=-all --no-new-privs setsid bash -c "while :; do echo write >> /workspace/writes; sleep 0.01; done" &
       echo $! > /workspace/writer
       sleep 600
     ' &
@@ -167,7 +167,7 @@ defmodule Ankole.DockerWorkerStorageIntegrationTest do
 
     assert exec(
              first,
-             "test \"$(id -u)\" = 1000; test \"$(readlink /agents/$WORKER_ID)\" = /workspace; test \"$(awk '/^Uid:/{print $2}' /proc/1/status)\" = 1000; ! command -v sudo; printf persistent > /workspace/keep; printf cache > /var/cache/ankole/keep; printf legacy > /agents/$WORKER_ID/old-path"
+             "test \"$(id -u)\" = 1000; test \"$(readlink /agents/$WORKER_ID)\" = /workspace; test \"$(awk '/^Uid:/{print $2}' /proc/1/status)\" = 0; ! command -v sudo; printf persistent > /workspace/keep; printf cache > /var/cache/ankole/keep; printf legacy > /agents/$WORKER_ID/old-path"
            ) == ""
 
     assert {:ok, []} = Docker.list_instances(%{provider | provider_id: "another-provider"}, :all)

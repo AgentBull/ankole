@@ -19,7 +19,7 @@ A full local setup is complete only when all of these are true:
 
 1. Bun, Elixir/Erlang, Rust, Docker, and Docker Compose work from a new terminal.
 2. The devkit PostgreSQL service is healthy and the control-plane database is migrated.
-3. `bun dev` runs the Phoenix control plane, Web Console, and frontend assets. Agent creation requests its Docker Worker in the background. After an idle stop, environment tools or Codex request it again; pure questions do not wait for it.
+3. `bun dev` runs the Phoenix control plane, Web Console, and frontend assets. Agent creation leaves its Worker absent. Environment tools or Jobs request it when needed; pure questions do not start or wait for it.
 4. The first administrator can sign in, and an LLM provider, agent, and Signal binding are configured.
 5. A real message sent through Feishu/Lark reaches the agent and receives the expected reply.
 
@@ -204,7 +204,7 @@ bun run services:status
 curl -I http://localhost:4000/
 ```
 
-The database must be healthy and the HTTP request must reach the control plane. Then open [`http://localhost:4000`](http://localhost:4000). Creating an Agent requests a Worker in the background. List the containers with `docker ps -a --filter label=ankole.installation=dev`; pure questions do not wait for them.
+The database must be healthy and the HTTP request must reach the control plane. Then open [`http://localhost:4000`](http://localhost:4000). Creating an Agent leaves its Worker absent. An environment tool or Job requests the Worker when needed. List the containers with `docker ps -a --filter label=ankole.installation=dev`; pure questions do not start or wait for them.
 
 The development control plane listens on every interface, because Worker containers reach it through the Docker bridge gateway (`host.docker.internal`). On a shared network, block port 4000 from other machines.
 
@@ -808,7 +808,9 @@ fails; retain the test database until cleanup is complete.
   `ANKOLE_VERCEL_TEST_REPLACEMENT_IMAGE`, `ANKOLE_VERCEL_TEST_CP_PORT`, and
   `ANKOLE_VERCEL_TEST_CP_ORIGIN`. Images must be ready digests in VCR. The check
   creates two providers, sandboxes, and Drives and removes them afterward.
-  The team plan must permit a 24-hour Sandbox; Hobby's 45-minute limit does not.
+  The default session timeout is 24 hours. Set
+  `ANKOLE_VERCEL_TEST_SESSION_TIMEOUT_SECONDS=2700` for an account with a
+  45-minute limit. This sets the provider's `sessionTimeoutSeconds` value.
 - Lambda: `ANKOLE_LAMBDA_TEST_CONFIG_FILE` contains provider YAML;
   `ANKOLE_LAMBDA_TEST_CREDENTIALS_FILE` contains a JSON object with temporary
   `accessKeyId`, `secretAccessKey`, and `sessionToken` values. Also set
@@ -847,6 +849,9 @@ the provider's credential fields. Also set `ANKOLE_FUNCTION_COMPUTE_TEST_IMAGE`,
 `ANKOLE_FUNCTION_COMPUTE_TEST_CP_ORIGIN`. Both image versions must exist in
 the configured ACR Enterprise repository. The test checks memory resume,
 instance deletion, image replacement, provider isolation, and storage deletion.
+The OSS run keeps the instance paused for 90 seconds, then checks that the
+first retained-file read completes within 30 seconds. A short pause can leave
+the old TCP connections usable and miss a storage recovery failure.
 Remove its remaining templates after cleanup.
 
 ```bash

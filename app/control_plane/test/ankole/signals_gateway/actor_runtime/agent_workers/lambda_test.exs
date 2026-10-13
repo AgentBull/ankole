@@ -504,6 +504,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.LambdaTest do
     assert {:snooze, 15} = perform_job(PrepareImageJob, %{provider_id: provider.provider_id})
 
     %{principal: agent} = agent_fixture(%{worker_provider_id: provider.provider_id})
+    assert :ok = Ankole.SignalsGateway.ActorRuntime.AgentWorkers.request(agent.uid)
     assert {:snooze, 15} = perform_job(ReconcileJob, %{agent_uid: agent.uid})
 
     assert %{state: "absent", generation: nil, last_error_kind: "pending"} =

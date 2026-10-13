@@ -106,6 +106,10 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/principals/work_cleanup.ex:cleanup" => 2,
     "raw_sql:lib/ankole/brain/search_indexes.ex:index_definition" => 1,
     "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/lambda.ex:rows" => 1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/function_compute.ex:list_instances" =>
+      1,
+    "across_tenants:lib/ankole/signals_gateway/actor_runtime/agent_workers/vercel.ex:list_instances" =>
+      1,
     "raw_sql:lib/ankole/app_configure.ex:update_tenant_in_tx" => 1,
     "across_tenants:lib/ankole/oidc/rp_logout.ex:prepare" => 1,
     "raw_sql:lib/ankole/app_configure.ex:lock_global_key" => 1,

@@ -4,6 +4,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ProviderKind.Definitio
 
   `max_instance_lifetime` is in seconds. The provider's `started_at` observation
   supplies the start of this clock, including a reset on resume if applicable.
+  A kind can use `instance_lifetime/1` for a shorter configured lifetime.
   """
 
   @enforce_keys [:kind, :schema, :example, :credentials, :pause]

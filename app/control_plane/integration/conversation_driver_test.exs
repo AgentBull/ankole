@@ -634,6 +634,7 @@ defmodule Ankole.Conversations.DriverTest do
 
       wait_for_worker_request(key)
 
+      assert eventually(fn -> Repo.get!(AgentWorker, key.agent_uid).state == "stale" end)
       stale = Repo.get!(AgentWorker, key.agent_uid)
       assert stale.state == "stale"
       assert stale.transport_route == nil
@@ -2345,7 +2346,7 @@ defmodule Ankole.Conversations.DriverTest do
               "job_id" => job.id,
               "message" => "Inspect the report.",
               "wait_reply" => true,
-              "wait_timeout_ms" => 10_000
+              "wait_timeout_ms" => 60_000
             })
           ]
       }
@@ -2353,16 +2354,18 @@ defmodule Ankole.Conversations.DriverTest do
 
     {event, receipt} = crash_after_receipt(key)
     assert receipt.result["wait"]["kind"] == "job"
-    Process.sleep(2_000)
+    assert receipt.result["wait"]["timeout_ms"] == 60_000
+    expired_at = DateTime.add(DateTime.utc_now(:microsecond), -120, :second)
+
+    assert {1, nil} =
+             Repo.update_all(from(r in Receipts, where: r.agent_uid == ^key.agent_uid),
+               set: [inserted_at: expired_at]
+             )
+
     assert {:ok, _} = Ankole.Conversations.ensure_driver(key)
-
-    :ok =
-      :ok
-
+    # Reopening the 60-second window would miss this deadline.
     next = await_request(key, 20_000)
     result = Enum.find(next.body["messages"], &(&1["tool_call_id"] == "message-job"))
-
-    assert DateTime.diff(DateTime.utc_now(:microsecond), receipt.inserted_at, :millisecond) in 9_500..11_500
 
     assert result["content"] =~ "the foreground observation window expired"
     assert result["content"] =~ "The message is already stored; do not resend it."

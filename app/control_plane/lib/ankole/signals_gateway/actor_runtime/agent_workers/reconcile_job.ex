@@ -259,7 +259,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ReconcileJob do
       turn_in_progress?: turn?,
       provider: provider,
       kind: kind,
-      definition: kind.definition(),
+      definition: %{
+        kind.definition()
+        | max_instance_lifetime: ProviderKind.instance_lifetime(kind, worker.instance_settings)
+      },
       objects: objects,
       target: %{
         image: provider.runtime.image,

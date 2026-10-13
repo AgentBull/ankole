@@ -25,7 +25,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ProviderKind do
   @callback definition() :: Definition.t()
   @callback validate_credentials(map(), map()) :: :ok | {:error, term()}
   @callback prepare_credentials(Provider.t(), map(), map()) :: {:ok, map()} | {:error, term()}
-  @optional_callbacks validate_credentials: 2, prepare_credentials: 3
+  @callback instance_lifetime(map()) :: pos_integer()
+  @optional_callbacks validate_credentials: 2, prepare_credentials: 3, instance_lifetime: 1
 
   @callback check(Provider.t()) :: :ok | {:error, term()}
   @callback prepare_image(Provider.t(), String.t()) :: :ok | {:pending, term()} | {:error, term()}
@@ -62,6 +63,14 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ProviderKind do
       {:ok, module} -> {:ok, module}
       :error -> {:error, :unknown_worker_provider_kind}
     end
+  end
+
+  @doc "The lifetime of a generation, from its saved instance settings."
+  @spec instance_lifetime(module(), map()) :: pos_integer() | nil
+  def instance_lifetime(kind, settings) do
+    if function_exported?(kind, :instance_lifetime, 1),
+      do: kind.instance_lifetime(settings),
+      else: kind.definition().max_instance_lifetime
   end
 
   @doc "A partial resource, such as a Secret without its Pod, is not an observed instance."

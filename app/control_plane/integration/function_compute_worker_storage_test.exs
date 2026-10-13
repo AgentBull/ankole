@@ -10,7 +10,7 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
   alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
   alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
 
-  @moduletag cloud: true, sandbox: false, timeout: 1_800_000
+  @moduletag cloud: true, sandbox: false, timeout: 3_600_000
 
   setup %{tenant: tenant} do
     secrets =
@@ -87,12 +87,19 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
     paused = await_worker_state!(uid, "paused")
     assert paused.generation == first.generation
     assert {:ok, [%{phase: :paused}]} = FunctionCompute.list_instances(provider, uid)
+    # A long pause can leave OSSFS2 with unusable TCP connections.
+    # A short pause can retain working connections and miss this failure.
+    if provider.settings["storage"]["oss"], do: Process.sleep(90_000)
     assert {:ok, _} = Principals.enable_agent(uid)
     assert :ok = AgentWorkers.request(uid)
     resumed = await_worker_state!(uid, "ready")
     assert resumed.instance_ref == first.instance_ref
     assert resumed.incarnation_id == first.incarnation_id
+    read_started = System.monotonic_time(:millisecond)
     assert_proof!(resumed, "HOME-BEFORE-PAUSE")
+
+    if provider.settings["storage"]["oss"],
+      do: assert(System.monotonic_time(:millisecond) - read_started < 30_000)
 
     # Terminate through the real Function Compute adapter outside reconciliation. A new
     # generation must mount the same AgenticFS or OSS location after the platform confirms exit.

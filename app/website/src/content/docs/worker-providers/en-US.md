@@ -24,7 +24,7 @@ A drive S3 bucket cannot replace Worker Home or the SQLite cache disk. Cloudflar
 | `docker` | Private local named volume | Private local named volume | Delete container | No fixed adapter limit |
 | `kubernetes` | Private PVC or Agent directory in a shared PVC | Private PVC or `emptyDir` | Delete Pod | No fixed adapter limit |
 | `cloudflare` | Restore from R2 at startup; back up before normal exit | Instance disk | Back up and delete container | Platform-controlled |
-| `vercel` | Private Drive per Agent | Instance disk | Delete sandbox | 24 hours |
+| `vercel` | Private Drive per Agent | Instance disk | Delete sandbox | Configured; 24 hours by default |
 | `lambda` | Agent directory on EFS | Instance disk | Suspend with memory | 8 hours, including suspension |
 | `function_compute` | AgenticSpace or Agent prefix in OSS | Instance disk | Pause with memory | 24 hours |
 
@@ -60,7 +60,7 @@ All six providers default to `idleReleaseAfter: 15m`; you can set `never`. This 
 
 - Home uses a private Drive in the same region. `teamId`, `projectId`, `region`, and `driveSizeGiB` cannot change after creation.
 - Prepare a `linux/amd64` image in the project's VCR repository and use the target digest. `cpus` accepts 1 or an even number from 2 to 32. The adapter requests 2048 MiB per vCPU.
-- The adapter requests a 24-hour session and needs Pro or Enterprise. Hobby does not permit that request. See [Vercel session limits](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence). Sandbox deletion keeps Drive and loses instance cache.
+- `sessionTimeoutSeconds` defaults to 86400 (24 hours). Set 2700 for an account with a 45-minute limit, including a trial account that reports this limit. The value must not exceed the account limit. See [Vercel session limits](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence). Sandbox deletion keeps Drive and loses instance cache.
 - Short startup, file retention, image replacement, and Drive deletion have been checked. OOM, host failure, and the full 24-hour lifetime still need target-environment checks.
 
 ### AWS Lambda MicroVMs
@@ -75,9 +75,10 @@ All six providers default to `idleReleaseAfter: 15m`; you can set `never`. This 
 
 - Builds a second-generation template from an `amd64` image in ACR Enterprise. It needs a Team, Sandbox API key, POP AccessKey, and authorized RAM role. Template capture has no Agent identity or credential.
 - Select either `storage.agenticFs` or `storage.oss`. AgenticFS needs a VPC, filesystem, region/zone, capacity quota, and file-count quota. Its access point must be ready before mounting. See [AgenticFS Volume requirements](https://help.aliyun.com/zh/functioncompute/create-an-agenticfs-volume).
+- The image must include OSSFS2 2.0.10 or later and keep `/workspace` empty before mounting. The official Worker image meets these requirements; its entry creates runtime directories after the mount.
 - OSS mounts only this Agent's `<root>/<agent_uid>` and does not provide full POSIX semantics. Keep SQLite cache off OSS mounts. A failed `chown` alone does not prove that the mount is unwritable.
 - Provider `env` can add variables but cannot override variables recorded by the image. Pause requests retain memory; resume requests use a new 24-hour timeout. Old templates are not collected automatically.
-- Official protocols, basic envd operations, and OSS operations have been checked. AgenticFS, template capture, memory pause, and the full Worker lifecycle still need checks in an enabled account.
+- Resume reconnects OSSFS2 through the image helper while keeping the mount and open files. This prevents reads from waiting on TCP connections that became unusable during memory pause. If the helper fails, the provider deletes the instance and the next reconciliation rebuilds it from Home. Use a Worker image with this helper and its matching control-plane version. AgenticFS still needs live checks.
 
 External providers and remote Kubernetes need instance-reachable `runtimeFabricUrl`, `relayOrigin`, and `aiGatewayUrl`. Do not use Compose service names or cluster-only addresses that the instance cannot reach.
 

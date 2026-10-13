@@ -24,7 +24,7 @@ WorkerProvider 决定 Agent 的电脑运行在哪里，以及 Home 和缓存如�
 | `docker` | Agent 独享的本地命名卷 | 独享本地命名卷 | 删除容器 | 适配器未设固定时限 |
 | `kubernetes` | 独享 PVC，或共享 PVC 中的 Agent 子目录 | 独享 PVC 或 `emptyDir` | 删除 Pod | 适配器未设固定时限 |
 | `cloudflare` | 启动时从 R2 恢复，正常退出前备份 | 实例磁盘 | 备份后删除容器 | 由平台控制 |
-| `vercel` | Agent 独享 Drive | 实例磁盘 | 删除沙箱 | 24 小时 |
+| `vercel` | Agent 独享 Drive | 实例磁盘 | 删除沙箱 | 可配置，默认 24 小时 |
 | `lambda` | EFS 上的 Agent 目录 | 实例磁盘 | 保留内存暂停 | 8 小时，含暂停 |
 | `function_compute` | AgenticSpace 或 OSS 中的 Agent 前缀 | 实例磁盘 | 保留内存暂停 | 24 小时 |
 
@@ -60,7 +60,7 @@ WorkerProvider 决定 Agent 的电脑运行在哪里，以及 Home 和缓存如�
 
 - Home 使用同一区域的独享 Drive。`teamId`、`projectId`、`region` 和 `driveSizeGiB` 创建后不能更改。
 - Worker 需要项目 VCR 仓库中准备好的 `linux/amd64` 镜像；使用目标 digest。`cpus` 支持 1，或 2 到 32 的偶数；适配器按每 vCPU 2048 MiB 请求内存。
-- 适配器请求 24 小时会话，需要 Pro 或 Enterprise；Hobby 的时限不满足该请求。参见 [Vercel 会话限制](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)。Ankole 删除沙箱时保留 Drive，缓存随实例删除。
+- `sessionTimeoutSeconds` 默认为 86400（24 小时）。账户限额为 45 分钟时设为 2700；试用账户若返回该限额，也使用此值。配置不得超过账户实际限额。参见 [Vercel 会话限制](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)。删除沙箱会保留 Drive，实例缓存随之删除。
 - 已验证短周期启动、保留文件、换镜像和 Drive 删除；OOM、宿主故障及完整 24 小时时限仍需要目标环境验证。
 
 ### AWS Lambda MicroVMs
@@ -75,9 +75,10 @@ WorkerProvider 决定 Agent 的电脑运行在哪里，以及 Home 和缓存如�
 
 - 使用 ACR Enterprise 中的 `amd64` 镜像构建第二代模板。需要 Team、Sandbox API key、POP AccessKey 和授权的 RAM role；模板捕获时不带 Agent 身份或凭据。
 - `storage.agenticFs` 与 `storage.oss` 二选一。AgenticFS 需要 VPC、文件系统、区域/可用区，以及容量与文件数配额；挂载前接入点必须可用。开通要求见 [AgenticFS Volume](https://help.aliyun.com/zh/functioncompute/create-an-agenticfs-volume)。
+- 镜像必须包含 OSSFS2 2.0.10 或更高版本，并在挂载前保持 `/workspace` 为空。官方 Worker 镜像满足这些要求，启动入口会在挂载后创建运行目录。
 - OSS 仅挂载本 Agent 的 `<root>/<agent_uid>`，不具备完整 POSIX 语义。不要把 SQLite 缓存放在 OSS 挂载上，也不要把 `chown` 失败直接当作文件不可写。
 - provider `env` 可以新增变量，但不能覆盖镜像记录的环境变量。暂停请求保留内存，恢复请求使用新的 24 小时时限；旧模板不自动回收。
-- 官方协议、基础 envd 与 OSS 操作已有检查；AgenticFS、模板捕获、内存暂停和完整 Worker 生命周期仍需在已开通账户中验证。
+- 恢复时通过镜像内的辅助程序重建 OSSFS2 连接，并保留挂载和已打开的文件，避免读取等待暂停期间失效的 TCP 连接。若辅助程序失败，provider 会删除该实例，下一轮协调从 Home 重建。请同时使用包含该程序的 Worker 镜像和对应的控制面版本。AgenticFS 仍需实测。
 
 外部 provider 和远程 Kubernetes 需要可从实例访问的 `runtimeFabricUrl`、`relayOrigin` 与 `aiGatewayUrl`。不要使用实例无法解析的 Compose service 名称或仅集群内可达的地址。
 

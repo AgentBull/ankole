@@ -40,7 +40,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   test "real OpenRouter LLM drives direct and skill tool-loop turns over Lark" do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!(), worker: false)
 
-    assert %AgentWorker{state: "absent", wanted_until: %DateTime{} = creation_request} =
+    assert %AgentWorker{state: "absent", wanted_until: nil, generation: nil} =
              Repo.get!(AgentWorker, ctx.agent.uid)
 
     direct = run_real_lark_direct_turn(ctx)
@@ -53,7 +53,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       "om_real_1"
     )
 
-    assert %AgentWorker{state: "absent", wanted_until: ^creation_request} =
+    assert %AgentWorker{state: "absent", wanted_until: nil, generation: nil} =
              Repo.get!(AgentWorker, ctx.agent.uid)
 
     skill = run_real_lark_skill_tool_loop(ctx)
@@ -66,7 +66,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
       "om_real_skill_1"
     )
 
-    assert %AgentWorker{state: "absent", wanted_until: ^creation_request} =
+    assert %AgentWorker{state: "absent", wanted_until: nil, generation: nil} =
              Repo.get!(AgentWorker, ctx.agent.uid)
   end
 

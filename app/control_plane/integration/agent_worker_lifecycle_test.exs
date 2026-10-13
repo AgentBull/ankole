@@ -301,7 +301,7 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
 
     previous =
       Sandbox.unboxed_run(Repo, fn ->
-        row = Repo.get_by(Ankole.AppConfigure.AppConfig, scope: "global", key: key)
+        row = Repo.get_by(Ankole.AppConfigure.SiteConfig, scope: "global", key: key)
         assert {:ok, 2} = Ankole.AppConfigure.put_global_by_key(key, 2)
         row
       end)
@@ -309,11 +309,12 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
     on_exit(fn ->
       Sandbox.unboxed_run(Repo, fn ->
         Repo.delete_all(
-          from c in Ankole.AppConfigure.AppConfig, where: c.scope == "global" and c.key == ^key
+          from c in Ankole.AppConfigure.SiteConfig, where: c.scope == "global" and c.key == ^key
         )
 
         if previous, do: Repo.insert!(Ecto.put_meta(previous, state: :built))
         :ok = Ankole.AppConfigure.Cache.clear_for_test()
+        assert Repo.get_by(Ankole.AppConfigure.SiteConfig, scope: "global", key: key) == previous
       end)
     end)
 

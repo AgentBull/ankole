@@ -246,7 +246,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.FunctionComputeTest do
                 started_at: nil
               }
             ]} =
-             FunctionCompute.list_instances(provider, :all)
+             Repo.without_tenant(fn -> FunctionCompute.list_instances(provider, :all) end)
   end
 
   test "pause preserves memory and resume sets the new lifetime; errors remain errors", %{
@@ -275,6 +275,119 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.FunctionComputeTest do
     stub(&error(&1, 404))
     assert :ok = FunctionCompute.delete_instance(provider, object, :now)
     assert {:error, :gone} = FunctionCompute.resume_instance(provider, object)
+  end
+
+  test "OSS resume runs the image recovery command as root and waits for its exit", %{
+    provider: provider
+  } do
+    provider = put_in(provider.settings["storage"], %{"oss" => %{}})
+
+    Application.put_env(:ankole, :function_compute_req_options,
+      adapter: fn request ->
+        case request.url.path do
+          "/sandboxes/sandbox-selected/connect" ->
+            assert Ankole.JSON.decode!(request.body) == %{"timeout" => 86400}
+            {request, Req.Response.new(status: 200, body: fixture("sandbox_created"))}
+
+          "/process.Process/Start" ->
+            assert request.url.host == "49983-sandbox-selected.cn-hangzhou.sandbox.aliyuncs.com"
+            assert Req.Request.get_header(request, "authorization") == ["Basic cm9vdDo="]
+            assert Req.Request.get_header(request, "x-access-token") == ["test-envd-token"]
+            assert Req.Request.get_header(request, "e2b-sandbox-id") == ["sandbox-selected"]
+            assert Req.Request.get_header(request, "e2b-sandbox-port") == ["49983"]
+            assert Req.Request.get_header(request, "connect-timeout-ms") == ["15000"]
+            assert Req.Request.get_header(request, "content-type") == ["application/connect+json"]
+            <<0, size::32, payload::binary-size(size)>> = request.body
+
+            assert Ankole.JSON.decode!(payload) == %{
+                     "process" => %{
+                       "cmd" => "/usr/bin/python3",
+                       "args" => ["/usr/local/libexec/function-compute-resume-oss.py"]
+                     }
+                   }
+
+            # envd omits the protobuf default exitCode=0 in a successful exit.
+            response =
+              frame(0, %{event: %{start: %{pid: 4870}}}) <>
+                frame(0, %{event: %{end: %{exited: true, status: "exit status 0"}}}) <>
+                frame(2, %{})
+
+            {request, Req.Response.new(status: 200, body: response)}
+        end
+      end
+    )
+
+    assert :ok = FunctionCompute.resume_instance(provider, %{instance_ref: "sandbox-selected"})
+  end
+
+  test "OSS resume ends the instance when the recovery command fails", %{provider: provider} do
+    provider = put_in(provider.settings["storage"], %{"oss" => %{}})
+    test_pid = self()
+
+    for {response, expected} <- [
+          {frame(0, %{event: %{end: %{exited: true, exitCode: 1}}}) <> frame(2, %{}),
+           {:function_compute_storage_resume, 1}},
+          {frame(2, %{error: %{code: "permission_denied"}}),
+           {:function_compute_storage_resume, %{"code" => "permission_denied"}}},
+          {frame(0, %{event: %{start: %{pid: 42}}}) <> frame(2, %{}),
+           :function_compute_command_incomplete},
+          {frame(0, %{event: %{end: %{exited: true}}}), :function_compute_command_incomplete},
+          {<<0, 15::32, "truncated">>, :function_compute_command_incomplete},
+          {frame(0, %{"unexpected" => true}), :function_compute_command_invalid}
+        ] do
+      Application.put_env(:ankole, :function_compute_req_options,
+        adapter: fn request ->
+          body =
+            case {request.method, request.url.path} do
+              {:post, "/sandboxes/sandbox-selected/connect"} ->
+                fixture("sandbox_created")
+
+              {:post, "/process.Process/Start"} ->
+                response
+
+              {:delete, "/sandboxes/sandbox-selected"} ->
+                send(test_pid, :instance_deleted)
+                %{}
+            end
+
+          {request, Req.Response.new(status: 200, body: body)}
+        end
+      )
+
+      assert {:error, ^expected} =
+               FunctionCompute.resume_instance(provider, %{instance_ref: "sandbox-selected"})
+
+      assert_received :instance_deleted
+    end
+
+    # A deletion failure is the reported error: the instance still exists.
+    Application.put_env(:ankole, :function_compute_req_options,
+      adapter: fn request ->
+        case {request.method, request.url.path} do
+          {:post, "/sandboxes/sandbox-selected/connect"} ->
+            {request, Req.Response.new(status: 200, body: fixture("sandbox_created"))}
+
+          {:post, "/process.Process/Start"} ->
+            {request,
+             Req.Response.new(
+               status: 200,
+               body: frame(0, %{event: %{end: %{exited: true, exitCode: 1}}}) <> frame(2, %{})
+             )}
+
+          {:delete, "/sandboxes/sandbox-selected"} ->
+            {request,
+             Req.Response.new(status: 503, body: %{"code" => "Unavailable", "message" => "retry"})}
+        end
+      end
+    )
+
+    assert {:error, {:function_compute_api, 503, "Unavailable", "retry"}} =
+             FunctionCompute.resume_instance(provider, %{instance_ref: "sandbox-selected"})
+  end
+
+  defp frame(flags, value) do
+    payload = Ankole.JSON.encode!(value)
+    <<flags, byte_size(payload)::32, payload::binary>>
   end
 
   test "AgenticFS creates space, access point, and Volume; deletion uses their IDs in reverse order",

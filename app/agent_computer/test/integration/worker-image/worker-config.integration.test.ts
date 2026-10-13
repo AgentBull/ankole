@@ -19,3 +19,10 @@ it('loads the image configuration and removes the auth key before child processe
     localChromiumExecutable: process.env.ANKOLE_BROWSER_CHROMIUM_EXECUTABLE!
   })
 })
+
+it.skipIf(process.arch !== 'x64')('provides OSSFS2 for Function Compute custom images', () => {
+  const result = Bun.spawnSync(['ossfs2', '--version'])
+  expect(result.exitCode).toBe(0)
+  expect(result.stdout.toString()).toContain('2.0.10')
+  expect(Bun.spawnSync(['fusermount3', '--version']).exitCode).toBe(0)
+})

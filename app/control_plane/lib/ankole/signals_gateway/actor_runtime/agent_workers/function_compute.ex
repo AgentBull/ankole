@@ -199,7 +199,13 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.FunctionCompute do
     with {:ok, items} <- Client.sandboxes(provider, filter) do
       # Read rows after the platform. A concurrent committed create must not
       # become an orphan because the row snapshot was older than the list.
-      rows = Repo.all(from w in AgentWorker, where: w.provider_id == ^provider.provider_id)
+      query = from w in AgentWorker, where: w.provider_id == ^provider.provider_id
+
+      rows =
+        if uid_or_all == :all,
+          do: Repo.across_tenants(fn -> Repo.all(query) end),
+          else: Repo.all(from w in query, where: w.agent_uid == ^uid_or_all)
+
       items = Enum.filter(items, &(owned(provider, &1) == :ok))
 
       with {:ok, missing} <- missing_instances(provider, rows, items, uid_or_all) do
@@ -237,11 +243,27 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.FunctionCompute do
     case Client.api(provider, :post, instance_path(object.instance_ref) <> "/connect",
            json: %{timeout: 86_400}
          ) do
-      {:ok, _} -> :ok
+      {:ok, sandbox} -> resume_storage(provider, object, sandbox)
       {:error, {:function_compute_api, 404, _, _}} -> {:error, :gone}
       error -> error
     end
   end
+
+  # The resumed Worker rejoins as soon as `connect` returns, so a failed
+  # reconnection cannot be retried on this instance: a later reconciliation
+  # sees a running, ready Worker. End the instance instead. Home is durable in
+  # OSS; the next reconciliation rebuilds the generation from it.
+  defp resume_storage(%{settings: %{"storage" => %{"oss" => _}}} = provider, object, sandbox) do
+    case Client.restore_oss_connections(provider, sandbox) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        with :ok <- delete_instance(provider, object, :now), do: {:error, reason}
+    end
+  end
+
+  defp resume_storage(_provider, _object, _sandbox), do: :ok
 
   def labels(provider),
     do: %{

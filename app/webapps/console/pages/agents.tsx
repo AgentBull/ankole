@@ -207,6 +207,8 @@ function AgentEditor({ uid }: { uid?: string }) {
 
   const agentDetail = useQuery(agentEditorDetailOptions(uid ?? ''))
   const principals = useQuery(ankoleWebPrincipalControllerIndexOptions())
+  const owners = (principals.data?.principals ?? []).filter(principal => principal.type === 'human')
+  const needsOwner = mode === 'new' && principals.isSuccess && owners.length === 0
   const providers = useQuery(ankoleWebAIGatewayProviderControllerIndexOptions())
   const workerProviders = useQuery(ankoleWebWorkerProviderControllerIndexOptions())
   const providerKinds = useQuery({
@@ -335,7 +337,7 @@ function AgentEditor({ uid }: { uid?: string }) {
       }
       submitting={createAgent.isPending || updateAgent.isPending}
       submitDisabled={mode === 'edit' && !model.dirty.value}
-      submitUnavailable={draftStatus !== 'ready'}
+      submitUnavailable={draftStatus !== 'ready' || needsOwner}
       submitDisabledReason={submitDisabledReason}
       submitLabel={mode === 'edit' ? t('console.agents.save_identity') : t('common.save')}
       contentWidth={mode === 'edit' ? 'wide' : 'form'}
@@ -441,7 +443,7 @@ function AgentEditor({ uid }: { uid?: string }) {
         </LabeledField>
         <LabeledField
           label={t('console.agents.owner')}
-          description={t('console.agents.owner_hint')}
+          description={t(needsOwner ? 'console.agents.owner_empty' : 'console.agents.owner_hint')}
           error={ownerError}
           required>
           <SinglePrincipalPicker
@@ -449,7 +451,7 @@ function AgentEditor({ uid }: { uid?: string }) {
             error={principals.error}
             isLoading={principals.isLoading}
             placeholder={t('console.agents.owner_placeholder')}
-            candidates={(principals.data?.principals ?? []).map(principal => ({
+            candidates={owners.map(principal => ({
               id: principal.uid,
               label: principalLabel(principal),
               description: principal.email ?? principal.handle
@@ -461,6 +463,11 @@ function AgentEditor({ uid }: { uid?: string }) {
             }}
           />
         </LabeledField>
+        {needsOwner ? (
+          <Link className="text-sm underline" to="/access/principals">
+            {t('console.principals.title')}
+          </Link>
+        ) : null}
         {selectedAgent?.created_by ? (
           <LabeledField label={t('console.agents.created_by')}>
             <ActorLabel actor={selectedAgent.created_by} />

@@ -55,7 +55,7 @@ See [WorkerProviders and cache disks](../worker-providers/) for platform limits,
 | Lambda MicroVMs | Agent directory on EFS | Suspend memory |
 | Function Compute | AgenticSpace or OSS prefix per Agent | Pause memory |
 
-Vercel requires Pro or Enterprise for the 24-hour session limit. For Lambda, reserve memory quota for storage deletion helpers as well as running and suspended Workers. Check the target deployment with the commands in the repository's CONTRIBUTING guide. Function Compute follows the official protocols; its storage, template capture, and memory pause still need checks on an enabled Aliyun account. ACS is not registered because its default memory retention is not confirmed.
+Set Vercel `sessionTimeoutSeconds` within the account limit: 86400 seconds by default, or 2700 seconds for a 45-minute limit. For Lambda, reserve memory quota for storage deletion helpers as well as running and suspended Workers. Check the target deployment with the commands in the repository's CONTRIBUTING guide. Live Function Compute checks passed the OSS lifecycle, including memory pause and resume. Resume uses the OSS reconnection helper in the Worker image, so deploy the Worker image and the control plane together. AgenticFS still needs live checks. ACS is not registered because its default memory retention is not confirmed.
 
 Home survives instance deletion and image changes. Codex thread files are in `/workspace/.codex`; SQLite is a cache at `/var/cache/ankole/codex`. A rebuild removes only the cache. A Docker local volume cannot survive loss of its host. Cloudflare can lose writes since the last backup after a forced platform stop. Back up persistent Home and the [Agent drive](../file-management/).
 
