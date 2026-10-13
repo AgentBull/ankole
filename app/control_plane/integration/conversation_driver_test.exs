@@ -2939,6 +2939,64 @@ defmodule Ankole.Conversations.DriverTest do
     assert <<"RIFF", _size::little-32, "WEBP", _::binary>> = Base.decode64!(encoded)
   end
 
+  test "a Worker join during its readiness query opens the workspace without another notification",
+       %{
+         key: key,
+         script: script
+       } do
+    parent = self()
+    gate = :atomics.new(1, [])
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ankole, :repo, :query],
+        fn _, _, metadata, _ ->
+          if metadata.source == "agent_workers" and
+               String.starts_with?(metadata.query, "SELECT") and
+               key.agent_uid in metadata.params and self() != parent and
+               :atomics.compare_exchange(gate, 1, 0, 1) == :ok do
+            send(parent, {:worker_lookup_held, self()})
+
+            receive do
+              :release_worker_lookup -> :ok
+            after
+              10_000 -> raise "the test did not release the Worker lookup"
+            end
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    Agent.update(
+      script,
+      &%{&1 | calls: [tool_call("join-race", "command", %{"command" => "printf done"})]}
+    )
+
+    route = RuntimeCase.unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, event} = SignalsGateway.append_actor_event(attrs(key))
+    _request = await_request(key)
+    assert_receive {:worker_lookup_held, lookup}, 5_000
+    wait_for_worker_request(key)
+    assert {:ok, _} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
+
+    # The join notification must reach the Driver before the old query returns.
+    {:executing_tools, _} = :sys.get_state(Driver.whereis(key))
+    send(lookup, :release_worker_lookup)
+    ready_workspace(key)
+    assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, call}}}, 5_000
+    assert call.call_id == "join-race"
+    complete_worker_call(key, call)
+    next = await_request(key)
+    assert Enum.any?(next.body["messages"], &(&1["role"] == "tool" and &1["content"] == "done"))
+    assert wait_for_completion(event.id).turn_outcome == "loop_finished"
+  end
+
   test "a text model gets the vision fallback description of a Worker tool image",
        %{key: key, script: script, profile: profile} do
     assert {:ok, _} =

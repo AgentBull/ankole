@@ -264,7 +264,9 @@ time of input whose Codex placement was deferred.
 
 `Conversations.WorkerAcquisition` owns one explicit acquisition state for the
 Run: idle, opening, waiting, ready, or unavailable. Pure transitions return
-effects; the Driver performs the I/O and forwards the result. A new tool round
+effects; the Driver performs the I/O and forwards the result. A Worker change
+discards earlier readiness and connection queries before the Driver reads the
+current row. Transport sends keep their pending receipts. A new tool round
 does not clear this state or create another deadline.
 
 Workspace acquisition reports its phase at once: starting, resuming,

@@ -3,7 +3,8 @@
 ## Version 2.0.0-alpha.3 (2026-10-14)
 
 - Start Workers when environment tools or Jobs need them. Agent creation and
-  pure conversations do not start a Worker.
+  pure conversations do not start a Worker. Keep a Worker join from being lost
+  when an earlier readiness query is still in progress.
 - Let operators set the Vercel Sandbox lifetime within their account limit.
   Keep each saved instance's lifetime and fix site-level cloud instance lookup.
 - Include OSSFS2 and FUSE3 in the amd64 Worker image. Keep Home empty before

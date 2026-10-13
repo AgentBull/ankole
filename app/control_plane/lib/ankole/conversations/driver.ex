@@ -190,8 +190,11 @@ defmodule Ankole.Conversations.Driver do
         {:worker_changed, uid},
         :executing_tools,
         %{key: %{agent_uid: uid}} = data
-      ),
-      do: acquisition_event(data, :check)
+      ) do
+    # A query that started before this change can still return the old row.
+    data = clear_tasks(data, &(&1 in [:worker_resolve, :worker_check]))
+    acquisition_event(data, :check)
+  end
 
   def handle_event({:timeout, :worker_check}, :check, :executing_tools, data),
     do: acquisition_event(data, :check)
