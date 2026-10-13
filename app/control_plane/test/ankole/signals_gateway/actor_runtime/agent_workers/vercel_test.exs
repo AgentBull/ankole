@@ -115,6 +115,90 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.VercelTest do
     end
   end
 
+  test "the configured session lifetime reaches Vercel and is saved for replacement", %{
+    provider: provider,
+    spec: spec
+  } do
+    definition = Vercel.definition()
+    settings = Map.put(provider.settings, "sessionTimeoutSeconds", 2700)
+    saved = Configuration.instance_settings(definition.schema, settings)
+    assert ProviderKind.instance_lifetime(Vercel, saved) == 2700
+    assert ProviderKind.instance_lifetime(Vercel, %{}) == 86_400
+
+    refute Configuration.digest(definition.schema, settings) == provider.settings_digest
+
+    stub(fn conn ->
+      assert {conn.method, conn.request_path} == {"POST", "/v4/sandboxes"}
+      {body, conn} = body(conn)
+      assert body["timeout"] == 2_700_000
+      Req.Test.json(conn, fixture("create_response"))
+    end)
+
+    assert {:ok, @ref} = Vercel.create_instance(%{provider | settings: settings}, spec)
+
+    for seconds <- [0, 86_401, 2.5] do
+      assert {:error, {:invalid_worker_provider_config, [%{path: "sessionTimeoutSeconds"}]}} =
+               Configuration.parse(
+                 definition.schema,
+                 Ankole.JSON.encode!(Map.put(settings, "sessionTimeoutSeconds", seconds))
+               )
+    end
+  end
+
+  test "the object sweep uses the current generation's saved lifetime", %{provider: provider} do
+    alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{ReconcileJob, SweepJob}
+    %{principal: agent} = agent_fixture(%{worker_provider_id: provider.provider_id})
+    save_ref!(provider, agent.uid)
+    now = DateTime.utc_now(:microsecond)
+
+    Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^agent.uid),
+      set: [
+        state: "ready",
+        transport_route: "vercel-sweep-route",
+        incarnation_id: "vercel-sweep-incarnation",
+        last_worker_heartbeat_at: now,
+        instance_settings: %{"sessionTimeoutSeconds" => 2700}
+      ]
+    )
+
+    sandbox =
+      fixture("create_response")["sandbox"]
+      |> put_in(["tags", "ankole-agent"], ProviderKind.hash16(agent.uid))
+
+    session =
+      fixture("session_response")["session"]
+      |> Map.put(
+        "startedAt",
+        now |> DateTime.add(-2500, :second) |> DateTime.to_unix(:millisecond)
+      )
+
+    stub(fn conn ->
+      case conn.request_path do
+        "/v2/sandboxes" ->
+          page(conn, "sandboxes", [sandbox])
+
+        "/v2/sandboxes/sessions" ->
+          page(conn, "sessions", [session])
+
+        "/v2/sandboxes/sessions/" <> @ref <> "/cmd" ->
+          page_commands(conn, [fixture("command_response")["command"]])
+      end
+    end)
+
+    Repo.delete_all(Oban.Job)
+    assert :ok = perform_job(SweepJob, %{"objects" => true})
+    assert_enqueued(worker: ReconcileJob, args: %{agent_uid: agent.uid})
+
+    Repo.delete_all(Oban.Job)
+
+    Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^agent.uid),
+      set: [instance_settings: %{}]
+    )
+
+    assert :ok = perform_job(SweepJob, %{"objects" => true})
+    refute_enqueued(worker: ReconcileJob, args: %{agent_uid: agent.uid})
+  end
+
   test "image preparation, throttling, conflicts, and connection failures never reject a generation",
        %{provider: provider, spec: spec} do
     for {status, code} <- [

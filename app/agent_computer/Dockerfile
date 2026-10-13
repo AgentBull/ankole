@@ -72,6 +72,7 @@ COPY app/agent_computer/scripts/ankole-worker-supervisor.sh /usr/local/bin/ankol
 COPY app/agent_computer/scripts/ankole-worker-entry.sh /usr/local/bin/ankole-worker-entry
 COPY app/agent_computer/scripts/ankole-worker-command-entry.sh /usr/local/bin/ankole-worker-command-entry
 COPY app/agent_computer/scripts/ankole-worker-nfs.sh /usr/local/bin/ankole-worker-nfs
+COPY app/agent_computer/scripts/function-compute-resume-oss.py /usr/local/libexec/function-compute-resume-oss.py
 COPY --from=directory-backup /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 
 RUN chmod 0755 /usr/local/bin/lark-cli /usr/local/bin/ankole-worker-supervisor /usr/local/bin/ankole-worker-entry /usr/local/bin/ankole-worker-command-entry /usr/local/bin/ankole-worker-nfs \
@@ -80,6 +81,18 @@ RUN chmod 0755 /usr/local/bin/lark-cli /usr/local/bin/ankole-worker-supervisor /
 RUN apt-get update \
   && apt-get install -y --no-install-recommends nfs-common iproute2 \
   && rm -rf /var/lib/apt/lists/*
+
+# Function Compute uses amd64 and does not install OSSFS2 in custom images.
+RUN set -eux; \
+  if [ "${TARGETARCH}" = amd64 ]; then \
+    apt-get update; \
+    curl -fsSL https://gosspublic.alicdn.com/ossfs/ossfs2_2.0.10_linux_x86_64.deb -o /tmp/ossfs2.deb; \
+    echo '72e864b8087d6f889c5017339c625154619f626bbc13c9afcb70403544ad9b70  /tmp/ossfs2.deb' | sha256sum -c -; \
+    apt-get install -y --no-install-recommends fuse3 /tmp/ossfs2.deb; \
+    ossfs2 --version; \
+    fusermount3 --version; \
+    rm -rf /tmp/ossfs2.deb /var/lib/apt/lists/*; \
+  fi
 
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/app/agent_computer/node_modules ./app/agent_computer/node_modules
@@ -107,8 +120,8 @@ COPY app/ankole-browser/src ./app/ankole-browser/src
 RUN set -eux; \
   usermod -l agent -d /workspace -s /bin/bash bun; \
   groupmod -n agent bun; \
-  mkdir -p /agents /workspace/.codex /var/cache/ankole/codex /var/share /run/ankole-browser; \
-  chown 1000:1000 /agents /workspace /workspace/.codex /var/cache/ankole /var/cache/ankole/codex /run/ankole-browser; \
+  mkdir -p /agents /workspace /var/cache/ankole/codex /var/share /run/ankole-browser; \
+  chown 1000:1000 /agents /workspace /var/cache/ankole /var/cache/ankole/codex /run/ankole-browser; \
   chmod 0755 /agents /workspace /var/cache/ankole; \
   chmod 1777 /var/share; \
   printf '%s\n' 'ankole-agent-computer' > /etc/ankole-agent-computer-container
@@ -194,8 +207,10 @@ ENV PATH="/opt/ankole-python/bin:/opt/ankole-cargo/bin:/usr/local/bin:/usr/bin:/
 # A launcher can replace this environment, for example sudo on Function
 # Compute. The entrypoint exports this copy, which has the format of
 # /proc/<pid>/environ. The copy excludes the PWD of the build shell and the
-# build arguments of this stage.
-RUN env -0 -u PWD -u LARK_CLI_VERSION -u TARGETARCH > /etc/ankole/worker-environ
+# build arguments of this stage. Keep build caches out of the empty OSS mount
+# point, including Rosetta caches from an amd64 build on macOS.
+RUN --mount=type=tmpfs,target=/workspace \
+  env -0 -u PWD -u LARK_CLI_VERSION -u TARGETARCH > /etc/ankole/worker-environ
 
 ENTRYPOINT ["ankole-worker-entry"]
 CMD ["bun", "src/main.ts"]

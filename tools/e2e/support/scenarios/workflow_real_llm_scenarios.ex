@@ -50,7 +50,8 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     put_profile!(agent.uid, provider_id, "light", @light_model)
 
     assert {:ok, _timeout} =
-             AppConfigure.put_tenant_by_key(AgentConfig.inactivity_timeout_ms_definition().key,
+             AppConfigure.put_tenant_by_key(
+               AgentConfig.inactivity_timeout_ms_definition().key,
                @stall_recovery_inactivity_timeout_ms
              )
   end
@@ -508,13 +509,17 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
         """
       })
 
-    {run, _start_reply} = start_run!(container, agent, input)
+    # A missing profile can fail the task and complete replay before the
+    # owner model sends its initial reply.
+    {run, _start_reply} = start_run!(container, agent, input, :completed)
+    assert run.script == script
 
     [dispatch_event] = task_dispatch_events!(run, expected: 1)
     process_ready!(dispatch_event)
 
     call = wait_for_terminal_call!(run, 0, deadline(60_000))
     assert call.status == "failed"
+    assert call.attempts == 0
     assert call.result["ok"] == false
     assert call.result["code"] == "workflow_task_model_profile_unavailable"
 
@@ -524,7 +529,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert reply_text!(reply) =~ "ANKOLE_WF_NULL_OK"
     run = Repo.get!(Run, run.id)
     assert run.status == "completed"
-    assert run.result_text =~ "true"
+    assert Ankole.JSON.decode!(run.result_text) == %{"failed" => true}
 
     %{input: input, run: run, call: call, reply: reply}
   end
@@ -753,7 +758,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
   end
 
   defp start_run!(container, agent, input, expected_terminal \\ nil)
-       when expected_terminal in [nil, :failed] do
+       when expected_terminal in [nil, :failed, :completed] do
     assert {:ok, %{status: :driving}} = process_ready!(input)
 
     assert {:ok, start_reply, _message} =
@@ -769,6 +774,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     case expected_terminal do
       :failed -> assert run.status in ["running", "failed"]
+      :completed -> assert run.status in ["running", "completed"]
       nil -> assert run.status == "running"
     end
 

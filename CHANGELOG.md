@@ -1,5 +1,20 @@
 # Changelog
 
+## Version 2.0.0-alpha.3 (2026-10-13)
+
+- Start Workers when environment tools or Jobs need them. Agent creation and
+  pure conversations do not start a Worker.
+- Let operators set the Vercel Sandbox lifetime within their account limit.
+  Keep each saved instance's lifetime and fix site-level cloud instance lookup.
+- Include OSSFS2 and FUSE3 in the amd64 Worker image. Keep Home empty before
+  mounting storage and keep build caches out of the image's Home directory.
+  Reconnect OSSFS2 after Aliyun memory resume to prevent reads from waiting
+  on unusable TCP connections; a failed reconnection ends the instance so the
+  next reconciliation rebuilds it from Home.
+- Limit Agent owners to Humans and explain when no owner is available. Repair
+  lifecycle and conversation test fixtures, and update verification limits
+  and provider setup guidance.
+
 ## Version 2.0.0-alpha.2 (2026-10-12)
 
 - Preserve scheduled replies when a model ends with nonempty ordinary text.

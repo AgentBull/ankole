@@ -24,7 +24,7 @@ WorkerProvider는 Agent 컴퓨터의 실행 위치와 Home 및 캐시 저장 방
 | `docker` | 전용 로컬 named volume | 전용 로컬 named volume | 컨테이너 삭제 | adapter의 고정 제한 없음 |
 | `kubernetes` | 전용 PVC 또는 공유 PVC의 Agent 디렉터리 | 전용 PVC 또는 `emptyDir` | Pod 삭제 | adapter의 고정 제한 없음 |
 | `cloudflare` | 시작 시 R2 복원, 정상 종료 전 백업 | 인스턴스 디스크 | 백업 후 컨테이너 삭제 | 플랫폼에 따름 |
-| `vercel` | Agent별 전용 Drive | 인스턴스 디스크 | sandbox 삭제 | 24시간 |
+| `vercel` | Agent별 전용 Drive | 인스턴스 디스크 | sandbox 삭제 | 설정 가능, 기본 24시간 |
 | `lambda` | EFS의 Agent 디렉터리 | 인스턴스 디스크 | 메모리 보존 일시 중지 | 일시 중지 포함 8시간 |
 | `function_compute` | AgenticSpace 또는 OSS Agent prefix | 인스턴스 디스크 | 메모리 보존 일시 중지 | 24시간 |
 
@@ -60,7 +60,7 @@ WorkerProvider는 Agent 컴퓨터의 실행 위치와 Home 및 캐시 저장 방
 
 - 같은 region의 전용 Drive를 Home으로 사용합니다. `teamId`, `projectId`, `region`, `driveSizeGiB`는 생성 후 변경할 수 없습니다.
 - 프로젝트 VCR에 `linux/amd64` 이미지를 준비하고 목표 digest를 사용하세요. `cpus`는 1 또는 2~32의 짝수이며 메모리는 vCPU당 2048 MiB입니다.
-- adapter는 24시간 session을 요청하므로 Pro 또는 Enterprise가 필요합니다. Hobby는 이 요청을 허용하지 않습니다. [Vercel session 제한](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)을 참조하세요. sandbox 삭제 후 Drive는 유지되며 캐시는 사라집니다.
+- `sessionTimeoutSeconds` 기본값은 86400(24시간)입니다. 계정 제한이 45분이면 2700으로 설정하세요. 같은 제한을 반환하는 체험 계정에도 적용됩니다. 계정의 실제 제한을 초과할 수 없습니다. [Vercel 시간 제한](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)을 참고하세요. sandbox를 삭제하면 Drive는 유지되고 인스턴스 캐시는 삭제됩니다.
 - 짧은 시작, 파일 유지, 이미지 교체, Drive 삭제는 확인되었습니다. OOM, 호스트 장애, 전체 24시간 수명은 대상 환경에서 검증해야 합니다.
 
 ### AWS Lambda MicroVMs
@@ -75,9 +75,10 @@ WorkerProvider는 Agent 컴퓨터의 실행 위치와 Home 및 캐시 저장 방
 
 - ACR Enterprise의 `amd64` 이미지로 2세대 template을 빌드합니다. Team, Sandbox API key, POP AccessKey, 허가된 RAM role이 필요합니다. template 캡처에는 Agent 신원이나 자격 증명을 넣지 않습니다.
 - `storage.agenticFs` 또는 `storage.oss`를 선택하세요. AgenticFS에는 VPC, filesystem, region/zone, 용량 및 파일 수 quota가 필요합니다. mount 전에 access point가 준비되어야 합니다. [AgenticFS Volume](https://help.aliyun.com/zh/functioncompute/create-an-agenticfs-volume)을 참조하세요.
+- 이미지에는 OSSFS2 2.0.10 이상이 필요하며 mount 전 `/workspace`는 비어 있어야 합니다. 공식 Worker 이미지는 이 요건을 충족하며 entry가 mount 후 실행 디렉터리를 만듭니다.
 - OSS는 이 Agent의 `<root>/<agent_uid>`만 mount하며 완전한 POSIX 동작을 제공하지 않습니다. SQLite 캐시를 OSS에 두지 마세요. `chown` 실패만으로 쓰기 불가라고 판단하지 마세요.
 - provider `env`는 변수를 추가할 수 있지만 이미지에 기록된 변수를 덮어쓸 수 없습니다. pause는 메모리를 보존하며 resume는 새로운 24시간 timeout을 사용합니다. 이전 template은 자동 정리하지 않습니다.
-- 공식 protocol, 기본 envd, OSS 작업은 확인되었습니다. AgenticFS, template 캡처, 메모리 pause, 전체 Worker lifecycle은 활성화된 계정에서 검증해야 합니다.
+- 재개 시 이미지의 보조 프로그램으로 OSSFS2 연결을 다시 만들고 mount와 열린 파일을 유지합니다. 메모리 일시 중지 중 사용할 수 없게 된 TCP 연결 때문에 읽기가 지연되는 것을 방지합니다. 보조 프로그램이 실패하면 공급자가 해당 인스턴스를 삭제하고, 다음 조정에서 Home으로부터 다시 만듭니다. 이 프로그램이 포함된 Worker 이미지와 해당 컨트롤 플레인 버전을 함께 사용하세요. AgenticFS는 여전히 실제 환경 검증이 필요합니다.
 
 외부 provider와 원격 Kubernetes는 인스턴스에서 접근 가능한 `runtimeFabricUrl`, `relayOrigin`, `aiGatewayUrl`이 필요합니다. 연결할 수 없는 Compose service 이름이나 cluster 내부 전용 주소를 쓰지 마세요.
 

@@ -41,6 +41,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Vercel do
             "imageRepository" => C.field(%{"type" => "string", "minLength" => 1}, :instance),
             "cpus" =>
               C.field(%{"enum" => [1 | Enum.to_list(2..32//2)], "default" => 2}, :instance),
+            "sessionTimeoutSeconds" =>
+              C.field(
+                %{"type" => "integer", "minimum" => 1, "maximum" => 86_400, "default" => 86_400},
+                :instance
+              ),
             "env" => C.field(C.environment(), :instance)
           }),
           ~w(teamId projectId region driveSizeGiB imageRepository endpoints)
@@ -54,6 +59,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Vercel do
       # Prepared linux/amd64 image in this project's VCR repository.
       imageRepository: ankole-worker
       cpus: 2
+      # Must not exceed the account's Sandbox timeout limit.
+      sessionTimeoutSeconds: 86400
       env: {}
       endpoints:
         runtimeFabricUrl: wss://ankole.example.com/runtime-fabric/worker
@@ -64,6 +71,9 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Vercel do
       """
     }
   end
+
+  @impl true
+  def instance_lifetime(settings), do: Map.get(settings, "sessionTimeoutSeconds", 86_400)
 
   @impl true
   def check(provider) do
@@ -101,7 +111,7 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Vercel do
         persistent: false,
         image: provider.settings["imageRepository"] <> "@" <> digest,
         resources: %{vcpus: provider.settings["cpus"], memory: provider.settings["cpus"] * 2048},
-        timeout: 86_400_000,
+        timeout: instance_lifetime(provider.settings) * 1000,
         region: provider.settings["region"],
         env: provider.settings["env"],
         tags: tags(provider, spec),
@@ -171,7 +181,11 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Vercel do
       query =
         if uid_or_all == :all, do: query, else: where(query, [w], w.agent_uid == ^uid_or_all)
 
-      rows = Repo.all(query)
+      rows =
+        if uid_or_all == :all,
+          do: Repo.across_tenants(fn -> Repo.all(query) end),
+          else: Repo.all(query)
+
       agents = Map.new(rows, &{ProviderKind.hash16(&1.agent_uid), &1.agent_uid})
 
       agents =

@@ -327,7 +327,7 @@ defmodule Ankole.E2E.Harness do
   Options: `secondary: true` adds the second agent/app, `multi_agent: true`
   adds the multi-agent-room bindings, `real_llm_api_key:` switches the domain
   to the real OpenRouter provider (no fake LLM assertions), `worker: false`
-  leaves the creation request pending without running Worker reconciliation,
+  runs Worker reconciliation without an initial Worker request,
   and `replaces_workers: true` lets the test kill, stop, or
   replace its Workers (see `start_worker!/2`).
   """
@@ -376,6 +376,9 @@ defmodule Ankole.E2E.Harness do
 
     case Keyword.get(opts, :worker, true) do
       false ->
+        port = start_ai_gateway_test_http_server!()
+        Ankole.E2E.DockerWorker.install_provider!(worker_endpoint(port))
+        start_worker_reconciler!()
         ctx
 
       true ->

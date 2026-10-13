@@ -132,7 +132,7 @@ defmodule Ankole.Principals do
 
   @doc """
   Creates an agent Principal, its agent subtype, and its absent Worker row
-  in one transaction. Requests the Worker after this transaction commits.
+  in one transaction. The first environment tool or Job requests the Worker.
   """
   @spec create_agent(map()) ::
           {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
@@ -140,30 +140,26 @@ defmodule Ankole.Principals do
     with {:ok, _handle} <- required_text(attrs, :handle) do
       attrs = attrs |> Map.delete("uid") |> Map.put(:uid, NativeKernel.gen_uuid_v7())
 
-      with {:ok, %{principal: principal} = result} <-
-             Repo.transact(fn repo ->
-               agent_attrs = take_attrs(attrs, @agent_fields)
+      Repo.transact(fn repo ->
+        agent_attrs = take_attrs(attrs, @agent_fields)
 
-               provider_id =
-                 Map.get(attrs, :worker_provider_id, Map.get(attrs, "worker_provider_id"))
+        provider_id =
+          Map.get(attrs, :worker_provider_id, Map.get(attrs, "worker_provider_id"))
 
-               with {:ok, provider_id} <-
-                      Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.select_in_tx(
-                        repo,
-                        provider_id
-                      ),
-                    :ok <- validate_agent_owner(repo, agent_attrs),
-                    :ok <- reject_token_quota_at_creation(agent_attrs),
-                    {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
-                    {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
-                    :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
-                    :ok <- AgentWorkers.insert_in_tx(repo, principal.uid, provider_id) do
-                 {:ok, %{principal: principal, agent: agent}}
-               end
-             end) do
-        :ok = AgentWorkers.request(principal.uid)
-        {:ok, result}
-      end
+        with {:ok, provider_id} <-
+               Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.select_in_tx(
+                 repo,
+                 provider_id
+               ),
+             :ok <- validate_agent_owner(repo, agent_attrs),
+             :ok <- reject_token_quota_at_creation(agent_attrs),
+             {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
+             {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
+             :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
+             :ok <- AgentWorkers.insert_in_tx(repo, principal.uid, provider_id) do
+          {:ok, %{principal: principal, agent: agent}}
+        end
+      end)
     end
   end
 

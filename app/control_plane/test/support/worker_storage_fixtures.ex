@@ -17,7 +17,7 @@ defmodule Ankole.WorkerStorageFixtures do
 
   @doc "Creates two providers of `kind` and one Agent on each; returns `{uids, provider_ids}`."
   def storage_agents!(kind, suffix, owner_uid, config, credentials) do
-    ids = Enum.map(~w(a b), &"#{kind}-check-#{&1}-#{suffix}")
+    ids = Enum.map(~w(a b), &"#{String.replace(kind, "_", "-")}-check-#{&1}-#{suffix}")
 
     uids =
       for id <- ids do
@@ -48,13 +48,14 @@ defmodule Ankole.WorkerStorageFixtures do
   """
   def await_worker_state!(uid, state, previous \\ nil) do
     assert {:ok, result} =
-             wait_until(deadline(900_000), fn ->
+             wait_until(deadline(1_200_000), fn ->
                if state == "ready", do: AgentWorkers.request(uid)
 
                case ReconcileJob.perform(%Oban.Job{
                       args: Ankole.Job.arguments(:tenant, %{"agent_uid" => uid})
                     }) do
                  :ok -> :ok
+                 {:snooze, seconds} -> Process.sleep(seconds * 1_000)
                  {:error, reason} -> IO.puts("Reconciliation will retry: #{inspect(reason)}")
                end
 

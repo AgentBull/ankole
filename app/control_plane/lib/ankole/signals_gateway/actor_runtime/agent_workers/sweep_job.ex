@@ -111,7 +111,6 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob do
           rows(from w in AgentWorker, where: w.provider_id == ^provider.provider_id)
           |> Map.new(&{&1.agent_uid, &1})
 
-        lifetime = kind.definition().max_instance_lifetime
         %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
 
         Enum.each(objects, fn object ->
@@ -120,6 +119,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob do
               delete_orphan(provider, kind, object)
 
             row ->
+              lifetime = ProviderKind.instance_lifetime(kind, row.instance_settings)
+
               if object.generation != row.generation or phase_differs?(row, object) or
                    Decision.lifetime_due?(object.started_at, lifetime, now),
                  do: ReconcileJob.enqueue(row)

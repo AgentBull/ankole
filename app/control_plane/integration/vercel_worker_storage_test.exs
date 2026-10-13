@@ -35,6 +35,9 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
         imageRepository: System.fetch_env!("ANKOLE_VERCEL_TEST_IMAGE_REPOSITORY"),
         driveSizeGiB: 2,
         cpus: 2,
+        sessionTimeoutSeconds:
+          System.get_env("ANKOLE_VERCEL_TEST_SESSION_TIMEOUT_SECONDS", "86400")
+          |> String.to_integer(),
         idleReleaseAfter: "never",
         endpoints: %{
           runtimeFabricUrl:
@@ -135,12 +138,22 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
   end
 
   defp assert_worker_user!(provider, worker) do
-    script = """
+    script = ~S"""
     test "$(id -u)" = 0
     ! command -v sudo
     pid=$(cat /run/ankole-worker.pid)
-    test "$(awk '/^Uid:/ {print $2, $3, $4, $5}' /proc/$pid/status)" = '1000 1000 1000 1000'
-    test "$(awk '/^NoNewPrivs:/ {print $2}' /proc/$pid/status)" = 1
+    test "$(awk '/^Uid:/ {print $2, $3, $4, $5}' /proc/$pid/status)" = '0 0 0 0'
+    bun - <<'JS'
+    import { agentProcessArgv } from './src/core/execution/process-group.ts'
+    const result = Bun.spawnSync(agentProcessArgv(['bun', '-e', `
+      import { readFileSync } from 'node:fs'
+      if (process.getuid() !== 1000) throw new Error('model child retained Worker uid')
+      const status = readFileSync('/proc/self/status', 'utf8')
+      if (!/^NoNewPrivs:\\s+1$/m.test(status)) throw new Error('model child lacks no-new-privs')
+      if (!/^CapEff:\\s+0+$/m.test(status)) throw new Error('model child retained capabilities')
+    `]))
+    if (result.exitCode !== 0) throw new Error(result.stderr.toString())
+    JS
     """
 
     path = "/v2/sandboxes/sessions/#{worker.instance_ref}/cmd"

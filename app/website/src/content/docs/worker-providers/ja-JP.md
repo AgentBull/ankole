@@ -24,7 +24,7 @@ WorkerProvider は Agent のコンピューターの実行先と Home・キャ�
 | `docker` | 専用ローカル named volume | 専用ローカル named volume | コンテナ削除 | adapter 固定期限なし |
 | `kubernetes` | 専用 PVC または共有 PVC の Agent ディレクトリ | 専用 PVC または `emptyDir` | Pod 削除 | adapter 固定期限なし |
 | `cloudflare` | 起動時に R2 から復元、通常終了前にバックアップ | インスタンスディスク | バックアップ後に削除 | プラットフォームに従う |
-| `vercel` | Agent 専用 Drive | インスタンスディスク | sandbox 削除 | 24 時間 |
+| `vercel` | Agent 専用 Drive | インスタンスディスク | sandbox 削除 | 設定可能、既定は 24 時間 |
 | `lambda` | EFS の Agent ディレクトリ | インスタンスディスク | メモリを保持して休止 | 休止を含め 8 時間 |
 | `function_compute` | AgenticSpace または OSS の Agent prefix | インスタンスディスク | メモリを保持して休止 | 24 時間 |
 
@@ -60,7 +60,7 @@ WorkerProvider は Agent のコンピューターの実行先と Home・キャ�
 
 - 同一 region の専用 Drive を Home に使います。`teamId`、`projectId`、`region`、`driveSizeGiB` は作成後に変更できません。
 - project の VCR に `linux/amd64` イメージを準備し、対象 digest を使います。`cpus` は 1 または 2～32 の偶数、メモリは vCPU ごとに 2048 MiB です。
-- adapter は 24 時間 session を要求するため Pro または Enterprise が必要です。Hobby では満たせません。[Vercel の期限](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)を参照してください。sandbox 削除で Drive は残り、キャッシュは失われます。
+- `sessionTimeoutSeconds` の既定値は 86400（24 時間）です。アカウントの上限が 45 分の場合は 2700 に設定します。この上限が適用される試用アカウントも同様です。アカウントの実際の上限を超えない値を指定してください。[Vercel の期限](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)を参照してください。sandbox 削除で Drive は残り、キャッシュは失われます。
 - 短時間の起動、ファイル保持、イメージ置換、Drive 削除は検証済みです。OOM、ホスト障害、全 24 時間の動作は対象環境での検証が必要です。
 
 ### AWS Lambda MicroVMs
@@ -75,9 +75,10 @@ WorkerProvider は Agent のコンピューターの実行先と Home・キャ�
 
 - ACR Enterprise の `amd64` イメージから第 2 世代 template を作成します。Team、Sandbox API key、POP AccessKey、権限を持つ RAM role が必要です。template 保存時に Agent の識別情報や認証情報は含めません。
 - `storage.agenticFs` または `storage.oss` を選びます。AgenticFS は VPC、filesystem、region/zone、容量とファイル数 quota が必要です。access point は mount 前に利用可能である必要があります。[AgenticFS Volume](https://help.aliyun.com/zh/functioncompute/create-an-agenticfs-volume)を参照してください。
+- イメージには OSSFS2 2.0.10 以降が必要で、mount 前の `/workspace` は空である必要があります。公式 Worker イメージはこの要件を満たし、entry が mount 後に実行用ディレクトリを作成します。
 - OSS は本 Agent の `<root>/<agent_uid>` のみを mount し、完全な POSIX semantics はありません。SQLite を OSS に置かないでください。`chown` 失敗だけでは書き込み不能と判定できません。
 - provider `env` は変数を追加できますが、イメージが記録した変数を上書きできません。pause はメモリを保持し、resume は新しい 24 時間 timeout を使います。旧 template は自動回収しません。
-- 公式 protocol、基本 envd、OSS 操作は確認済みです。AgenticFS、template 保存、メモリ休止、全 Worker lifecycle は開通済みアカウントでの検証が必要です。
+- 再開時はイメージ内の補助プログラムで OSSFS2 の接続を作り直し、mount と開いたファイルを保持します。これにより、休止中に使用不能になった TCP 接続での読み取り待ちを防ぎます。補助プログラムが失敗した場合、プロバイダーはそのインスタンスを削除し、次の調整で Home から再構築します。このプログラムを含む Worker イメージと対応するコントロールプレーンを使用してください。AgenticFS は引き続き実環境での検証が必要です。
 
 外部 provider と remote Kubernetes は、インスタンスから接続できる `runtimeFabricUrl`、`relayOrigin`、`aiGatewayUrl` が必要です。到達できない Compose service 名や cluster 内限定アドレスを使わないでください。
 
