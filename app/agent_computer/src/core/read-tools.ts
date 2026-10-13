@@ -4,8 +4,6 @@ import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
 import type { JobTurnRef } from '../lanes/actor_lane'
 import type { RPCRequester } from '../lanes/rpc_lane'
 import type { AgentToolResult } from './types'
-import type { RenderedWebFetchOptions } from '../tools/web/web-tools'
-import { renderedFallbackFetch } from '../tools/web/web-tools'
 
 /** Codec adapter only; the control plane owns read-tool behavior and results. */
 export async function readTool(
@@ -13,7 +11,11 @@ export async function readTool(
   turn: JobTurnRef,
   name: string,
   args: JsonObject,
-  opts: { cache?: JsonObject; renderedFallback?: RenderedWebFetchOptions; signal?: AbortSignal } = {}
+  opts: {
+    cache?: JsonObject
+    renderedFetch?: (urls: string[], signal?: AbortSignal) => Promise<JsonObject>
+    signal?: AbortSignal
+  } = {}
 ): Promise<AgentToolResult<JsonObject>> {
   const invoke = async (rendered?: JsonObject) => {
     const response = await rpc(
@@ -33,11 +35,11 @@ export async function readTool(
   }
   let body = await invoke()
   if (isRecord(body.delegate)) {
-    if (body.delegate.name !== '__rendered_web_fetch' || !opts.renderedFallback) {
+    if (body.delegate.name !== '__rendered_web_fetch' || !opts.renderedFetch) {
       throw new Error('The web page provider and rendered fallback are unavailable.')
     }
     const urls = (body.delegate.arguments as { urls: string[] }).urls
-    body = await invoke(await renderedFallbackFetch(urls, opts.renderedFallback, opts.signal))
+    body = await invoke(await opts.renderedFetch(urls, opts.signal))
   }
   if (opts.cache && isRecord(body.web_cache)) {
     Object.assign(opts.cache, body.web_cache)

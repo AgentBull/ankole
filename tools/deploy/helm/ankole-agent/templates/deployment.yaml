@@ -44,6 +44,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "ankole-agent.controlPlaneName" . }}
+            - secretRef:
+                name: {{ include "ankole-agent.bootstrapSecretName" . }}
           env:
             {{- include "ankole-agent.controlPlaneEnv" . | nindent 12 }}
       {{- end }}
@@ -77,6 +79,8 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "ankole-agent.controlPlaneName" . }}
+            - secretRef:
+                name: {{ include "ankole-agent.bootstrapSecretName" . }}
           env:
             {{- include "ankole-agent.controlPlaneEnv" . | nindent 12 }}
           volumeMounts:

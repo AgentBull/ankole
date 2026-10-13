@@ -344,7 +344,11 @@ EBS 这类块存储卷的根目录有 `lost+found`，而 `initdb` 需要一个�
 把数据库放在卷的根目录。升级这样的安装时，设置
 `postgresql.pgdata=/var/lib/pgsql/18/data`，让 PostgreSQL 打开已有的数据库。
 
-控制面把 Agent 云盘保存在 `files.store` 选择的文件存储中。选择 `fs` 时，Chart 创建一个
+控制面把 Agent 云盘保存在 `files.store` 选择的文件存储中，支持 `fs`、`s3`、`azblob`、
+`d1`、`cos`、`postgresql`、`oss`、`tos`、`gcs`、`sftp` 和 `webdav`。S3 以外的远程后端
+使用 `controlPlane.extraEnv` 配置文档中的 `ANKOLE_FILES_*` 变量，凭据变量放在
+`secrets.existingSecret`。控制面和迁移容器都会从这个 Secret 读取环境变量，
+见[云盘存储指南](../../../../app/website/src/content/docs/drive-storage/zh-Hans-CN.md)。选择 `fs` 时，Chart 创建一个
 `ReadWriteOnce` PVC，挂载到 `/var/lib/ankole/files`，`helm uninstall` 时保留它；
 Pod 的 `fsGroup` 让它可写。选择 `s3` 时，云盘在桶中；请给桶配置一条中止未完成分段上传的
 生命周期规则，因为控制面在大文件上传中途停止时，已上传的分段会留在桶里。PostgreSQL 记录了
@@ -396,7 +400,7 @@ kubectl -n ankole exec statefulset/ankole-postgresql -- \
 | `worker.storage` | 空 | 空值使用共享 PVC；`claimTemplate` 使用独享 PVC |
 | `worker.agents.persistence` | RWX、`100Gi` | 保留的共享 Agent Home PVC |
 | `worker.idleReleaseAfter` | `15m` | 默认种子的空闲回收策略 |
-| `files.store` | `fs` | 云盘文件存储：`fs`（只允许一个控制面副本）或 `s3` |
+| `files.store` | `fs` | 云盘存储：`fs`（一个副本）、`s3`、`azblob`、`d1`、`cos`、`postgresql`、`oss`、`tos`、`gcs`、`sftp` 或 `webdav` |
 | `files.persistence.size` | `100Gi` | `fs` 文件存储 PVC 的容量 |
 | `files.s3.bucket`、`files.s3.region` | 空 | `s3` 的桶和区域 |
 | `files.s3.endpoint` | 空 | Cloudflare R2 等 S3 兼容存储的端点 |
@@ -451,7 +455,7 @@ Worker Pod 不接受任何连接，只能访问控制面、DNS 和公网地址�
 实例元数据 hop limit 设为 1。
 
 `files.store=fs` 只允许一个副本，副本数更多时 Chart 会拒绝渲染；需要多个副本时，
-请使用 `files.store=s3`。
+请使用共享远程存储后端。
 
 在控制面单例进程（定时任务触发、聊天适配器连接、调度器状态加载）经验证可以安全
 运行在多个节点上之前，请把 `controlPlane.replicaCount` 保持为 1。

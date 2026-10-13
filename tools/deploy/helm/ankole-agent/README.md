@@ -403,7 +403,13 @@ database at the volume root. When you upgrade such an installation, set
 database.
 
 The control plane keeps Agent drives in the file store that `files.store`
-selects. With `fs`, the chart creates a `ReadWriteOnce` PVC, mounts it at
+selects: `fs`, `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`,
+`sftp`, or `webdav`. For remote backends other than S3, set the documented
+`ANKOLE_FILES_*` variables in `controlPlane.extraEnv` and credential variables
+in `secrets.existingSecret`. Both the release and its migration container load
+that Secret into their environment. See the
+[drive storage guide](../../../../app/website/src/content/docs/drive-storage/en-US.md).
+With `fs`, the chart creates a `ReadWriteOnce` PVC, mounts it at
 `/var/lib/ankole/files`, and keeps it on `helm uninstall`; the Pod's `fsGroup`
 makes it writable. With `s3`, the drives are in the bucket; give the bucket a
 lifecycle rule that aborts incomplete multipart uploads, because a control
@@ -458,7 +464,7 @@ kubectl -n ankole exec statefulset/ankole-postgresql -- \
 | `worker.storage` | empty | Empty selects the shared claim; `claimTemplate` selects an exclusive PVC |
 | `worker.agents.persistence` | RWX, `100Gi` | Retained shared Agent Home claim |
 | `worker.idleReleaseAfter` | `15m` | Idle release policy of the generated provider |
-| `files.store` | `fs` | Drive file store: `fs` (one control-plane replica) or `s3` |
+| `files.store` | `fs` | Drive file store: `fs` (one replica), `s3`, `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, or `webdav` |
 | `files.persistence.size` | `100Gi` | Size of the `fs` file store PVC |
 | `files.s3.bucket`, `files.s3.region` | empty | Bucket and region for `s3` |
 | `files.s3.endpoint` | empty | Endpoint of an S3-compatible store such as Cloudflare R2 |
@@ -520,7 +526,7 @@ private ranges and the node metadata address). Also set the instance metadata
 hop limit of the nodes to 1.
 
 `files.store=fs` allows one replica, and the chart refuses to render more; use
-`files.store=s3` for more than one.
+a shared remote backend for more than one.
 
 Keep `controlPlane.replicaCount` at 1 until the control-plane singleton
 processes (schedule firing, chat adapter connections, scheduler hydration) are

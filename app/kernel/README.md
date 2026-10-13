@@ -19,9 +19,10 @@ The current surface is:
   and error normalization, the terminal for each Provider call, downstream
   JSON text chunk encoding, demand credit,
   cancellation, and timeouts.
-- `object_store/` - file-service storage through OpenDAL over a local directory
-  or an S3-compatible bucket, with bounded retries and per-call timeouts.
-  Large objects move through local files; writes use 8 MiB parts.
+- `object_store/` - file-service storage through OpenDAL over local files,
+  S3, Azure Blob, D1, COS, PostgreSQL, OSS, TOS, GCS, SFTP, or WebDAV, with
+  bounded retries and per-call timeouts. Large objects move through local
+  files; writes use 8 MiB chunks. Some backends buffer the complete object.
 - `program_runner/` - one-shot AIGateway Programmatic Tool Calling execution
   in a `deno_core` isolate.
 - `brain_markdoc/` - analysis of Brain bodies over CommonMark.
@@ -67,6 +68,10 @@ production. `src/nif_exports.rs` translates BEAM values and errors, then calls
 the Rust modules. Complex inputs cross as JSON-shaped values (`Torque` in
 Elixir, `serde_json` in Rust); byte payloads stay binary.
 
+CEL NIF calls use a separate 8 MiB native stack on the dirty CPU scheduler
+thread. This covers parsing, evaluation, and program cleanup without changes
+to the BEAM scheduler stack configuration.
+
 UniversalAIClient uses the same aws-lc-rs TLS backend in each environment. Its
 shared reqwest client uses HTTP/1.1. Upstream WebSocket calls use their own
 connection. There is no environment-specific TLS provider, HTTP protocol
@@ -77,4 +82,15 @@ Run the declared kernel checks from the repository root:
 ```bash
 bun run --filter @ankole/kernel lint
 bun run --filter @ankole/kernel test
+```
+
+Run remote object-store checks separately. Provision test storage, then put a
+JSON array of store specs in a local file. The test writes, replaces, and deletes
+objects with unique test keys. It checks transfers larger than 8 MiB except for
+D1, which has a smaller row limit. Do not use a production store.
+
+```bash
+ANKOLE_OBJECT_STORE_TEST_SPECS=/absolute/path/test-stores.json \
+  cargo test --manifest-path app/kernel/Cargo.toml --no-default-features \
+  --features object_store configured_remote_stores -- --ignored --nocapture
 ```

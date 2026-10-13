@@ -185,7 +185,7 @@
       "properties": {
         "store": {
           "type": "string",
-          "enum": ["fs", "s3"]
+          "enum": ["fs", "s3", "azblob", "d1", "cos", "postgresql", "oss", "tos", "gcs", "sftp", "webdav"]
         },
         "importAgentHomeClaim": {
           "type": "string"

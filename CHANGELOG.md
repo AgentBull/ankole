@@ -1,6 +1,19 @@
 # Changelog
 
-## Version 2.0.0-alpha.2 (2026-10-12)
+## Version 2.0.0-alpha.2 (2026-10-14)
+
+- Add Agent drive storage through Azure Blob, D1, COS, PostgreSQL, OSS, TOS,
+  GCS, SFTP, and WebDAV. Configure the backend at control-plane startup. D1
+  and PostgreSQL need an existing storage table; D1 retains its row size limit.
+- Upgrade bundled Codex to 0.162.1, MCPorter to 0.14.3, and OfficeCLI to 1.0.157.
+  Update the Codex app-server protocol declarations to match the bundled version.
+- Use official overseas PostgreSQL repositories for the database image. Install
+  the pgvector package without its optional LLVM JIT package.
+- Run CEL parsing and evaluation on a larger native stack at the NIF boundary.
+  Complex filters no longer exhaust the BEAM dirty CPU scheduler stack.
+- Remove the Worker read-tool import cycle and unused AIGateway fetch code.
+- Use a local model catalog in the image validation test and remove unused
+  fixture providers after file concurrency tests.
 
 - Preserve scheduled replies when a model ends with nonempty ordinary text.
   Silent success still requires the permitted termination tool. Keep legacy

@@ -197,7 +197,7 @@ test file. `bun run test:docker` runs the unit suite in Docker.
 
 Run `bun run test:integration` for host integration tests. They use local
 protocol fixtures and real Codex, MCPorter, `apply_patch`, and shell processes.
-The host needs Codex 0.158.0, MCPorter 0.14.1 running with Bun, native
+The host needs Codex 0.162.1, MCPorter 0.14.3 running with Bun, native
 `apply_patch`, and GNU `stat` (`gstat` on macOS). `ANKOLE_CODEX_BINARY` can select
 a local Codex binary. The command sets `TMPDIR=/tmp` to keep socket paths short.
 

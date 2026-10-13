@@ -8,6 +8,9 @@ Included extensions:
 - `vector`
 - `pg_trgm` (PostgreSQL contrib, present in the base image)
 
+PostgreSQL packages use the official `download.postgresql.org` repositories.
+The image installs `pgvector_18` without the optional LLVM JIT package.
+
 `pg_search` must be present in `shared_preload_libraries` when PostgreSQL
 starts. The image's default command enables it; preserve that setting if you
 override `command` or `postgresql.conf`. Adding the setting to a running server

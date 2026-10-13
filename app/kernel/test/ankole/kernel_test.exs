@@ -444,19 +444,42 @@ defmodule Ankole.KernelTest do
     assert turn_start.turn.attempt == 1
     assert turn_start.turn.actor_event_id == turn_start.actor_event.actor_event_id
 
-    request = golden_dir |> Path.join("rpc_read_tool_request.v9.bin") |> File.read!() |> V1.Envelope.decode!()
-    assert {:rpc_request, %V1.RPCRequest{request_id: "golden-rpc-read-tool-1", method: "tools.read"} = frame} = request.body
-    assert %V1.ReadToolRequest{name: "skill_view", arguments_json: args} = V1.ReadToolRequest.decode!(frame.payload)
-    assert Torque.decode!(args) == %{"name" => "pdf"}
-    response = golden_dir |> Path.join("rpc_read_tool_response.v9.bin") |> File.read!() |> V1.Envelope.decode!()
-    assert {:rpc_response, %V1.RPCResponse{request_id: "golden-rpc-read-tool-1"} = frame} = response.body
-    assert %V1.JSONPassthroughResponse{body_json: body} = V1.JSONPassthroughResponse.decode!(frame.payload)
-    assert Torque.decode!(body) == %{"output" => "Prefer page-by-page verification.", "details" => %{"name" => "pdf"}}
+    request =
+      golden_dir
+      |> Path.join("rpc_read_tool_request.v9.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
 
+    assert {:rpc_request,
+            %V1.RPCRequest{request_id: "golden-rpc-read-tool-1", method: "tools.read"} = frame} =
+             request.body
+
+    assert %V1.ReadToolRequest{name: "skill_view", arguments_json: args} =
+             V1.ReadToolRequest.decode!(frame.payload)
+
+    assert Torque.decode!(args) == %{"name" => "pdf"}
+
+    response =
+      golden_dir
+      |> Path.join("rpc_read_tool_response.v9.bin")
+      |> File.read!()
+      |> V1.Envelope.decode!()
+
+    assert {:rpc_response, %V1.RPCResponse{request_id: "golden-rpc-read-tool-1"} = frame} =
+             response.body
+
+    assert %V1.JSONPassthroughResponse{body_json: body} =
+             V1.JSONPassthroughResponse.decode!(frame.payload)
+
+    assert Torque.decode!(body) == %{
+             "output" => "Prefer page-by-page verification.",
+             "details" => %{"name" => "pdf"}
+           }
   end
 
   test "authz helpers evaluate snapshots without host database access" do
     assert NativeKernel.authz_validate_condition(~s(principal.type == "human"))
+    assert NativeKernel.authz_validate_condition("[1, 2, 3].all(n, n > 0)")
     assert NativeKernel.authz_validate_resource_pattern("workspace:**")
     assert NativeKernel.authz_match_resource_pattern("workspace:**", "workspace:default")
 
@@ -475,7 +498,7 @@ defmodule Ankole.KernelTest do
             principalUID: "alice",
             resourcePattern: "workspace:**",
             action: "read",
-            condition: ~s(context.request.source == "test")
+            condition: ~s|context.request.source == "test" && [1, 2, 3].all(n, n > 0)|
           }
         ],
         resource: "workspace:default",
@@ -1096,9 +1119,14 @@ defmodule Ankole.KernelTest do
 
     run = %V1.RunRef{actor: %V1.ActorKey{session_id: "job:1000"}, actor_event_id: "input-1"}
 
-    response = %V1.JSONPassthroughResponse{body_json: Torque.encode!(%{
-      "output" => "Prefer page-by-page verification.", "details" => %{"name" => "pdf"}
-    })}
+    response = %V1.JSONPassthroughResponse{
+      body_json:
+        Torque.encode!(%{
+          "output" => "Prefer page-by-page verification.",
+          "details" => %{"name" => "pdf"}
+        })
+    }
+
     {response_bytes, _size} = V1.JSONPassthroughResponse.encode!(response)
 
     [
