@@ -15,7 +15,7 @@ RUN set -eu; \
         postgresql18-libs \
         postgresql18-contrib \
         "https://github.com/paradedb/paradedb/releases/download/v0.25.11/pg_search_18-0.25.11-1PARADEDB.el9.$(rpm --eval '%{_arch}').rpm" \
-        pgvector_18* \
+        pgvector_18 \
         nss_wrapper; then \
       break; \
     fi; \

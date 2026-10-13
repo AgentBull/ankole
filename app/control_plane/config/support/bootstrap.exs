@@ -8,6 +8,54 @@ defmodule Ankole.Config.Bootstrap do
 
   @phoenix_secret_key_base "phoenix.secret_key_base"
 
+  @files_store_fields %{
+    "fs" => {~w(root)a, []},
+    "s3" => {~w(bucket region)a, ~w(endpoint root access_key_id secret_access_key)a},
+    "azblob" => {~w(container endpoint)a, ~w(root account_name account_key sas_token)a},
+    "d1" => {~w(account_id database_id token table key_field value_field)a, ~w(root)a},
+    "cos" => {~w(bucket endpoint)a, ~w(root secret_id secret_key security_token)a},
+    "postgresql" => {~w(connection_string table key_field value_field)a, ~w(root)a},
+    "oss" => {~w(bucket endpoint)a, ~w(root access_key_id access_key_secret security_token)a},
+    "tos" =>
+      {~w(bucket endpoint region)a, ~w(root access_key_id secret_access_key security_token)a},
+    "gcs" => {~w(bucket)a, ~w(root endpoint credential credential_path)a},
+    "sftp" => {~w(endpoint)a, ~w(root user key known_hosts_strategy)a},
+    "webdav" => {~w(endpoint)a, ~w(root username password token)a}
+  }
+
+  @doc "Builds the file-service store spec from its bootstrap environment."
+  def files_store_spec do
+    case env_string("ANKOLE_FILES_STORE") do
+      nil ->
+        nil
+
+      scheme ->
+        case Map.fetch(@files_store_fields, scheme) do
+          {:ok, {required, optional}} ->
+            files_store_fields(scheme, required, optional)
+
+          :error ->
+            supported = @files_store_fields |> Map.keys() |> Enum.sort() |> Enum.join(", ")
+            raise "invalid ANKOLE_FILES_STORE=#{inspect(scheme)}; expected one of #{supported}"
+        end
+    end
+  end
+
+  defp files_store_fields(scheme, required, optional) do
+    Enum.reduce(required ++ optional, %{scheme: scheme}, fn field, spec ->
+      name = "ANKOLE_FILES_#{String.upcase(scheme)}_#{field |> to_string() |> String.upcase()}"
+
+      case env_string(name) do
+        value when is_binary(value) and value != "" ->
+          Map.put(spec, field, value)
+
+        _missing ->
+          if field in required, do: raise("#{name} is required for ANKOLE_FILES_STORE=#{scheme}")
+          spec
+      end
+    end)
+  end
+
   @doc """
   Loads Ankole dotenv files for the given Mix environment.
 

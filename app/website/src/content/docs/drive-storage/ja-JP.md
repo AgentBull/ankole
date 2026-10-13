@@ -1,11 +1,11 @@
 ---
 title: control plane ドライブのストレージ設定
-description: OpenDAL ベースの Agent ドライブにローカルフォルダー、AWS S3、S3 互換サービスを設定し、移行とバックアップを行います。
+description: OpenDAL ベースの Agent ドライブにローカルファイル、クラウドバケット、データベース、SFTP、WebDAV を設定し、移行とバックアップを行います。
 section: Guides
 order: 318
 ---
 
-Agent ドライブは control plane が管理し、Worker 停止中も利用できます。PostgreSQL はパス、権限、内容参照を保存し、OpenDAL はファイルのバイトを保存します。現在 Ankole が公開する backend は `fs` と `s3` のみです。OpenDAL の他サービスをそのまま設定できるわけではありません。
+Agent ドライブは control plane が管理し、Worker 停止中も利用できます。PostgreSQL はパス、権限、内容参照を保存し、OpenDAL はファイルのバイトを保存します。Ankole は `fs`、`s3`、`azblob`、`d1`、`cos`、`postgresql`、`oss`、`tos`、`gcs`、`sftp`、`webdav` に対応します。
 
 これはサイトの起動設定で、全 tenant が同じ object store を使います。WorkerProvider の Home、キャッシュ、Cloudflare R2 バックアップは別設定です。[WorkerProvider](../worker-providers/)と[ファイル管理](../file-management/)を参照してください。
 
@@ -18,15 +18,15 @@ Agent ドライブは control plane が管理し、Worker 停止中も利用で�
 | Cloudflare R2 | `s3` | S3 API endpoint、region `auto`、R2 認証情報 |
 | 他の S3 互換サービス | `s3` | endpoint、署名 region、認証情報と互換性検証 |
 
-複数 control plane レプリカでは `s3` を使い、バケットと prefix を一致させます。公式 Helm は `files.store: fs` で 2 レプリカ以上を拒否します。S3 ドライブは個別 WorkerProvider のレプリカ制約を解除しません。
+複数 control plane レプリカでは共有リモートストレージを使い、backend の場所と root を一致させます。公式 Helm は `files.store: fs` で 2 レプリカ以上を拒否します。S3 ドライブは個別 WorkerProvider のレプリカ制約を解除しません。
 
-現行のデプロイガイドは、定期発火、チャット接続、scheduler 復元などの singleton が複数ノードで検証されるまで `controlPlane.replicaCount: 1` を要求します。S3 は共有ストレージの前提であり、複数レプリカの検証完了を意味しません。[レプリカの説明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)を参照してください。
+現行のデプロイガイドは、定期発火、チャット接続、scheduler 復元などの singleton が複数ノードで検証されるまで `controlPlane.replicaCount: 1` を要求します。複数レプリカには共有リモートストレージが必要です。デプロイ全体の複数レプリカ検証も必要です。[レプリカの説明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md#control-plane-replicas)を参照してください。
 
 ## 環境変数
 
 | 変数 | backend | 要件 |
 | --- | --- | --- |
-| `ANKOLE_FILES_STORE` | 全て | 本番必須。`fs` または `s3` |
+| `ANKOLE_FILES_STORE` | 全て | 本番必須。対応する backend を選択 |
 | `ANKOLE_FILES_FS_ROOT` | `fs` | control plane 内の書き込み可能な絶対パス |
 | `ANKOLE_FILES_S3_BUCKET` | `s3` | 作成済みバケットの名前 |
 | `ANKOLE_FILES_S3_REGION` | `s3` | 必須。AWS はバケットの region、R2 は `auto` |
@@ -36,6 +36,30 @@ Agent ドライブは control plane が管理し、Worker 停止中も利用で�
 | `ANKOLE_FILES_S3_SECRET_ACCESS_KEY` | `s3` | 任意の固定認証情報。前の項目と同時に設定 |
 
 固定認証情報がなければ、設定済み EKS Pod Identity を含む既定 AWS credential chain を使います。認証情報は control plane だけに提供します。Worker は RuntimeFabric 経由で自分のドライブを使い、バケットの鍵は不要です。設定変更後は control plane を再起動します。他の OpenDAL パラメータを Ankole 環境変数として追加しないでください。
+
+## その他の OpenDAL backend
+
+環境変数は `ANKOLE_FILES_<SCHEME>_<FIELD>` で、backend 名とフィールド名は大文字です。Azure Blob は `ANKOLE_FILES_STORE=azblob`、`ANKOLE_FILES_AZBLOB_CONTAINER`、`ANKOLE_FILES_AZBLOB_ENDPOINT` を使います。以下は Ankole が公開する全フィールドです。必須値が欠ける、または空の場合は起動に失敗します。
+
+| backend | 必須フィールド | 任意フィールド |
+| --- | --- | --- |
+| `azblob` | `CONTAINER`, `ENDPOINT` | `ROOT`, `ACCOUNT_NAME`, `ACCOUNT_KEY`, `SAS_TOKEN` |
+| `d1` | `ACCOUNT_ID`, `DATABASE_ID`, `TOKEN`, `TABLE`, `KEY_FIELD`, `VALUE_FIELD` | `ROOT` |
+| `cos` | `BUCKET`, `ENDPOINT` | `ROOT`, `SECRET_ID`, `SECRET_KEY`, `SECURITY_TOKEN` |
+| `postgresql` | `CONNECTION_STRING`, `TABLE`, `KEY_FIELD`, `VALUE_FIELD` | `ROOT` |
+| `oss` | `BUCKET`, `ENDPOINT` | `ROOT`, `ACCESS_KEY_ID`, `ACCESS_KEY_SECRET`, `SECURITY_TOKEN` |
+| `tos` | `BUCKET`, `ENDPOINT`, `REGION` | `ROOT`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, `SECURITY_TOKEN` |
+| `gcs` | `BUCKET` | `ROOT`, `ENDPOINT`, `CREDENTIAL`, `CREDENTIAL_PATH` |
+| `sftp` | `ENDPOINT` | `ROOT`, `USER`, `KEY`, `KNOWN_HOSTS_STRATEGY` |
+| `webdav` | `ENDPOINT` | `ROOT`, `USERNAME`, `PASSWORD`, `TOKEN` |
+
+認証情報は control plane の Secret に保存します。GCS の `CREDENTIAL` は Base64 エンコードした認証 JSON、`CREDENTIAL_PATH` は元の JSON ファイルのパスです。明示的な認証情報がなければ上流の Google credential chain を使います。SFTP は control plane image の `ssh` を使い、`KEY` は秘密鍵ファイルのパスです。ホスト検証は既定で `strict` なので、control plane ユーザーの `~/.ssh/known_hosts` を用意します。WebDAV は Basic 認証または bearer `TOKEN` に対応します。
+
+D1 と PostgreSQL は作成済みテーブルが必要です。D1 は `TEXT` 主キーと `BLOB` 値、PostgreSQL は `TEXT` 主キーと `BYTEA` 値を使い、`TABLE`、`KEY_FIELD`、`VALUE_FIELD` で指定します。Ankole はテーブルを作成しません。D1、PostgreSQL、WebDAV は native backend 内でオブジェクト全体をバッファーします。D1 の[文字列、BLOB、行の上限は 2,000,000 バイト](https://developers.cloudflare.com/d1/platform/limits/)で、Ankole は行をまたいで分割しません。大きなファイルにはバケット backend を使います。
+
+SFTP はオブジェクトと同じディレクトリの一時ファイルに書き、閉じた後で rename します。サーバーは OpenSSH `posix-rename` などの原子的な置換に対応する必要があります。control plane が途中で停止すると `blobs/<digest>.<uuid>.tmp` が残ることがあります。全 writer を停止した保守時間に削除します。
+
+Helm は `files.store` で backend を選び、通常変数は `controlPlane.extraEnv`、認証変数は `secrets.existingSecret` に設定します。Chart はこの Secret を control plane と migration の環境に読み込みます。同じ Secret のファイルは control plane の `/etc/ankole/bootstrap` に読み取り専用でマウントします。SSH 鍵の権限と `known_hosts` は uid 10001 用に設定します。Compose は以下の override と同じ方法で、選んだ backend の変数を両サービスに渡します。デプロイ前に読み書き、置換、削除、大きなファイルの転送を検証します。
 
 ## ローカルフォルダーと永続 volume
 
@@ -114,7 +138,7 @@ ANKOLE_FILES_S3_SECRET_ACCESS_KEY=YOUR_R2_SECRET_ACCESS_KEY
 
 R2 S3 API 認証情報とアカウントの S3 API endpoint を使います。公開バケットの domain や Worker URL ではありません。region `auto` と操作互換性は [R2 S3 API](https://developers.cloudflare.com/r2/api/s3/api/)を参照してください。Helm は `files.s3.endpoint`、`files.s3.region`、`files.s3.root` を使います。
 
-MinIO 等も `s3` に実際の endpoint と署名 region を設定します。S3 互換の表明だけでは検証になりません。読み書き、削除、multipart upload、大きなファイルの転送を確認してください。任意 OpenDAL backend、virtual-host addressing、独自署名の設定は公開していません。上流の [S3 backend](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html)も参照できます。
+MinIO 等も `s3` に実際の endpoint と署名 region を設定します。S3 互換の表明だけでは検証になりません。読み書き、削除、multipart upload、大きなファイルの転送を確認してください。公開する backend と起動設定はこのページの表を参照してください。S3 virtual-host addressing と独自署名設定は公開していません。上流の [S3 backend](https://opendal.apache.org/docs/rust/opendal/services/struct.S3.html)も参照できます。
 
 ## Compose で S3 を使う
 

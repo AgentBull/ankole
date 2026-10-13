@@ -3,7 +3,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
   use Ankole.DataCase, async: true
 
   import Ankole.PrincipalsFixtures
-  import Ankole.AIGatewayCase, only: [start_response_run: 1]
+  import Ankole.AIGatewayCase, only: [start_response_run: 1, start_upstream_server: 1]
 
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Artifacts.Image
@@ -526,10 +526,32 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
     agent = agent_fixture()
     provider_id = "openrouter-image-validation-#{System.unique_integer([:positive])}"
 
+    base_url =
+      start_upstream_server(fn
+        %{method: :get, request_path: "/images/models"} ->
+          {:json, 200, %{"data" => [%{"id" => "openai/gpt-image-2"}]}}
+
+        %{method: :get, request_path: "/images/models/openai/gpt-image-2/endpoints"} ->
+          {:json, 200,
+           %{
+             "endpoints" => [
+               %{
+                 "provider_slug" => "openai",
+                 "provider_tag" => "openai/gpt-image-2:openai",
+                 "supports_streaming" => true,
+                 "supported_parameters" => %{
+                   "input_references" => %{"type" => "range", "min" => 0, "max" => 16}
+                 }
+               }
+             ]
+           }}
+      end)
+
     assert {:ok, _provider} =
              ProviderConfigs.create_provider(%{
                provider_id: provider_id,
                provider_kind: "openrouter",
+               base_url: base_url,
                credential_pool: %{
                  "entries" => [%{"label" => "Validation", "api_key" => "sk-validation"}]
                }

@@ -13,6 +13,10 @@ defmodule Ankole.Kernel.ObjectStore do
     * `%{scheme: "fs", root: path}`
     * `%{scheme: "s3", bucket: name, region: region}` with the optional keys
       `endpoint`, `root`, `access_key_id`, and `secret_access_key`
+    * `azblob`, `d1`, `cos`, `postgresql`, `oss`, `tos`, `gcs`, `sftp`, and
+      `webdav`, with the matching OpenDAL service configuration fields.
+      The control plane exposes their bootstrap variables in
+      `docs/design-docs/Files.md`.
 
   Errors are maps with the string keys `"code"` and `"message"`. A missing
   object has the code `"not_found"`.

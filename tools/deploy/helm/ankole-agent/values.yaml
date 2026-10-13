@@ -73,9 +73,9 @@ controlPlane:
   affinity: {}
 
 # Bytes of Agent drives and attachments. `fs` keeps them on a ReadWriteOnce
-# volume of the control plane and allows one control-plane replica. `s3`
-# uses Amazon S3 or an S3-compatible store such as Cloudflare R2 and allows
-# any replica count.
+# volume of the control plane and allows one control-plane replica. Remote
+# backends use shared storage. Set their ANKOLE_FILES_* settings through
+# controlPlane.extraEnv and secrets.existingSecret; see the drive storage guide.
 files:
   store: fs
   # Name of the shared Agent Home claim of a release before per-Agent

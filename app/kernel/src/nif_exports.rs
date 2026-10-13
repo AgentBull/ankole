@@ -158,11 +158,18 @@ pub fn program_cancel_nif(run_id: Term<'_>) -> NIFResult<bool> {
     crate::program_runner::cancel(&run_id).map_err(error_message)
 }
 
+// CEL's recursive parser needs more stack than BEAM's default dirty CPU stack.
+// Keep compilation, evaluation, and program cleanup on this stack on the same
+// scheduler thread. Host-neutral callers retain their own stack policy.
+fn with_cel_stack<R>(call: impl FnOnce() -> R) -> R {
+    stacker::grow(8 * 1024 * 1024, call)
+}
+
 /// Authorizes one exact action on one concrete resource from an encoded snapshot.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn authz_authorize_nif(snapshot: Term<'_>) -> NIFResult<String> {
     let snapshot = decode_json(snapshot, "snapshot")?;
-    let decision = authz::authorize_value(snapshot).map_err(error)?;
+    let decision = with_cel_stack(|| authz::authorize_value(snapshot)).map_err(error)?;
 
     encode_json(decision)
 }
@@ -171,7 +178,7 @@ pub fn authz_authorize_nif(snapshot: Term<'_>) -> NIFResult<String> {
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn authz_authorize_all_nif(snapshot: Term<'_>) -> NIFResult<String> {
     let snapshot = decode_json(snapshot, "snapshot")?;
-    let decision = authz::authorize_all_value(snapshot).map_err(error)?;
+    let decision = with_cel_stack(|| authz::authorize_all_value(snapshot)).map_err(error)?;
 
     encode_json(decision)
 }
@@ -181,7 +188,7 @@ pub fn authz_authorize_all_nif(snapshot: Term<'_>) -> NIFResult<String> {
 pub fn authz_validate_condition(condition: Term<'_>) -> NIFResult<bool> {
     let condition = decode_string(condition, "condition")?;
 
-    authz::validate_condition_source(&condition)
+    with_cel_stack(|| authz::validate_condition_source(&condition))
         .map(|_| true)
         .map_err(error)
 }
@@ -191,7 +198,7 @@ pub fn authz_validate_condition(condition: Term<'_>) -> NIFResult<bool> {
 pub fn signals_gateway_validate_filter(filter_source: Term<'_>) -> NIFResult<bool> {
     let filter_source = decode_string(filter_source, "filter_source")?;
 
-    signals_gateway::validate_filter_source(&filter_source)
+    with_cel_stack(|| signals_gateway::validate_filter_source(&filter_source))
         .map(|_| true)
         .map_err(error)
 }
@@ -205,7 +212,7 @@ pub fn signals_gateway_filter_match_nif(
     let filter_source = decode_string(filter_source, "filter_source")?;
     let context = decode_json(context, "context")?;
 
-    signals_gateway::evaluate_filter(&filter_source, context).map_err(error)
+    with_cel_stack(|| signals_gateway::evaluate_filter(&filter_source, context)).map_err(error)
 }
 
 /// Returns whether a resource pattern is valid.

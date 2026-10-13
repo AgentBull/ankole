@@ -179,45 +179,14 @@ end
 # File-service bytes (attachments and drive files). Tests keep
 # the per-partition directory from config/test.exs.
 if config_env() != :test do
-  files_store_spec =
-    case Ankole.Config.Bootstrap.env_string("ANKOLE_FILES_STORE") do
-      nil ->
-        nil
-
-      "fs" ->
-        %{scheme: "fs", root: Ankole.Config.Bootstrap.env!("ANKOLE_FILES_FS_ROOT")}
-
-      "s3" ->
-        %{
-          scheme: "s3",
-          bucket: Ankole.Config.Bootstrap.env!("ANKOLE_FILES_S3_BUCKET"),
-          region: Ankole.Config.Bootstrap.env!("ANKOLE_FILES_S3_REGION")
-        }
-        |> then(fn spec ->
-          [
-            endpoint: "ANKOLE_FILES_S3_ENDPOINT",
-            root: "ANKOLE_FILES_S3_ROOT",
-            access_key_id: "ANKOLE_FILES_S3_ACCESS_KEY_ID",
-            secret_access_key: "ANKOLE_FILES_S3_SECRET_ACCESS_KEY"
-          ]
-          |> Enum.reduce(spec, fn {key, name}, spec ->
-            case Ankole.Config.Bootstrap.env_string(name) do
-              value when is_binary(value) and value != "" -> Map.put(spec, key, value)
-              _missing -> spec
-            end
-          end)
-        end)
-
-      other ->
-        raise "invalid ANKOLE_FILES_STORE=#{inspect(other)}; expected fs or s3"
-    end
+  files_store_spec = Ankole.Config.Bootstrap.files_store_spec()
 
   cond do
     files_store_spec ->
       config :ankole, Ankole.ObjectStore, spec: files_store_spec
 
     config_env() == :prod ->
-      raise "ANKOLE_FILES_STORE is required: set it to fs or s3"
+      raise "ANKOLE_FILES_STORE is required; see docs/design-docs/Files.md for supported backends"
 
     true ->
       :ok

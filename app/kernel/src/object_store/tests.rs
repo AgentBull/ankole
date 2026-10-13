@@ -251,7 +251,7 @@ fn write_from_file_reports_a_missing_local_file() {
 
 #[test]
 fn open_rejects_invalid_specs() {
-    let unknown = open(r#"{"scheme":"oss","bucket":"b"}"#)
+    let unknown = open(r#"{"scheme":"unknown","bucket":"b"}"#)
         .err()
         .expect("unknown scheme");
     assert_eq!(unknown.code, "invalid_spec");
@@ -282,4 +282,114 @@ fn open_accepts_an_s3_compatible_spec_without_network_io() {
     .to_string();
 
     assert!(open(&spec).is_ok());
+}
+
+#[test]
+fn open_accepts_requested_remote_backends_without_network_io() {
+    let specs = [
+        serde_json::json!({"scheme": "azblob", "container": "files", "endpoint": "https://example.blob.core.windows.net", "account_name": "example", "account_key": "a2V5"}),
+        serde_json::json!({"scheme": "d1", "account_id": "account", "database_id": "database", "token": "token", "table": "objects", "key_field": "key", "value_field": "value"}),
+        serde_json::json!({"scheme": "cos", "bucket": "files-123", "endpoint": "https://cos.ap-singapore.myqcloud.com", "secret_id": "id", "secret_key": "key"}),
+        serde_json::json!({"scheme": "postgresql", "connection_string": "postgresql://user:password@127.0.0.1:1/objects", "table": "objects", "key_field": "key", "value_field": "value"}),
+        serde_json::json!({"scheme": "oss", "bucket": "files", "endpoint": "https://oss-ap-southeast-1.aliyuncs.com", "access_key_id": "id", "access_key_secret": "key"}),
+        serde_json::json!({"scheme": "tos", "bucket": "files", "endpoint": "https://tos-ap-southeast-1.volces.com", "region": "ap-southeast-1", "access_key_id": "id", "secret_access_key": "key"}),
+        serde_json::json!({"scheme": "gcs", "bucket": "files"}),
+        serde_json::json!({"scheme": "sftp", "endpoint": "ssh://127.0.0.1:1", "user": "files", "root": "/files", "known_hosts_strategy": "strict"}),
+        serde_json::json!({"scheme": "webdav", "endpoint": "https://example.com/dav", "username": "files", "password": "password"}),
+    ];
+
+    for spec in specs {
+        let scheme = spec["scheme"].as_str().expect("scheme");
+        let store =
+            open(&spec.to_string()).unwrap_or_else(|error| panic!("open {scheme}: {error:?}"));
+        let capability = store.operator.info().capability();
+        assert!(
+            capability.read && capability.write && capability.delete,
+            "{scheme}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires ANKOLE_OBJECT_STORE_TEST_SPECS pointing to provisioned test backends"]
+fn configured_remote_stores_round_trip_and_replace_objects() {
+    let path = std::env::var("ANKOLE_OBJECT_STORE_TEST_SPECS").expect("test spec file path");
+    let specs: Vec<serde_json::Value> =
+        serde_json::from_slice(&std::fs::read(path).expect("read test specs")).expect("test specs");
+    assert!(!specs.is_empty());
+
+    for spec in specs {
+        let scheme = spec["scheme"].as_str().expect("scheme");
+        let store = open(&spec.to_string()).expect("open remote store");
+        let work = temp_root(scheme);
+        let source = work.join("source.bin");
+        let target = work.join("target.bin");
+        let key = format!("blobs/ankole-test-{}", uuid::Uuid::new_v4());
+        // D1 has a per-row size limit; other fixtures exercise multiple chunks.
+        let size = if scheme == "d1" {
+            4096
+        } else {
+            WRITE_CHUNK_BYTES + 12345
+        };
+        let bytes: Vec<u8> = (0..size).map(|index| (index % 251) as u8).collect();
+        std::fs::write(&source, &bytes).expect("write source");
+        assert_eq!(
+            run_operation(
+                &store,
+                Operation::WriteFromFile {
+                    key: key.clone(),
+                    path: source
+                }
+            ),
+            Ok(Seen::Done),
+            "{scheme} write"
+        );
+        assert_eq!(
+            run_operation(
+                &store,
+                Operation::ReadToFile {
+                    key: key.clone(),
+                    path: target.clone()
+                }
+            ),
+            Ok(Seen::Done),
+            "{scheme} read"
+        );
+        assert_eq!(
+            std::fs::read(&target).expect("read target"),
+            bytes,
+            "{scheme} bytes"
+        );
+        for replacement in [b"short \0 binary".to_vec(), Vec::new()] {
+            assert_eq!(
+                run_operation(
+                    &store,
+                    Operation::Write {
+                        key: key.clone(),
+                        bytes: replacement.clone()
+                    }
+                ),
+                Ok(Seen::Done),
+                "{scheme} replace"
+            );
+            assert_eq!(
+                run_operation(&store, Operation::Read { key: key.clone() }),
+                Ok(Seen::Bytes(replacement)),
+                "{scheme} replacement bytes"
+            );
+        }
+        for _ in 0..2 {
+            assert_eq!(
+                run_operation(&store, Operation::Delete { key: key.clone() }),
+                Ok(Seen::Done),
+                "{scheme} delete"
+            );
+        }
+        assert_eq!(
+            run_operation(&store, Operation::Read { key }).map_err(|error| error.code),
+            Err("not_found"),
+            "{scheme} missing"
+        );
+        std::fs::remove_dir_all(work).expect("remove local fixture");
+    }
 }

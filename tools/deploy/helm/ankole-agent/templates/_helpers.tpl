@@ -183,11 +183,11 @@ Reject values that violate deployment contracts.
 {{- if and (not .Values.postgresql.enabled) (not .Values.secrets.existingSecret) (not .Values.secrets.databaseURL) -}}
 {{- fail "set secrets.databaseURL or secrets.existingSecret when postgresql.enabled is false" -}}
 {{- end -}}
-{{- if not (has .Values.files.store (list "fs" "s3")) -}}
-{{- fail "files.store must be fs or s3" -}}
+{{- if not (has .Values.files.store (list "fs" "s3" "azblob" "d1" "cos" "postgresql" "oss" "tos" "gcs" "sftp" "webdav")) -}}
+{{- fail "files.store must be fs, s3, azblob, d1, cos, postgresql, oss, tos, gcs, sftp, or webdav" -}}
 {{- end -}}
 {{- if and (eq .Values.files.store "fs") (gt (int .Values.controlPlane.replicaCount) 1) -}}
-{{- fail "files.store=fs allows one control-plane replica; use files.store=s3 for more" -}}
+{{- fail "files.store=fs allows one control-plane replica; use a shared remote file store for more" -}}
 {{- end -}}
 {{- if and (eq .Values.files.store "s3") (or (not .Values.files.s3.bucket) (not .Values.files.s3.region)) -}}
 {{- fail "files.s3.bucket and files.s3.region are required when files.store is s3" -}}
