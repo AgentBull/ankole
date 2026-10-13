@@ -1,6 +1,6 @@
 # Changelog
 
-## Version 2.1.0-alpha.2 (2026-10-14)
+## Version 2.0.0-alpha.3 (2026-10-14)
 
 - Start Workers when environment tools or Jobs need them. Agent creation and
   pure conversations do not start a Worker.
@@ -15,7 +15,7 @@
   lifecycle and conversation test fixtures, and update verification limits
   and provider setup guidance.
 
-## Version 2.1.0-alpha.1 (2026-10-14)
+## Version 2.0.0-alpha.2 (2026-10-14)
 
 - Add Agent drive storage through Azure Blob, D1, COS, PostgreSQL, OSS, TOS,
   GCS, SFTP, and WebDAV. Configure the backend at control-plane startup. D1
@@ -29,8 +29,6 @@
 - Remove the Worker read-tool import cycle and unused AIGateway fetch code.
 - Use a local model catalog in the image validation test and remove unused
   fixture providers after file concurrency tests.
-
-## Version 2.0.0-alpha.2 (2026-10-12)
 
 - Preserve scheduled replies when a model ends with nonempty ordinary text.
   Silent success still requires the permitted termination tool. Keep legacy
