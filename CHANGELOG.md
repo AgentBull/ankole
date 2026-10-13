@@ -28,6 +28,8 @@
 - Remove the Worker read-tool import cycle and unused AIGateway fetch code.
 - Use a local model catalog in the image validation test and remove unused
   fixture providers after file concurrency tests.
+- Complete image pair verification and release publication when a workflow
+  retry reuses existing images and skips their build jobs.
 
 ## Version 2.0.0-alpha.2 (2026-10-12)
 
