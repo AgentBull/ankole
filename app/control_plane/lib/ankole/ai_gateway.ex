@@ -315,13 +315,18 @@ defmodule Ankole.AIGateway do
   defdelegate response_metadata(response), to: Ankole.AIGateway.ResponseChain
 
   @doc """
-  Reads an active conversation scoped to its owning Principal subject.
+  Reads a conversation scoped to its owning Principal subject.
+  `include_ended: true` permits reading retained history after the conversation ends.
   """
   @spec get_conversation(String.t(), binary()) ::
           {:ok, Ankole.AIGateway.Schemas.Conversation.t()} | {:error, :invalid_conversation}
-  defdelegate get_conversation(subject_uid, conversation_id),
+  defdelegate get_conversation(subject_uid, conversation_id, opts \\ []),
     to: Ankole.AIGateway.ResponseChain,
     as: :get_conversation_for_subject
+
+  @doc "Records caller-supplied tool results in the current transaction."
+  defdelegate record_tool_results_in_tx(repo, subject_uid, request, metadata),
+    to: StatefulLifecycle
 
   @doc false
   defdelegate ensure_conversation_in_tx(repo, subject_uid, conversation_key, metadata \\ %{}),
@@ -357,6 +362,9 @@ defmodule Ankole.AIGateway do
           Ankole.AIGateway.Schemas.Conversation.t()
         ]
   defdelegate list_active_conversations(repo, opts \\ []), to: Conversations
+
+  @doc false
+  defdelegate conversation_exists_by_key?(repo, subject_uid, conversation_key), to: Conversations
 
   @doc false
   defdelegate list_conversation_responses_in_tx(repo, subject_uid, conversation_id, opts \\ []),
@@ -507,8 +515,9 @@ defmodule Ankole.AIGateway do
   @spec read_response_stream(ResponseStream.t(), non_neg_integer()) :: :ok | {:error, term()}
   def read_response_stream(stream, count \\ 1), do: ResponseStream.read(stream, count)
 
-  @doc "Reads the visible Response suffix for one caller-defined run."
-  defdelegate conversation_tail(conversation, actor_event_id), to: Ankole.AIGateway.ResponseChain
+  @doc "Reads the visible complete Response ancestry of an owned model conversation."
+  defdelegate visible_response_chain(subject_uid, conversation_id, opts \\ []),
+    to: Ankole.AIGateway.ResponseChain
 
   @doc false
   @spec cancel_response_stream(ResponseStream.t(), String.t()) :: :ok | {:error, term()}

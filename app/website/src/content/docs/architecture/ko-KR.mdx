@@ -1,6 +1,6 @@
 ---
 title: 아키텍처
-description: Control Plane, Agent Computer Worker, Actor Runtime, Brain, Background Agent Jobs가 Ankole Agent Harness를 구성하는 방식을 설명합니다.
+description: Control Plane, Agent Computer Worker, Sessions, Brain, Background Agent Jobs가 Ankole Agent Harness를 구성하는 방식을 설명합니다.
 section: Developer guide
 order: 100
 ---
@@ -19,13 +19,13 @@ Agent는 몇 시간 동안 작업하고, 공유 Company Brain을 사용하고, �
 
 하나의 private deployment 인스턴스에는 논리적 컨트롤 플레인이 하나 있고, Agent마다 Agent Computer Worker가 한 대씩 있습니다. 컨트롤 플레인은 identity, 상태, 스케줄링을 관리하며 Worker를 만듭니다. 각 Worker는 자신의 Agent가 일하는 컴퓨팅 환경을 제공합니다.
 
-외부 채팅, webhook, 스케줄은 SignalsGateway를 통해 들어옵니다. Identity Provider가 사람과 조직 디렉터리를 제공합니다. AIGateway는 모델, embedding, reranking, 이미지, 웹 capability를 위한 하나의 경계를 제공합니다.
+Workplace와 외부 어댑터는 대화 발언을 기록합니다. Signals는 발언, 외부 이벤트, 시간 자극을 접수하고 Sessions는 해당 작업을 실행합니다. Identity Provider가 사람과 조직 디렉터리를 제공합니다. AIGateway는 모델, embedding, reranking, 이미지, 웹 capability를 위한 하나의 경계를 제공합니다.
 
 ## 컨트롤 플레인과 Agent Computer Worker
 
 ### 컨트롤 플레인은 상태를 저장하고 결정을 내립니다
 
-Elixir/OTP 컨트롤 플레인은 Console, Principal과 접근 권한, 시스템 구성, 신호 라우팅, Actor 세션, Brain, Background Agent Jobs, AIGateway, Control Plane Plugins를 소유합니다.
+Elixir/OTP 컨트롤 플레인은 Console, Principal과 접근 권한, 시스템 구성, 신호 라우팅, 실행 세션, Brain, Background Agent Jobs, AIGateway, Control Plane Plugins를 소유합니다.
 
 이 모든 모듈은 같은 규칙을 사용합니다. 사용자에게 보이는 결과를 바꾸는 상태는 실행이나 외부 전달을 구동하기 전에 PostgreSQL에 기록됩니다.
 
@@ -55,29 +55,39 @@ Agent 생성 시 pool을 선택하거나 site의 기본 pool을 사용합니다.
 
 ## 하나의 메시지가 재개 가능한 작업이 되는 방법
 
-### SignalsGateway가 외부 세계를 받습니다
+### 대화는 참여자의 발언을 저장합니다
 
-채팅 어댑터, webhook, 스케줄은 먼저 외부 이벤트를 공통 신호로 변환합니다. 신호 라우팅 규칙이 응답을 받아야 할 Agent, 세션, channel 또는 thread를 선택합니다.
+대화는 사람과 Agent가 공유하는 공간입니다. `Ankole.Conversations`는 참여자와 메시지를 저장합니다. Workplace는 네이티브 발언을 직접 기록합니다. 어댑터는 외부 대화의 발언을 관찰하며, 내용의 기준은 외부 플랫폼입니다.
 
-그룹 채팅은 Agent를 지칭하는 메시지만 처리하거나, 지칭되지 않은 메시지를 기록하거나, Agent가 개입 시점을 결정하도록 할 수 있습니다. 사용 가능한 모드는 채팅 플랫폼과 신호 라우팅 규칙에 따라 달라집니다.
+대화 발언과 Agent 작업은 서로 다른 기록입니다. 발언은 참여자의 기록입니다. 모델 호출, 도구 결과, 압축은 실행 세션에 대응하는 AIGateway 모델 상태에 속합니다. 실행 세션은 여러 대화를 넘나들지 않으므로 한 대화의 작업이 다른 대화에 들어가지 않습니다.
 
-SignalsGateway는 Agent를 깨우기 전에 수신 메시지와 그 소스를 저장합니다. 또한 어댑터가 응답을 보내기 전에 추적 가능한 전달 상태를 만듭니다.
+### Signals는 모든 자극을 접수합니다
 
-일시적인 provider 실패가 “Ankole이 보내기로 결정한 것”과 “provider가 수락한 것”을 혼동시키지는 못합니다.
+Agent를 지칭한 발언은 signal을 생성합니다. 시간, 외부 이벤트, check-back, 작업 완료도 signal입니다. `Ankole.Signals`는 실행 세션을 깨우기 전에 출처, 출처 이벤트 ID, 대상, 귀속, 권한을 영구 저장합니다.
 
-### 트리거는 Agent를 깨우거나 스크립트를 실행할 수 있습니다
+네이티브 발언과 파생 signal은 같은 트랜잭션에서 커밋됩니다. 접수 시 `(Agent, source, id)`로 중복을 제거합니다. 이후의 모든 동작이 한 번만 실행된다는 보장은 아닙니다.
 
-Cron, Checkback, webhook 엔드포인트는 하나의 시스템 안의 세 가지 트리거입니다. 각 트리거는 기본적으로 Agent 대화를 깨우며, 대신 automation job — Agent가 작성하는 결정적 스크립트 — 을 바인딩할 수도 있습니다. 트리거 이벤트는 동일하게 유지되고 소비자만 바뀝니다.
+signal은 실행 세션을 직접 지정할 수 있습니다. 그렇지 않으면 대화 참여 관계나 Signal Routing Rule이 대상을 선택합니다. 대화 호스트 어댑터는 발언을 관찰하고 응답을 전달합니다. 이벤트 소스 어댑터는 signal만 생성합니다. Automation Job은 기계적인 검사를 수행하고 판단이 필요할 때 부모 실행 세션에 signal을 보냅니다. [Automation Jobs](../automation-jobs/)를 참조하십시오.
 
-스크립트는 기계적인 검사를 조용히 완료하고 모든 실행은 검사 가능한 기록을 남깁니다. 판단이 필요하면 `emitEvent`를 통해 이벤트를 소유 대화로 다시 보내고 Agent가 검증한 뒤 행동합니다. 따라서 모델은 폴링 루프에서 유휴 상태가 되지 않습니다. [Automation Jobs](../automation-jobs/)를 참조하십시오.
+### Sessions는 작업을 실행하고 복구합니다
 
-### Actor Runtime이 장기 실행 세션을 관리합니다
+`Ankole.Sessions`는 큐, Admission, Driver, Run, 도구, 복구를 소유합니다. 하나의 실행 세션은 동시에 하나의 Run을 실행합니다. 실행을 시작할 때마다 Admission이 테넌트, Agent 상태, 권한, 할당량을 확인합니다.
 
-각 활성 세션은 주소 지정 가능한 Virtual Actor입니다. 메일박스, 수명 주기, 복구 위치를 가집니다. 새 메시지와 스케줄이 그것을 깨울 수 있고, 실행 중에 추가 입력, 취소, 인간의 개입을 받을 수 있습니다.
+각 Agent는 대화에서 자신의 실행 세션을 가지며 모든 대화 참여자가 그 작업을 볼 수 있습니다. 지칭된 턴은 요청자의 권한을 사용합니다. 자발적인 개입은 기본적으로 Agent 자신의 권한을 사용합니다. 기존 개입 정책이 특정 사람을 현재 요청자로 판단한 경우에만 그 사람의 권한을 사용합니다.
 
-대화 Driver가 장기 작업을 소유합니다. PostgreSQL epoch가 Driver 쓰기를 보호하고 영구 Response 체인이 완료된 단계를 보존합니다. Worker 결과는 RunRef 또는 JobTurnRef의 작업 식별자로 수락되므로 새 Driver가 진행 중인 작업을 인계받습니다.
+cron 규칙과 백그라운드 작업은 별도의 실행 세션을 가지며 대상 대화에 결과를 발언합니다. 대화의 다음 턴은 새 발언을 읽고 다른 실행 세션의 내부 작업은 가져오지 않습니다.
 
-스트리밍 콘텐츠는 진행 상황입니다. 컨트롤 플레인이 확인하고 저장한 메시지, tool 결과, 상태 전환만이 사실입니다. 이렇게 해서 “인터페이스가 작업 진행 중을 보여준다”와 “작업이 완료되었다”가 분리됩니다.
+AIGateway는 모델 상태를 저장하고 이어 갑니다. 런타임은 입력, 지시, 도구, 이어 가기, 압축을 결정합니다. Driver의 PostgreSQL epoch는 오래된 쓰기를 거부합니다. 복구는 커밋된 진행 상태에서 계속됩니다. 모델 호출은 반복될 수 있고 기록된 도구 결과는 재사용하며, 결과가 불명확한 호출은 중단으로 보고합니다.
+
+### Presentation과 Delivery는 보이는 결과를 커밋합니다
+
+Presentation은 보이는 응답을 한 번만 결정합니다. 네이티브 응답은 완료 트랜잭션에서 발언이 됩니다. silent turn은 발언하지 않습니다. 외부 응답은 영구적인 Delivery 의도를 생성한 다음 어댑터가 보냅니다.
+
+외부 플랫폼이 성공을 확인하면 전달 성공을 기록하는 같은 트랜잭션에서 발언을 저장합니다. 나중에 도착한 동일 메시지 ID의 이벤트는 같은 발언으로 병합됩니다. 실패, 만료, 결과 불명확 상태의 전달은 발언을 만들지 않습니다. 결과가 불명확한 전송을 무조건 다시 보내지 않습니다.
+
+스트리밍 텍스트는 진행 상황이며 발언을 커밋한 뒤에만 대화 기록이 됩니다. 연결이 끊긴 페이지는 커밋된 기록과 실행 상태를 다시 읽고 중간 스트림은 재전송하지 않습니다.
+
+설계 선택, 비용, 소스를 확인한 비교는 [대화, 신호, 실행 세션](../conversations-signals-sessions/)을 참조하십시오.
 
 ## Brain: 현재 상태를 유지하는 세계 모델
 
@@ -85,7 +95,7 @@ Brain은 채팅 발췌문으로 채워진 벡터 데이터베이스가 아닙니
 
 지식은 Agent와의 대화, 대상 그룹에서 누구도 Agent를 지칭하지 않은 메시지, 등록된 파일 또는 URL Source에서 올 수 있습니다.
 
-같은 테넌트의 Agent가 지식 공간을 공유하며 테넌트 간 지식 공간은 분리됩니다. 보호된 본문, Claim, Timeline 이벤트는 `world`, 권한 그룹 또는 하나의 Principal 공개 범위를 가집니다. Source와 Channel은 출처를 기록하지만 학습한 지식에 대한 접근 권한을 부여하지 않습니다.
+같은 테넌트의 Agent가 지식 공간을 공유하며 테넌트 간 지식 공간은 분리됩니다. 보호된 본문, Claim, Timeline 이벤트는 `world`, 권한 그룹 또는 하나의 Principal 공개 범위를 가집니다. Source와 외부 대화는 출처를 기록하지만 학습한 지식에 대한 접근 권한을 부여하지 않습니다.
 
 턴 동안 통합 회상이 현재 작업에 필요한 장기 컨텍스트를 제공합니다. 오프라인 Dreaming은 새 증거를 정리하고, 패턴을 찾고, 이전 예측을 채점하고, 검토가 필요한 충돌을 표시합니다.
 
@@ -117,7 +127,7 @@ Agent model profile이 실행 모델을 선택합니다. 각 테넌트가 선택
 
 Agent와 Worker는 사용할 수 있는 모델 선택과 호출 결과만 받습니다.
 
-AIGateway는 기록을 저장하지 않는 호출과 계속될 수 있는 stateful 대화를 모두 지원합니다. 요청 변환, 스트림 이벤트, tool 결과, 컨텍스트 compaction, 사용량 기록, 최종 결과 커밋을 소유합니다.
+AIGateway는 기록을 저장하지 않는 호출과 이어 갈 수 있는 모델 세션 상태를 모두 지원합니다. 요청 변환, 스트림 이벤트, tool 결과, 컨텍스트 compaction, 사용량 기록, 최종 결과 커밋을 소유합니다.
 
 Worker는 Provider마다 별도의 수명 주기를 구현하지 않습니다.
 

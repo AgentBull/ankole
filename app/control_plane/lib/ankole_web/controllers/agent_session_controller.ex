@@ -8,7 +8,7 @@ defmodule AnkoleWeb.AgentSessionController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
-  alias Ankole.SignalsGateway.ActorRuntime.SessionQueries
+  alias Ankole.Sessions.SessionQueries
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy

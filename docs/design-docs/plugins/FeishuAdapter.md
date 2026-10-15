@@ -4,8 +4,18 @@ The Lark Adapter receives Feishu or Lark messages and sends Agent replies. It
 also imports users and departments. Chat and identity use separate settings,
 and the control plane keeps all provider credentials.
 
-Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
+Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+[Sessions](../Sessions.md), [Principal](../Principal.md), and
 [Plugins](../Plugins.md) for the common message, identity, and Plugin rules.
+
+## Provider and Public Identity
+
+The adapter reports an opaque `provider_conversation_id` and a
+`provider_message_id`. Conversations resolves these to a shared public
+Conversation UUID and Message UUID. All Agent observers of the same provider
+conversation in one tenant read those same public facts. Each participating
+Agent has its own `conversation:<public UUID>` Session; a Binding is its
+observation and delivery route, not the owner of the platform room.
 
 ## Current IDs and Features
 
@@ -14,7 +24,7 @@ Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
 | Plugin ID | `lark-adapter` |
 | API version | `1` |
 | Signal adapter ID | `lark` |
-| Signal configuration | `signals_gateway.lark.binding_configs.<binding-digest>` |
+| Signal configuration | `signals.lark.binding_configs.<binding-digest>` |
 | Identity adapter ID | `lark` |
 | Identity configuration | `principals.identity_providers.lark.<id>` |
 | Provider library | `libs/feishu_openapi` |
@@ -44,7 +54,7 @@ The chat configuration contains these fields:
 | `identityProvider` | References the identity provider that owns the Principal subject namespace; a single provider is adopted by default, several require a choice, `:standalone` keeps the adapter default |
 | `userName` | Sets the outbound display name |
 
-The SignalsGateway binding, not these AppConfigure settings, selects how the
+The Signal Binding, not these AppConfigure settings, selects how the
 Agent handles unaddressed group messages.
 
 Bot identity is not an AppConfigure setting. Each live chat connection resolves
@@ -91,15 +101,15 @@ The local registry cannot make that assignment across nodes.
 ## Receive Messages and Actions
 
 The adapter normalizes messages, recalls, reactions, and card actions, then
-submits them through SignalsGateway ingress. SignalsGateway owns the provider
-mirror and creates ActorEvents.
+submits them through Conversations.Observe. Conversations owns shared Messages
+and external references. Required work enters `Ankole.Signals.accept_in_tx/2`.
 
-The stable channel ID is `lark:<encoded_chat_id>`. The provider message ID is
-the source entry ID. Reply and thread identifiers use provider root IDs when
-they are present.
+The opaque `provider_conversation_id` is `lark:<encoded_chat_id>`. A Message
+keeps its original provider message ID. Reply and thread identifiers use
+provider root IDs when present.
 
 Direct messages give explicit input. A structured mention of the current bot
-makes a group message explicit. SignalsGateway applies the binding policy to
+makes a group message explicit. Conversations applies the binding policy to
 other group messages.
 
 Every Lark identity path selects `external_id` in this order: normalized
@@ -121,7 +131,7 @@ gateway fetches the sender's contact profile once. If the result supplies an
 email, that normalized email becomes the primary external ID and the webhook
 IDs become aliases before admission continues.
 
-An inbound Turn exposes its canonical Signal channel ID in
+An inbound Turn exposes its public Conversation UUID in
 `<agent_environment_info>`. A display name remains a separate optional fact.
 The message webhook does not supply one, so identity admission projects a name
 already synchronized from Contact into the current event. For a group message,
@@ -141,25 +151,26 @@ adapter first submits a durable `pending` observation with the provider
 reference. It does this for every matching chat consumer before the first
 download starts. The adapter then downloads the bytes once and stores them in
 the file service ([Files](../Files.md)). It submits `complete` or `failed` with
-the same source entry ID. A failed download keeps the provider reference without a local
+the same provider message ID. A failed download keeps the provider reference without a local
 file. Rich posts can carry files in a top-level `files` list beside the text
 and image blocks. The adapter submits these files through the same attachment
 download path, using each file's key and name and the containing message ID.
 
-SignalsGateway assigns the attachment's numeric ID before the download. A
-successful download gets the drive path `inbox/<digest>/<filename>`, where
+Conversations assigns the attachment's numeric ID before the download. A
+successful download gets the scoped drive path
+`chats/<public conversation UUID>/inbox/<digest>/<filename>`, where
 `<digest>` is the start of the content SHA-256 and `<filename>` is the provider
 filename. Provider message IDs and file keys remain stored adapter details;
 they do not appear in the drive path.
 
 The pending observation time is the attachment settle anchor. A slow download
-does not move the 1,200 millisecond quiet window. SignalsGateway can wait up to
+does not move the 1,200 millisecond quiet window. Conversations can wait up to
 four seconds for materialization before it releases pending work. If the final
-observation arrives after this limit, SignalsGateway replaces the pending entry
-in the open ActorEvent. It retries a replay-safe started turn, or routes the
+observation arrives after this limit, Conversations replaces the pending entry
+in the open Signal. It retries a replay-safe started turn, or routes the
 attachment to a new turn after an external side effect. A provider redelivery
-with the same content hash is a no-op. It does not create a duplicate ActorEvent
-or postpone an ActorEvent that is already ready.
+with the same content hash is a no-op. It does not create a duplicate Signal
+or postpone a Signal that is already ready.
 
 If a message with a structured mention has no attachment but refers to a recent
 file or image, the adapter can reuse up to three attachments from the same
@@ -170,12 +181,12 @@ not wake the Agent. A card action always wakes the Agent.
 
 ## Send Replies
 
-The adapter sends only operations already stored in the outbox. It can post,
+The adapter sends only operations already stored as Delivery intents. It can post,
 reply, edit, delete, reconcile, change reactions, send dividers, and send cards.
 
 The adapter uploads the attachment bytes, read from the file service by
 `blob_ref`, before it sends image or file messages. Text
-messages use provider UUIDs derived from outbox idempotency keys. Reconciliation
+messages use provider UUIDs derived from intent idempotency keys. Reconciliation
 checks the recorded provider message ID.
 
 A non-image file of at most 30 MiB uses the native IM file endpoint. A larger
@@ -189,7 +200,7 @@ It then grants `view` access to the whole chat with an `openchat` member for a
 group message, or to the sender with an `openid` member for a direct message.
 It reads the provider file URL and sends a localized text message that tells
 the user that the file was uploaded to cloud space because it was too large
-for an IM attachment. The outbox stores the cloud file token, URL, byte size,
+for an IM attachment. The intent stores the cloud file token, URL, byte size,
 and block count after a confirmed message send.
 
 This path requires the application scopes
@@ -204,23 +215,23 @@ error.
 If the content of a referenced attachment is gone, larger than 100 MiB, or
 outside the supported attachment contract, the adapter marks the durable reply
 as requiring operator action with a stable code such as
-`attachment_file_missing`. SignalsGateway blocks that row instead of retrying
+`attachment_file_missing`. Conversations blocks that row instead of retrying
 the same invalid attachment forever. Documented cloud
 permission, quota, and root-capacity errors also require operator action.
 Invalid multipart plans and invalid provider responses are permanent errors.
-Other provider errors retain their normal outbox retry behavior.
+Other provider errors retain their normal intent retry behavior.
 
 The cloud fallback emits
-`lark_adapter.outbox.large_file_upload_started`,
-`lark_adapter.outbox.large_file_upload_completed`, and
-`lark_adapter.outbox.large_file_upload_failed` structured logs. Failed cleanup
-emits `lark_adapter.outbox.large_file_cleanup_failed`. The
+`lark_adapter.intent.large_file_upload_started`,
+`lark_adapter.intent.large_file_upload_completed`, and
+`lark_adapter.intent.large_file_upload_failed` structured logs. Failed cleanup
+emits `lark_adapter.intent.large_file_cleanup_failed`. The
 `[:ankole, :lark_adapter, :large_file_upload]` telemetry event reports native
 duration, file size, and block count. Its metadata reports the outcome, failed
 stage, fallback reason, and recipient member type without file content or an
 access URL.
 
-Outbox rows that stopped on `234006` before this fallback was deployed need one
+Delivery intents that stopped on `234006` before this fallback was deployed need one
 manual retry after the application has the required cloud-space access. The
 retry uses the stored attachment and sends the cloud-space link.
 
@@ -237,7 +248,7 @@ The preview coalesces CardKit changes and starts at most one provider sync for a
 turn each second. The Feishu client handles explicit provider rate-limit
 responses without placing unrelated replies in one shared queue.
 
-The ActorEvent checkpoint is the durable CardKit ledger. It records card IDs,
+The Signal checkpoint is the durable CardKit ledger. It records card IDs,
 message IDs, source pages, the active page, stream state, the last confirmed
 presentation, and the sequence high-water mark. A restarted process renders
 the durable active page as one complete card and replaces the existing message.
@@ -276,7 +287,7 @@ answer prefix, so a growing answer never moves a sealed boundary.
 
 Only the final open card can show temporary thought, progress, or actions.
 Closed cards do not change. If later output would change a closed card, the
-final outbox sends a consistent fallback instead.
+final Delivery sends a consistent fallback instead.
 
 The stream lease is nine minutes. A known closed-stream error reopens the active
 stream. A missing card or an element-topology conflict replaces the active
@@ -286,15 +297,15 @@ active card with a whole-message patch and creates the missing page cards.
 Authentication and permission errors require operator action. A recovery
 refresh that fails with a not-retryable error records a blocked
 `recovery_state` on the checkpoint and stops; an operator update to the
-binding requeues blocked previews together with blocked outbox replies.
-Terminal recovery renders the terminal presentation from the durable outbox,
+binding requeues blocked previews together with blocked intent replies.
+Terminal recovery renders the terminal presentation from the durable intent,
 even when the last confirmed CardKit checkpoint still contains a working
 presentation. If CardKit requires a plain-text fallback during that refresh,
-the preview records a non-retry fallback and stops; the outbox remains the sole
+the preview records a non-retry fallback and stops; the intent remains the sole
 owner of provider-visible terminal delivery.
 
-Preview updates can disappear. The final assistant reply remains in the outbox.
-SignalsGateway records that reply only after the provider confirms it.
+Preview updates can disappear. The final assistant reply remains in its Delivery intent.
+Conversations records that reply only after the provider confirms it.
 
 ## Let a Job Use Lark Tools
 
@@ -402,8 +413,8 @@ an active human administrator.
 
 ## Restart and Recovery
 
-AppConfigure stores encrypted settings. SignalsGateway records messages, Agent
-work, and replies. Principals and AuthZ store people, departments, memberships,
+AppConfigure stores encrypted settings. Conversations records public Messages and Delivery intents. Signals stores
+authorized stimuli; Sessions owns Agent execution and recovery. Principals and AuthZ store people, departments, memberships,
 and grants.
 
 The adapter converts provider events, runs connections, renders CardKit, and
@@ -412,9 +423,9 @@ secret.
 
 A control-plane restart rebuilds long connections. The startup job refreshes
 stored IM groups, and a full directory sync repairs identity drift. CardKit
-checkpoints and outbox rows in PostgreSQL let provider delivery continue. If a
+checkpoints and Delivery intents in PostgreSQL let provider delivery continue. If a
 durable reply succeeded while its preview checkpoint stayed open, startup uses
-the outbox terminal presentation to replace and close the original card.
+the Delivery terminal presentation to replace and close the original card.
 
 ## Tests
 

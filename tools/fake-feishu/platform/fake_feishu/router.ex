@@ -285,8 +285,6 @@ defmodule FakeFeishu.Router do
     send_json(conn, 404, %{"code" => 19_001, "msg" => "fake feishu: no such endpoint"})
   end
 
-  # -- helpers ---------------------------------------------------------------
-
   defp state(conn), do: conn.private.fake_feishu_state
 
   defp authed(conn, fun) do

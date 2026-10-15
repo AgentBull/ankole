@@ -27,7 +27,7 @@ defmodule Ankole.WorkerFilesFake do
   import Plug.Conn, only: [put_req_header: 3]
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
+  alias Ankole.AgentWorkers.WorkerRoute
 
   @endpoint AnkoleWeb.Endpoint
 

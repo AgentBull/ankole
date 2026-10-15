@@ -5,7 +5,7 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
 
   use AnkoleWeb, :controller
 
-  alias Ankole.AIGateway.CodexModelBinding
+  alias Ankole.Sessions.CodexModelBinding
   alias Ankole.AIGateway.RequestContext
   alias Ankole.AIGateway.UniversalAIRequest
 

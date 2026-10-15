@@ -3,8 +3,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
   import Ecto.Query
 
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.BackgroundAgentJobs
@@ -13,7 +12,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Turns
-  alias Ankole.Conversations.JobTurnRef
+  alias Ankole.Sessions.JobTurnRef
 
   @terminal_statuses Job.terminal_statuses()
 
@@ -119,12 +118,6 @@ defmodule Ankole.BackgroundAgentJobs.Control do
         end)
       end
 
-    if not Repo.in_transaction?(),
-      do:
-        Ankole.Conversations.deliver_committed(result, fn value ->
-          [Map.get(value, :wakeup_event)]
-        end)
-
     result
   end
 
@@ -136,7 +129,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   end
 
   @spec send_message(pos_integer(), map()) ::
-          {:ok, %{job: Job.t(), command_event: ActorEvent.t()}}
+          {:ok, %{job: Job.t(), command_event: Signal.t()}}
           | {:error, term()}
   def send_message(job_id, attrs)
       when is_integer(job_id) and job_id > 0 and is_map(attrs) do
@@ -183,14 +176,14 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   @doc false
   @spec handoff_ambient_message_in_tx(
           module(),
-          ActorEvent.t(),
+          Signal.t(),
           Job.t(),
           String.t(),
           DateTime.t()
-        ) :: {:ok, %{job: Job.t(), command_event: ActorEvent.t()}} | {:error, term()}
+        ) :: {:ok, %{job: Job.t(), command_event: Signal.t()}} | {:error, term()}
   def handoff_ambient_message_in_tx(
         repo,
-        %ActorEvent{} = source_event,
+        %Signal{} = source_event,
         %Job{} = job,
         message,
         %DateTime{} = now
@@ -215,7 +208,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     end
   end
 
-  defp ensure_ambient_handoff_target(%Job{} = job, %ActorEvent{} = event) do
+  defp ensure_ambient_handoff_target(%Job{} = job, %Signal{} = event) do
     reply_route = job.reply_route || %{}
     metadata = job.metadata || %{}
 
@@ -226,10 +219,10 @@ defmodule Ankole.BackgroundAgentJobs.Control do
       job.owner_session_id != event.session_id ->
         {:error, :background_agent_job_ambient_session_mismatch}
 
-      Map.get(reply_route, "signal_channel_id") != event.signal_channel_id ->
+      Map.get(reply_route, "conversation_id") != event.conversation_id ->
         {:error, :background_agent_job_ambient_channel_mismatch}
 
-      Map.get(reply_route, "binding_name") != event.binding_name ->
+      Map.get(reply_route, "binding_name") != event.reply_binding_name ->
         {:error, :background_agent_job_ambient_binding_mismatch}
 
       Map.get(metadata, "skill_lesson_reflection") == true ->
@@ -269,7 +262,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   end
 
   defp complete_pending_job_events(repo, job, now) do
-    ActorEvent
+    Signal
     |> where([event], event.agent_uid == ^job.agent_uid)
     |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
     |> where([event], event.type in ["background_agent_job.dispatch", "command.steer"])
@@ -277,8 +270,8 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     |> lock("FOR UPDATE")
     |> repo.all()
     |> Enum.reduce_while(:ok, fn event, :ok ->
-      case SignalsGateway.mark_actor_event_completed_in_tx(repo, event, now) do
-        {:ok, %ActorEvent{}} -> {:cont, :ok}
+      case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now) do
+        {:ok, %Signal{}} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
@@ -314,7 +307,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
   defp live_turn_ref_in_tx(repo, job) do
     event =
       repo.one(
-        from e in ActorEvent,
+        from e in Signal,
           where:
             e.agent_uid == ^job.agent_uid and
               e.session_id == ^BackgroundAgentJobs.job_session_id(job.id) and
@@ -327,7 +320,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
       do: %JobTurnRef{
         agent_uid: job.agent_uid,
         session_id: event.session_id,
-        actor_event_id: event.id,
+        signal_id: event.id,
         job_id: job.id,
         attempt: job.attempts
       }
@@ -338,20 +331,24 @@ defmodule Ankole.BackgroundAgentJobs.Control do
     request_id = Attrs.text(attrs, "request_id") || Ecto.UUID.generate()
     command_data = %{"argsText" => Map.fetch!(attrs, "text")}
 
-    SignalsGateway.append_actor_event_in_tx(repo, %{
-      source_work: job,
-      agent_uid: job.agent_uid,
-      binding_name: Map.fetch!(reply_route, "binding_name"),
-      session_id: BackgroundAgentJobs.job_session_id(job.id),
-      source_event_id: "background_agent_job:#{job.id}:steer:#{request_id}",
-      signal_channel_id: Map.get(reply_route, "signal_channel_id"),
-      provider_thread_id: Map.get(reply_route, "provider_thread_id"),
+    Ankole.Signals.accept_in_tx(repo, %{
+      producer: :kernel,
+      source: "control-plane://background-agent-job",
+      id: "background_agent_job:#{job.id}:steer:#{request_id}",
       type: "command.steer",
+      subject: "background-agent-job:#{job.id}",
+      time: now,
       available_at: now,
-      payload: %{
-        "type" => "command.steer",
-        "data" => %{"command" => command_data}
-      }
+      target: %{agent_uid: job.agent_uid, session_id: BackgroundAgentJobs.job_session_id(job.id)},
+      sender: nil,
+      authorization: Ankole.Principals.WorkAccess.fields(job),
+      reply_route: %{
+        binding_name: Map.get(reply_route, "binding_name"),
+        conversation_id: Map.get(reply_route, "conversation_id"),
+        provider_thread_id: Map.get(reply_route, "provider_thread_id"),
+        provider_message_id: nil
+      },
+      data: %{"command" => command_data}
     })
   end
 

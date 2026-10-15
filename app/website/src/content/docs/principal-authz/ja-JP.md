@@ -59,7 +59,7 @@ control plane と kernel は意図的に作業を分割しており、この分�
 AuthZ は agent が回避して話せるレイヤーではありません。ランタイムが重要な境界でそれを参照するためです。
 
 - AIGateway は、検証済みの token からすべての呼び出しの subject を解決し、その subject の grant が到達できる model selector と provider を決定します。
-- 会話 Driver は commit 前に永続 fence を確認します。Worker の Job 操作は永続 Job attempt fence と認証済み接続の identity を確認します。
+- 実行セッション Driver は commit 前に永続 fence を確認します。Worker の Job 操作は永続 Job attempt fence と認証済み接続の identity を確認します。
 - Console 操作は active administrator の browser session と CSRF 証明を使用し、Principal の現在の group membership が変更範囲を決定します。
 
 モデルが「私は許可されている」と主張することは決してできません。境界が Principal と grant をチェックし、決定に従って行動します。
@@ -89,4 +89,4 @@ AuthZ はプロンプトの指示でも、期待でもありません。モデ�
 ## 次のステップ
 
 - 検証済みの token が AIGateway エッジで Principal に解決される仕組みは、[AIGateway API](../ai-gateway/)を参照してください。
-- agent Principal の Driver fence が turn をフェンスする仕組みは、[Actor Runtime](../actor-runtime/)を参照してください。
+- agent Principal の Driver fence が turn をフェンスする仕組みは、[Sessions](../sessions/)を参照してください。

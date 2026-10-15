@@ -1,0 +1,684 @@
+defmodule Ankole.Conversations.NativeDriverTest do
+  use Ankole.DataCase, async: false
+  @moduletag sandbox: false
+
+  import Ankole.AIGatewayCase,
+    only: [start_upstream_server: 1, chat_completion_stream_events: 2]
+
+  import Ankole.SessionsCase,
+    only: [agent_fixture: 1, cache_actor_runtime_models: 1]
+
+  alias Ankole.AIAgent.ModelProfiles
+  alias Ankole.AIGateway.Events
+  alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.ResponseChain
+  alias Ankole.Conversations
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.Message
+  alias Ankole.Sessions.Driver
+  alias Ankole.Sessions.Jobs.EnsureDriver
+  alias Ankole.Signals.Signal
+  alias Ankole.SessionsCase, as: RuntimeCase
+
+  setup %{tenant: tenant} do
+    drivers = RuntimeCase.driver_pids()
+    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture(%{mobile: nil})
+
+    %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    {:ok, profile} = ModelProfiles.get_model_profile(agent.uid, "primary")
+    owner = self()
+    script = start_supervised!({Agent, fn -> %{rounds: [], requests: 0, block_first?: true} end})
+
+    url =
+      start_upstream_server(fn request ->
+        assert request.request_path == "/chat/completions"
+        assert request.body["stream"] == true
+        send(owner, {:native_model_request, request})
+
+        {round, blocked?} =
+          Agent.get_and_update(script, fn state ->
+            {{Enum.at(state.rounds, state.requests, {:text, "A committed native answer."}),
+              state.requests == 0 and state.block_first?},
+             %{state | requests: state.requests + 1}}
+          end)
+
+        if blocked? do
+          send(owner, {:native_model_waiting, self()})
+
+          receive do
+            :release_model -> :ok
+          after
+            30_000 -> raise "the test did not release its model response"
+          end
+        end
+
+        case round do
+          {:text, text} ->
+            {:sse, 200, chat_completion_stream_events(request, text)}
+
+          :tool ->
+            {:sse, 200, tool_events(request)}
+
+          {:scheduled, text} ->
+            {:sse, 200,
+             tool_events(request, "finish_scheduled", %{"outcome" => "reply", "reply" => text})}
+
+          :silent ->
+            {:sse, 200,
+             tool_events(request, "finish_scheduled", %{
+               "outcome" => "silent_success",
+               "reply" => nil
+             })}
+        end
+      end)
+
+    {:ok, _} = ProviderConfigs.update_provider(profile["provider_id"], %{base_url: url})
+    :ok = cache_actor_runtime_models(profile["provider_id"])
+
+    on_exit(
+      Repo.bind_tenant(fn ->
+        RuntimeCase.stop_new_drivers(drivers)
+        Repo.delete_all(Conversation)
+
+        Repo.delete_all(
+          from j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid
+        )
+
+        :ok =
+          Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(Repo, agent.uid)
+
+        Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
+        {:ok, _} = ProviderConfigs.delete_provider(profile["provider_id"])
+        Repo.delete!(tenant)
+      end)
+    )
+
+    {:ok, human: human, agent: agent, script: script}
+  end
+
+  test "native messages stream through AIGateway and continue the same model conversation",
+       context do
+    %{human: human, agent: agent, script: script} = context
+    baseline = gateway_row_counts()
+    id = Ecto.UUID.generate()
+    first_id = Ecto.UUID.generate()
+    second_id = Ecto.UUID.generate()
+
+    Agent.update(
+      script,
+      &%{&1 | rounds: [{:text, "Six times seven is 42."}, {:text, "Twice that is 84."}]}
+    )
+
+    assert {:ok, first_detail} =
+             Conversations.create(human.uid, %{
+               conversation_id: id,
+               agent_uid: agent.uid,
+               message_id: first_id,
+               text: "What is six times seven?"
+             })
+
+    first_request = await_request()
+    assert Ankole.JSON.encode!(first_request.body["messages"]) =~ "What is six times seven?"
+    assert_receive {:native_model_waiting, provider}, 5_000
+    assert :ok = Events.subscribe(agent.uid, first_detail.model_conversation_id)
+    assert :ok = Conversations.subscribe(id)
+    send(provider, :release_model)
+
+    assert_receive {:ai_gateway_event, :output_text_delta,
+                    %{conversation_id: model_id, payload: %{text: "Six times seven is 42."}}},
+                   5_000
+
+    assert model_id == first_detail.model_conversation_id
+    first_event = event_for(first_id)
+    assert wait_for_completion(first_event.id).attempt_count == 1
+    assert_receive {:conversation_event, ^id, :message}, 5_000
+    assert {:ok, completed} = Conversations.get(human.uid, id)
+
+    assert Ankole.Sessions.status(%{agent_uid: agent.uid, session_id: completed.session_id}).state ==
+             :idle
+
+    assert Enum.map(completed.messages, &{&1.seq, &1.author_type, &1.text}) ==
+             [{1, :human, "What is six times seven?"}, {2, :agent, "Six times seven is 42."}]
+
+    assert {:ok, continued} =
+             Conversations.post(human.uid, id, %{message_id: second_id, text: "And twice that?"})
+
+    second_request = await_request()
+    assert Ankole.JSON.encode!(second_request.body["messages"]) =~ "Six times seven is 42."
+    assert Ankole.JSON.encode!(second_request.body["messages"]) =~ "And twice that?"
+    assert continued.model_conversation_id == model_id
+    assert wait_for_completion(event_for(second_id).id).attempt_count == 1
+    assert {:ok, final} = Conversations.get(human.uid, id)
+
+    assert Enum.map(final.messages, &{&1.seq, &1.author_type, &1.text}) ==
+             [
+               {1, :human, "What is six times seven?"},
+               {2, :agent, "Six times seven is 42."},
+               {3, :human, "And twice that?"},
+               {4, :agent, "Twice that is 84."}
+             ]
+
+    [first_reply, second_reply] = Enum.filter(final.messages, &(&1.author_type == :agent))
+    assert first_reply.signal_id == first_event.id
+    assert first_reply.reply_to_message_id == first_id
+    assert second_reply.reply_to_message_id == second_id
+    assert first_reply.session_id == Ankole.Sessions.Key.conversation(id)
+    assert ResponseChain.latest_visible_leaf(model_id)
+    assert gateway_row_counts() == baseline
+    refute_receive {:native_model_request, _}, 100
+  end
+
+  test "a follow-up while generating joins the active turn exactly once", context do
+    %{human: human, agent: agent, script: script} = context
+    baseline = gateway_row_counts()
+    id = Ecto.UUID.generate()
+    first_id = Ecto.UUID.generate()
+    followup_id = Ecto.UUID.generate()
+
+    Agent.update(
+      script,
+      &%{&1 | rounds: [:tool, {:text, "The report includes the operator runbook."}]}
+    )
+
+    assert {:ok, _} =
+             Conversations.create(human.uid, %{
+               conversation_id: id,
+               agent_uid: agent.uid,
+               message_id: first_id,
+               text: "Prepare the report."
+             })
+
+    _ = await_request()
+    assert_receive {:native_model_waiting, provider}, 5_000
+
+    driver =
+      Driver.whereis(%{agent_uid: agent.uid, session_id: Ankole.Sessions.Key.conversation(id)})
+
+    assert {:ok, _} =
+             Conversations.post(human.uid, id, %{
+               message_id: followup_id,
+               text: "Include the operator runbook."
+             })
+
+    send(provider, :release_model)
+    next = await_request()
+
+    assert Enum.count(next.body["messages"], fn message ->
+             String.contains?(Ankole.JSON.encode!(message), "Include the operator runbook.")
+           end) == 1
+
+    assert Driver.whereis(%{
+             agent_uid: agent.uid,
+             session_id: Ankole.Sessions.Key.conversation(id)
+           }) ==
+             driver
+
+    first = wait_for_completion(event_for(first_id).id)
+    followup = wait_for_completion(event_for(followup_id).id)
+    assert first.attempt_count == 1
+    assert followup.last_attempt_at
+    assert first.completed_at == followup.completed_at
+    assert {:ok, detail} = Conversations.get(human.uid, id)
+    assert Enum.map(detail.messages, & &1.author_type) == [:human, :human, :agent]
+    assert List.last(detail.messages).text == "The report includes the operator runbook."
+    assert Agent.get(script, & &1.requests) == 2
+    assert gateway_row_counts() == baseline
+    refute_receive {:native_model_request, _}, 100
+  end
+
+  test "the durable wakeup resumes admitted native input after the driver crashes", context do
+    %{human: human, agent: agent} = context
+    baseline = gateway_row_counts()
+    id = Ecto.UUID.generate()
+    message_id = Ecto.UUID.generate()
+    key = %{agent_uid: agent.uid, session_id: Ankole.Sessions.Key.conversation(id)}
+
+    assert {:ok, {:ok, _}} =
+             Repo.transact(fn repo ->
+               {:ok,
+                Conversations.create_in_tx(repo, human.uid, %{
+                  conversation_id: id,
+                  agent_uid: agent.uid,
+                  message_id: message_id,
+                  text: "Recover this committed request."
+                })}
+             end)
+
+    assert Driver.whereis(key) == :undefined
+
+    job =
+      Repo.one!(
+        from j in Oban.Job,
+          where:
+            j.worker == "Ankole.Sessions.Jobs.EnsureDriver" and
+              fragment("?->>'session_id'", j.args) == ^key.session_id
+      )
+
+    assert :ok = EnsureDriver.perform(job)
+    _ = await_request()
+    assert_receive {:native_model_waiting, provider}, 5_000
+    event = event_for(message_id)
+    assert Repo.reload!(event).last_attempt_at
+
+    assert Repo.aggregate(
+             from(m in Message, where: m.conversation_id == ^id and m.author_type == :agent),
+             :count
+           ) == 0
+
+    driver = Driver.whereis(key)
+    monitor = Process.monitor(driver)
+    Process.exit(driver, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^driver, :killed}, 5_000
+    send(provider, :release_model)
+    assert :ok = EnsureDriver.perform(job)
+    retried = await_request()
+    assert Ankole.JSON.encode!(retried.body["messages"]) =~ "Recover this committed request."
+    completed = wait_for_completion(event.id)
+    assert completed.attempt_count == 2
+    assert {:ok, detail} = Conversations.get(human.uid, id)
+    assert Enum.map(detail.messages, & &1.author_type) == [:human, :agent]
+    assert List.last(detail.messages).text == "A committed native answer."
+
+    assert Ankole.Sessions.status(%{agent_uid: agent.uid, session_id: detail.session_id}).state ==
+             :idle
+
+    assert gateway_row_counts() == baseline
+  end
+
+  test "a native cron report is a committed statement that the owning session reads once",
+       context do
+    %{human: human, agent: agent, script: script} = context
+
+    Agent.update(
+      script,
+      &%{
+        &1
+        | block_first?: false,
+          rounds: [
+            {:text, "Initial native answer."},
+            {:scheduled, "Cron observed 17 new records."},
+            {:text, "I read the cron report."},
+            :silent
+          ]
+      }
+    )
+
+    id = Ecto.UUID.generate()
+    input_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Conversations.create(human.uid, %{
+               conversation_id: id,
+               message_id: input_id,
+               agent_uid: agent.uid,
+               text: "Review the records."
+             })
+
+    _ = await_request()
+    _ = wait_for_completion(event_for(input_id).id)
+    assert :ok = Conversations.subscribe(id)
+
+    schedule = native_cron(context, id, true)
+    assert is_nil(schedule.binding_name)
+
+    assert {:ok, %{status: :fired, signal: cron}} =
+             Ankole.Schedule.Fire.fire_cron(schedule.id, now: schedule.next_fire_at)
+
+    request = await_request()
+
+    refute Enum.any?(request.body["messages"], fn message ->
+             message["role"] == "user" and Ankole.JSON.encode!(message) =~ "Review the records."
+           end)
+
+    assert cron.session_id == Ankole.Schedule.Cron.execution_session_id(schedule.id)
+    cron_model = Ankole.Sessions.ModelHistory.active_conversation(agent.uid, cron.session_id)
+
+    native_model =
+      Ankole.Sessions.ModelHistory.active_conversation(
+        agent.uid,
+        Ankole.Sessions.Key.conversation(id)
+      )
+
+    assert cron_model.id != native_model.id
+    _ = wait_for_completion(cron.id)
+    assert_receive {:conversation_event, ^id, :message}, 5_000
+    assert {:ok, detail} = Conversations.get(human.uid, id)
+    report = List.last(detail.messages)
+    assert report.text == "Cron observed 17 new records."
+    assert report.session_id == Ankole.Schedule.Cron.execution_session_id(schedule.id)
+    assert report.signal_id == cron.id
+    assert is_nil(report.reply_to_message_id)
+
+    assert Ankole.Sessions.status(%{agent_uid: agent.uid, session_id: detail.session_id}).state ==
+             :idle
+
+    follow_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Conversations.post(human.uid, id, %{
+               message_id: follow_id,
+               text: "Interpret the new records."
+             })
+
+    follow = await_request()
+    encoded = Ankole.JSON.encode!(follow.body["messages"])
+    assert length(Regex.scan(~r/Cron observed 17 new records\./, encoded)) == 1
+    assert length(Regex.scan(~r/Interpret the new records\./, encoded)) == 1
+    _ = wait_for_completion(event_for(follow_id).id)
+
+    assert {:ok, %{status: :created, cron_schedule: quiet}} =
+             Ankole.Schedule.create_cron_schedule(
+               %{
+                 agent_uid: agent.uid,
+                 owner_session_id: Ankole.Sessions.Key.conversation(id),
+                 name: "Quiet native monitor",
+                 schedule: recurrence(),
+                 payload: %{"task" => "Check silently when there is no change."},
+                 delivery: %{"targets" => [%{"conversation_id" => id}], "quiet_success" => true},
+                 idempotency_key: Ecto.UUID.generate()
+               },
+               created_by: %{"principal_uid" => to_string(Ankole.ActorRef.from_principal(human))},
+               now: DateTime.add(DateTime.utc_now(:microsecond), -5, :second)
+             )
+
+    assert {:ok, %{signal: silent}} =
+             Ankole.Schedule.Fire.fire_cron(quiet.id, now: quiet.next_fire_at)
+
+    _ = await_request()
+    _ = wait_for_completion(silent.id)
+    assert {:ok, after_silent} = Conversations.get(human.uid, id)
+    assert length(after_silent.messages) == 5
+  end
+
+  test "a cron report arriving during a model call is read at the following request boundary",
+       context do
+    %{human: human, agent: agent, script: script} = context
+
+    Agent.update(
+      script,
+      &%{
+        &1
+        | rounds: [
+            :tool,
+            {:scheduled, "A late cron report."},
+            {:text, "The late report is included."}
+          ]
+      }
+    )
+
+    id = Ecto.UUID.generate()
+    input_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Conversations.create(human.uid, %{
+               conversation_id: id,
+               message_id: input_id,
+               agent_uid: agent.uid,
+               text: "Prepare a report."
+             })
+
+    first = await_request()
+    refute Ankole.JSON.encode!(first.body["messages"]) =~ "A late cron report."
+    assert_receive {:native_model_waiting, provider}, 5_000
+    schedule = native_cron(context, id, false)
+
+    assert {:ok, %{signal: cron}} =
+             Ankole.Schedule.Fire.fire_cron(schedule.id, now: schedule.next_fire_at)
+
+    _ = await_request()
+    _ = wait_for_completion(cron.id)
+    send(provider, :release_model)
+    next = await_request()
+    encoded = Ankole.JSON.encode!(next.body["messages"])
+    assert length(Regex.scan(~r/A late cron report\./, encoded)) == 1
+    _ = wait_for_completion(event_for(input_id).id)
+  end
+
+  for change <- [:edit, :remove] do
+    @quote_change change
+    test "a quoted statement #{@quote_change} follows the stored-input withdrawal contract",
+         context do
+      %{human: human, agent: agent, script: script} = context
+      Agent.update(script, &%{&1 | rounds: [{:text, "Stale answer."}, {:text, "Fresh answer."}]})
+
+      assert {:ok, room} =
+               Repo.transact(fn repo ->
+                 Ankole.Conversations.External.observe_conversation_in_tx(
+                   repo,
+                   %{agent_uid: agent.uid},
+                   %{
+                     provider_conversation_id: "quote-room",
+                     external_kind: :im_dm,
+                     title: "Quoted request",
+                     reply_mode: :channel,
+                     metadata: %{"dm_peer_principal_uid" => human.uid}
+                   },
+                   DateTime.utc_now(:microsecond)
+                 )
+               end)
+
+      now = DateTime.utc_now(:microsecond)
+
+      quote_attrs = %{
+        provider_message_id: "quoted",
+        text: "Original code OLD-101",
+        author: %{"principal_uid" => human.uid}
+      }
+
+      assert {:ok, %{message: quote}} =
+               Repo.transact(
+                 &Ankole.Conversations.External.observe_in_tx(&1, room.id, quote_attrs, now)
+               )
+
+      assert {:ok, %{message: current}} =
+               Repo.transact(
+                 &Ankole.Conversations.External.observe_in_tx(
+                   &1,
+                   room.id,
+                   %{
+                     provider_message_id: "request",
+                     text: "Use the quoted code.",
+                     author: %{"principal_uid" => human.uid}
+                   },
+                   now
+                 )
+               )
+
+      data = %{
+        "message_ids" => [current.id],
+        "text" => current.text,
+        "entry" => %{
+          "text" => current.text,
+          "author" => %{"principal_uid" => human.uid},
+          "reply_to_provider_message_id" => "quoted",
+          "reply_to" => %{
+            "message_id" => quote.id,
+            "provider_message_id" => "quoted",
+            "resolution" => "resolved",
+            "text" => quote.text
+          }
+        }
+      }
+
+      assert {:ok, signal} =
+               Ankole.Signals.accept(%{
+                 producer: :kernel,
+                 source: "test:quoted-request",
+                 id: Ecto.UUID.generate(),
+                 type: "conversation.message.addressed",
+                 target: %{agent_uid: agent.uid, conversation_id: room.id},
+                 sender: human.uid,
+                 message_id: current.id,
+                 data: data,
+                 time: now,
+                 reply_route: %{conversation_id: room.id, provider_message_id: "request"}
+               })
+
+      first = await_request()
+      assert length(Regex.scan(~r/OLD-101/, Ankole.JSON.encode!(first.body["messages"]))) == 1
+      assert_receive {:native_model_waiting, provider}, 5_000
+
+      case @quote_change do
+        :edit ->
+          assert {:ok, _} =
+                   Repo.transact(
+                     &Ankole.Conversations.External.observe_in_tx(
+                       &1,
+                       room.id,
+                       %{quote_attrs | text: "Updated code NEW-202"},
+                       DateTime.utc_now(:microsecond)
+                     )
+                   )
+
+        :remove ->
+          assert {:ok, _} =
+                   Repo.transact(
+                     &Ankole.Conversations.External.remove_in_tx(&1, room.id, "quoted")
+                   )
+      end
+
+      assert %{failure: 0} = Oban.drain_queue(queue: :conversations, with_scheduled: true)
+      send(provider, :release_model)
+      completed = wait_for_completion(signal.id)
+
+      if @quote_change == :edit do
+        assert completed.turn_outcome == "loop_finished"
+      else
+        refute Repo.exists?(
+                 from intent in Ankole.Conversations.Delivery.Intent,
+                   where:
+                     intent.source_signal_id == ^signal.id and
+                       intent.delivery_class == :durable_ai_reply
+               )
+      end
+
+      assert Repo.reload!(signal).data == data
+
+      assert Ankole.Principals.WorkAccess.fields(Repo.reload!(signal)) ==
+               Ankole.Principals.WorkAccess.fields(signal)
+
+      refute Repo.exists?(from revision in Signal, where: revision.type == "input.revised")
+      assert Agent.get(script, & &1.requests) == 1
+    end
+  end
+
+  defp recurrence do
+    %{
+      "kind" => "every",
+      "every_ms" => 3_600_000,
+      "anchor_at" =>
+        DateTime.to_iso8601(DateTime.add(DateTime.utc_now(:microsecond), -1, :second)),
+      "timezone" => "UTC"
+    }
+  end
+
+  defp native_cron(context, id, quiet) do
+    assert {:ok, %{status: :created, cron_schedule: schedule}} =
+             Ankole.Schedule.create_cron_schedule(
+               %{
+                 agent_uid: context.agent.uid,
+                 owner_session_id: Ankole.Sessions.Key.conversation(id),
+                 name: "Native monitor",
+                 schedule: recurrence(),
+                 payload: %{"task" => "Report new records."},
+                 delivery: %{"targets" => [%{"conversation_id" => id}], "quiet_success" => quiet},
+                 idempotency_key: Ecto.UUID.generate()
+               },
+               created_by: %{
+                 "principal_uid" => to_string(Ankole.ActorRef.from_principal(context.human))
+               },
+               now: DateTime.add(DateTime.utc_now(:microsecond), -5, :second)
+             )
+
+    schedule
+  end
+
+  defp event_for(message_id), do: Repo.get_by!(Signal, source_event_id: message_id)
+
+  defp gateway_row_counts do
+    for schema <- [
+          Ankole.Signals.Binding,
+          Ankole.Conversations.ExternalMessageRef,
+          Ankole.Conversations.Delivery.Intent
+        ],
+        into: %{},
+        do: {schema, Repo.aggregate(schema, :count)}
+  end
+
+  defp await_request do
+    assert %{failure: 0} = Oban.drain_queue(queue: :conversations, with_scheduled: true)
+
+    receive do
+      {:native_model_request, request} -> request
+    after
+      10_000 ->
+        drivers =
+          Enum.map(RuntimeCase.driver_pids(), fn pid ->
+            {state, data} = :sys.get_state(pid)
+            %{state: state, tasks: Enum.map(data.tasks, fn {_ref, {kind, _pid}} -> kind end)}
+          end)
+
+        signals =
+          Repo.all(
+            from s in Signal,
+              select: %{
+                id: s.id,
+                type: s.type,
+                input_state: s.input_state,
+                attempts: s.attempt_count,
+                completed_at: s.completed_at
+              }
+          )
+
+        flunk("native model request timed out: #{inspect(%{drivers: drivers, signals: signals})}")
+    end
+  end
+
+  defp wait_for_completion(id, attempts \\ 400)
+
+  defp wait_for_completion(id, 0),
+    do: flunk("native input did not complete: #{inspect(Repo.get!(Signal, id))}")
+
+  defp wait_for_completion(id, attempts) do
+    case Repo.get!(Signal, id) do
+      %Signal{completed_at: %DateTime{}} = event ->
+        event
+
+      %Signal{input_state: "dead_letter"} = event ->
+        flunk("native input failed: #{inspect(event.dead_letter_reason)}")
+
+      _ ->
+        Process.sleep(25)
+        wait_for_completion(id, attempts - 1)
+    end
+  end
+
+  defp tool_events(request, name \\ "todo", args \\ %{}) do
+    [
+      %{
+        "id" => "chatcmpl_native_tool",
+        "object" => "chat.completion.chunk",
+        "created" => 1_764_967_971,
+        "model" => request.body["model"],
+        "choices" => [
+          %{
+            "index" => 0,
+            "delta" => %{
+              "role" => "assistant",
+              "tool_calls" => [
+                %{
+                  "index" => 0,
+                  "id" => "native_plan",
+                  "type" => "function",
+                  "function" => %{"name" => name, "arguments" => Ankole.JSON.encode!(args)}
+                }
+              ]
+            },
+            "finish_reason" => "tool_calls"
+          }
+        ],
+        "usage" => %{"prompt_tokens" => 5, "completion_tokens" => 7, "total_tokens" => 12}
+      }
+    ]
+  end
+end

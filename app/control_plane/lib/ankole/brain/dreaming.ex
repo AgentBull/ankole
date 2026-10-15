@@ -98,8 +98,6 @@ defmodule Ankole.Brain.Dreaming do
     :exit, reason -> %{status: :failed, error: inspect(reason)}
   end
 
-  # Phase 1: consolidate
-
   # Bucket qualification runs as one aggregate query, so fact embeddings
   # only load for buckets that can actually promote; facts stuck in small
   # buckets cost the aggregate scan and nothing more per round.
@@ -283,12 +281,8 @@ defmodule Ankole.Brain.Dreaming do
     end
   end
 
-  # Phase 2: patterns
-
   @doc false
   def phase_patterns, do: Ankole.Brain.Patterns.run()
-
-  # Phase 3: link and timeline extraction
 
   # The phase contract covers wikilinks, name mentions, and timeline events.
   # The timeline half needs the model, so a missing model skips the whole
@@ -437,8 +431,6 @@ defmodule Ankole.Brain.Dreaming do
     |> Enum.reject(&(&1 == object.slug))
   end
 
-  # Phase 6: contradictions
-
   @doc false
   def phase_contradictions do
     case Config.dreaming_model() do
@@ -580,8 +572,6 @@ defmodule Ankole.Brain.Dreaming do
     end)
   end
 
-  # Phase 8: schema suggestions
-
   @doc false
   def phase_schema_suggest do
     vocabulary_terms = vocabulary_terms()
@@ -663,8 +653,6 @@ defmodule Ankole.Brain.Dreaming do
   @doc false
   @spec vocabulary_terms() :: [String.t()]
   defdelegate vocabulary_terms, to: Ankole.Brain.Vocabulary, as: :terms
-
-  # Phase 9: purge
 
   @doc false
   def phase_purge do

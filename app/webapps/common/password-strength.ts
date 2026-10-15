@@ -1,6 +1,5 @@
 export type PasswordStrengthLevel = 'weak' | 'fair' | 'good' | 'strong'
 
-/** Maps a zxcvbn score (0-4) onto the four label levels the meter shows. */
 export function strengthLevel(score: number): PasswordStrengthLevel {
   if (score <= 1) return 'weak'
   if (score === 2) return 'fair'

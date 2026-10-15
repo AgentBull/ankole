@@ -59,4 +59,26 @@ defmodule AnkoleWeb.SpaControllerTest do
 
     assert redirected_to(conn) == ~p"/sessions/new?return_to=%2Fsite-admin-console%2Fsettings"
   end
+
+  test "GET /workplace redirects anonymous users to auth after completion", %{conn: conn} do
+    {:ok, true} = SetupConfig.put_completed(true)
+
+    conn = get(conn, ~p"/workplace/some/path")
+
+    assert redirected_to(conn) == ~p"/sessions/new?return_to=%2Fworkplace%2Fsome%2Fpath"
+  end
+
+  test "GET /workplace serves its shell without the console path", %{conn: conn} do
+    conn = conn |> active_admin_conn() |> get(~p"/workplace")
+    html = html_response(conn, 200)
+
+    assert html =~ ~s(http://assets.test/entrypoints/workplace.tsx)
+    refute html =~ "/site-admin-console"
+  end
+
+  test "GET /sessions/new sends a signed-in administrator to the workplace", %{conn: conn} do
+    conn = conn |> active_admin_conn() |> get(~p"/sessions/new")
+
+    assert redirected_to(conn) == ~p"/workplace"
+  end
 end

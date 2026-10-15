@@ -178,8 +178,8 @@ defmodule AnkoleWeb.AgentFileController do
       size: file.size,
       content_type: file.content_type,
       source: file.source,
-      signal_channel_id: file.signal_channel_id,
-      source_entry_id: file.source_entry_id,
+      conversation_id: file.conversation_id,
+      message_id: file.message_id,
       updated_at: DateTime.to_iso8601(file.updated_at)
     }
   end

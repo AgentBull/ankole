@@ -37,9 +37,9 @@ Agent 在工作区内创建独立目录，写入 `main.ts`，手工验证运行�
 
 每个 attempt 都会获得最新 Agent WorkerEnv，以及从当前 enabled Skills 按次生成的 `MCPORTER_CONFIG`。Worker 不预测脚本会使用哪个 server。脚本可以通过 mcporter 和 stdin JSON 调用一个已选 MCP 工具。Automation 不读 Skill instructions，也不使用 Agent Home 持久 mcporter 配置。
 
-运行 SDK 提供 `context()` 与 `emitEvent(payload)`。`context().event` 是该触发器直接投递时会写入 ActorEvent 的同一 CloudEvents 信封。脚本不调用 `emitEvent` 即静默成功；调用一次或多次则向归属会话持久写入 `automation_job.emitted`。
+运行 SDK 提供 `context()` 与 `emitEvent(payload)`。`context().event` 是该触发器直接投递时会写入 Signal 的同一 CloudEvents 信封。脚本不调用 `emitEvent` 即静默成功；调用一次或多次则向归属会话持久写入 `automation_job.emitted`。
 
-`context()` 与 `emitEvent` 只存在于平台 run 内。直接执行 `bun main.ts` 只能验证运行环境和不调用这两个函数的分支。注册后，必须为每个 SDK 分支使用一次测试触发器，再检查对应的持久 run。`emitEvent` 不会降级为 stdout；只有 ActorEvent 已持久化后，它返回的 Promise 才会 resolve。
+`context()` 与 `emitEvent` 只存在于平台 run 内。直接执行 `bun main.ts` 只能验证运行环境和不调用这两个函数的分支。注册后，必须为每个 SDK 分支使用一次测试触发器，再检查对应的持久 run。`emitEvent` 不会降级为 stdout；只有 Signal 已持久化后，它返回的 Promise 才会 resolve。
 
 每次触发消费都会在同一个 PostgreSQL 事务里创建持久运行记录：checkback claim、cron advance 或 webhook accept 与 run 行同时提交。脚本异常、非零退出和超时是终态，不重试。Worker 丢失属于基础设施故障，现有 Oban wake edge 会用新的 fenced attempt 重派。重派可能重复脚本副作用，因此脚本必须让重复执行无害。
 

@@ -9,31 +9,32 @@ defmodule Ankole.Tenants.Jobs.Delete do
   import Ecto.Query
   alias Ankole.{Repo, Tenants}
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers.AgentWorker
 
   # Child rows precede their parents. This order comes from the migration's
   # PostgreSQL foreign keys; Agent and Worker rows use their lifecycle owner.
   @tables ~w(
-    actor_cron_schedules signal_gateway_ambient_judgments actor_scheduled_events
-    actor_session_workspaces agent_computer_worker_envs agent_files
+    external_message_refs conversation_messages conversation_participants
+    cron_schedules session_ambient_judgments scheduled_events
+    sessions agent_computer_worker_envs agent_files
     agent_library_container_entries agent_plugin_overrides agent_skill_lessons agent_skills
     ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records
-    app_configurations automation_job_runs signal_gateway_webhook_endpoints
+    app_configurations automation_job_runs signal_webhook_endpoints
     background_agent_job_turn_items brain_chunks brain_take_domain_assignments
     brain_contradictions brain_links brain_merge_suggestions brain_object_aliases
     brain_object_versions brain_timelines brain_slug_aliases brain_tags brain_schema_suggestions
     brain_schema_calibration_domains brain_schema_link_types brain_schema_types
-    brain_sources browser_login_transactions conversation_tool_receipts conversation_round_states
+    brain_sources browser_login_transactions session_tool_receipts session_round_states
     human_access_events human_access_restrictions human_user_local_credentials
     identity_directory_events identity_directory_states identity_mapping_requests
     oidc_authorization_codes oidc_client_groups oidc_refresh_tokens oidc_logout_requests
     oidc_logout_deliveries permission_grants principal_external_identities
-    principal_group_external_bindings principal_group_memberships signal_gateway_outbox_entries
-    signal_gateway_inbound_batches signal_gateway_input_tombstones signal_gateway_bindings
-    workflow_agent_calls signal_gateway_entries actor_events ai_gateway_messages automation_jobs
-    background_agent_job_turns brain_claims brain_schema_packs oidc_sessions principal_groups
+    principal_group_external_bindings principal_group_memberships deliveries
+    conversation_inbound_batches conversation_input_tombstones signal_bindings
+    workflow_agent_calls delivery_previews signals ai_gateway_messages automation_jobs
+    background_agent_job_turns brain_claims brain_schema_packs oidc_sessions conversations principal_groups
     workflow_runs ai_gateway_conversations background_agent_jobs brain_objects
-    signal_gateway_channels oidc_clients human_users
+    oidc_clients human_users
   )
   # Keep cleanup's completion evidence and its referenced Human until the
   # final transaction removes both; earlier batches must not erase the proof.

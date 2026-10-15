@@ -5,13 +5,13 @@ an Agent wake-up only when the trigger names it. It can finish without a reply
 or emit an event to its owner session.
 
 Automation Jobs does not own trigger time, webhook admission, or Agent turns.
-Schedule and SignalsGateway keep those rules. They call Automation Jobs only
+Schedule and Signals keep those rules. They call Automation Jobs only
 when they must create a durable run.
 
 ## Human Work Authorization
 
 Each definition stores `authorization_kind`, `human_uid`, and
-`human_access_version` from its source ActorEvent, as defined in
+`human_access_version` from its source Signal, as defined in
 [Human Offboarding](HumanOffboarding.md). Trigger consumption and each attempt
 check the definition's retained authorization. Runs inherit it through their
 immutable `automation_job_id`.
@@ -25,7 +25,7 @@ Human work. Independent service definitions keep their own authorization.
 `automation_jobs` stores one registered script:
 
 - the owning Agent and Session
-- the source ActorEvent and reply route
+- the source Signal and reply route
 - `drive_prefix`, the folder in the Agent's drive that holds the script, and the label
 - `wake_on_failure`
 - an optional expiry time
@@ -56,10 +56,10 @@ job must be active and must belong to the same Agent. A checkback or cron update
 can clear or replace the binding. A callback capability cannot change its
 binding; the Agent cancels it and creates a replacement.
 
-A trigger with no binding keeps the direct ActorEvent path. A bound trigger
+A trigger with no binding keeps the direct Signal path. A bound trigger
 stores an automation job run instead. The run and the trigger claim or advance
 commit in the same PostgreSQL transaction. A webhook therefore does not return
-success before its ActorEvent or run is durable.
+success before its Signal or run is durable.
 
 Trigger owners keep the CloudEvents envelope unchanged. Changing the consumer
 does not change the event.
@@ -111,12 +111,12 @@ safe.
 The Worker preloads a small SDK:
 
 - `context()` returns the trigger event and the job ID and label.
-- `emitEvent(payload)` appends one `automation_job.emitted` ActorEvent to the
+- `emitEvent(payload)` appends one `automation_job.emitted` Signal to the
   owner session.
 
 `emitEvent` uses a run-local Unix socket and the worker-agent RuntimeFabric RPC.
 The control plane accepts it only while the run and attempt UUID are current.
-The call resolves only after the ActorEvent is durable. A run can emit zero,
+The call resolves only after the Signal is durable. A run can emit zero,
 one, or many events.
 
 These SDK functions exist only inside a platform run. A direct `bun main.ts`
@@ -150,7 +150,7 @@ attempt can then fail and retry without waiting for the script deadline. An old
 worker cannot emit or finish after the new attempt UUID is stored.
 
 If `wake_on_failure` is true, a terminal failure appends one
-`automation_job.run_failed` ActorEvent. Otherwise, the failure stays in the run
+`automation_job.run_failed` Signal. Otherwise, the failure stays in the run
 history.
 
 ## Manage and Observe Jobs
@@ -173,7 +173,7 @@ long-lived Session. A Job follows its persisted `owner_session_id` and pinned
 `owner_conversation_id`; a Workflow task follows its AgentCall and Run. Every
 link must belong to the calling Agent. An ended context still identifies its
 Session. Creation fails with `long_lived_reply_owner_not_found` if these facts
-do not identify a recipient. The actual calling ActorEvent remains the source
+do not identify a recipient. The actual calling Signal remains the source
 of authorization and provenance. Cancellation changes queued runs to
 `cancelled` in the same transaction. A running attempt can finish and emit.
 
@@ -204,5 +204,5 @@ result, exit code, error, and bounded logs.
   completion, and infrastructure recovery.
 - Script failures do not retry.
 - Infrastructure failures can use at most five attempts.
-- A successful `emitEvent` call means the ActorEvent is durable.
+- A successful `emitEvent` call means the Signal is durable.
 - The platform stores no script state, DAG, mutex, or trigger rule.

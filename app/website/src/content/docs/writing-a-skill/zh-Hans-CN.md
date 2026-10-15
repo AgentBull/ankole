@@ -146,7 +146,7 @@ config :ankole, :control_plane_plugin_modules, [
 def adapter_declarations do
   [
     %{
-      contract_id: "signals_gateway.adapter",
+      contract_id: "signals.adapter",
       id: "my-adapter",
       plugin_id: plugin_id()
     }
@@ -154,7 +154,7 @@ def adapter_declarations do
 end
 ```
 
-适配器的专属字段由对应子系统定义。聊天适配器应遵循 [SignalsGateway](../signals-gateway/) 的契约；身份源和模型 Provider 也应使用各自现有的注册表，不要在 Plugin 内另建平行配置。
+适配器的专属字段由对应子系统定义。聊天适配器应遵循 [Signals](../signals/) 的契约；身份源和模型 Provider 也应使用各自现有的注册表，不要在 Plugin 内另建平行配置。
 
 ### 声明配置与后台进程
 

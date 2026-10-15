@@ -81,8 +81,6 @@ defmodule Ankole.Brain.LibraryKnowledge do
     end
   end
 
-  # ── Discovery ──
-
   # The built-in set ships with the library; a plugin set participates while
   # its plugin is instance-enabled (the inherited global default). Knowledge
   # is instance-level world content, so the per-Agent overrides that gate
@@ -141,8 +139,6 @@ defmodule Ankole.Brain.LibraryKnowledge do
         []
     end
   end
-
-  # ── One set ──
 
   defp sync_set(set) do
     case ensure_source(set) do
@@ -392,8 +388,6 @@ defmodule Ankole.Brain.LibraryKnowledge do
 
   defp installed_type?(type), do: Repo.exists?(SchemaType |> where([t], t.name == ^type))
 
-  # ── One page ──
-
   # One page failing must not take the sweep down with it: the page reports
   # as errored and the rest of the set still lands.
   defp project_page(source, page) do
@@ -410,8 +404,6 @@ defmodule Ankole.Brain.LibraryKnowledge do
     Logging.warning("brain.library_knowledge.page_failed", %{slug: page.slug, error: error})
     :errored
   end
-
-  # ── Withdrawal ──
 
   defp archived_report(source) do
     %{

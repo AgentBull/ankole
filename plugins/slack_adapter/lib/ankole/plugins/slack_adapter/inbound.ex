@@ -1,10 +1,14 @@
 defmodule Ankole.Plugins.SlackAdapter.Inbound do
   @moduledoc false
 
-  alias Ankole.{Logging, Principals, SignalsGateway}
+  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.Conversations.{Attachments, External}
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.SlackAdapter.{Channels, Config, Emoji}
-  alias Ankole.SignalsGateway.{AdapterContext, Ingress}
+  alias Ankole.Plugins.SlackAdapter.Channels
+  alias Ankole.Plugins.SlackAdapter.Config
+  alias Ankole.Plugins.SlackAdapter.Emoji
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Observe
   alias SlackOpenAPI.Event
 
   @mention_regex ~r/<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/
@@ -96,13 +100,13 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   defp normalize_supported_message(event, message, user_id, consumer) do
     config = consumer.config
 
-    with {:ok, source_entry_id} <- required_text(message, "ts"),
+    with {:ok, provider_message_id} <- required_text(message, "ts"),
          {:ok, slack_channel_id} <- required_text(message, "channel"),
-         {:ok, attachments} <- attachment_maps(message, source_entry_id),
+         {:ok, attachments} <- attachment_maps(message, provider_message_id),
          mentions <- mentions(Map.get(message, "text", ""), consumer),
          text <- visible_text(Map.get(message, "text"), mentions),
          :ok <- material_message?(text, attachments),
-         provider_time <- provider_time(source_entry_id, event),
+         provider_time <- provider_time(provider_message_id, event),
          attachments <-
            maybe_backfill_attachments(
              attachments,
@@ -115,7 +119,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
            ) do
       channel_kind = channel_kind(message)
       namespace = Config.subject_namespace(config)
-      signal_channel_id = signal_channel_id(slack_channel_id)
+      conversation_id = provider_conversation_id(slack_channel_id)
 
       author = %{
         "id" => user_id,
@@ -126,10 +130,10 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
       {:ok,
        %{
-         source_event_id: event.id || source_entry_id,
-         source_entry_id: source_entry_id,
-         signal_channel_id: signal_channel_id,
-         reply_to_source_entry_id: reply_target_id(message, source_entry_id),
+         source_event_id: event.id || provider_message_id,
+         provider_message_id: provider_message_id,
+         provider_conversation_id: conversation_id,
+         reply_to_provider_message_id: reply_target_id(message, provider_message_id),
          provider_thread_id: message_thread_id(slack_channel_id, message),
          channel: %{
            kind: channel_kind,
@@ -171,11 +175,11 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
         client = Config.client(consumer.config)
 
         result =
-          Ingress.emit_entry_with_attachments(
+          Observe.emit_entry_with_attachments(
             consumer.context.agent_uid,
             consumer.context.binding_name,
             input,
-            &Ingress.materialize_attachments(&1, "slack", fn attachment ->
+            &Observe.materialize_attachments(&1, "slack", fn attachment ->
               download_attachment(attachment, client)
             end)
           )
@@ -196,12 +200,12 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   defp emit_removed(consumer, event) do
     message = event.content || %{}
 
-    with {:ok, source_entry_id} <- required_text(message, "deleted_ts"),
+    with {:ok, provider_message_id} <- required_text(message, "deleted_ts"),
          {:ok, slack_channel_id} <- required_text(message, "channel") do
       input = %{
-        source_event_id: event.id || "deleted:#{source_entry_id}",
-        source_entry_id: source_entry_id,
-        signal_channel_id: signal_channel_id(slack_channel_id),
+        source_event_id: event.id || "deleted:#{provider_message_id}",
+        provider_message_id: provider_message_id,
+        provider_conversation_id: provider_conversation_id(slack_channel_id),
         provider_thread_id:
           message_thread_id(slack_channel_id, Map.get(message, "previous_message") || %{}),
         channel: %{
@@ -211,10 +215,10 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
         },
         metadata: %{"provider" => "slack", "event_type" => event.type},
         raw_payload: event.raw || %{},
-        provider_time: provider_time(source_entry_id, event)
+        provider_time: provider_time(provider_message_id, event)
       }
 
-      Ingress.emit_entry_removed(consumer.context.agent_uid, consumer.context.binding_name, input,
+      Observe.emit_entry_removed(consumer.context.agent_uid, consumer.context.binding_name, input,
         provider_lifecycle_kind: :deleted
       )
     end
@@ -230,15 +234,15 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
       true ->
         with {:ok, user_id} <- required_text(content, "user"),
-             {:ok, source_entry_id} <- required_text(item, "ts"),
+             {:ok, provider_message_id} <- required_text(item, "ts"),
              {:ok, channel} <- required_text(item, "channel"),
              {:ok, reaction} <- required_text(content, "reaction") do
           raw = String.replace(reaction, ~r/::skin-tone-\d+$/, "")
 
-          Ingress.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
-            source_event_id: event.id || "reaction:#{action}:#{source_entry_id}:#{user_id}",
-            signal_channel_id: signal_channel_id(channel),
-            source_entry_id: source_entry_id,
+          Observe.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
+            source_event_id: event.id || "reaction:#{action}:#{provider_message_id}:#{user_id}",
+            provider_conversation_id: provider_conversation_id(channel),
+            provider_message_id: provider_message_id,
             reaction_key: Emoji.normalize(raw),
             raw_reaction_key: raw,
             actor_key: user_id,
@@ -263,19 +267,19 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
          true <- is_binary(channel) || :missing_channel,
          action_id when is_binary(action_id) <- event.id || Map.get(action, "action_ts"),
          {:ok, operator_principal_uid} <- observe_action_operator(consumer, user_id) do
-      Ingress.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+      Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
         source_event_id: action_id,
         action_id: action_id,
-        signal_channel_id: signal_channel_id(channel),
-        source_entry_id: message_ts,
+        provider_conversation_id: provider_conversation_id(channel),
+        provider_message_id: message_ts,
         provider_thread_id: provider_thread_id(channel, message_ts || action_id),
-        actor_event_type: "signal.action.invoked",
+        signal_type: "signal.action.invoked",
         action: %{
           "name" => Map.get(action, "action_id"),
           "value" => decode_action_value(Map.get(action, "value")),
           "operator_id" => user_id,
           "operator_principal_uid" => operator_principal_uid,
-          "source_entry_id" => message_ts
+          "provider_message_id" => message_ts
         },
         raw_payload: event.raw || %{}
       })
@@ -417,7 +421,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     end
   end
 
-  defp attachment_maps(message, source_entry_id) do
+  defp attachment_maps(message, provider_message_id) do
     attachments =
       message
       |> MapHelpers.fetch_list("files")
@@ -429,7 +433,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
             MapHelpers.compact_map(%{
               "provider_ref" => "slack:file:#{file["id"]}",
               "provider" => "slack",
-              "source_message_id" => source_entry_id,
+              "source_message_id" => provider_message_id,
               "file_id" => file["id"],
               "name" => file["name"],
               "mimetype" => file["mimetype"],
@@ -460,13 +464,16 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
        ) do
     if is_binary(text) and not Enum.any?(mentions, &(&1["targets_current_agent"] == false)) and
          Regex.match?(~r/(上面|前面|文件|图片|附件|above|previous|file|image|attachment)/i, text) do
-      SignalsGateway.recent_entry_attachments(
-        signal_channel_id(channel_id),
-        user_id,
-        provider_time,
-        window_seconds: consumer.recent_attachment_window_seconds,
-        limit: consumer.max_backfilled_attachments
-      )
+      case External.get_conversation(Repo, provider_conversation_id(channel_id)) do
+        %{id: id} ->
+          Attachments.recent(id, user_id, provider_time,
+            window_seconds: consumer.recent_attachment_window_seconds,
+            limit: consumer.max_backfilled_attachments
+          )
+
+        nil ->
+          []
+      end
     else
       []
     end
@@ -507,7 +514,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   end
 
   @doc false
-  def signal_channel_id(channel), do: "slack:" <> URI.encode(channel)
+  def provider_conversation_id(channel), do: "slack:" <> URI.encode(channel)
 
   defp provider_thread_id(channel, thread_ts),
     do: "slack:#{URI.encode(channel)}:#{URI.encode(thread_ts)}"
@@ -517,17 +524,17 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   # message's own ts would give every top-level message its own inbound-batch
   # key, so same-sender bursts could never merge.
   defp message_thread_id(slack_channel_id, message) when is_map(message) do
-    source_entry_id = MapHelpers.optional_text(message, "ts")
+    provider_message_id = MapHelpers.optional_text(message, "ts")
 
     case MapHelpers.optional_text(message, "thread_ts") do
-      thread_ts when is_nil(thread_ts) or thread_ts == source_entry_id -> nil
+      thread_ts when is_nil(thread_ts) or thread_ts == provider_message_id -> nil
       thread_ts -> provider_thread_id(slack_channel_id, thread_ts)
     end
   end
 
-  defp reply_target_id(message, source_entry_id) do
+  defp reply_target_id(message, provider_message_id) do
     case MapHelpers.optional_text(message, "thread_ts") do
-      thread_ts when is_nil(thread_ts) or thread_ts == source_entry_id -> nil
+      thread_ts when is_nil(thread_ts) or thread_ts == provider_message_id -> nil
       thread_ts -> thread_ts
     end
   end

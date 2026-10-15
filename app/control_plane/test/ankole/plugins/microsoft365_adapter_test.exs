@@ -1,5 +1,6 @@
 defmodule Ankole.Plugins.Microsoft365AdapterTest do
   use Ankole.DataCase, async: false
+  import Ankole.ExternalConversationsFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.Plugins.Microsoft365Adapter
@@ -9,27 +10,28 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
   alias Ankole.AuthZ.Membership
   alias Ankole.IdentityProviders
 
-  alias Ankole.Plugins.Microsoft365Adapter.{
-    AdaptiveCard,
-    BotFrameworkAuth,
-    Config,
-    Conversations,
-    DirectoryWebhook,
-    Emoji,
-    GraphSubscriptions,
-    IdentityProvider,
-    Inbound,
-    Markdown,
-    Outbox,
-    SubscriptionReconciler,
-    TeamsChannels,
-    TeamsWebhook
-  }
+  alias Ankole.Plugins.Microsoft365Adapter.AdaptiveCard
+  alias Ankole.Plugins.Microsoft365Adapter.BotFrameworkAuth
+  alias Ankole.Plugins.Microsoft365Adapter.Config
+  alias Ankole.Plugins.Microsoft365Adapter.Conversations
+  alias Ankole.Plugins.Microsoft365Adapter.DirectoryWebhook
+  alias Ankole.Plugins.Microsoft365Adapter.Emoji
+  alias Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions
+  alias Ankole.Plugins.Microsoft365Adapter.IdentityProvider
+  alias Ankole.Plugins.Microsoft365Adapter.Inbound
+  alias Ankole.Plugins.Microsoft365Adapter.Markdown
+  alias Ankole.Plugins.Microsoft365Adapter.Delivery
+  alias Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler
+  alias Ankole.Plugins.Microsoft365Adapter.TeamsChannels
+  alias Ankole.Plugins.Microsoft365Adapter.TeamsWebhook
 
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.{AdapterContext, BindingMembership, Channel, OutboxEntry}
+
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.BindingMembership
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.Delivery.Intent
 
   @app_id "11111111-2222-3333-4444-555555555555"
   @app_id_b "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
@@ -59,13 +61,13 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert [
                %{
-                 contract_id: "signals_gateway.adapter",
+                 contract_id: "signals.adapter",
                  id: "teams",
                  config_module: Config,
                  binding_saved_module: TeamsChannels
                },
                %{
-                 contract_id: "signals_gateway.webhook_handler",
+                 contract_id: "signals.webhook_handler",
                  id: "teams",
                  module: TeamsWebhook,
                  kinds: ["messages"]
@@ -77,7 +79,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                  connection_reconciler: SubscriptionReconciler
                },
                %{
-                 contract_id: "signals_gateway.webhook_handler",
+                 contract_id: "signals.webhook_handler",
                  id: "entra-id",
                  module: DirectoryWebhook,
                  kinds: ["directory"]
@@ -85,7 +87,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
              ] = Microsoft365Adapter.adapter_declarations()
 
       declarations = Microsoft365Adapter.adapter_declarations()
-      chat = Enum.find(declarations, &(&1.contract_id == "signals_gateway.adapter"))
+      chat = Enum.find(declarations, &(&1.contract_id == "signals.adapter"))
 
       refute "add_reaction" in chat.outbound_capabilities
       refute "outbound_reconciliation" in chat.outbound_capabilities
@@ -231,7 +233,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert Conversations.thread_root(thread_id) == "1690000000001"
       assert Conversations.thread_root("19:room@thread.tacv2") == nil
 
-      signal = Conversations.signal_channel_id("19:room@thread.tacv2")
+      signal = Conversations.conversation_id("19:room@thread.tacv2")
       assert signal == "teams:19%3Aroom%40thread.tacv2"
       assert Conversations.conversation_id_from_signal(signal) == "19:room@thread.tacv2"
 
@@ -284,9 +286,9 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert {:ok, normalized} = Inbound.normalize_message_receive(activity, consumer)
 
-      assert normalized.signal_channel_id == "teams:19%3Aroom%40thread.tacv2"
+      assert normalized.provider_conversation_id == "teams:19%3Aroom%40thread.tacv2"
       assert normalized.provider_thread_id =~ ":1690000000001"
-      assert normalized.reply_to_source_entry_id == "1690000000001"
+      assert normalized.reply_to_provider_message_id == "1690000000001"
       assert normalized.explicit == true
       assert normalized.text == "review @Ada please"
       assert normalized.author["id"] == "oid-user"
@@ -315,7 +317,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert normalized.explicit == true
       assert normalized.channel.kind == :im_dm
       assert is_nil(normalized.provider_thread_id)
-      assert is_nil(normalized.reply_to_source_entry_id)
+      assert is_nil(normalized.reply_to_provider_message_id)
 
       bot_sender =
         message_activity(%{
@@ -347,7 +349,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
         })
 
       assert {:ok, normalized} = Inbound.normalize_message_receive(activity, consumer)
-      assert normalized.reply_to_source_entry_id == "activity-parent"
+      assert normalized.reply_to_provider_message_id == "activity-parent"
       assert normalized.provider_thread_id =~ ":1690000000001"
     end
   end
@@ -377,7 +379,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     end
   end
 
-  describe "outbox request shapes" do
+  describe "intent request shapes" do
     test "maps post, reply, edit, delete, divider, and card operations" do
       channel_target = %{
         conversation_id: "19:room@thread.tacv2",
@@ -385,38 +387,38 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
         channel?: true
       }
 
-      base = %OutboxEntry{
-        signal_channel_id: "teams:19%3Aroom%40thread.tacv2",
+      base = %Intent{
+        conversation_id: external_conversation_id("teams:19%3Aroom%40thread.tacv2"),
         payload: %{},
         fallback_visible_text: "**hello**"
       }
 
       assert {:ok, [%{kind: :post, conversation_id: "19:room@thread.tacv2", activity: activity}]} =
-               Outbox.requests_for_outbox(%{base | operation: :post}, channel_target)
+               Delivery.requests_for_intent(%{base | operation: :post}, channel_target)
 
       assert activity["textFormat"] == "markdown"
       assert activity["text"] == "**hello**"
 
       assert {:ok, [%{conversation_id: "19:room@thread.tacv2;messageid=root-1"}]} =
-               Outbox.requests_for_outbox(
-                 %{base | operation: :reply, reply_to_source_entry_id: "root-1"},
+               Delivery.requests_for_intent(
+                 %{base | operation: :reply, reply_to_provider_message_id: "root-1"},
                  channel_target
                )
 
       chat_target = %{channel_target | channel?: false}
 
       assert {:ok, [%{conversation_id: "19:room@thread.tacv2"}]} =
-               Outbox.requests_for_outbox(
-                 %{base | operation: :reply, reply_to_source_entry_id: "root-1"},
+               Delivery.requests_for_intent(
+                 %{base | operation: :reply, reply_to_provider_message_id: "root-1"},
                  chat_target
                )
 
       assert {:ok, [%{kind: :update, conversation_id: "19:room@thread.tacv2;messageid=root-1"}]} =
-               Outbox.requests_for_outbox(
+               Delivery.requests_for_intent(
                  %{
                    base
                    | operation: :edit,
-                     target_source_entry_id: "act-1",
+                     target_provider_message_id: "act-1",
                      provider_thread_id:
                        Conversations.provider_thread_id("19:room@thread.tacv2", "root-1")
                  },
@@ -424,15 +426,15 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                )
 
       assert {:ok, [%{kind: :delete, idempotent_errors: errors}]} =
-               Outbox.requests_for_outbox(
-                 %{base | operation: :delete, target_source_entry_id: "act-1"},
+               Delivery.requests_for_intent(
+                 %{base | operation: :delete, target_provider_message_id: "act-1"},
                  channel_target
                )
 
       assert "ActivityNotFoundInConversation" in errors
 
       assert {:ok, [%{activity: divider}]} =
-               Outbox.requests_for_outbox(%{base | operation: :divider}, channel_target)
+               Delivery.requests_for_intent(%{base | operation: :divider}, channel_target)
 
       assert divider["text"] =~ "———"
 
@@ -443,7 +445,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       }
 
       assert {:ok, [%{activity: card_activity}]} =
-               Outbox.requests_for_outbox(card_entry, channel_target)
+               Delivery.requests_for_intent(card_entry, channel_target)
 
       assert [%{"contentType" => "application/vnd.microsoft.card.adaptive"}] =
                card_activity["attachments"]
@@ -452,6 +454,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     test "delivery target requires a mirrored serviceUrl and attachments are rejected" do
       {:ok, _channel} =
         TeamsChannels.upsert_channel_projection(
+          fixture_context(),
           %{
             conversation_id: "19:room@thread.tacv2",
             conversation_type: "channel",
@@ -462,9 +465,10 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
           nil
         )
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         operation: :post,
-        signal_channel_id: Conversations.signal_channel_id("19:room@thread.tacv2"),
+        conversation_id:
+          external_conversation_id(Conversations.conversation_id("19:room@thread.tacv2")),
         payload: %{},
         fallback_visible_text: "hello"
       }
@@ -474,17 +478,17 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                 conversation_id: "19:room@thread.tacv2",
                 service_url: "https://smba.microsoft.test/teams/",
                 channel?: true
-              }} = Outbox.delivery_target(outbox)
+              }} = Delivery.delivery_target(intent)
 
       missing_mirror = %{
-        outbox
-        | signal_channel_id: Conversations.signal_channel_id("19:unknown@thread.tacv2")
+        intent
+        | conversation_id: Ecto.UUID.generate()
       }
 
-      assert {:error, :missing_channel_mirror} = Outbox.delivery_target(missing_mirror)
+      assert {:error, :missing_channel_mirror} = Delivery.delivery_target(missing_mirror)
 
-      with_attachment = %{outbox | payload: %{"attachments" => [%{"name" => "a.txt"}]}}
-      assert {:error, :outbound_attachments_not_supported} = Outbox.send(with_attachment)
+      with_attachment = %{intent | payload: %{"attachments" => [%{"name" => "a.txt"}]}}
+      assert {:error, :outbound_attachments_not_supported} = Delivery.deliver(with_attachment)
     end
 
     test "a later chunk failure preserves uncertainty about earlier delivery" do
@@ -493,6 +497,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       {:ok, _} =
         TeamsChannels.upsert_channel_projection(
+          fixture_context(),
           %{
             conversation_id: "partial-send",
             conversation_type: "personal",
@@ -529,11 +534,12 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       end)
 
       assert :unknown =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: binding.name,
                  operation: :post,
-                 signal_channel_id: Conversations.signal_channel_id("partial-send"),
+                 conversation_id:
+                   external_conversation_id(Conversations.conversation_id("partial-send")),
                  payload: %{},
                  fallback_visible_text: String.duplicate("a", 24_001)
                })
@@ -545,19 +551,19 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       rate_limited = %MicrosoftOpenAPI.Error{reason: :rate_limited, status: 429, retry_after: 7}
 
       assert {:error, {:reply_delivery, :retryable, detail}} =
-               Outbox.normalize_delivery_result({:error, rate_limited})
+               Delivery.normalize_delivery_result({:error, rate_limited})
 
       assert detail.retry_after_seconds == 7
 
       auth = %MicrosoftOpenAPI.Error{reason: "InvalidAuthenticationToken", status: 401}
 
       assert {:error, {:reply_delivery, :operator_action_required, %{http_status: 401}}} =
-               Outbox.normalize_delivery_result({:error, auth})
+               Delivery.normalize_delivery_result({:error, auth})
 
       gone = %MicrosoftOpenAPI.Error{reason: "ConversationNotFound", status: 404}
 
       assert {:error, {:reply_delivery, :permanent, %{reason: "ConversationNotFound"}}} =
-               Outbox.normalize_delivery_result({:error, gone})
+               Delivery.normalize_delivery_result({:error, gone})
     end
   end
 
@@ -573,6 +579,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert {:ok, _channel} =
                TeamsChannels.upsert_channel_projection(
+                 fixture_context(),
                  %{
                    conversation_id: conversation_id,
                    conversation_type: "channel",
@@ -805,8 +812,11 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert {:ok, %{status: 200}} = TeamsWebhook.handle_webhook(webhook_request(activity))
 
-      signal_channel_id = Conversations.signal_channel_id("19:room@thread.tacv2")
-      assert %Channel{metadata: metadata} = Repo.get_by(Channel, id: signal_channel_id)
+      conversation_id = Conversations.conversation_id("19:room@thread.tacv2")
+
+      assert %Conversation{metadata: metadata} =
+               Repo.get_by(Conversation, provider_conversation_id: conversation_id)
+
       assert metadata["service_url"] == @service_url
       assert metadata["team_id"] == "team-1"
 
@@ -1533,9 +1543,15 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
     }
   end
 
+  defp fixture_context do
+    %{principal: agent} = agent_fixture()
+    %{agent_uid: agent.uid, binding_name: "fixture"}
+  end
+
   defp seed_mirror(attrs) do
     assert {:ok, _channel} =
              TeamsChannels.upsert_channel_projection(
+               fixture_context(),
                Map.merge(
                  %{conversation_type: "channel", service_url: @service_url, name: "Seeded"},
                  attrs
@@ -1587,7 +1603,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       AppConfigure.put_global_by_key(Config.chat_config_key(name), config)
 
     {:ok, binding} =
-      SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: agent_uid,
         name: name,
         adapter: "teams",

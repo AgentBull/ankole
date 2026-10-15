@@ -2,10 +2,6 @@
 // Policy lives here; algorithms live in ./lib and the per-check modules.
 // Tightening or relaxing a guard should be an edit to THIS file only.
 
-// ---------------------------------------------------------------------------
-// Scan roots & source extensions
-// ---------------------------------------------------------------------------
-
 /** TypeScript production roots where import/boundary checks are meaningful. */
 export const TYPESCRIPT_ARCHITECTURE_SCAN_ROOTS = [
   'app/agent_computer/src',
@@ -32,10 +28,6 @@ export const SMELL_SOURCE_EXTENSIONS = ['.ts', '.tsx'] as const
 export const ALIAS_TSCONFIGS = [
   { packageRoot: 'app/agent_computer', tsconfig: 'app/agent_computer/tsconfig.json' }
 ] as const
-
-// ---------------------------------------------------------------------------
-// smells: boundary rules
-// ---------------------------------------------------------------------------
 
 export interface BoundaryRule {
   /** Stable id used in findings + JSON output. */
@@ -75,10 +67,6 @@ export const BOUNDARY_RULES: BoundaryRule[] = [
   }
 ]
 
-// ---------------------------------------------------------------------------
-// unused: Knip
-// ---------------------------------------------------------------------------
-
 export const UNUSED_KNIP_ARGS = [
   '--production',
   '--include',
@@ -88,10 +76,6 @@ export const UNUSED_KNIP_ARGS = [
   'json',
   '--no-config-hints'
 ] as const
-
-// ---------------------------------------------------------------------------
-// structure: konsistent
-// ---------------------------------------------------------------------------
 
 export const STRUCTURE_KONSISTENT_CONFIG_PATH = 'konsistent.json'
 export const STRUCTURE_KONSISTENT_VALIDATE_ARGS = [

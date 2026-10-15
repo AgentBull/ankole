@@ -22,7 +22,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway
   alias Ankole.AIGateway.ProviderConfigs
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.Repo
   alias AnkoleWeb.AIGatewayResponsesSocket
 
@@ -237,7 +237,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         ref: ref,
         stream: fake_stream(ref),
         request_input: [%{"content" => "private prompt"}],
-        actor_event_id: "actor-event-test",
+        signal_id: "actor-event-test",
         model: "google/gemini-3.1-flash-image",
         started_at_ms: System.monotonic_time(:millisecond) - 25
       }
@@ -250,7 +250,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
           metadata: [
             :event,
             :subject_uid,
-            :actor_event_id,
+            :signal_id,
             :model,
             :duration_ms,
             :termination_reason
@@ -267,7 +267,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     assert log =~ "event=ai_gateway.responses_socket_interrupted"
     assert log =~ "subject_uid=principal-test"
-    assert log =~ "actor_event_id=actor-event-test"
+    assert log =~ "signal_id=actor-event-test"
     assert log =~ "model=google/gemini-3.1-flash-image"
     assert log =~ "duration_ms="
     assert log =~ "termination_reason=remote"
@@ -276,11 +276,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "stateful frames rewrite nested response id before forwarding" do
-    {_agent, _conversation, actor_event, message} = stateful_message("socket-rewrite")
+    {_agent, _conversation, signal, message} = stateful_message("socket-rewrite")
     ref = make_ref()
 
     active =
-      active_stream(ref, message, actor_event,
+      active_stream(ref, message, signal,
         accumulated_items: [],
         terminal_committed: false
       )
@@ -305,11 +305,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "stateful frames rewrite top-level response_id before forwarding" do
-    {_agent, _conversation, actor_event, message} = stateful_message("socket-rewrite-response-id")
+    {_agent, _conversation, signal, message} = stateful_message("socket-rewrite-response-id")
     ref = make_ref()
 
     active =
-      active_stream(ref, message, actor_event,
+      active_stream(ref, message, signal,
         accumulated_items: [],
         terminal_committed: false
       )
@@ -1121,7 +1121,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       conversation = Repo.get!(Conversation, message.conversation_id)
 
       assert conversation.metadata == %{"managed_by_stateful_responses_api" => true}
-      refute Map.has_key?(message.metadata, "actor_event_id")
+      refute Map.has_key?(message.metadata, "signal_id")
       assert message.content == [text_message("user", "hello")]
 
       _ = AIGateway.cancel_response_stream(state.active_stream.stream)
@@ -1506,8 +1506,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     {:ok, conversation} =
       Conversations.ensure_conversation(agent.uid, "socket-native-read-credit")
 
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "socket-native-read-credit")
+    signal =
+      signal_fixture(agent.uid, conversation.conversation_key, "socket-native-read-credit")
 
     request =
       Ankole.JSON.encode!(%{
@@ -1516,7 +1516,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "input" => [text_message("user", "hello")],
         "store" => true,
         "conversation" => "conv_#{conversation.id}",
-        "metadata" => %{"actor_event_id" => actor_event.id}
+        "metadata" => %{"signal_id" => signal.id}
       })
 
     assert {:ok, %{active_stream: active} = state} =
@@ -1654,9 +1654,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   # Only the issuing Provider reads the state it sealed inside these items, so
   # a later turn on another Provider has to know who sealed them.
   test "a committed stateful message records the Provider that issued it" do
-    {_agent, _conversation, actor_event, message} = stateful_message("socket-issuer")
+    {_agent, _conversation, signal, message} = stateful_message("socket-issuer")
     ref = make_ref()
-    active = active_stream(ref, message, actor_event, issuer: "openai-main")
+    active = active_stream(ref, message, signal, issuer: "openai-main")
 
     chunk = %{
       "type" => "response.completed",
@@ -1683,9 +1683,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "stateful completed terminal frame is committed with provider telemetry before forwarding" do
-    {agent, _conversation, actor_event, message} = stateful_message("socket-complete")
+    {agent, _conversation, signal, message} = stateful_message("socket-complete")
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     terminal_item = %{
       "type" => "message",
@@ -1748,14 +1748,14 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert body["provider_metadata"]["system_fingerprint"] == "fp_123"
     assert body["stop_reason"] == "stop"
     assert body["tool_results"] == []
-    assert body["metadata"] == %{"actor_event_id" => actor_event.id}
+    assert body["metadata"] == %{"signal_id" => signal.id}
   end
 
   test "stateful completed terminal frame preserves non-message response items" do
-    {agent, _conversation, actor_event, message} = stateful_message("socket-computer-item")
+    {agent, _conversation, signal, message} = stateful_message("socket-computer-item")
     ref = make_ref()
 
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     web_search_item = %{
       "type" => "web_search_call",
@@ -1789,7 +1789,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "non-native max_tool_calls waits for the provider terminal after the admitted call" do
-    {agent, conversation, actor_event, message} =
+    {agent, conversation, signal, message} =
       stateful_message("socket-max-tool-calls-late-stop")
 
     :ok = AIGateway.subscribe(agent.uid, conversation.id)
@@ -1797,7 +1797,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     ref = make_ref()
 
     active =
-      active_stream(ref, message, actor_event,
+      active_stream(ref, message, signal,
         max_tool_calls: MaxToolCalls.new(1, :openai_chat_completions)
       )
 
@@ -1863,7 +1863,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert_receive {:ai_gateway_event, :tool_call_started,
                     %{
                       response_id: ^response_id,
-                      metadata: %{"actor_event_id" => actor_event_id},
+                      metadata: %{"signal_id" => signal_id},
                       payload: %{
                         "id" => "search_late_stop",
                         "status" => "completed",
@@ -1871,7 +1871,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
                       }
                     }}
 
-    assert actor_event_id == actor_event.id
+    assert signal_id == signal.id
 
     assert {:ok, %{body: body}} = AIGateway.retrieve_response(agent.uid, response_id)
     assert body["status"] == "completed"
@@ -1939,7 +1939,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "stateful terminal frame tolerates an already terminal row" do
-    {_agent, _conversation, actor_event, message} = stateful_message("socket-already-terminal")
+    {_agent, _conversation, signal, message} = stateful_message("socket-already-terminal")
     ref = make_ref()
 
     terminal_item = %{
@@ -1951,7 +1951,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     assert {:ok, committed} = ResponseCommit.commit_complete(message, [terminal_item], %{})
 
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     chunk = %{
       "type" => "response.completed",
@@ -1980,9 +1980,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "stateful incomplete terminal frame commits durable partial output as incomplete response" do
-    {agent, _conversation, actor_event, message} = stateful_message("socket-incomplete")
+    {agent, _conversation, signal, message} = stateful_message("socket-incomplete")
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     terminal_item = %{
       "type" => "message",
@@ -2029,9 +2029,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "stateful upstream-closed terminal keeps partial calls for audit but commits the run as error" do
-    {_agent, conversation, actor_event, message} = stateful_message("socket-upstream-closed")
+    {_agent, conversation, signal, message} = stateful_message("socket-upstream-closed")
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     partial_call = %{
       "type" => "custom_tool_call",
@@ -2071,9 +2071,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "max-output terminal with a partial call commits error instead of an incomplete success" do
-    {_agent, conversation, actor_event, message} = stateful_message("socket-max-output-partial")
+    {_agent, conversation, signal, message} = stateful_message("socket-max-output-partial")
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     partial_call = %{
       "type" => "function_call",
@@ -2107,11 +2107,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "provider-completed response with an incomplete call is an error, not executable history" do
-    {_agent, conversation, actor_event, message} =
+    {_agent, conversation, signal, message} =
       stateful_message("socket-partial-call-completed")
 
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     partial_call = %{
       "type" => "function_call",
@@ -2175,9 +2175,9 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "stateful terminal commit does not project Actor state or attachments" do
-    {_agent, _conversation, actor_event, message} = stateful_message("socket-commit-failure-open")
+    {_agent, _conversation, signal, message} = stateful_message("socket-commit-failure-open")
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     terminal_items = [
       %{
@@ -2238,7 +2238,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     stored = Repo.get!(Message, message.id)
     assert stored.status == "complete"
     assert stored.content == message.content ++ terminal_items
-    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+    assert is_nil(Repo.get!(Signal, signal.id).completed_at)
   end
 
   test "output item done keeps completed item in memory for cleanup commit" do
@@ -2248,11 +2248,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       "content" => [%{"type" => "input_text", "text" => "start"}]
     }
 
-    {_agent, _conversation, actor_event, message} =
+    {_agent, _conversation, signal, message} =
       stateful_message("socket-completed-item", [request_item])
 
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     completed_item = %{
       "type" => "message",
@@ -2287,11 +2287,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert stored.content == [request_item, completed_item]
     assert stored.metadata["error"]["stage"] == "response_stream_cleanup"
     assert stored.metadata["error"]["retryable"] == true
-    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+    assert is_nil(Repo.get!(Signal, signal.id).completed_at)
   end
 
   test "function call output item publishes tool activity preview event" do
-    {agent, conversation, actor_event, message} =
+    {agent, conversation, signal, message} =
       stateful_message("socket-tool-activity-start", [
         %{
           "type" => "message",
@@ -2303,7 +2303,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     :ok = Events.subscribe(agent.uid, conversation.id)
 
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     function_call = %{
       "type" => "function_call",
@@ -2325,7 +2325,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     assert_receive {:ai_gateway_event, :tool_call_started, event}
     assert event.response_id == "resp_#{message.id}"
-    assert event.metadata["actor_event_id"] == actor_event.id
+    assert event.metadata["signal_id"] == signal.id
 
     assert event.payload == %{
              "call_id" => "call_web_fetch",
@@ -2336,7 +2336,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "provider-visible reasoning is published live without entering durable response items" do
-    {agent, conversation, actor_event, message} =
+    {agent, conversation, signal, message} =
       stateful_message("socket-reasoning-live", [
         %{
           "type" => "message",
@@ -2348,7 +2348,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     :ok = Events.subscribe(agent.uid, conversation.id)
 
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     chunk = %{
       "type" => "response.reasoning_summary_text.delta",
@@ -2376,7 +2376,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "provider stream errors preserve accumulated partial response items" do
-    {agent, _conversation, actor_event, message} =
+    {agent, _conversation, signal, message} =
       stateful_message("socket-error-partial", [
         %{
           "type" => "message",
@@ -2394,7 +2394,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       "content" => [%{"type" => "output_text", "text" => "partial", "annotations" => []}]
     }
 
-    active = active_stream(ref, message, actor_event, accumulated_items: [partial_item])
+    active = active_stream(ref, message, signal, accumulated_items: [partial_item])
 
     assert {:push, {:text, pushed}, state} =
              handle_test_failure(
@@ -2440,11 +2440,11 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
               }
             }} = AIGateway.retrieve_response(agent.uid, expected_response_id)
 
-    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+    assert is_nil(Repo.get!(Signal, signal.id).completed_at)
   end
 
   test "provider stream done without a terminal frame sends retryable response.failed" do
-    {_agent, _conversation, actor_event, message} =
+    {_agent, _conversation, signal, message} =
       stateful_message("socket-done-without-terminal", [
         %{
           "type" => "message",
@@ -2462,7 +2462,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
       "content" => [%{"type" => "output_text", "text" => "partial", "annotations" => []}]
     }
 
-    active = active_stream(ref, message, actor_event, accumulated_items: [partial_item])
+    active = active_stream(ref, message, signal, accumulated_items: [partial_item])
 
     assert {:push, {:text, pushed}, state} =
              handle_test_failure(
@@ -2493,15 +2493,15 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert stored.content == message.content ++ [partial_item]
     assert stored.metadata["error"]["code"] == "provider_stream_closed_without_terminal"
     assert stored.metadata["error"]["retryable"] == true
-    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+    assert is_nil(Repo.get!(Signal, signal.id).completed_at)
   end
 
   test "provider terminal failure keeps safe attribution through persist and retrieve" do
-    {agent, _conversation, actor_event, message} =
+    {agent, _conversation, signal, message} =
       stateful_message("socket-provider-failure-round-trip")
 
     ref = make_ref()
-    active = active_stream(ref, message, actor_event)
+    active = active_stream(ref, message, signal)
 
     chunk = %{
       "type" => "response.failed",
@@ -2552,7 +2552,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   test "stateful overflow sends structured context_overflow error frame" do
-    {agent, conversation, _actor_event, message} =
+    {agent, conversation, _signal, message} =
       stateful_message("socket-overflow", [
         media_message("https://files.example.test/#{String.duplicate("large", 40)}.png")
       ])
@@ -2590,7 +2590,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "input" => [text_message("user", "new request")],
         "store" => true,
         "conversation" => "conv_#{conversation.id}",
-        "metadata" => %{"actor_event_id" => Ecto.UUID.generate()}
+        "metadata" => %{"signal_id" => Ecto.UUID.generate()}
       })
 
     assert {:push, {:text, pushed}, _state} =
@@ -2612,7 +2612,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
            } = Ankole.JSON.decode!(pushed)
   end
 
-  test "stateful response.create accepts an explicit conversation without actor_event_id" do
+  test "stateful response.create accepts an explicit conversation without signal_id" do
     %{principal: agent} = agent_fixture()
 
     server =
@@ -2669,7 +2669,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     message = Repo.get_by!(Message, conversation_id: conversation.id, status: "generating")
     assert message.conversation_id == conversation.id
-    refute Map.has_key?(message.metadata, "actor_event_id")
+    refute Map.has_key?(message.metadata, "signal_id")
 
     _ = AIGateway.cancel_response_stream(state.active_stream.stream)
   end
@@ -2699,14 +2699,14 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     {:ok, conversation} =
       Conversations.ensure_conversation(agent.uid, "socket-duplicate-actor-event")
 
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "socket-duplicate-event")
+    signal =
+      signal_fixture(agent.uid, conversation.conversation_key, "socket-duplicate-event")
 
     {:ok, first_run} =
       start_response_run(%{
         subject_uid: agent.uid,
         conversation_id: conversation.id,
-        metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}},
+        metadata: %{"request_metadata" => %{"signal_id" => signal.id}},
         request_items: [text_message("user", "first delivery")]
       })
 
@@ -2719,7 +2719,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "input" => [text_message("user", "redelivered delivery")],
         "store" => true,
         "conversation" => "conv_#{conversation.id}",
-        "metadata" => %{"actor_event_id" => actor_event.id}
+        "metadata" => %{"signal_id" => signal.id}
       })
 
     assert {:push, {:text, pushed}, _state} =
@@ -2745,9 +2745,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     runs =
       Message
       |> Repo.all()
-      |> Enum.filter(
-        &(get_in(&1.metadata, ["request_metadata", "actor_event_id"]) == actor_event.id)
-      )
+      |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
     assert Enum.any?(runs, &(&1.id == first_run.id and &1.status == "complete"))
     assert Enum.any?(runs, &(&1.id != first_run.id and &1.status == "error"))
@@ -2774,7 +2772,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "input" => [text_message("user", "hello")],
         "store" => true,
         "conversation" => Ecto.UUID.generate(),
-        "metadata" => %{"actor_event_id" => Ecto.UUID.generate()}
+        "metadata" => %{"signal_id" => Ecto.UUID.generate()}
       })
 
     assert {:push, {:text, pushed}, _state} =
@@ -2819,7 +2817,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "input" => [text_message("user", "hello")],
         "store" => true,
         "conversation" => "conv_#{Ecto.UUID.generate()}",
-        "metadata" => %{"actor_event_id" => Ecto.UUID.generate()}
+        "metadata" => %{"signal_id" => Ecto.UUID.generate()}
       })
 
     assert {:push, {:text, pushed}, _state} =
@@ -2877,8 +2875,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     {:ok, conversation} =
       Conversations.ensure_conversation(agent.uid, "socket-upstream-429")
 
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "socket-event-upstream-429")
+    signal =
+      signal_fixture(agent.uid, conversation.conversation_key, "socket-event-upstream-429")
 
     request =
       Ankole.JSON.encode!(%{
@@ -2890,7 +2888,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "input" => [text_message("user", "new request")],
         "store" => true,
         "conversation" => "conv_#{conversation.id}",
-        "metadata" => %{"actor_event_id" => actor_event.id, "request_tag" => "kept"}
+        "metadata" => %{"signal_id" => signal.id, "request_tag" => "kept"}
       })
 
     assert {:push, {:text, pushed}, _state} =
@@ -2929,9 +2927,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     [run] =
       Message
       |> Repo.all()
-      |> Enum.filter(
-        &(get_in(&1.metadata, ["request_metadata", "actor_event_id"]) == actor_event.id)
-      )
+      |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
     assert run.status == "error"
 
@@ -2951,7 +2947,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     assert run.metadata["request_model"] == "primary"
     refute Map.has_key?(run.metadata, "model")
     assert get_in(run.metadata, ["request_metadata", "request_tag"]) == "kept"
-    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+    assert is_nil(Repo.get!(Signal, signal.id).completed_at)
   end
 
   test "stateful upstream socket-open keeps a large non-JSON 503 response out of public and stored errors" do
@@ -2986,8 +2982,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     {:ok, conversation} =
       Conversations.ensure_conversation(agent.uid, "socket-upstream-large-503")
 
-    actor_event =
-      actor_event_fixture(
+    signal =
+      signal_fixture(
         agent.uid,
         conversation.conversation_key,
         "socket-event-upstream-large-503"
@@ -3000,7 +2996,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         "input" => [text_message("user", "new request")],
         "store" => true,
         "conversation" => "conv_#{conversation.id}",
-        "metadata" => %{"actor_event_id" => actor_event.id}
+        "metadata" => %{"signal_id" => signal.id}
       })
 
     assert {:push, {:text, pushed}, _state} =
@@ -3030,9 +3026,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     [run] =
       Message
       |> Repo.all()
-      |> Enum.filter(
-        &(get_in(&1.metadata, ["request_metadata", "actor_event_id"]) == actor_event.id)
-      )
+      |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
     assert run.status == "error"
 
@@ -3047,7 +3041,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
 
     refute inspect(run.metadata) =~ private_marker
     refute inspect(run.metadata) =~ "unavailable;"
-    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+    assert is_nil(Repo.get!(Signal, signal.id).completed_at)
   end
 
   # Feeds every stream batch back to the socket until the run reaches its
@@ -3070,8 +3064,8 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     {:ok, conversation} =
       Conversations.ensure_conversation(agent.uid, "socket-test-#{session_suffix}")
 
-    actor_event =
-      actor_event_fixture(
+    signal =
+      signal_fixture(
         agent.uid,
         conversation.conversation_key,
         "socket-event-#{session_suffix}"
@@ -3082,10 +3076,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
         subject_uid: agent.uid,
         conversation_id: conversation.id,
         request_items: request_items,
-        metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}}
+        metadata: %{"request_metadata" => %{"signal_id" => signal.id}}
       })
 
-    {agent, conversation, actor_event, message}
+    {agent, conversation, signal, message}
   end
 
   defp start_native_socket_upstream(scenario, counter) do
@@ -3250,27 +3244,26 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     :ok
   end
 
-  defp actor_event_fixture(agent_uid, session_id, source_event_id) do
+  defp signal_fixture(agent_uid, session_id, source_event_id) do
     now = DateTime.utc_now(:microsecond)
 
-    attrs = %{
-      agent_uid: agent_uid,
-      binding_name: "test-binding",
-      session_id: session_id,
-      source_event_id: "#{source_event_id}-#{System.unique_integer([:positive])}",
-      type: "im.message.addressed",
-      available_at: now,
-      queue_sequence: System.unique_integer([:positive]),
-      input_state: "open",
-      payload: %{"text" => source_event_id}
-    }
+    {:ok, signal} =
+      Repo.transact(fn repo ->
+        Ankole.Signals.accept_in_tx(repo, %{
+          source: "test://gateway-runtime",
+          id: "#{source_event_id}-#{System.unique_integer([:positive])}",
+          type: "test.source",
+          time: now,
+          data: %{"text" => source_event_id},
+          target: %{agent_uid: agent_uid, session_id: session_id},
+          authorization: Ankole.Principals.WorkAccess.service()
+        })
+      end)
 
-    %ActorEvent{}
-    |> ActorEvent.changeset(attrs)
-    |> Repo.insert!()
+    signal
   end
 
-  defp active_stream(ref, message, _actor_event, opts \\ []) do
+  defp active_stream(ref, message, _signal, opts \\ []) do
     stateful = %{message_id: message.id, message: message}
     items = Keyword.get(opts, :accumulated_items, [])
 

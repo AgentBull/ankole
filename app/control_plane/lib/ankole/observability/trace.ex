@@ -41,7 +41,7 @@ defmodule Ankole.Observability.Trace do
     |> put_present("ankole.principal.type", context.principal_type)
     |> put_present("session.id", context.session_id)
     |> put_present("gen_ai.conversation.id", context.session_id)
-    |> put_present("ankole.actor_event.id", context.actor_event_id)
+    |> put_present("ankole.signal.id", Map.get(context, :signal_id))
   end
 
   @doc "Adds the durable tenant identity when a root span starts."

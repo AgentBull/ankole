@@ -4,7 +4,8 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Membership
   alias Ankole.Plugins.GoogleWorkspaceAdapter
-  alias Ankole.Plugins.GoogleWorkspaceAdapter.{Config, IdentityProvider}
+  alias Ankole.Plugins.GoogleWorkspaceAdapter.Config
+  alias Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider
   alias Ankole.Plugins.Registry
   alias Ankole.Principals
 

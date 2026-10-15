@@ -262,17 +262,13 @@ defmodule Ankole.Brain.MergeTest do
       assert outcome.canonical_slug == canonical.slug
       assert outcome.merged_slug == duplicate.slug
 
-      # The duplicate page is gone and its slug redirects.
       assert Repo.get_by(Object, slug: duplicate.slug) == nil
       assert {:ok, %Object{slug: "companies/acme"}} = Objects.resolve_slug(duplicate.slug)
       assert Repo.get_by(SlugAlias, alias_slug: duplicate.slug).canonical_slug == canonical.slug
 
-      # Claims follow, including holder attribution.
       assert [claim] = Claim |> where([claim], claim.kind == "event") |> Repo.all()
       assert claim.object_slug == canonical.slug
       assert claim.holder == canonical.slug
-
-      # Aliases land deduplicated on the canonical page.
 
       alias_norms =
         ObjectAlias
@@ -283,7 +279,6 @@ defmodule Ankole.Brain.MergeTest do
 
       assert alias_norms == ["acme", "acme corp"]
 
-      # The timeline moved and reprojected into the canonical chunk set.
       assert [timeline] = Repo.all(Timeline)
       assert timeline.object_slug == canonical.slug
 
@@ -292,7 +287,6 @@ defmodule Ankole.Brain.MergeTest do
              |> where([chunk], chunk.content_kind == "timeline")
              |> Repo.exists?()
 
-      # The outbound edge repointed; the intra-pair edge disappeared.
       links = Repo.all(Ankole.Brain.Schemas.Link)
       assert [edge] = Enum.filter(links, &(&1.link_type == "customer_of"))
       assert edge.from_object_slug == canonical.slug

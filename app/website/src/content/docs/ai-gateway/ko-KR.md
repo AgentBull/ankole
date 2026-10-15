@@ -125,7 +125,7 @@ AIGateway는 업스트림 호출 전에 모델 selector를 실제 provider bindi
 
 ## AIGateway가 아닌 것
 
-공개된 무인증 proxy가 아닙니다. provider credential을 보내는 곳도 아닙니다. 그 credential들은 컨트롤 플레인에 있습니다. queue나 job runner도 아닙니다. 오래 걸리는 Agent 작업은 Actor Runtime과 Background Agent Jobs에 속합니다. AIGateway는 요청/응답 경계입니다. 호출 하나가 들어오면 응답 하나 또는 스트림 하나가 나가고, 셀렉터는 해석되며 credential은 내부에 유지됩니다.
+공개된 무인증 proxy가 아닙니다. provider credential을 보내는 곳도 아닙니다. 그 credential들은 컨트롤 플레인에 있습니다. queue나 job runner도 아닙니다. 오래 걸리는 Agent 작업은 Sessions과 Background Agent Jobs에 속합니다. AIGateway는 요청/응답 경계입니다. 호출 하나가 들어오면 응답 하나 또는 스트림 하나가 나가고, 셀렉터는 해석되며 credential은 내부에 유지됩니다.
 
 ## 다음 단계
 

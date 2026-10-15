@@ -5,13 +5,13 @@ section: Developer guide
 order: 120
 ---
 
-コントロールプレーンはメイン Agent のモデルループとツール分配を所有します。`Ankole.Conversations.Driver` は AIGateway を呼び、要求されたツールを実行し、結果を記録して Turn を続けます。Agent Computer は環境操作と Codex Job を実行します。[Agent loop](../agent-loop/) と [Agent Computer Worker](../agent-computer-worker/) を参照してください。
+コントロールプレーンはメイン Agent のモデルループとツール分配を所有します。`Ankole.Sessions.Driver` は AIGateway を呼び、要求されたツールを実行し、結果を記録して Turn を続けます。Agent Computer は環境操作と Codex Job を実行します。[Agent loop](../agent-loop/) と [Agent Computer Worker](../agent-computer-worker/) を参照してください。
 
 ## 現在のツールセット
 
-`Ankole.Conversations.ToolCatalog.for_run/1` は現在のドメイン宣言と `worker_tools.json` の Worker 宣言を組み合わせます。Run の種類、モデルの能力、選択された Skill とプラグイン、ambient 権限に従って構築し、Agent のグローバルなツールセットとして保存しません。
+`Ankole.Sessions.ToolCatalog.for_run/1` は現在のドメイン宣言と `worker_tools.json` の Worker 宣言を組み合わせます。Run の種類、モデルの能力、選択された Skill とプラグイン、ambient 権限に従って構築し、Agent のグローバルなツールセットとして保存しません。
 
-`Ankole.Conversations.Tool` はモデル向け schema、実行主体、実行順序、許可する呼び出し元、読み取り・破壊・再試行のメタデータを保持します。`Ankole.Conversations.Tools.prepare/2` は呼び出し元を確認し、引数を解析して所有者に正規化させ、JSON Schema を検証してから実行します。
+`Ankole.Sessions.Tool` はモデル向け schema、実行主体、実行順序、許可する呼び出し元、読み取り・破壊・再試行のメタデータを保持します。`Ankole.Sessions.Tools.prepare/2` は呼び出し元を確認し、引数を解析して所有者に正規化させ、JSON Schema を検証してから実行します。
 
 ## 所有者での実行
 
@@ -20,7 +20,7 @@ order: 120
 - MCP-backed Skill は Worker の computer command と mcporter を使います。
 - Provider の hosted tool は AIGateway 経由で実行し、選択モデルの宣言された能力に従います。
 
-Driver は宣言に従って並列または順次実行します。永続的な変更は `Ankole.Conversations.Receipts` を使い、ドメイン変更と結果を同じトランザクションでコミットします。AIGateway は次のモデル反復用に出力を保存します。Worker 切断時は、Driver が宣言された再試行契約に従って結果不明の環境操作を処理します。
+Driver は宣言に従って並列または順次実行します。永続的な変更は `Ankole.Sessions.Receipts` を使い、ドメイン変更と結果を同じトランザクションでコミットします。AIGateway は次のモデル反復用に出力を保存します。Worker 切断時は、Driver が宣言された再試行契約に従って結果不明の環境操作を処理します。
 
 ## Workflow タスク
 

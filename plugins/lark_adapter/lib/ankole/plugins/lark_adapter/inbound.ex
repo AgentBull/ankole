@@ -1,6 +1,6 @@
 defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @moduledoc """
-  Feishu/Lark inbound normalization into SignalsGateway adapter APIs.
+  Feishu/Lark inbound normalization into Conversations.Observe APIs.
   """
 
   alias Ankole.JSON
@@ -10,9 +10,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.SubjectIdentity
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.Ingress
+
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Observe
   alias FeishuOpenAPI.CardAction
   alias FeishuOpenAPI.Event
 
@@ -32,7 +32,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @markdown_inline_token ~r/(`+)|!\[[^\]]*\]\(\s*(img_[A-Za-z0-9_-]+)(?:\s+["'][^"']*["'])?\s*\)/u
 
   @doc """
-  Builds the dispatcher consumer record for one SignalsGateway chat binding.
+  Builds the dispatcher consumer record for one Signal binding.
   """
   @spec chat_consumer(AdapterContext.t(), map()) :: map()
   def chat_consumer(%AdapterContext{} = context, config) when is_map(config) do
@@ -129,7 +129,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         {:ignore, :provider_self_sender}
 
       false ->
-        with {:ok, source_entry_id} <- required_text(message, "message_id"),
+        with {:ok, provider_message_id} <- required_text(message, "message_id"),
              {:ok, chat_id} <- required_text(message, "chat_id"),
              {:ok, author} <- author(sender, sender_ids, event, consumer),
              {:ok, raw_text} <- message_text(message),
@@ -139,25 +139,25 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
              :ok <- material_message?(raw_text, attachments),
              provider_time <- provider_time(message, event),
              channel_kind <- channel_kind(message),
-             signal_channel_id <- signal_channel_id(chat_id),
+             conversation_id <- provider_conversation_id(chat_id),
              provider_thread_id <- message_thread_id(chat_id, message),
-             reply_to_source_entry_id <- reply_target_id(message, source_entry_id),
+             reply_to_provider_message_id <- reply_target_id(message, provider_message_id),
              attachments <-
                maybe_backfill_attachments(
                  attachments,
                  text,
                  mentions,
                  author,
-                 signal_channel_id,
+                 conversation_id,
                  provider_time,
                  consumer
                ) do
           {:ok,
            %{
-             source_event_id: event.id || source_entry_id,
-             source_entry_id: source_entry_id,
-             signal_channel_id: signal_channel_id,
-             reply_to_source_entry_id: reply_to_source_entry_id,
+             source_event_id: event.id || provider_message_id,
+             provider_message_id: provider_message_id,
+             provider_conversation_id: conversation_id,
+             reply_to_provider_message_id: reply_to_provider_message_id,
              provider_thread_id: provider_thread_id,
              channel: %{
                kind: channel_kind,
@@ -234,18 +234,19 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     prepared
     |> Enum.reduce_while({:ok, []}, fn
       %{consumer: consumer, input: input, observed_at: observed_at} = item, {:ok, items} ->
-        if Ingress.attachments_need_bytes?(input.attachments) do
+        if Observe.attachments_need_bytes?(input.attachments) do
           input
           |> update_in(
             [:metadata],
-            &Ingress.put_attachment_materialization(&1, "pending", observed_at)
+            &Observe.put_attachment_materialization(&1, "pending", observed_at)
           )
           |> emit_normalized_message(consumer, false)
           |> case do
             {:ok, result} ->
               attachments =
                 case result do
-                  %{signal_entry: %{attachments: attachments}} when is_list(attachments) ->
+                  %{message_observation: %{message: %{attachments: attachments}}}
+                  when is_list(attachments) ->
                     attachments
 
                   _other ->
@@ -293,9 +294,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
           else:
             update_in(
               input.metadata,
-              &Ingress.put_attachment_materialization(
+              &Observe.put_attachment_materialization(
                 &1,
-                Ingress.materialization_state(attachments),
+                Observe.materialization_state(attachments),
                 observed_at
               )
             )
@@ -306,7 +307,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
   defp emit_normalized_message(input, consumer, refresh_group?) do
     context = consumer.context
-    result = Ingress.emit_entry(context.agent_uid, context.binding_name, input)
+    result = Observe.emit_entry(context.agent_uid, context.binding_name, input)
 
     if refresh_group? and match?({:ok, _}, result) do
       IMGroups.maybe_enqueue_missing_channel_refresh(consumer, input)
@@ -319,12 +320,12 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     content = event.content || %{}
     message = fetch_map(content, "message", content)
 
-    with {:ok, source_entry_id} <- required_text(message, "message_id"),
+    with {:ok, provider_message_id} <- required_text(message, "message_id"),
          {:ok, chat_id} <- required_text(message, "chat_id") do
       input = %{
-        source_event_id: event.id || "recall:#{source_entry_id}",
-        signal_channel_id: signal_channel_id(chat_id),
-        source_entry_id: source_entry_id,
+        source_event_id: event.id || "recall:#{provider_message_id}",
+        provider_conversation_id: provider_conversation_id(chat_id),
+        provider_message_id: provider_message_id,
         provider_thread_id: message_thread_id(chat_id, message),
         channel: %{
           kind: removed_message_channel_kind(message),
@@ -338,7 +339,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
 
       context = consumer.context
 
-      Ingress.emit_entry_removed(context.agent_uid, context.binding_name, input,
+      Observe.emit_entry_removed(context.agent_uid, context.binding_name, input,
         provider_lifecycle_kind: :recalled
       )
     end
@@ -356,13 +357,13 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         optional_text(content, "operator_open_id")
 
     with {:ok, actor_key} <- operator_actor_key(operator_id),
-         {:ok, source_entry_id} <- required_text(message, "message_id"),
+         {:ok, provider_message_id} <- required_text(message, "message_id"),
          {:ok, chat_id} <- required_text(message, "chat_id"),
          raw_reaction_key <- reaction_key(content) do
       input = %{
-        source_event_id: event.id || "reaction:#{action}:#{source_entry_id}:#{actor_key}",
-        signal_channel_id: signal_channel_id(chat_id),
-        source_entry_id: source_entry_id,
+        source_event_id: event.id || "reaction:#{action}:#{provider_message_id}:#{actor_key}",
+        provider_conversation_id: provider_conversation_id(chat_id),
+        provider_message_id: provider_message_id,
         reaction_key: Emoji.normalize(raw_reaction_key),
         raw_reaction_key: raw_reaction_key,
         actor_key: actor_key,
@@ -372,7 +373,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       }
 
       context = consumer.context
-      Ingress.emit_reaction(context.agent_uid, context.binding_name, input)
+      Observe.emit_reaction(context.agent_uid, context.binding_name, input)
     else
       {:error, :missing_operator_id} ->
         Logging.warning(
@@ -405,22 +406,22 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       input = %{
         source_event_id: event.id || action_id,
         action_id: action_id,
-        signal_channel_id: signal_channel_id(chat_id),
-        source_entry_id: action.open_message_id,
+        provider_conversation_id: provider_conversation_id(chat_id),
+        provider_message_id: action.open_message_id,
         provider_thread_id: provider_thread_id(chat_id, action.open_message_id || action_id),
-        actor_event_type: "signal.action.invoked",
+        signal_type: "signal.action.invoked",
         action: %{
           "name" => action_name(action),
           "value" => action_value(action),
           "operator_id" => operator_id,
           "operator_principal_uid" => operator_principal_uid,
-          "source_entry_id" => action.open_message_id
+          "provider_message_id" => action.open_message_id
         },
         raw_payload: compact_map(action.raw)
       }
 
       context = consumer.context
-      Ingress.emit_action(context.agent_uid, context.binding_name, input)
+      Observe.emit_action(context.agent_uid, context.binding_name, input)
     else
       {:error, :missing_operator_id} ->
         Logging.warning(
@@ -988,12 +989,12 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
          text,
          [_ | _],
          author,
-         signal_channel_id,
+         conversation_id,
          %DateTime{} = provider_time,
          consumer
        ) do
     case recent_attachment_intent?(text) do
-      true -> recent_attachments(signal_channel_id, author, provider_time, consumer)
+      true -> recent_attachments(conversation_id, author, provider_time, consumer)
       false -> []
     end
   end
@@ -1004,7 +1005,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp maybe_materialize_attachments(attachments, _message, %{config: config}) do
     client = Config.client(config)
 
-    {:ok, Ingress.materialize_attachments(attachments, "lark", &download_attachment(&1, client))}
+    {:ok, Observe.materialize_attachments(attachments, "lark", &download_attachment(&1, client))}
   end
 
   defp download_attachment(attachment, client) do
@@ -1040,20 +1041,29 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     # Lark sends attachment-only messages separately from the later textual
     # mention ("use the file above"). Keep this heuristic local to the adapter
     # because it depends on provider-language UX, while the actual mirror query
-    # stays behind SignalsGateway.recent_entry_attachments/4.
+    # stays behind the shared conversation attachment owner.
     Regex.match?(~r/(上面|前面|文件|图片|附件|above|previous|file|image|attachment)/i, text)
   end
 
   defp recent_attachment_intent?(_text), do: false
 
-  defp recent_attachments(signal_channel_id, author, provider_time, consumer) do
+  defp recent_attachments(conversation_id, author, provider_time, consumer) do
     max = Map.fetch!(consumer, :max_backfilled_attachments)
     author_id = author["id"]
 
-    SignalsGateway.recent_entry_attachments(signal_channel_id, author_id, provider_time,
-      window_seconds: Map.fetch!(consumer, :recent_attachment_window_seconds),
-      limit: max
-    )
+    case Ankole.Conversations.External.get_conversation(
+           Ankole.Repo,
+           conversation_id
+         ) do
+      %{id: id} ->
+        Ankole.Conversations.Attachments.recent(id, author_id, provider_time,
+          window_seconds: Map.fetch!(consumer, :recent_attachment_window_seconds),
+          limit: max
+        )
+
+      nil ->
+        []
+    end
   end
 
   defp formatted_content(nil), do: %{}
@@ -1124,17 +1134,17 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     end
   end
 
-  defp reply_target_id(message, source_entry_id) do
+  defp reply_target_id(message, provider_message_id) do
     case optional_text(message, "parent_id") || optional_text(message, "upper_message_id") ||
            optional_text(message, "root_id") do
-      ^source_entry_id -> nil
+      ^provider_message_id -> nil
       target_id -> target_id
     end
   end
 
   @doc false
-  @spec signal_channel_id(String.t()) :: String.t()
-  def signal_channel_id(chat_id), do: "lark:#{encode_id(chat_id)}"
+  @spec provider_conversation_id(String.t()) :: String.t()
+  def provider_conversation_id(chat_id), do: "lark:#{encode_id(chat_id)}"
 
   defp provider_thread_id(chat_id, root_id),
     do: "lark:#{encode_id(chat_id)}:#{encode_id(root_id)}"

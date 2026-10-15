@@ -30,7 +30,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
   alias Ankole.Brain.Claims
   alias Ankole.Brain.SkillLessons
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
 
   # Models are deliberately hardcoded, like the rest of the real-LLM suite:
   # the run gates a known-good provider/model matrix, not local configuration.
@@ -168,7 +168,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
                "agent_uid" => agent.uid,
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "owner_session_id" => recall_session_id,
                "source_tool_call_id" => "recall-e2e-1",
                "title" => "Recall the launch codename",
@@ -201,8 +201,6 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
 
     %{job: finished}
   end
-
-  # -- lease review -----------------------------------------------------------
 
   # Ages every lesson past its lease, then runs the phase again so the real
   # dreaming model has to judge whether each condition is still alive.
@@ -239,8 +237,6 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
 
     review
   end
-
-  # -- fixtures ---------------------------------------------------------------
 
   defp put_coding_profile!(agent_uid, provider_id) do
     assert {:ok, _profile} =
@@ -354,7 +350,7 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
 
     event =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent_uid,
           where: event.session_id == ^session_id,
           where: event.type == "background_agent_job.dispatch"

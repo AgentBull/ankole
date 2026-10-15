@@ -53,6 +53,9 @@ defmodule AnkoleWeb.AgentFileControllerTest do
 
   test "lists projected origins and keeps them after a move", %{conn: conn, agent_uid: agent_uid} do
     conn = console_conn(conn)
+    signal = Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid)
+    conversation_id = signal.conversation_id
+    message_id = signal.message_id
     {:ok, %{sha256: sha256}} = Files.store("received")
 
     assert {:ok, _} =
@@ -61,8 +64,8 @@ defmodule AnkoleWeb.AgentFileControllerTest do
                  path: "inbox/attachment.txt",
                  sha256: sha256,
                  source: "inbound",
-                 signal_channel_id: "source-channel",
-                 source_entry_id: "source-entry"
+                 conversation_id: conversation_id,
+                 message_id: message_id
                }
              ])
 
@@ -80,8 +83,8 @@ defmodule AnkoleWeb.AgentFileControllerTest do
                "files" => [
                  %{
                    "path" => "kept/attachment.txt",
-                   "signal_channel_id" => "source-channel",
-                   "source_entry_id" => "source-entry"
+                   "conversation_id" => ^conversation_id,
+                   "message_id" => ^message_id
                  }
                ]
              }

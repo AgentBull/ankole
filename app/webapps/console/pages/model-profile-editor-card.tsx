@@ -38,7 +38,7 @@ import {
   requestSettings,
   settingValidationMessage,
   type ProviderSetting
-} from './provider-settings'
+} from '../state/provider-settings'
 
 export function ModelProfileEditorCard({
   profile,

@@ -22,7 +22,6 @@ export function createQueryClient(mutationCache?: MutationCache) {
   })
 }
 
-/** Provides shared document-head, i18n, and data-fetching context. */
 export function AppProviders({ children, queryClient }: { children: ReactNode; queryClient: QueryClient }) {
   return (
     <ThemeProvider>

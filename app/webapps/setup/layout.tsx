@@ -17,7 +17,6 @@ export function SetupPanel({ children, title }: { children: ReactNode; title: st
   )
 }
 
-/** Provides the visual frame for the setup-only SPA. */
 export function SetupLayout({ children }: { children: ReactNode }) {
   const { t } = useTranslation()
   return (

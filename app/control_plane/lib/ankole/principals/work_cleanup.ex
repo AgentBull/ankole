@@ -11,7 +11,8 @@ defmodule Ankole.Principals.WorkCleanup do
     ]
 
   import Ecto.Query
-  alias Ankole.Principals.{AccessEvent, Principal}
+  alias Ankole.Principals.AccessEvent
+  alias Ankole.Principals.Principal
   alias Ankole.Repo
 
   def enqueue_in_tx(uid, version) do
@@ -83,8 +84,7 @@ defmodule Ankole.Principals.WorkCleanup do
             {"workflow_calls", Ankole.Workflow.stop_human_work_in_tx(repo, uid, version, now)},
             {"automation_runs",
              Ankole.AutomationJobs.stop_human_work_in_tx(repo, uid, version, now)},
-            {"actor_events",
-             Ankole.SignalsGateway.Actors.stop_human_work_in_tx(repo, uid, version, now)}
+            {"signals", Ankole.Sessions.Queue.stop_human_work_in_tx(repo, uid, version, now)}
           ]
           |> Map.new(fn {kind, {count, _}} -> {kind, count} end)
         end)
@@ -113,14 +113,14 @@ defmodule Ankole.Principals.WorkCleanup do
 
   defp running_count(repo, uid, version) do
     events =
-      from e in Ankole.SignalsGateway.ActorEvent,
+      from e in Ankole.Signals.Signal,
         where:
           e.human_uid == ^uid and e.human_access_version < ^version and is_nil(e.completed_at),
         select: e.id
 
     deliveries =
       repo.aggregate(
-        from(e in Ankole.SignalsGateway.ActorEvent,
+        from(e in Ankole.Signals.Signal,
           where:
             e.id in subquery(events) and not is_nil(e.last_attempt_at) and is_nil(e.completed_at) and
               e.input_state == "open"

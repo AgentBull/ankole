@@ -37,11 +37,11 @@ plugin は `Ankole.Plugins.Plugin` に対する小さなコールバック集合
 
 plugin は名前付き契約を通じてサブシステムに差し込みます。契約 id はドットを含むことができ、サブシステムが名前空間化できます。実際に使われている契約:
 
-- **`signals_gateway.adapter`** — SignalsGateway が adapter レジストリに解決する Signal adapter を宣言します。これにより新しいチャット・イベント provider がバインディング対象として利用可能になります。
-- **`signals_gateway.webhook_handler`** — `/webhooks/v1/:handler_id/:instance_id/:kind` フロントドアのハンドラーを宣言します。ハンドラーは provider 認証を所有し、正規化された事実を ingress に呼び出します。
+- **`signals.adapter`** — Signals が adapter レジストリに解決する Signal adapter を宣言します。これにより新しいチャット・イベント provider がバインディング対象として利用可能になります。
+- **`signals.webhook_handler`** — `/webhooks/v1/:handler_id/:instance_id/:kind` フロントドアのハンドラーを宣言します。ハンドラーは provider 認証を所有し、正規化された事実を ingress に呼び出します。
 - **`principals.identity_provider`** — オペレーターが管理者サインイン用に設定できる Identity Provider を宣言します。
 
-契約固有のコールバック意味論は、契約を消費するサブシステムに残ります。plugin レジストリは汎用の adapter 宣言エンベロープだけを保持し、サブシステム（例: `SignalsGateway.Adapters`）が自分の契約 id の宣言を読み取り、解釈します。この分離により、レジストリは無知なカタログ、サブシステムは賢い消費者になります。
+契約固有のコールバック意味論は、契約を消費するサブシステムに残ります。plugin レジストリは汎用の adapter 宣言エンベロープだけを保持し、サブシステム（例: `Signals.Adapters`）が自分の契約 id の宣言を読み取り、解釈します。この分離により、レジストリは無知なカタログ、サブシステムは賢い消費者になります。
 
 ## 有効化境界: 次回のプロセス起動
 
@@ -74,6 +74,6 @@ plugin はインスタンス全体でフェイルクローズされるため、�
 
 ## 次のステップ
 
-- plugin が宣言できるシグナル adapter については、[SignalsGateway](../signals-gateway/) ページを読んでください。
+- plugin が宣言できるシグナル adapter については、[Signals](../signals/) ページを読んでください。
 - plugin が寄与する AppConfigure キーについては、[Console](../console-api/) ページを読んでください。
 - この拡張サーフェスが置かれる信頼モデルについては、[Principal and AuthZ](../principal-authz/) を読んでください。

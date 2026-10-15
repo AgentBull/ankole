@@ -27,7 +27,7 @@ All three produce the same CloudEvents envelope whether they wake the Agent or r
 
 | Consumer | Use it when | Trigger result |
 |---|---|---|
-| **Agent session** | Each delivery needs judgment, memory, tools chosen at run time, or a user-facing response. | The trigger appends an ActorEvent and wakes the conversation. |
+| **Agent session** | Each delivery needs judgment, memory, tools chosen at run time, or a user-facing response. | The trigger appends a Signal and wakes the conversation. |
 | **Automation job** | Handling is a deterministic fetch, comparison, parse, or predetermined action. | The trigger creates a durable script run. The script can finish silently or emit an event to the owner session. |
 
 Start with a direct Agent wake while the handling is unclear. Move only the proven mechanical part into an automation job. This keeps the script small and keeps the model out of an idle polling loop.
@@ -50,7 +50,7 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules
     "idempotency_key": "daily-digest-1",
     "schedule": { "kind": "cron", "expression": "0 9 * * *" },
     "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
+    "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
     "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
   }'
 ```

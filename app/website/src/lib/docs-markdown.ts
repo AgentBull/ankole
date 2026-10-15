@@ -99,7 +99,6 @@ interface TransformContext {
   docMarkdownUrl: (locale: Locale, slug: string) => string
 }
 
-/** The site origin for absolute links, from `site` in astro.config.mjs. */
 export function requireSite(site: URL | undefined): URL {
   if (site === undefined) {
     throw new Error('Markdown and llms.txt files need absolute URLs; set `site` in astro.config.mjs')
@@ -107,12 +106,10 @@ export function requireSite(site: URL | undefined): URL {
   return site
 }
 
-/** Absolute URL of the Markdown version of a docs page. */
 export function docMarkdownUrl(locale: Locale, slug: string, site: URL): string {
   return new URL(docMarkdownPath(locale, slug), site).href
 }
 
-/** The complete Markdown version of a docs page: frontmatter, index pointer, title, and body. */
 export function docPageMarkdown(entry: DocEntry, target: DocMarkdownTarget): string {
   const { locale, slug, site } = target
   const notice = fallbackNotice(entry, locale)
@@ -134,7 +131,6 @@ export function docPageMarkdown(entry: DocEntry, target: DocMarkdownTarget): str
   )}\n`
 }
 
-/** The page body as Markdown, with links resolved for the target URL. */
 export function docBodyMarkdown(entry: DocEntry, target: DocMarkdownTarget): string {
   const file = entry.filePath ?? entry.id
   if (entry.body === undefined) throw new Error(`${file}: the docs collection did not keep the page source`)
@@ -231,7 +227,6 @@ function jsxReplacements(context: TransformContext, node: MarkdownNode): Replace
   const name = node.name
   if (!name) throw sourceError(context, node, 'a JSX fragment has no Markdown form')
 
-  // An HTML element stays as written; Markdown accepts inline HTML.
   if (!isComponentName(name)) {
     for (const attribute of node.attributes ?? []) {
       if (attribute.type !== 'mdxJsxAttribute' || (attribute.value !== null && typeof attribute.value === 'object')) {
@@ -259,7 +254,6 @@ function jsxReplacements(context: TransformContext, node: MarkdownNode): Replace
   return [componentReplacement(context, node, sourceRange(context, node))]
 }
 
-/** Replaces a source range with the Markdown that the component renderer writes. */
 function componentReplacement(
   context: TransformContext,
   node: MarkdownNode,
@@ -333,7 +327,6 @@ function childrenMarkdown(context: TransformContext, node: MarkdownNode): string
   )
 }
 
-/** Removes a block together with the blank lines after it, so no gap stays behind. */
 function removeBlock(context: TransformContext, node: MarkdownNode): Replacement {
   const { start, end } = sourceRange(context, node)
   const trailing = context.source.slice(end).match(/^(?:[ \t]*\r?\n)+/)
@@ -355,7 +348,7 @@ function collectHeadings(node: MarkdownNode): { offset: number; depth: number }[
   return [...own, ...(node.children ?? []).flatMap(collectHeadings)]
 }
 
-/** Depth of the last heading before an offset. The page title is the depth-1 heading. */
+/** A missing earlier heading is the page title, at depth 1. */
 function headingDepthAt(context: TransformContext, offset: number): number {
   return context.headings.findLast(item => item.offset < offset)?.depth ?? 1
 }

@@ -1,5 +1,3 @@
-//! Object storage for the control-plane file service.
-//!
 //! The control plane opens one store from a JSON spec and starts one operation
 //! at a time. Each operation runs on the shared Tokio runtime and reports
 //! exactly one result through its sink. The retry and timeout layers bound every
@@ -25,7 +23,7 @@ use crate::common::io_runtime;
 #[cfg(test)]
 mod tests;
 
-/// Chunk size for streamed writes. S3 multipart parts must be at least 5 MiB.
+/// S3 multipart parts must be at least 5 MiB.
 const WRITE_CHUNK_BYTES: usize = 8 * 1024 * 1024;
 /// Bound for one object deletion call.
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(60);
@@ -38,7 +36,6 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// before its rename, for example because the control plane stopped.
 const STALE_TEMPORARY_FILE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
-/// Storage location of one store, decoded from the control plane's JSON spec.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "scheme", rename_all = "snake_case", deny_unknown_fields)]
 pub enum StoreSpec {
@@ -73,13 +70,12 @@ pub enum StoreSpec {
     Webdav(services::WebdavConfig),
 }
 
-/// An opened store. Cloning it is cheap and shares the same operator.
+/// Cloning shares the operator.
 #[derive(Clone)]
 pub struct Store {
     operator: Operator,
 }
 
-/// One storage operation on one object key.
 #[derive(Debug)]
 pub enum Operation {
     Read { key: String },
@@ -89,7 +85,6 @@ pub enum Operation {
     Delete { key: String },
 }
 
-/// Successful result of one operation.
 #[derive(Debug)]
 pub enum Outcome {
     Done,
@@ -98,7 +93,7 @@ pub enum Outcome {
     Bytes(Buffer),
 }
 
-/// Failure with a stable code that the control plane can match on.
+/// The control plane matches on `code`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreError {
     pub code: &'static str,
@@ -134,12 +129,10 @@ impl From<&opendal::Error> for StoreError {
     }
 }
 
-/// Receives the single result of one started operation.
 pub type ResultSink = Box<dyn FnOnce(Result<Outcome, StoreError>) + Send + 'static>;
 
-/// Opens a store from its JSON spec. Opening does no network I/O. The fs
-/// scheme creates the root and the temporary directory when they are missing
-/// and removes stale temporary files.
+/// Opening does no network I/O. The fs scheme creates the root and the temporary
+/// directory when they are missing and removes stale temporary files.
 pub fn open(spec_json: &str) -> Result<Store, StoreError> {
     let spec: StoreSpec = serde_json::from_str(spec_json)
         .map_err(|reason| StoreError::new("invalid_spec", reason.to_string()))?;
@@ -214,9 +207,6 @@ pub fn open(spec_json: &str) -> Result<Store, StoreError> {
     })
 }
 
-/// Starts one operation and returns at once. The sink receives exactly one
-/// result: the outcome, a failure to start the runtime task, or a panic of the
-/// operation, so a caller that waits for the result never waits forever.
 pub fn start(store: &Store, operation: Operation, sink: ResultSink) -> Result<(), StoreError> {
     let runtime = io_runtime::runtime()
         .map_err(|reason| StoreError::new("runtime_unavailable", reason.to_string()))?;
@@ -278,9 +268,7 @@ async fn copy_to_file(operator: &Operator, key: &str, path: &Path) -> Result<Out
     Ok(Outcome::Done)
 }
 
-/// Uses one write for backends that cannot accept multiple parts. Other
-/// backends use `WRITE_CHUNK_BYTES` parts, so the I/O timeout bounds each part
-/// while a slow but progressing transfer can continue.
+/// The I/O timeout bounds each part, so a slow transfer can continue.
 async fn write_parts(
     operator: &Operator,
     key: &str,
@@ -340,8 +328,7 @@ async fn write_parts(
     }
 }
 
-/// Removes the temporary files that stopped fs writes left. A file that cannot
-/// be removed stays for the next open.
+/// A file that cannot be removed stays for the next open.
 fn remove_stale_temporary_files(dir: &Path) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
@@ -369,8 +356,6 @@ fn http_transport() -> Result<HttpTransporter, StoreError> {
     Ok(HttpTransporter::new(ReqwestTransport::new(client)))
 }
 
-/// Maps an error from a read stream. The stream reports storage failures,
-/// including a missing object, as `std::io::Error` that wraps the OpenDAL error.
 fn stream_error(reason: std::io::Error) -> StoreError {
     match reason
         .get_ref()

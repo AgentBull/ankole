@@ -49,8 +49,6 @@ defmodule FakeFeishu.State do
             seq: 0,
             run_token: nil
 
-  # -- lifecycle -------------------------------------------------------------
-
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, Keyword.take(opts, [:name]))
   end
@@ -66,8 +64,6 @@ defmodule FakeFeishu.State do
        client_config: Map.merge(@default_client_config, Keyword.get(opts, :client_config, %{}))
      }}
   end
-
-  # -- consumer-facing API -----------------------------------------------------
 
   @doc """
   Registers a Lark app credential pair accepted by auth endpoints.
@@ -229,8 +225,6 @@ defmodule FakeFeishu.State do
   @doc "Arms a one-shot delay (milliseconds) before one server op."
   def delay_next(state, op, ms), do: GenServer.call(state, {:arm_fault, op, {:delay, ms}})
 
-  # -- server-facing API (Router / WebSocketHandler) --------------------------------
-
   def authenticate_app(state, app_id, app_secret),
     do: GenServer.call(state, {:authenticate_app, app_id, app_secret})
 
@@ -303,8 +297,6 @@ defmodule FakeFeishu.State do
 
   @doc "Returns the number of application-level pings received from clients."
   def ping_count(state), do: GenServer.call(state, :ping_count)
-
-  # -- GenServer callbacks ----------------------------------------------------
 
   @impl true
   def handle_call({:register_app, app_id, app_secret, opts}, _from, state) do
@@ -945,8 +937,6 @@ defmodule FakeFeishu.State do
 
   def handle_info(_message, state), do: {:noreply, state}
 
-  # -- apps and chats -----------------------------------------------------------
-
   defp do_register_app(state, app_id, app_secret, opts) do
     app = %{
       secret: app_secret,
@@ -1113,8 +1103,6 @@ defmodule FakeFeishu.State do
       _invalid -> default
     end
   end
-
-  # -- platform message state -------------------------------------------------
 
   defp record_user_message(state, message_id, attrs) do
     case Map.has_key?(state.messages, message_id) do
@@ -1356,8 +1344,6 @@ defmodule FakeFeishu.State do
 
   defp notify(state, event), do: send(state.owner, {:fake_feishu, event})
 
-  # -- CardKit card state --------------------------------------------------------
-
   # Runs the shared CardKit mutation guards (card exists, uuid idempotency,
   # strictly increasing sequence) before applying one mutation. The error
   # codes match the real platform contract the adapter's replay logic depends
@@ -1480,8 +1466,6 @@ defmodule FakeFeishu.State do
   defp element_text(%{"text" => %{"content" => content}}) when is_binary(content), do: content
   defp element_text(_element), do: nil
 
-  # -- WS event push ------------------------------------------------------------
-
   defp target_conns(state, attrs) do
     selector =
       Keyword.get(attrs, :to_app) || chat_member_apps(state, attrs) || state.default_app_id
@@ -1587,8 +1571,6 @@ defmodule FakeFeishu.State do
       log_id_new: "fake-#{event_id}"
     }
   end
-
-  # -- envelopes (schema 2.0, same shapes the provider pushes) -----------------
 
   defp envelope_header(attrs, app_id, event_type) do
     create_time =

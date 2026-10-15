@@ -3,7 +3,6 @@ import { RiEyeLine, RiEyeOffLine } from '@remixicon/react'
 import { useState, type ComponentProps } from 'react'
 import { useTranslation } from 'react-i18next'
 
-/** Password field with a visibility toggle. Extra props reach the input. */
 export function PasswordInput(props: Omit<ComponentProps<typeof InputGroupInput>, 'type'>) {
   const { t } = useTranslation()
   const [visible, setVisible] = useState(false)

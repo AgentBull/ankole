@@ -2,12 +2,9 @@ import { isAbsolute, join, normalize, resolve } from 'node:path'
 import { runWorkspaceCommand, runWorkspaceProcess, type CommandFinished, type CommandInput } from './commands'
 export type { CommandFinished, CommandInput } from './commands'
 
-/** One paginated slice of a text file, read without materializing the file. */
 export interface ReadFileWindow {
-  /** First bytes of the file (up to 8 KB), for the binary sniff. */
   sniff: Buffer
   totalLines: number
-  /** Decoded lines `[offset, offset + limit)`, each clipped to its first 8 KB. */
   lines: string[]
 }
 
@@ -31,12 +28,8 @@ interface ContainerComputerOptions {
   runtimeEnv?: Record<string, string>
 }
 
-// These template strings are standalone `bun -e` programs, not part of this
-// module — they run as separate processes with no access to our imports, so
-// they must stay self-contained.
-// Streams the file instead of materializing it: only the requested line window
-// (each line clipped to its first 8 KB, more than the 2000-char render clip can
-// use), the 8 KB binary-sniff prefix, and the total line count come back as JSON.
+// These template strings are standalone `bun -e` programs with no access to
+// this module's imports, so they must stay self-contained.
 // Line boundaries are LF bytes; 0x0A never occurs inside a UTF-8 sequence, so
 // byte scanning matches decoding the whole file and splitting on newlines.
 const ReadFileWindowScript = `
@@ -96,7 +89,6 @@ try {
 }
 `
 
-// Writes the file to stdout, or only its size when it exceeds the byte limit.
 const ReadFileBytesScript = `
 import { readFile, stat } from 'node:fs/promises'
 const target = process.argv[1]
@@ -122,10 +114,7 @@ try {
 }
 `
 
-/**
- * Builds the environment tool executor for one Worker workspace.
- * File reads use a child process so cancellation can stop blocked reads.
- */
+/** File reads use a child process so cancellation can stop blocked reads. */
 export function createContainerComputer(
   agentHome: string,
   workspaceRoot: string,
@@ -184,9 +173,6 @@ export function createContainerComputer(
   }
 }
 
-/**
- * Resolves tool path syntax relative to the working directory and the Agent Home.
- */
 function computerPath(agentHome: string, workspaceRoot: string, path: string, cwd?: string): string {
   const base = cwd ? expandComputerPath(agentHome, workspaceRoot, cwd) : workspaceRoot
   return expandComputerPath(agentHome, base, path)

@@ -23,7 +23,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
 
   @type t :: %__MODULE__{}
 
-  schema "actor_scheduled_events" do
+  schema "scheduled_events" do
     field :authorization_kind, :string, default: "review_required"
     field :human_uid, Ankole.Ecto.PrincipalKey
     field :human_access_version, :integer
@@ -48,13 +48,13 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
 
     field :cron_fire_slot_at, :utc_datetime_usec
     field :tool_call_id, :string
-    field :source_actor_event_id, Ecto.UUID
-    field :signal_channel_id, :string
+    field :source_signal_id, Ecto.UUID
+    field :conversation_id, Ankole.Ecto.UUIDv7
     field :provider_thread_id, :string
-    field :source_entry_id, :string
+    field :provider_message_id, :string
     field :source_provenance, :map, default: %{}
     field :wake_payload, :map, default: %{}
-    field :actor_event_id, Ecto.UUID
+    field :signal_id, Ecto.UUID
     # When the schedule originates from an AI/tool message, record the stored
     # ai_gateway_messages.id so the origin can be traced deterministically.
     field :origin_ai_message_id, Ecto.UUID
@@ -89,13 +89,13 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       :automation_job_run_id,
       :cron_fire_slot_at,
       :tool_call_id,
-      :source_actor_event_id,
-      :signal_channel_id,
+      :source_signal_id,
+      :conversation_id,
       :provider_thread_id,
-      :source_entry_id,
+      :provider_message_id,
       :source_provenance,
       :wake_payload,
-      :actor_event_id,
+      :signal_id,
       :origin_ai_message_id,
       :fired_at,
       :cancelled_at,
@@ -110,16 +110,15 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       :timezone,
       :idempotency_key,
       :tool_call_id,
-      :signal_channel_id,
+      :conversation_id,
       :provider_thread_id,
-      :source_entry_id
+      :provider_message_id
     ])
     |> validate_required([
       :kind,
       :status,
       :agent_uid,
       :session_id,
-      :binding_name,
       :due_at,
       :timezone,
       :requested_at,
@@ -138,27 +137,28 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     |> foreign_key_constraint(:cron_schedule_id)
     |> foreign_key_constraint(:automation_job_id)
     |> foreign_key_constraint(:automation_job_run_id)
-    |> foreign_key_constraint(:source_actor_event_id)
-    |> foreign_key_constraint(:actor_event_id)
+    |> foreign_key_constraint(:source_signal_id)
+    |> foreign_key_constraint(:conversation_id)
+    |> foreign_key_constraint(:signal_id)
     |> foreign_key_constraint(:origin_ai_message_id)
     |> unique_constraint([:kind, :agent_uid, :session_id, :idempotency_key],
-      name: :actor_scheduled_events_idempotency_index
+      name: :scheduled_events_idempotency_index
     )
     |> unique_constraint([:cron_schedule_id, :cron_fire_slot_at],
-      name: :actor_scheduled_events_cron_slot_index
+      name: :scheduled_events_cron_slot_index
     )
-    |> check_constraint(:kind, name: :actor_scheduled_events_kind_check)
-    |> check_constraint(:status, name: :actor_scheduled_events_status_check)
-    |> check_constraint(:timezone, name: :actor_scheduled_events_timezone_present)
+    |> check_constraint(:kind, name: :scheduled_events_kind_check)
+    |> check_constraint(:status, name: :scheduled_events_status_check)
+    |> check_constraint(:timezone, name: :scheduled_events_timezone_present)
     |> check_constraint(:idempotency_key,
-      name: :actor_scheduled_events_idempotency_key_present
+      name: :scheduled_events_idempotency_key_present
     )
     |> check_constraint(:source_provenance,
-      name: :actor_scheduled_events_source_provenance_object
+      name: :scheduled_events_source_provenance_object
     )
-    |> check_constraint(:wake_payload, name: :actor_scheduled_events_wake_payload_object)
+    |> check_constraint(:wake_payload, name: :scheduled_events_wake_payload_object)
     |> check_constraint(:last_fire_error,
-      name: :actor_scheduled_events_last_fire_error_object
+      name: :scheduled_events_last_fire_error_object
     )
   end
 

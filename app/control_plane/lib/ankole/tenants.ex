@@ -3,7 +3,11 @@ defmodule Ankole.Tenants do
   import Ecto.Query
   alias Ankole.{AppConfigure, Repo}
   alias Ankole.AppConfigure.SiteConfig
-  alias Ankole.AuthZ.{Grant, Group, Grants, Root, Store}
+  alias Ankole.AuthZ.Grant
+  alias Ankole.AuthZ.Group
+  alias Ankole.AuthZ.Grants
+  alias Ankole.AuthZ.Root
+  alias Ankole.AuthZ.Store
   alias Ankole.Principals.Principal
   alias Ankole.Tenants.Tenant
 
@@ -113,7 +117,7 @@ defmodule Ankole.Tenants do
       fun.()
     else
       Ankole.Logging.info(
-        "signals_gateway.inbound.tenant_suspended",
+        "signals.inbound.tenant_suspended",
         "Tenant does not accept inbound events",
         %{tenant_id: tenant_id}
       )

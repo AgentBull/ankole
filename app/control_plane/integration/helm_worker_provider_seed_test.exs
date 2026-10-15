@@ -1,8 +1,10 @@
 defmodule Ankole.HelmWorkerProviderSeedIntegrationTest do
   use ExUnit.Case, async: false
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Cloudflare, Kubernetes, ProviderKind}
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.Configuration
+  alias Ankole.AgentWorkers.Cloudflare
+  alias Ankole.AgentWorkers.Kubernetes
+  alias Ankole.AgentWorkers.ProviderKind
+  alias Ankole.AgentWorkers.Providers.Configuration
 
   @root Path.expand("../../..", __DIR__)
   @namespace "ankole-wp-chart"

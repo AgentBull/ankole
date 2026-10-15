@@ -11,11 +11,13 @@ defmodule Ankole.Plugins.LineAdapter.Webhook do
   `webhookEventId` is the source event id.
   """
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.{Logging, SignalsGateway}
-  alias Ankole.Plugins.LineAdapter.{Config, Inbound, Signature}
+  alias Ankole.Signals.Bindings
+  alias Ankole.{Logging}
+  alias Ankole.Plugins.LineAdapter.Config
+  alias Ankole.Plugins.LineAdapter.Inbound
+  alias Ankole.Plugins.LineAdapter.Signature
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.Conversations.AdapterContext
 
   @spec handle_webhook(map()) :: {:ok, map()} | {:error, term()}
   def handle_webhook(%{kind: "events", instance_id: channel_id} = request) do
@@ -89,7 +91,7 @@ defmodule Ankole.Plugins.LineAdapter.Webhook do
   defp consumer_for_channel(channel_id) do
     Ankole.Repo.across_tenants(fn ->
       "line"
-      |> SignalsGateway.list_enabled_bindings()
+      |> Ankole.Signals.Bindings.list_enabled_bindings()
       |> Enum.find_value(:error, &binding_consumer(&1, channel_id))
     end)
   end

@@ -6,8 +6,6 @@ config :ankole, Ankole.Repo,
   ownership_timeout: 3_600_000,
   pool_size: System.schedulers_online() * 2
 
-# We don't run a server during test. If one is required,
-# you can enable the server option below.
 config :ankole, AnkoleWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   server: false
@@ -19,7 +17,7 @@ config :ankole, AnkoleWeb.Assets, dev_server: "http://assets.test"
 config :ankole, Ankole.AIAgent.Library, source_cache_ttl_ms: 0
 
 # Unit tests replace HTTP at the provider boundary when they create Workers.
-config :ankole, Ankole.SignalsGateway.ActorRuntime.AgentWorkers,
+config :ankole, Ankole.AgentWorkers,
   image: "ankole-agent-computer:test",
   runtime_fabric_endpoint: "ws://127.0.0.1:4002/runtime-fabric/worker",
   installation: "test"
@@ -35,13 +33,10 @@ config :ankole, Ankole.ObjectStore,
       )
   }
 
-# Print only warnings and errors during test
 config :logger, level: :warning
 
-# Initialize plugs at runtime for faster test compilation
 config :phoenix, :plug_init_mode, :runtime
 
-# Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
 

@@ -13,7 +13,7 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
   import Ankole.Plugins.MapHelpers,
     only: [required_string: 2, optional_string: 3, optional_boolean: 3, integer_between: 5]
 
-  @chat_key_pattern ~r/\Asignals_gateway\.slack\.bindings\.[A-Za-z0-9_.:-]+\z/
+  @chat_key_pattern ~r/\Asignals\.slack\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.slack\.[A-Za-z0-9_.:-]+\z/
   @default_oidc_scopes ["openid", "profile", "email"]
 
@@ -24,7 +24,7 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
   def app_config_patterns do
     [
       AppConfigure.define_pattern(
-        id: "signals_gateway.slack.bindings.*",
+        id: "signals.slack.bindings.*",
         console_writable: false,
         key_pattern: @chat_key_pattern,
         encrypted: true,
@@ -44,7 +44,7 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
   end
 
   @spec chat_config_key(String.t()) :: String.t()
-  def chat_config_key(id), do: "signals_gateway.slack.bindings.#{id}"
+  def chat_config_key(id), do: "signals.slack.bindings.#{id}"
 
   @spec binding_config_key(String.t(), String.t()) :: String.t()
   def binding_config_key(agent_uid, binding_name)
@@ -55,7 +55,7 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
 
-    "signals_gateway.slack.bindings.#{id}"
+    "signals.slack.bindings.#{id}"
   end
 
   @spec identity_config_key(String.t()) :: String.t()
@@ -85,11 +85,11 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
 
   @doc """
   Returns the Principal subject namespace of one chat config. See
-  `Ankole.SignalsGateway.SubjectNamespace.resolve/3`.
+  `Ankole.Signals.SubjectNamespace.resolve/3`.
   """
   @spec subject_namespace(map()) :: String.t()
   def subject_namespace(config) do
-    Ankole.SignalsGateway.SubjectNamespace.resolve(
+    Ankole.Signals.SubjectNamespace.resolve(
       "slack",
       Map.get(config, "identityProvider"),
       "slack-main"

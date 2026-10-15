@@ -3,12 +3,18 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.{Logging, Principals, Repo, SignalsGateway}
+  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.{Logging, Principals, Repo}
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.WhatsAppAdapter.{Client, Config, Presentation}
-  alias Ankole.SignalsGateway.{ActorEvent, AdapterContext, Entry, Ingress}
-  alias Ankole.SignalsGateway.ReplyActionToken
+  alias Ankole.Plugins.WhatsAppAdapter.Client
+  alias Ankole.Plugins.WhatsAppAdapter.Config
+  alias Ankole.Plugins.WhatsAppAdapter.Presentation
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.External
+  alias Ankole.Conversations.Delivery.ActionToken
 
   @provider_fact_states ["provider_download_limit"]
   @download_limit_bytes 25 * 1024 * 1024
@@ -87,9 +93,9 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
       {:ok,
        %{
          source_event_id: message_id,
-         signal_channel_id: Presentation.signal_channel_id(phone_number_id, wa_id),
-         source_entry_id: message_id,
-         reply_to_source_entry_id: MapHelpers.presence(get_in(message, ["context", "id"])),
+         provider_conversation_id: Presentation.conversation_id(phone_number_id, wa_id),
+         provider_message_id: message_id,
+         reply_to_provider_message_id: MapHelpers.presence(get_in(message, ["context", "id"])),
          provider_thread_id: nil,
          channel: %{
            kind: :im_dm,
@@ -139,17 +145,22 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   # download runs after, so Meta does not time out and redeliver the change
   # while Ankole fetches a large file.
   defp emit_with_materialization(input, consumer) do
-    {input, observed_at} = Ingress.reuse_stored_attachments(input, @provider_fact_states)
+    {input, observed_at} = Observe.reuse_stored_attachments(input, @provider_fact_states)
 
-    if Ingress.attachments_need_bytes?(input.attachments) do
+    if Observe.attachments_need_bytes?(input.attachments) do
       pending =
         update_in(
           input.metadata,
-          &Ingress.put_attachment_materialization(&1, "pending", observed_at)
+          &Observe.put_attachment_materialization(&1, "pending", observed_at)
         )
 
       case emit_entry(pending, consumer) do
-        {:ok, %{signal_entry: %Entry{attachments: attachments}}} = result
+        {:ok,
+         %{
+           message_observation: %{
+             message: %Ankole.Conversations.Message{attachments: attachments}
+           }
+         }} = result
         when is_list(attachments) ->
           start_materialization(input, attachments, consumer, observed_at)
           result
@@ -197,9 +208,9 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
     |> Map.put(:attachments, attachments)
     |> update_in(
       [:metadata],
-      &Ingress.put_attachment_materialization(
+      &Observe.put_attachment_materialization(
         &1,
-        Ingress.materialization_state(attachments),
+        Observe.materialization_state(attachments),
         observed_at
       )
     )
@@ -220,11 +231,11 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   end
 
   defp emit_entry(input, consumer) do
-    Ingress.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
+    Observe.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
   end
 
   # An interactive reply names the message that carried the buttons, so the
-  # token binds to that provider entry as well as to the ActorEvent, the
+  # token binds to that provider entry as well as to the Signal, the
   # binding, and the action fingerprint. A stale token produces no visible
   # change, which is the right outcome for an action the reply already replaced.
   defp emit_action(consumer, %{"value" => value, "message" => message})
@@ -240,7 +251,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
          token when is_binary(token) <- interactive_token(message),
          {:ok, principal} <- Principals.resolve_platform_subject("whatsapp", wa_id),
          {:ok, action_value} <-
-           ReplyActionToken.resolve(
+           ActionToken.resolve(
              token,
              consumer.context.agent_uid,
              consumer.context.binding_name,
@@ -248,22 +259,22 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
              prefix: "wa1"
            ),
          true <- reply_surface?(action_value, surface_entry_id),
-         signal_channel_id <- Presentation.signal_channel_id(phone_number_id, wa_id),
-         :ok <- record_interactive_reply_time(signal_channel_id, message),
+         conversation_id <- Presentation.conversation_id(phone_number_id, wa_id),
+         :ok <- record_interactive_reply_time(conversation_id, message),
          {:ok, _action_result} = result <-
-           Ingress.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+           Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
              source_event_id: message_id,
              action_id: message_id,
-             signal_channel_id: signal_channel_id,
-             source_entry_id: surface_entry_id,
+             provider_conversation_id: conversation_id,
+             provider_message_id: surface_entry_id,
              provider_thread_id: nil,
-             actor_event_type: "signal.action.invoked",
+             signal_type: "signal.action.invoked",
              action: %{
                "name" => "whatsapp_interactive_reply",
                "value" => action_value,
                "operator_id" => wa_id,
                "operator_principal_uid" => principal.uid,
-               "source_entry_id" => surface_entry_id
+               "provider_message_id" => surface_entry_id
              },
              raw_payload: %{
                "message_id" => message_id,
@@ -298,7 +309,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
 
   defp emit_action(_consumer, _envelope), do: {:ok, %{status: :ignored_invalid_interactive}}
 
-  # Meta re-opens the customer service window on a button tap, and the outbox
+  # Meta re-opens the customer service window on a button tap, and the intent
   # pre-check needs the time WhatsApp reports for it, not the time Ankole
   # accepted the callback: Meta redelivers an undelivered webhook for up to
   # seven days. The channel fact carries that provider time, and the gateway
@@ -309,16 +320,21 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   # gateway decides accepted, duplicate, or stale, which makes the fact
   # idempotent under redelivery. A message with no parsable timestamp writes
   # nothing and therefore cannot re-open the window.
-  defp record_interactive_reply_time(signal_channel_id, message) do
+  defp record_interactive_reply_time(conversation_id, message) do
     case unix_seconds(message["timestamp"]) do
-      %DateTime{} = tapped_at -> put_interactive_reply_time(signal_channel_id, tapped_at)
+      %DateTime{} = tapped_at -> put_interactive_reply_time(conversation_id, tapped_at)
       nil -> :ok
     end
   end
 
-  defp put_interactive_reply_time(signal_channel_id, tapped_at) do
-    signal_channel_id
-    |> SignalsGateway.update_channel_metadata(&newest_interactive_reply(&1, tapped_at))
+  defp put_interactive_reply_time(conversation_id, tapped_at) do
+    result =
+      case External.get_conversation(Repo, conversation_id) do
+        %{id: id} -> External.update_metadata(id, &newest_interactive_reply(&1, tapped_at))
+        nil -> {:error, :conversation_not_found}
+      end
+
+    result
     |> case do
       {:ok, _channel} ->
         :ok
@@ -327,7 +343,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
         Logging.warning(
           "whatsapp_adapter.action.reply_time_not_recorded",
           "WhatsApp interactive reply time could not be recorded",
-          %{signal_channel_id: signal_channel_id, reason: inspect(reason)}
+          %{provider_conversation_id: conversation_id, reason: inspect(reason)}
         )
 
         :ok
@@ -355,15 +371,19 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
 
   defp stored_reply_time(_metadata), do: nil
 
-  # The message that carried the buttons is the ActorEvent's reply surface, and
+  # The message that carried the buttons is the Signal's reply surface, and
   # an interactive reply names it in `context.id`. A callback that names another
   # message is refused even when its token is otherwise valid, so a token copied
   # out of one card cannot answer from anywhere else.
-  defp reply_surface?(%{"sourceActorEventId" => actor_event_id}, surface_entry_id)
-       when is_binary(actor_event_id) do
+  defp reply_surface?(%{"sourceSignalId" => signal_id}, surface_entry_id)
+       when is_binary(signal_id) do
     match?(
-      %ActorEvent{reply_preview_source_entry_id: ^surface_entry_id},
-      Repo.get(ActorEvent, actor_event_id)
+      %Signal{
+        preview: %PreviewState{
+          provider_message_id: ^surface_entry_id
+        }
+      },
+      PreviewState.load(Repo.get(Signal, signal_id), Repo)
     )
   end
 
@@ -452,7 +472,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   defp materialize_attachments(attachments, consumer) do
     client = Config.client(consumer.config)
 
-    Ingress.materialize_attachments(attachments, "whatsapp", &download_attachment(&1, client),
+    Observe.materialize_attachments(attachments, "whatsapp", &download_attachment(&1, client),
       restriction: "Ankole downloads WhatsApp content up to 25 MB."
     )
   end

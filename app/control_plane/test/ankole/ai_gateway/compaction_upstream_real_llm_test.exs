@@ -13,6 +13,8 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
 
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.Schemas.CompactionArtifact
+  alias Ankole.Repo
 
   @moduletag :real_llm
 
@@ -32,7 +34,7 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
 
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, _provider} =
+    assert {:ok, provider} =
              ProviderConfigs.create_provider(%{
                provider_id: "ai-router-compaction",
                provider_kind: "openai_compatible",
@@ -42,6 +44,7 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
                },
                connection_options: %{
                  "endpoint_kind" => "responses",
+                 "supports_openai_tools" => true,
                  "upstream_transport" => "websocket"
                }
              })
@@ -62,6 +65,17 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
 
     assert [%{"type" => "compaction", "encrypted_content" => encrypted_content}] = body["output"]
     assert is_binary(encrypted_content) and encrypted_content != ""
+    refute String.starts_with?(encrypted_content, "ankole:compact:v1:")
+
+    assert [artifact] = Repo.all(CompactionArtifact)
+    assert artifact.content["version"] == 3
+    assert artifact.content["source"] == "upstream"
+    assert artifact.content["binding"]["provider_row_id"] == provider.id
+    assert artifact.content["binding"]["model"] == @model
+    refute Map.has_key?(artifact.content, "summary")
+
+    assert Enum.filter(artifact.content["output"], &(&1["type"] == "compaction")) ==
+             body["output"]
   end
 
   test "the same Agent keeps the local summary while the switch is off", %{api_key: api_key} do
@@ -80,6 +94,7 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
                },
                connection_options: %{
                  "endpoint_kind" => "responses",
+                 "supports_openai_tools" => true,
                  "upstream_transport" => "websocket"
                }
              })
@@ -98,6 +113,8 @@ defmodule Ankole.AIGateway.CompactionUpstreamRealLLMTest do
     # reply carries an AIGateway-owned handle instead of Provider state.
     assert [%{"type" => "compaction", "encrypted_content" => encrypted_content}] = body["output"]
     assert String.starts_with?(encrypted_content, "ankole:compact:v1:")
+    assert [artifact] = Repo.all(CompactionArtifact)
+    assert artifact.content["version"] == 2
   end
 
   # Driven over the WebSocket because that is the transport the Main Agent and

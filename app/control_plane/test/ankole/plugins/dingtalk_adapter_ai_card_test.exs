@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
@@ -10,11 +10,11 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
   alias Ankole.Plugins.DingTalkAdapter.AICard
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
 
   setup do
     previous = Req.default_options()
@@ -34,7 +34,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, _binding} =
-      SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: agent.uid,
         name: "dingtalk-aicard",
         adapter: "dingtalk",
@@ -44,13 +44,13 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
         unmatched_sender_policy: :create_standalone
       })
 
-    %{actor_event: event} =
-      emit_addressed_actor_event(
+    %{signal: event} =
+      emit_addressed_signal(
         agent.uid,
         "dingtalk-aicard",
         group_entry(%{
           source_event_id: unique_uid("dingtalk-event"),
-          source_entry_id: unique_uid("dingtalk-trigger"),
+          provider_message_id: unique_uid("dingtalk-trigger"),
           explicit: true
         })
       )
@@ -98,12 +98,12 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     ReplyPresentation.new() |> ReplyPresentation.terminal("completed", answer)
   end
 
-  defp fresh(event), do: Repo.get!(ActorEvent, event.id)
+  defp fresh(event), do: Repo.get!(Signal, event.id)
 
   for operation <- [:update, :finalize] do
     defp unquote(operation)(request) do
-      {:ok, adapter} = ReplyPreviewAdapter.from_module(AICard)
-      apply(ReplyPreviewAdapter, unquote(operation), [adapter, request])
+      {:ok, adapter} = PreviewAdapter.from_module(AICard)
+      apply(PreviewAdapter, unquote(operation), [adapter, request])
     end
   end
 
@@ -120,7 +120,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, open_result} =
              update(%Request{
-               actor_event: event,
+               signal: event,
                presentation: presentation,
                mode: :working
              })
@@ -144,8 +144,13 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert [%{"index" => 0, "sealed" => false}] = checkpoint["pages"]
 
     persisted = fresh(event)
-    assert persisted.reply_preview_checkpoint["streaming_state"] == "open"
-    assert persisted.reply_preview_checkpoint["presentation"]["answer"] == "hello from the agent"
+
+    assert Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint["streaming_state"] ==
+             "open"
+
+    assert Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint["presentation"][
+             "answer"
+           ] == "hello from the agent"
   end
 
   test "finalize seals the tail with isFinalize and writes only the tail slice terminally" do
@@ -160,7 +165,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, _open} =
              update(%Request{
-               actor_event: event,
+               signal: event,
                presentation: working("short"),
                mode: :working
              })
@@ -170,7 +175,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, final_result} =
              finalize(%Request{
-               actor_event: fresh(event),
+               signal: fresh(event),
                presentation: completed("short"),
                mode: :terminal
              })
@@ -190,7 +195,10 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert terminal_body["cardUpdateOptions"] == %{"updateCardDataByKey" => true}
 
     refute_received {:card_call, "POST", "/v1.0/card/instances/createAndDeliver", _}
-    assert final_result.reply_preview_checkpoint["streaming_state"] == "closed"
+
+    assert final_result.reply_preview_checkpoint[
+             "streaming_state"
+           ] == "closed"
   end
 
   test "growth rolls onto a continuation card, seals the first page once, and never rewrites it" do
@@ -206,7 +214,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, _open} =
              update(%Request{
-               actor_event: event,
+               signal: event,
                presentation: working(page_one),
                mode: :working
              })
@@ -222,7 +230,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, _update} =
              update(%Request{
-               actor_event: fresh(event),
+               signal: fresh(event),
                presentation: working(grown),
                mode: :working
              })
@@ -255,7 +263,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, update_result} =
              update(%Request{
-               actor_event: fresh(event),
+               signal: fresh(event),
                presentation: working(grown_more),
                mode: :working
              })
@@ -286,7 +294,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, _result} =
              finalize(%Request{
-               actor_event: event,
+               signal: event,
                presentation: failed,
                mode: :terminal
              })
@@ -322,7 +330,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, _result} =
              finalize(%Request{
-               actor_event: event,
+               signal: event,
                presentation: continued,
                mode: :terminal
              })
@@ -358,7 +366,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
             "id" => "opt-a",
             "type" => "button",
             "label" => "Option A",
-            "source_actor_event_id" => event.id,
+            "source_signal_id" => event.id,
             "interaction_id" => "int-1",
             "control_id" => "choice",
             "selected_option_id" => "opt-a",
@@ -370,7 +378,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, _result} =
              finalize(%Request{
-               actor_event: event,
+               signal: event,
                presentation: presentation,
                mode: :terminal
              })
@@ -396,7 +404,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
              "controlId" => "choice",
              "selectedOptionId" => "opt-a",
              "optionValue" => "a",
-             "sourceActorEventId" => event.id
+             "sourceSignalId" => event.id
            }
   end
 
@@ -441,7 +449,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, _result} =
              finalize(%Request{
-               actor_event: event,
+               signal: event,
                presentation: presentation,
                mode: :terminal
              })
@@ -464,7 +472,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:error, {:degraded, :plain_text, :card_template_missing}} =
              update(%Request{
-               actor_event: event,
+               signal: event,
                presentation: working("partial"),
                mode: :working
              })
@@ -485,7 +493,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, result} =
              finalize(%Request{
-               actor_event: event,
+               signal: event,
                presentation: completed(long_answer),
                mode: :terminal
              })
@@ -500,11 +508,11 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     assert checkpoint["degraded"] == true
     assert length(checkpoint["plain_chunks"]) == 2
 
-    # An outbox retry re-runs finalize; the chunk ledger absorbs it without a
+    # An intent retry re-runs finalize; the chunk ledger absorbs it without a
     # single provider re-send.
     assert {:ok, _retry} =
              finalize(%Request{
-               actor_event: fresh(event),
+               signal: fresh(event),
                presentation: completed(long_answer),
                mode: :terminal
              })
@@ -526,15 +534,16 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:error, {:degraded, :plain_text, :content_rejected}} =
              update(%Request{
-               actor_event: event,
+               signal: event,
                presentation: working("bad text"),
                mode: :working
              })
 
     assert event
            |> fresh()
-           |> Map.fetch!(:reply_preview_checkpoint)
-           |> ReplyPreviewAdapter.adapter_checkpoint()
+           |> Ankole.Conversations.Delivery.PreviewState.get()
+           |> Map.fetch!(:checkpoint)
+           |> PreviewAdapter.adapter_checkpoint()
            |> Map.fetch!("degraded")
 
     # The rejected attempt itself created the card and hit the streaming wall.
@@ -547,7 +556,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
 
     assert {:ok, result} =
              finalize(%Request{
-               actor_event: fresh(event),
+               signal: fresh(event),
                presentation: completed("bad text"),
                mode: :terminal
              })

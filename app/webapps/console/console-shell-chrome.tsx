@@ -39,7 +39,7 @@ import { useRef, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, NavLink, Outlet, useLocation } from 'react-router'
 import { ThemeToggle } from '../common/theme-toggle'
-import { logoutConsoleSession } from './api/client'
+import { endSiteSession } from '../common/browser-session'
 import { ConsoleReadiness } from './console-readiness'
 import { TenantSwitcher } from './tenant-switcher'
 
@@ -117,7 +117,7 @@ export function ConsoleLayout() {
   const navigationTriggerRef = useRef<HTMLButtonElement>(null)
   const logout = useMutation({
     meta: { invalidates: false },
-    mutationFn: logoutConsoleSession,
+    mutationFn: endSiteSession,
     onSettled: () => window.location.assign('/sessions/new')
   })
 

@@ -1,5 +1,3 @@
-//! Bounded image decoding and WebP encoding for model inputs.
-
 use std::io::Cursor;
 
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, imageops::FilterType};

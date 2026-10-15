@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterMentionRoutingTest do
   use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.Microsoft365Adapter.Inbound
-  alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.Conversations.AdapterContext
 
   test "current bot mention claims the message and is stripped from visible text" do
     assert {:ok, %{explicit: true, text: "hello", mentions: [%{"agent_uid" => "agent-a"}]}} =

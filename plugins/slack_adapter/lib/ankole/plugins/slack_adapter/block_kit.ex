@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.SlackAdapter.Mrkdwn
   alias Ankole.I18n
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @spec render(map()) :: {:ok, [map()]} | {:error, :missing_card_payload}
   def render(payload) when is_map(payload) do
@@ -77,7 +77,10 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
       |> add_presentation_actions(presentation)
 
     {:ok,
-     if(blocks == [], do: [section(I18n.t("signals_gateway.reply.no_content"))], else: blocks)}
+     if(blocks == [],
+       do: [section(I18n.t("conversations.delivery.reply.no_content"))],
+       else: blocks
+     )}
   end
 
   defp add_status(blocks, presentation) do
@@ -291,14 +294,14 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
 
   defp reply_button(
          %{
-           "source_actor_event_id" => source_actor_event_id,
+           "source_signal_id" => source_signal_id,
            "control_id" => control_id,
            "selected_option_id" => selected_option_id
          } = action
        )
-       when is_binary(source_actor_event_id) and is_binary(control_id) and
+       when is_binary(source_signal_id) and is_binary(control_id) and
               is_binary(selected_option_id) do
-    case ReplyPresentation.callback_value(source_actor_event_id, action) do
+    case ReplyPresentation.callback_value(source_signal_id, action) do
       {:ok, value} ->
         [
           %{

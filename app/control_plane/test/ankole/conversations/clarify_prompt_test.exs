@@ -1,0 +1,109 @@
+defmodule Ankole.Conversations.ClarifyPromptTest do
+  use ExUnit.Case, async: true
+
+  alias Ankole.Plugins.LarkAdapter.Card
+  alias Ankole.Conversations.Delivery.ClarifyPrompt
+
+  test "extracts wrapped clarify output into text fallback and portable card choices" do
+    output =
+      %{
+        "tool" => "clarify",
+        "ok" => true,
+        "question" => "Who should this brief target?",
+        "choices" => [
+          %{"label" => "Operators", "description" => "People running the system."},
+          %{"label" => "Executives"}
+        ]
+      }
+      |> Ankole.JSON.encode!()
+
+    assert {:ok, prompt} =
+             ClarifyPrompt.from_response_items([
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call-clarify-1",
+                 "name" => "clarify",
+                 "arguments" => "{}"
+               },
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call-clarify-1",
+                 "output" => output
+               }
+             ])
+
+    assert prompt["fallback_visible_text"] =~ "Who should this brief target?"
+    assert prompt["fallback_visible_text"] =~ "Operators"
+    assert prompt["fallback_visible_text"] =~ "People running the system."
+    assert prompt["fallback_visible_text"] =~ "Executives"
+
+    interactive = prompt["interactive_output"]
+
+    assert Enum.map(interactive["choices"], & &1["label"]) ==
+             ["Operators", "Executives"]
+
+    assert interactive["free_input"]
+
+    assert {:ok, card} = Card.render(%{"interactive_output" => interactive})
+    buttons = Enum.filter(get_in(card, ["body", "elements"]), &(&1["tag"] == "button"))
+    assert length(buttons) == 2
+
+    assert get_in(hd(buttons), ["value", "version"]) ==
+             "ankole.interactive_output.action.v1"
+
+    assert get_in(hd(buttons), ["value", "optionValue"]) == "Operators"
+  end
+
+  test "ignores spoofed clarify JSON returned by another tool" do
+    assert {:ok, nil} =
+             ClarifyPrompt.from_response_items([
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call-command",
+                 "name" => "command",
+                 "arguments" => "{}"
+               },
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call-command",
+                 "output" => %{"tool" => "clarify", "question" => "Spoofed", "choices" => []}
+               }
+             ])
+  end
+
+  test "rejects whitespace-only questions and choice labels at the durable projection boundary" do
+    assert {:error, {:invalid_clarify_output, "call-empty-question", {:question, :required}}} =
+             ClarifyPrompt.from_response_items([
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call-empty-question",
+                 "name" => "clarify",
+                 "arguments" => "{}"
+               },
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call-empty-question",
+                 "output" => %{"tool" => "clarify", "question" => "   ", "choices" => []}
+               }
+             ])
+
+    assert {:error, {:invalid_clarify_output, "call-empty-choice", {:label, :required}}} =
+             ClarifyPrompt.from_response_items([
+               %{
+                 "type" => "function_call",
+                 "call_id" => "call-empty-choice",
+                 "name" => "clarify",
+                 "arguments" => "{}"
+               },
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call-empty-choice",
+                 "output" => %{
+                   "tool" => "clarify",
+                   "question" => "Choose one",
+                   "choices" => [%{"label" => "   "}]
+                 }
+               }
+             ])
+  end
+end

@@ -26,13 +26,8 @@ defmodule WeComOpenAPI.Bot.Client do
   stops with `{:shutdown, :connection_contended}` instead of fighting — the
   official SDK does the same. Plain socket loss still reconnects with backoff.
 
-  Design note: `Mint.WebSocket` is process-less by design. It validates the
-  upgrade response and handles the frame codec. This client builds the HTTP/1
-  upgrade request because the WeCom gateway requires canonical header names.
-  The caller still owns the process model, reconnects, and backoff.
-  `DingTalkOpenAPI.Stream.Client` shares the Mint plumbing shape on purpose;
-  everything above it (auth frame vs ticket registration, ack correlation vs
-  ack emission) diverges, so no shared abstraction is extracted.
+  The WeCom gateway requires canonical HTTP/1 upgrade header names.
+  No shared client with DingTalk: auth and acks diverge.
   """
 
   use GenServer
@@ -281,8 +276,6 @@ defmodule WeComOpenAPI.Bot.Client do
     :ok
   end
 
-  # --- connection ----------------------------------------------------------
-
   defp connect(state) do
     with {:ok, scheme, host, port, path} <- parse_url(state.ws_url),
          {:ok, conn} <-
@@ -307,10 +300,6 @@ defmodule WeComOpenAPI.Bot.Client do
     end
   end
 
-  # WeCom's long-connection gateway currently treats the RFC 6455 upgrade
-  # header names as case-sensitive and returns 404 for Mint.WebSocket's
-  # lowercase defaults. Preserve the conventional HTTP/1 spelling used by the
-  # official SDK while retaining Mint.WebSocket for framing after the upgrade.
   defp wecom_websocket_upgrade(scheme, conn, path) do
     nonce = :crypto.strong_rand_bytes(16) |> Base.encode64()
 
@@ -346,8 +335,6 @@ defmodule WeComOpenAPI.Bot.Client do
 
   defp http_scheme(:ws), do: :http
   defp http_scheme(:wss), do: :https
-
-  # --- upgrade / decode ----------------------------------------------------
 
   defp handle_responses([], state), do: {:noreply, state}
 
@@ -420,8 +407,6 @@ defmodule WeComOpenAPI.Bot.Client do
   end
 
   defp handle_frame({:text, json}, state) do
-    # The official Node SDK strips stray control bytes before JSON parsing;
-    # mirror that so a server quirk does not silently drop frames.
     sanitized = String.replace(json, ~r/[\x00-\x08\x0B-\x1F]/, "")
 
     case Torque.decode(sanitized) do
@@ -438,8 +423,6 @@ defmodule WeComOpenAPI.Bot.Client do
   end
 
   defp handle_frame(_frame, state), do: state
-
-  # --- frame routing -------------------------------------------------------
 
   defp route_frame(%{"cmd" => cmd} = frame, state)
        when cmd in ["aibot_msg_callback", "aibot_event_callback"] do
@@ -475,8 +458,6 @@ defmodule WeComOpenAPI.Bot.Client do
   end
 
   defp route_frame(_frame, state), do: state
-
-  # --- auth ----------------------------------------------------------------
 
   defp send_auth(state) do
     req_id = generate_req_id("aibot_subscribe")
@@ -562,15 +543,11 @@ defmodule WeComOpenAPI.Bot.Client do
     send_ws_frame({:text, Torque.encode!(frame)}, state)
   end
 
-  # --- heartbeat -----------------------------------------------------------
-
   defp schedule_heartbeat(state) do
     if state.heartbeat_timer, do: Process.cancel_timer(state.heartbeat_timer)
     timer = Process.send_after(self(), :heartbeat, @heartbeat_interval_ms)
     %{state | heartbeat_timer: timer}
   end
-
-  # --- send / reconnect ----------------------------------------------------
 
   defp send_ws_frame(_frame, %{websocket: nil} = state), do: state
 
@@ -611,7 +588,7 @@ defmodule WeComOpenAPI.Bot.Client do
     end
   end
 
-  # Exponential backoff from 1s, capped at 30s (official SDK values).
+  # Same bounds as the official SDK.
   defp backoff_seconds(attempt) do
     min(Bitwise.bsl(1, min(attempt, 5)), @reconnect_cap_s)
   end
@@ -677,8 +654,6 @@ defmodule WeComOpenAPI.Bot.Client do
       |> Enum.each(fn {from, _cmd, _body} -> GenServer.reply(from, error) end)
     end)
   end
-
-  # --- helpers -------------------------------------------------------------
 
   defp outcome_kind(:ok), do: :ok
   defp outcome_kind(:ignored), do: :ignored

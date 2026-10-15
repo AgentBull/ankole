@@ -16,10 +16,10 @@ defmodule Ankole.Brain.Health do
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
-  alias Ankole.Brain.SignalsLearning
+  alias Ankole.Brain.ConversationsLearning
   alias Ankole.Logging
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.Channel
+  alias Ankole.Conversations.Conversation
 
   @internal_error "internal_error"
   @public_reasons ~w(
@@ -197,7 +197,7 @@ defmodule Ankole.Brain.Health do
   # Queue depth: idle channels whose slices are pending, plus the oldest
   # pending entry age in seconds.
   defp signals_status do
-    slices = SignalsLearning.idle_pending_slices()
+    slices = ConversationsLearning.idle_pending_slices()
     oldest = slices |> Enum.map(& &1.first_seen_at) |> Enum.min(DateTime, fn -> nil end)
     age = oldest && DateTime.diff(DateTime.utc_now(), oldest)
     %{pending_channels: length(slices), oldest_pending_age_seconds: age}
@@ -244,8 +244,8 @@ defmodule Ankole.Brain.Health do
   # Group channels without a member group cannot learn; the deterministic
   # default scope has no target.
   defp group_channels_without_member_group do
-    Channel
-    |> where([channel], channel.kind == :im_group)
+    Conversation
+    |> where([channel], channel.kind == :external and channel.external_kind == :im_group)
     |> where([channel], is_nil(channel.principal_group_id))
     |> select([channel], channel.id)
     |> Repo.all()

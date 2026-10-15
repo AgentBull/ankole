@@ -37,8 +37,8 @@ defmodule Ankole.E2E.FakeOpenAIPlug do
       {:tool_call, tool_call} ->
         maybe_stream_tool_call(conn, request, tool_call)
 
-      {:delayed_tool_call, tool_call, delay_ms} ->
-        Process.sleep(delay_ms)
+      {:waiting_tool_call, tool_call} ->
+        :ok = FakeOpenAIState.await_release(kind)
         maybe_stream_tool_call(conn, request, tool_call)
 
       {:completion, text, opts} ->

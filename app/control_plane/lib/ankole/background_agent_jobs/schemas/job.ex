@@ -62,7 +62,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     )
 
     field(:owner_session_id, :string)
-    field(:source_actor_event_id, Ecto.UUID)
+    field(:source_signal_id, Ecto.UUID)
     field(:source_tool_call_id, :string)
     field(:continued_from_job_id, :integer)
     field(:workspace_owner_job_id, :integer)
@@ -99,7 +99,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       :human_access_version,
       :agent_uid,
       :owner_session_id,
-      :source_actor_event_id,
+      :source_signal_id,
       :source_tool_call_id,
       :continued_from_job_id,
       :workspace_owner_job_id,
@@ -158,7 +158,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     |> JSONPayload.validate_map(:error, allow_datetime: true)
     |> JSONPayload.validate_map(:metadata, allow_datetime: true)
     |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:source_actor_event_id)
+    |> foreign_key_constraint(:source_signal_id)
     |> foreign_key_constraint(:continued_from_job_id)
     |> foreign_key_constraint(:workspace_owner_job_id)
     |> unique_constraint([:agent_uid, :owner_session_id, :source_tool_call_id],

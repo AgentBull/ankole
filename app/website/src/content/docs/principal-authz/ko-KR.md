@@ -59,7 +59,7 @@ control plane과 kernel은 의도적으로 작업을 나눕니다. 그리고 이
 AuthZ는 agent가 우회할 수 있는 계층이 아닙니다. 런타임이 중요한 경계에서 AuthZ를 참조하기 때문입니다:
 
 - AIGateway는 검증된 token에서 모든 호출의 주체(subject)를 해석하며, 주체의 grant가 도달할 수 있는 model selector와 provider를 결정합니다.
-- 대화 Driver는 commit 전에 영속 fence를 확인합니다. Worker의 Job 작업은 영속 Job attempt fence와 인증된 연결 identity를 확인합니다.
+- 실행 세션 Driver는 commit 전에 영속 fence를 확인합니다. Worker의 Job 작업은 영속 Job attempt fence와 인증된 연결 identity를 확인합니다.
 - Console 작업은 활성 administrator의 browser session과 CSRF 증명을 사용하며 Principal의 현재 group membership이 변경 범위를 결정합니다.
 
 model은 “나는 허용되어 있다”고 주장할 수 없습니다. 경계는 Principal과 grant를 확인하고 결정에 따라 행동합니다.
@@ -89,4 +89,4 @@ AuthZ는 프롬프트 지시도 희망도 아닙니다. model에게 책임을 �
 ## 다음 단계
 
 - AIGateway 가장자리에서 검증된 token이 Principal로 해석되는 방식에 대해서는 [AIGateway API](../ai-gateway/) 문서를 읽으세요.
-- agent Principal의 Driver fence이 turn을 펜싱하는 방식에 대해서는 [Actor Runtime](../actor-runtime/) 문서를 읽으세요.
+- agent Principal의 Driver fence이 turn을 펜싱하는 방식에 대해서는 [Sessions](../sessions/) 문서를 읽으세요.

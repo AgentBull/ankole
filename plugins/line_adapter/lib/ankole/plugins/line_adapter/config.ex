@@ -7,7 +7,7 @@ defmodule Ankole.Plugins.LineAdapter.Config do
   alias Ankole.Plugins.LineAdapter.Client
   alias Ankole.Plugins.MapHelpers
 
-  @key_pattern ~r/\Asignals_gateway\.line\.bindings\.[A-Za-z0-9_.:-]+\z/
+  @key_pattern ~r/\Asignals\.line\.bindings\.[A-Za-z0-9_.:-]+\z/
   @channel_id_pattern ~r/\A[0-9]{1,32}\z/
 
   @type t :: %{required(String.t()) => String.t()}
@@ -29,7 +29,7 @@ defmodule Ankole.Plugins.LineAdapter.Config do
   def app_config_patterns do
     [
       AppConfigure.define_pattern(
-        id: "signals_gateway.line.bindings.*",
+        id: "signals.line.bindings.*",
         console_writable: false,
         key_pattern: @key_pattern,
         encrypted: true,
@@ -54,7 +54,7 @@ defmodule Ankole.Plugins.LineAdapter.Config do
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
 
-    "signals_gateway.line.bindings.#{id}"
+    "signals.line.bindings.#{id}"
   end
 
   @spec validate_binding_config(term()) :: {:ok, t()} | {:error, term()}

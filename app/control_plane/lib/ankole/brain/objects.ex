@@ -759,8 +759,6 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  # Validation
-
   defp validate_slug(@lazy_skill_prefix <> _rest = slug),
     do: {:error, {:reserved_object_slug, slug}}
 

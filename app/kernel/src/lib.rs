@@ -1,7 +1,5 @@
-//! Native kernel loaded by Elixir through Rustler.
-//!
-//! Native behavior lives in host-neutral modules;
-//! feature-gated modules only translate host runtime types, naming, and errors.
+//! Native behavior lives in host-neutral modules.
+//! Feature-gated modules only translate host runtime types, naming, and errors.
 
 use mimalloc::MiMalloc;
 
@@ -29,7 +27,7 @@ pub mod brain_markdoc;
 pub mod markdown;
 
 #[cfg(any(test, feature = "nif"))]
-pub mod signals_gateway;
+pub mod signals;
 
 #[cfg(feature = "object_store")]
 pub mod object_store;

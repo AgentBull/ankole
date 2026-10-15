@@ -89,7 +89,6 @@ function identitySchema(adapterRequired: string, providerIDInvalid: string) {
   })
 }
 
-/** Renders the setup SPA and switches between bootstrap, plugin, and identity steps. */
 export function SetupApp() {
   const queryClient = useQueryClient()
   const { t } = useTranslation()
@@ -701,7 +700,6 @@ function identityAdapterLabel(adapter: IdentityAdapter, locale: string): string 
   return localizedText(adapter.displayName, locale) ?? adapter.adapterID
 }
 
-/** Shows the first validation error from Formisch field state. */
 function FormFieldError({ errors }: { errors: [string, ...string[]] | null }) {
   return errors ? <UiFieldError>{errors[0]}</UiFieldError> : null
 }

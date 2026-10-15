@@ -3,11 +3,21 @@
 The WhatsApp Adapter connects one WhatsApp Business phone number to one Agent
 binding through the WhatsApp Business Platform Cloud API. WhatsApp is a consumer
 IM. The category changes catalog and Console presentation only; the adapter uses
-the same SignalsGateway contracts as every other Signal adapter.
+the same Signals and Signals and Conversations contracts as every other Signal adapter.
 
-Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
+Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+[Sessions](../Sessions.md), [Principal](../Principal.md), and
 [Local Password Identity Provider](../LocalPasswordIdentityProvider.md) for the
 common message and identity rules.
+
+## Provider and Public Identity
+
+The adapter reports an opaque `provider_conversation_id` and a
+`provider_message_id`. Conversations resolves these to a shared public
+Conversation UUID and Message UUID. All Agent observers of the same provider
+conversation in one tenant read those same public facts. Each participating
+Agent has its own `conversation:<public UUID>` Session; a Binding is its
+observation and delivery route, not the owner of the platform room.
 
 ## Current IDs and Features
 
@@ -16,7 +26,7 @@ common message and identity rules.
 | Plugin ID | `whatsapp-adapter` |
 | Signal adapter ID | `whatsapp` |
 | Adapter category | `consumer_im` |
-| Signal configuration | `signals_gateway.whatsapp.bindings.<id>` |
+| Signal configuration | `signals.whatsapp.bindings.<id>` |
 | Webhook handler ID | `whatsapp` |
 | Cloud API client | Project `Req` client against the Graph API, version `v25.0` |
 
@@ -24,8 +34,8 @@ The settings are the Meta App ID, the encrypted App secret, the encrypted verify
 token, the phone number ID, and the encrypted System User access token. The
 adapter uses no WhatsApp SDK and does not use the On-Premises API.
 
-A channel is bound to the phone number that received its messages, and the
-channel ID holds that number. If an operator moves a binding to another phone
+A provider conversation is bound to the phone number that received its
+messages; its `provider_conversation_id` holds that number. If an operator moves a binding to another phone
 number, replies to the older chats stop with an operator-action
 `binding_phone_number_mismatch` error instead of going out from a number the
 user never wrote to. Restoring the original number releases those replies on the
@@ -70,7 +80,7 @@ verify token, and status 403 otherwise.
 
 A POST carries the events. The handler checks the `x-hub-signature-256` header,
 which is `sha256=` and the lowercase hex HMAC-SHA256 of the exact request bytes
-keyed with the App secret. SignalsGateway keeps those bytes for every provider
+keyed with the App secret. Conversations keeps those bytes for every provider
 webhook. A request with a wrong signature gets status 401 and an unknown App ID
 gets status 404, before the handler reads any event.
 
@@ -80,7 +90,7 @@ and dispatches to the binding that owns that number. A change for a number no
 binding serves is ignored and still gets status 200, so one unconfigured number
 never blocks the others.
 
-The handler completes durable SignalsGateway ingress for every message in the
+The handler completes durable Conversations.Observe for every message in the
 request before it returns status 200. Meta retries a delivery that did not get a
 200 for up to seven days and can also send the same message twice. The message
 ID is its `source_event_id`, so the gateway stores a repeated message once.
@@ -100,11 +110,11 @@ Operator setup in the Meta App Dashboard:
 
 ## Receive Messages
 
-Every message is a one-to-one message and is explicit input. The channel ID
+Every message is a one-to-one message and is explicit input. `provider_conversation_id`
 holds the phone number ID and the sender's `wa_id`. The Cloud API has no
 threads, so the adapter records no provider thread: the chat is the channel, and
 a quoted message is the only reply relation. The message ID is both the source
-event ID and the source entry ID.
+event ID and the provider message ID.
 
 Text, image, video, audio, document, sticker, location, and contacts messages
 enter the common message projection. A media caption becomes the entry text, a
@@ -136,12 +146,12 @@ this sequence:
 1. An administrator signs in through LocalPassword and creates a human
    Principal.
 2. The WhatsApp binding selects `manual_review`.
-3. An unmatched user receives the fixed mapping notice. SignalsGateway creates a
+3. An unmatched user receives the fixed mapping notice. Signals.IdentityAdmission creates a
    mapping request with the WhatsApp profile name and the phone number, and does
    not store the original message.
 4. The administrator maps the WhatsApp external identity to the existing
    Principal.
-5. The user sends the message again, and SignalsGateway admits it to the Agent.
+5. The user sends the message again, and Signals.IdentityAdmission admits it to the Agent.
 
 This sequence describes a common setup. It is not a dependency between
 LocalPassword and WhatsApp. The mapping target can be any existing human
@@ -149,7 +159,7 @@ Principal.
 
 ## Materialize Attachments
 
-SignalsGateway first commits the admitted message with a pending attachment
+Conversations first commits the admitted message with a pending attachment
 observation inside the webhook request. A supervised task then reads the
 temporary media URL, downloads the bytes, stores them in the file service
 ([Files](../Files.md)), and updates the same entry. The webhook answer does not wait
@@ -160,7 +170,7 @@ file.
 
 A redelivered message keeps a result this Agent already holds and fetches
 everything else again, including a download whose earlier task never finished,
-because the adapter cannot prove that such a task is alive. SignalsGateway never
+because the adapter cannot prove that such a task is alive. Conversations never
 replaces an attachment this Agent can read with a later observation from this
 Agent that has no path, so a second download that overlaps the first cannot lose
 the file. A copy that another Agent downloaded does not count: when a route
@@ -176,8 +186,8 @@ Agent can read it.
 
 Every outbound operation is a Cloud API message send to
 `POST /<version>/<phoneNumberId>/messages` with the System User token. The
-adapter uses the returned `wamid` values as source entry IDs and keeps every
-sent ID on the outbox row, because a long reply is several messages.
+adapter uses the returned `wamid` values as provider message IDs and keeps every
+sent ID on the Delivery intent, because a long reply is several messages.
 
 The adapter splits text at 4,096 characters and sends one request for each
 chunk. A reply puts the human message ID in `context.message_id` of the first
@@ -186,11 +196,11 @@ chunk, so WhatsApp shows the quoted message. A divider is a text separator.
 A pending clarification renders its choices as one interactive message. Up to
 three choices become reply buttons with titles of at most 20 characters; more
 become one list section with row titles of at most 24 characters.
-SignalsGateway allows at most eight choices, which stays inside the Cloud API
+Conversations allows at most eight choices, which stays inside the Cloud API
 limit of ten list rows. The button that opens a list carries a fixed localized
 label, because it only opens the rows and does not repeat the question. Each
 button or row carries a short token of at most 256 bytes that names the
-ActorEvent, the action index, and the action fingerprint; it does not contain
+Signal, the action index, and the action fingerprint; it does not contain
 the action.
 
 Every title starts with its ordinal, as in "1. Approve the release". The Cloud
@@ -202,14 +212,14 @@ blank line, and a cut row title keeps its full text in the row description.
 
 A reply that asks for a choice is several messages: the text chunks first and
 the interactive message last. The adapter records the ID of that interactive
-message as the ActorEvent's reply surface, because that is the message the
+message as the Signal's reply surface, because that is the message the
 buttons live on. The row's created entry ID stays the first message, as for
 every other reply.
 
 On an interactive reply, the adapter resolves the WhatsApp user to a Principal,
 restores the action from the durable checkpoint, and checks that the reply's
 `context.id` names that same reply surface before it submits the standard
-SignalsGateway action event. A stale token, a token that answers from another
+signal.action.invoked stimulus. A stale token, a token that answers from another
 message, and a reply that names a text chunk of the same answer instead of the
 interactive message all produce no visible change.
 
@@ -227,7 +237,7 @@ Cloud API accepts one message type for each media class:
 A file that is larger than the limit of its type, or whose content type is not
 in these lists, stops that attachment row with a permanent
 `outbound_attachment_unsupported` error. The text row still goes out, because
-the gateway stores each attachment in its own outbox row.
+the gateway stores each attachment in its own Delivery intent.
 
 ## The Customer Service Window
 
@@ -262,9 +272,9 @@ sends it.
 A message send has no idempotency key, and the Cloud API offers no read-back of
 a request whose answer was lost. A transport failure or a server error on a send
 is therefore uncertain, and so is any failure after an earlier message of the
-same reply already landed. The adapter reports `unknown` for those cases; the
-gateway then applies its possible-duplicate flow, and the retry that carries the
-duplicate notice sends. A failure on the media upload, before any message
+same reply already landed. The adapter reports `unknown` and Delivery stops.
+An operator can requeue a visible durable reply with a possible-duplicate
+notice. A failure on the media upload, before any message
 request, is an ordinary retryable failure.
 
 The adapter classifies the Graph error code and the HTTP status:
@@ -282,7 +292,7 @@ The adapter classifies the Graph error code and the HTTP status:
   permanent.
 
 An asynchronous `failed` status that arrives after a successful send is logged
-only. The outbox row already recorded a success, so Ankole cannot repair that
+only. The Delivery intent already recorded a success, so Ankole cannot repair that
 delivery by itself.
 
 AppConfigure encrypts the App secret, the verify token, and the access token.

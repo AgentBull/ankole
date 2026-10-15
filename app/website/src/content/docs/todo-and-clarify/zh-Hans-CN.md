@@ -5,13 +5,13 @@ order: 124
 description: 控制面的任务清单、决策问题，以及 Codex Job 的独立输入路径。
 ---
 
-`todo` 与 `clarify` 是控制面工具，由 `Ankole.Conversations.Tools.Session` 拥有。Driver 校验参数，经 AIGateway 保存模型可见结果，并把效果应用到当前运行。Worker 不拥有这些主回合工具。
+`todo` 与 `clarify` 是控制面工具，由 `Ankole.Sessions.Tools.Session` 拥有。Driver 校验参数，经 AIGateway 保存模型可见结果，并把效果应用到当前运行。Worker 不拥有这些主回合工具。
 
 ## 任务清单
 
 `todo` 读取、替换清单，或按条目 ID 合并。状态为 `pending`、`in_progress`、`completed`、`cancelled`，声明最多接受 256 项。工具指令要求三步以上的复杂任务使用清单，按优先级排列，同时一项进行中，完成后立即标记，失败后新增修订项。
 
-清单是 `Ankole.Conversations.Run` 的工作状态，不是组织知识。恢复时从当前运行历史中成功记录的工具调用重建清单。新 Session 不继承另一个 Session 的清单。需要跨 Session 共享的知识属于 [Brain](../brain/)。
+清单是 `Ankole.Sessions.Run` 的工作状态，不是组织知识。恢复时从当前运行历史中成功记录的工具调用重建清单。新 Session 不继承另一个 Session 的清单。需要跨 Session 共享的知识属于 [Brain](../brain/)。
 
 ## 一个决策问题
 

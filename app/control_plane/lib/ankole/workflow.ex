@@ -6,7 +6,7 @@ defmodule Ankole.Workflow do
   creation, task transactions, cancellation, and owner-facing reads.
   """
 
-  @behaviour Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
+  @behaviour Ankole.Sessions.AsyncWorkUnit
 
   import Ecto.Query
 
@@ -15,9 +15,8 @@ defmodule Ankole.Workflow do
   alias Ankole.I18n
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Actors
+  alias Ankole.Signals.Signal
+  alias Ankole.Sessions.Queue
   alias Ankole.Text
   alias Ankole.Workflow.Program
   alias Ankole.Workflow.ResultSchema
@@ -26,8 +25,6 @@ defmodule Ankole.Workflow do
   alias Ankole.Workflow.Schemas.Run
   alias Ankole.Workflow.WorkerConfig
 
-  @task_session_prefix "wf_task:"
-  @task_session_prefix_size byte_size(@task_session_prefix)
   @minimum_id 1000
   @maximum_id 9_007_199_254_740_991
   @result_window_bytes 8_000
@@ -47,7 +44,7 @@ defmodule Ankole.Workflow do
     owner_session_id
     reply_route
     script
-    source_actor_event_id
+    source_signal_id
     source_tool_call_id
     title
   )
@@ -55,11 +52,7 @@ defmodule Ankole.Workflow do
   @spec task_session_id(pos_integer()) :: String.t()
   def task_session_id(call_id)
       when is_integer(call_id) and call_id >= @minimum_id and call_id <= @maximum_id,
-      do: @task_session_prefix <> Integer.to_string(call_id)
-
-  defguard is_workflow_task_session_id(session_id)
-           when is_binary(session_id) and byte_size(session_id) > @task_session_prefix_size and
-                  binary_part(session_id, 0, @task_session_prefix_size) == @task_session_prefix
+      do: Ankole.Sessions.Key.workflow_task(call_id)
 
   @spec parse_run_id(term()) :: {:ok, pos_integer()} | :error
   def parse_run_id(value), do: parse_id(value)
@@ -68,11 +61,15 @@ defmodule Ankole.Workflow do
   def parse_call_id(value), do: parse_id(value)
 
   @spec parse_task_session_id(term()) :: {:ok, pos_integer()} | :error
-  def parse_task_session_id(@task_session_prefix <> call_id), do: parse_call_id(call_id)
-  def parse_task_session_id(_other), do: :error
+  def parse_task_session_id(key) do
+    case Ankole.Sessions.Key.parse(key) do
+      {:workflow_task, id} -> parse_call_id(id)
+      _ -> :error
+    end
+  end
 
   @doc false
-  def task_session_prefix, do: @task_session_prefix
+  def task_session_prefix, do: Ankole.Sessions.Key.workflow_task("")
 
   @workflow_wakeup_notice_keys %{
     "workflow.run.completed" => "workflow_dead_letter_completed",
@@ -80,10 +77,10 @@ defmodule Ankole.Workflow do
   }
 
   @doc false
-  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
-  def dead_letter_notice_text(%ActorEvent{type: type} = event)
+  @impl Ankole.Sessions.AsyncWorkUnit
+  def dead_letter_notice_text(%Signal{type: type} = event)
       when is_map_key(@workflow_wakeup_notice_keys, type) do
-    data = get_in(event.payload || %{}, ["data"]) || %{}
+    data = event.data
     counts = data["counts"] || %{}
 
     detail =
@@ -95,7 +92,7 @@ defmodule Ankole.Workflow do
       |> Enum.join("\n")
 
     I18n.t(
-      "signals_gateway.reply.#{Map.fetch!(@workflow_wakeup_notice_keys, type)}",
+      "conversations.delivery.reply.#{Map.fetch!(@workflow_wakeup_notice_keys, type)}",
       %{
         "run_id" => data["run_id"] || 0,
         "title" => text_value(data["title"]) || "",
@@ -107,7 +104,7 @@ defmodule Ankole.Workflow do
     )
   end
 
-  def dead_letter_notice_text(%ActorEvent{}), do: nil
+  def dead_letter_notice_text(%Signal{}), do: nil
 
   @doc false
   def compensate_turn_error_in_tx(
@@ -163,7 +160,6 @@ defmodule Ankole.Workflow do
   def cleanup_terminal_transition({:ok, %{run: %Run{status: status} = run} = result})
       when status in ["completed", "failed", "cancelled"] do
     if status == "cancelled", do: RunServer.stop_replay(run.id)
-    Ankole.Conversations.deliver_events([Map.get(result, :wakeup_event)])
 
     case cleanup_terminal_run(run) do
       {:ok, cleaned_run} ->
@@ -393,34 +389,32 @@ defmodule Ankole.Workflow do
     source_event_id = "workflow:call:#{call.id}:msg:#{source_tool_call_id}"
     reply_route = run.reply_route || %{}
 
-    with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
-      SignalsGateway.append_actor_event_in_tx(repo, %{
-        source_work: run,
-        agent_uid: run.agent_uid,
+    binding_name = Map.get(reply_route, "binding_name")
+
+    Ankole.Signals.accept_in_tx(repo, %{
+      producer: :kernel,
+      source: "control-plane://workflow",
+      id: source_event_id,
+      type: "workflow.task.message",
+      subject: "workflow-call:#{call.id}",
+      time: DateTime.to_iso8601(now),
+      available_at: now,
+      target: %{agent_uid: run.agent_uid, session_id: task_session_id(call.id)},
+      sender: nil,
+      authorization: Ankole.Principals.WorkAccess.fields(run),
+      reply_route: %{
         binding_name: binding_name,
-        session_id: task_session_id(call.id),
-        source_event_id: source_event_id,
-        signal_channel_id: nil,
-        type: "workflow.task.message",
-        available_at: now,
-        payload: %{
-          "specversion" => "1.0",
-          "id" => source_event_id,
-          "source" => "control-plane://workflow",
-          "subject" => "workflow-call:#{call.id}",
-          "time" => DateTime.to_iso8601(now),
-          "type" => "workflow.task.message",
-          "data" => %{
-            "run_id" => run.id,
-            "call_id" => call.id,
-            "call_seq" => call.call_seq,
-            "message" => message
-          }
-        }
-      })
-    else
-      nil -> {:error, :workflow_reply_route_binding_missing}
-    end
+        conversation_id: nil,
+        provider_thread_id: nil,
+        provider_message_id: nil
+      },
+      data: %{
+        "run_id" => run.id,
+        "call_id" => call.id,
+        "call_seq" => call.call_seq,
+        "message" => message
+      }
+    })
   end
 
   @spec list(String.t(), keyword()) ::
@@ -545,33 +539,34 @@ defmodule Ankole.Workflow do
     call_id = String.replace_prefix(session_id, task_session_prefix(), "")
     source_event_id = "workflow:call:#{call_id}:stop"
 
-    with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
-      SignalsGateway.append_actor_event(%{
-        source_work: run,
-        agent_uid: run.agent_uid,
-        binding_name: binding_name,
-        session_id: session_id,
-        source_event_id: source_event_id,
-        signal_channel_id: nil,
+    binding_name = Map.get(reply_route, "binding_name")
+
+    with true <-
+           valid_reply_route?(reply_route) || {:error, :workflow_reply_route_binding_missing} do
+      Ankole.Signals.accept(%{
+        producer: :kernel,
+        source: "control-plane://workflow",
+        id: source_event_id,
         type: "command.stop",
+        subject: "workflow-call:#{call_id}",
+        time: DateTime.to_iso8601(now),
         available_at: now,
-        payload: %{
-          "specversion" => "1.0",
-          "id" => source_event_id,
-          "source" => "control-plane://workflow",
-          "subject" => "workflow-call:#{call_id}",
-          "time" => DateTime.to_iso8601(now),
-          "type" => "command.stop",
-          "data" => %{
-            "command" => %{
-              "argsText" => task_stop_reason(run.status),
-              "cancel_requested_by" => "workflow"
-            }
+        target: %{agent_uid: run.agent_uid, session_id: session_id},
+        sender: nil,
+        authorization: Ankole.Principals.WorkAccess.fields(run),
+        reply_route: %{
+          binding_name: binding_name,
+          conversation_id: nil,
+          provider_thread_id: nil,
+          provider_message_id: nil
+        },
+        data: %{
+          "command" => %{
+            "argsText" => task_stop_reason(run.status),
+            "cancel_requested_by" => "workflow"
           }
         }
       })
-    else
-      nil -> {:error, :workflow_reply_route_binding_missing}
     end
   end
 
@@ -589,7 +584,7 @@ defmodule Ankole.Workflow do
              "cancel_requested_by" => "workflow:#{run.id}"
            }) do
         {:ok, result} ->
-          Ankole.Conversations.stop_job_turn(result.job, result.turn)
+          Ankole.Sessions.stop_job_turn(result.job, result.turn)
           []
 
         {:error, reason} ->
@@ -782,9 +777,16 @@ defmodule Ankole.Workflow do
   defp reply_route(attrs) do
     case Map.get(attrs, "reply_route") do
       route when is_map(route) ->
-        with :ok <- validate_string_keys(route),
-             {:ok, binding_name} <- required_text(route, "binding_name") do
-          {:ok, Map.put(route, "binding_name", binding_name)}
+        with :ok <- validate_string_keys(route) do
+          case Ecto.UUID.cast(Map.get(route, "conversation_id")) do
+            {:ok, id} ->
+              {:ok, Map.put(route, "conversation_id", id)}
+
+            :error ->
+              with {:ok, binding_name} <- required_text(route, "binding_name") do
+                {:ok, Map.put(route, "binding_name", binding_name)}
+              end
+          end
         end
 
       _value ->
@@ -829,7 +831,6 @@ defmodule Ankole.Workflow do
 
   defp required_text(attrs, "binding_name") do
     case text(attrs, "binding_name") do
-      nil -> {:error, :workflow_reply_route_binding_missing}
       value -> {:ok, value}
     end
   end
@@ -863,9 +864,6 @@ defmodule Ankole.Workflow do
     Repo.transact(fn repo ->
       with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Run, run_id),
            do: commit_replay_pending_in_tx(repo, run_id, pending_calls, expected_memo_length)
-    end)
-    |> Ankole.Conversations.deliver_committed(fn value ->
-      Map.get(value, :dispatch_events, []) ++ [Map.get(value, :wakeup_event)]
     end)
   end
 
@@ -1002,7 +1000,7 @@ defmodule Ankole.Workflow do
   defp open_task_event?(repo, call) do
     session_id = task_session_id(call.id)
 
-    ActorEvent
+    Signal
     |> where(
       [event],
       event.agent_uid == ^call.agent_uid and event.session_id == ^session_id and
@@ -1074,7 +1072,7 @@ defmodule Ankole.Workflow do
   @doc false
   @spec claim_task_for_dispatch_in_tx(
           module(),
-          ActorEvent.t(),
+          Signal.t(),
           pos_integer(),
           String.t(),
           pos_integer(),
@@ -1082,44 +1080,44 @@ defmodule Ankole.Workflow do
         ) :: {:ok, %{call: struct(), run: struct()}} | {:error, term()}
   def claim_task_for_dispatch_in_tx(
         repo,
-        %ActorEvent{} = actor_event,
+        %Signal{} = signal,
         call_id,
         agent_uid,
         max_running_per_agent,
         opts \\ []
       ) do
     with {:ok, result} <- claim_task_in_tx(repo, call_id, agent_uid, max_running_per_agent, opts),
-         :ok <- clear_task_event_defer_in_tx(repo, actor_event) do
+         :ok <- clear_task_event_defer_in_tx(repo, signal) do
       {:ok, result}
     end
   end
 
   @doc false
-  @spec defer_task_event(ActorEvent.t(), DateTime.t(), atom()) ::
-          {:ok, ActorEvent.t()} | {:error, term()}
-  def defer_task_event(%ActorEvent{} = actor_event, %DateTime{} = available_at, reason)
+  @spec defer_task_event(Signal.t(), DateTime.t(), atom()) ::
+          {:ok, Signal.t()} | {:error, term()}
+  def defer_task_event(%Signal{} = signal, %DateTime{} = available_at, reason)
       when is_atom(reason) do
     Repo.transact(fn repo ->
       with :ok <-
-             Actors.lock_actor_session_in_tx(
+             Queue.lock_session_in_tx(
                repo,
-               actor_event.agent_uid,
-               actor_event.session_id
+               signal.agent_uid,
+               signal.session_id
              ) do
-        case Actors.lock_actor_event_in_tx(repo, actor_event.id) do
-          %ActorEvent{completed_at: %DateTime{}} = completed_event ->
+        case Ankole.Signals.lock_signal_in_tx(repo, signal.id) do
+          %Signal{completed_at: %DateTime{}} = completed_event ->
             {:ok, completed_event}
 
-          %ActorEvent{} = open_event ->
+          %Signal{} = open_event ->
             with {:ok, deferred_event} <-
                    open_event
-                   |> ActorEvent.changeset(%{
+                   |> Signal.changeset(%{
                      available_at: available_at,
-                     payload: put_dispatch_defer_reason(open_event.payload, reason)
+                     data: put_dispatch_defer_reason(open_event.data, reason)
                    })
                    |> repo.update(),
                  :ok <-
-                   Ankole.Conversations.Jobs.EnsureDriver.enqueue_in_tx(
+                   Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
                      repo,
                      %{
                        agent_uid: deferred_event.agent_uid,
@@ -1373,7 +1371,7 @@ defmodule Ankole.Workflow do
 
   defp prepare_new_calls(run, new_calls) do
     with true <-
-           is_binary(Map.get(run.reply_route || %{}, "binding_name")) ||
+           valid_reply_route?(run.reply_route || %{}) ||
              {:error, :workflow_reply_route_binding_missing} do
       Enum.reduce_while(new_calls, {:ok, [], run.memo_bytes}, fn new_call,
                                                                  {:ok, changesets, bytes} ->
@@ -1407,6 +1405,11 @@ defmodule Ankole.Workflow do
     end
   end
 
+  defp valid_reply_route?(route),
+    do:
+      is_binary(route["binding_name"]) or
+        match?({:ok, _}, Ecto.UUID.cast(route["conversation_id"]))
+
   defp insert_and_dispatch_calls(repo, run, call_changesets, inserted_at) do
     Enum.reduce_while(call_changesets, {:ok, [], []}, fn changeset, {:ok, calls, events} ->
       with {:ok, call} <- repo.insert(changeset),
@@ -1427,40 +1430,36 @@ defmodule Ankole.Workflow do
     reply_route = run.reply_route || %{}
     arguments = call.arguments
 
-    with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
-      SignalsGateway.append_actor_event_in_tx(repo, %{
-        source_work: run,
-        agent_uid: run.agent_uid,
+    binding_name = Map.get(reply_route, "binding_name")
+
+    Ankole.Signals.accept_in_tx(repo, %{
+      producer: :kernel,
+      source: "control-plane://workflow",
+      id: source_event_id,
+      type: "workflow.task.dispatch",
+      subject: "workflow-call:#{call.id}",
+      time: DateTime.to_iso8601(inserted_at),
+      available_at: inserted_at,
+      target: %{agent_uid: run.agent_uid, session_id: task_session_id(call.id)},
+      sender: nil,
+      authorization: Ankole.Principals.WorkAccess.fields(run),
+      reply_route: %{
         binding_name: binding_name,
-        session_id: task_session_id(call.id),
-        source_event_id: source_event_id,
-        # Workflow tasks own an independent conversation. They have no Signal
-        # channel origin even when the owner run came from one.
-        signal_channel_id: nil,
-        type: "workflow.task.dispatch",
-        available_at: inserted_at,
-        payload: %{
-          "specversion" => "1.0",
-          "id" => source_event_id,
-          "source" => "control-plane://workflow",
-          "subject" => "workflow-call:#{call.id}",
-          "time" => DateTime.to_iso8601(inserted_at),
-          "type" => "workflow.task.dispatch",
-          "data" => %{
-            "run_id" => run.id,
-            "call_id" => call.id,
-            "call_seq" => call.call_seq,
-            "prompt" => Map.fetch!(arguments, "prompt"),
-            "label" => call.label,
-            "model_profile" => call.model_profile || run.model_profile,
-            "schema" => Map.get(arguments, "schema", %{"type" => "string"}),
-            "attempts" => call.attempts
-          }
-        }
-      })
-    else
-      nil -> {:error, :workflow_reply_route_binding_missing}
-    end
+        conversation_id: nil,
+        provider_thread_id: nil,
+        provider_message_id: nil
+      },
+      data: %{
+        "run_id" => run.id,
+        "call_id" => call.id,
+        "call_seq" => call.call_seq,
+        "prompt" => Map.fetch!(arguments, "prompt"),
+        "label" => call.label,
+        "model_profile" => call.model_profile || run.model_profile,
+        "schema" => Map.get(arguments, "schema", %{"type" => "string"}),
+        "attempts" => call.attempts
+      }
+    })
   end
 
   defp fail_pending_commit(repo, run, reason) do
@@ -1535,23 +1534,21 @@ defmodule Ankole.Workflow do
     source_event_id = "workflow:#{run.id}:#{status}"
     reply_route = run.reply_route || %{}
 
-    with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
-      SignalsGateway.append_actor_event_in_tx(repo, %{
-        source_work: run,
-        agent_uid: run.agent_uid,
-        binding_name: binding_name,
-        session_id: run.owner_session_id,
-        source_event_id: source_event_id,
-        signal_channel_id: Map.get(reply_route, "signal_channel_id"),
-        provider_thread_id: Map.get(reply_route, "provider_thread_id"),
-        source_entry_id: Map.get(reply_route, "source_entry_id"),
-        type: event_type,
-        available_at: completed_at,
-        payload: wakeup_payload(run, source_event_id, event_type, completed_at, repo)
-      })
-    else
-      nil -> {:error, :workflow_reply_route_binding_missing}
-    end
+    payload = wakeup_payload(run, source_event_id, event_type, completed_at, repo)
+
+    Ankole.Signals.accept_in_tx(repo, %{
+      producer: :kernel,
+      source: payload["source"],
+      id: source_event_id,
+      type: event_type,
+      subject: payload["subject"],
+      time: completed_at,
+      data: payload["data"],
+      target: %{agent_uid: run.agent_uid, session_id: run.owner_session_id},
+      sender: nil,
+      authorization: Ankole.Principals.WorkAccess.fields(run),
+      reply_route: reply_route
+    })
   end
 
   defp append_wakeup_event(_repo, %Run{}, _completed_at), do: {:ok, nil}
@@ -1630,36 +1627,34 @@ defmodule Ankole.Workflow do
     source_event_id = "workflow:call:#{call.id}:wake:#{call.wake_count}"
     reply_route = run.reply_route || %{}
 
-    with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name") do
-      SignalsGateway.append_actor_event_in_tx(repo, %{
-        source_work: run,
-        agent_uid: run.agent_uid,
+    binding_name = Map.get(reply_route, "binding_name")
+
+    Ankole.Signals.accept_in_tx(repo, %{
+      producer: :kernel,
+      source: "control-plane://workflow",
+      id: source_event_id,
+      type: "workflow.task.wakeup",
+      subject: "workflow-call:#{call.id}",
+      time: DateTime.to_iso8601(now),
+      available_at: call.sleeping_until,
+      target: %{agent_uid: run.agent_uid, session_id: task_session_id(call.id)},
+      sender: nil,
+      authorization: Ankole.Principals.WorkAccess.fields(run),
+      reply_route: %{
         binding_name: binding_name,
-        session_id: task_session_id(call.id),
-        source_event_id: source_event_id,
-        signal_channel_id: nil,
-        type: "workflow.task.wakeup",
-        available_at: call.sleeping_until,
-        payload: %{
-          "specversion" => "1.0",
-          "id" => source_event_id,
-          "source" => "control-plane://workflow",
-          "subject" => "workflow-call:#{call.id}",
-          "time" => DateTime.to_iso8601(now),
-          "type" => "workflow.task.wakeup",
-          "data" => %{
-            "run_id" => run.id,
-            "call_id" => call.id,
-            "call_seq" => call.call_seq,
-            "note" => call.sleep_note,
-            "wake_count" => call.wake_count,
-            "sleeping_until" => DateTime.to_iso8601(call.sleeping_until)
-          }
-        }
-      })
-    else
-      nil -> {:error, :workflow_reply_route_binding_missing}
-    end
+        conversation_id: nil,
+        provider_thread_id: nil,
+        provider_message_id: nil
+      },
+      data: %{
+        "run_id" => run.id,
+        "call_id" => call.id,
+        "call_seq" => call.call_seq,
+        "note" => call.sleep_note,
+        "wake_count" => call.wake_count,
+        "sleeping_until" => DateTime.to_iso8601(call.sleeping_until)
+      }
+    })
   end
 
   # One attention event per run per hour bucket: the idempotent source id makes
@@ -1672,37 +1667,35 @@ defmodule Ankole.Workflow do
     source_event_id = "workflow:#{run.id}:attention:#{bucket}"
     reply_route = run.reply_route || %{}
 
-    with binding_name when is_binary(binding_name) <- Map.get(reply_route, "binding_name"),
-         {:ok, event} <-
-           SignalsGateway.append_actor_event_in_tx(repo, %{
-             source_work: run,
-             agent_uid: run.agent_uid,
-             binding_name: binding_name,
-             session_id: run.owner_session_id,
-             source_event_id: source_event_id,
-             signal_channel_id: Map.get(reply_route, "signal_channel_id"),
-             provider_thread_id: Map.get(reply_route, "provider_thread_id"),
-             source_entry_id: Map.get(reply_route, "source_entry_id"),
+    binding_name = Map.get(reply_route, "binding_name")
+
+    with {:ok, event} <-
+           Ankole.Signals.accept_in_tx(repo, %{
+             producer: :kernel,
+             source: "control-plane://workflow",
+             id: source_event_id,
              type: "workflow.run.attention",
+             subject: "workflow:#{run.id}",
+             time: DateTime.to_iso8601(now),
              available_at: now,
-             payload: %{
-               "specversion" => "1.0",
-               "id" => source_event_id,
-               "source" => "control-plane://workflow",
-               "subject" => "workflow:#{run.id}",
-               "time" => DateTime.to_iso8601(now),
-               "type" => "workflow.run.attention",
-               "data" => %{
-                 "run_id" => run.id,
-                 "title" => run.title,
-                 "call_seq" => call.call_seq,
-                 "attention_note" => call.sleep_note
-               }
+             target: %{agent_uid: run.agent_uid, session_id: run.owner_session_id},
+             sender: nil,
+             authorization: Ankole.Principals.WorkAccess.fields(run),
+             reply_route: %{
+               binding_name: binding_name,
+               conversation_id: Map.get(reply_route, "conversation_id"),
+               provider_thread_id: Map.get(reply_route, "provider_thread_id"),
+               provider_message_id: Map.get(reply_route, "provider_message_id")
+             },
+             data: %{
+               "run_id" => run.id,
+               "title" => run.title,
+               "call_seq" => call.call_seq,
+               "attention_note" => call.sleep_note
              }
            }) do
       {:ok, event}
     else
-      nil -> {:error, :workflow_reply_route_binding_missing}
       {:error, _reason} = error -> error
     end
   end
@@ -1877,7 +1870,7 @@ defmodule Ankole.Workflow do
   end
 
   defp notify_task_ready(repo, call, available_at) do
-    Ankole.Conversations.Jobs.EnsureDriver.enqueue_in_tx(
+    Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
       repo,
       %{agent_uid: call.agent_uid, session_id: task_session_id(call.id)},
       available_at
@@ -1893,7 +1886,7 @@ defmodule Ankole.Workflow do
   defp wake_next_capacity_deferred_task(repo, run, now) do
     candidate =
       AgentCall
-      |> join(:inner, [call], event in ActorEvent,
+      |> join(:inner, [call], event in Signal,
         on:
           event.agent_uid == call.agent_uid and
             fragment(
@@ -1908,8 +1901,8 @@ defmodule Ankole.Workflow do
           event.type == "workflow.task.dispatch" and event.input_state == "open" and
           is_nil(event.completed_at) and event.available_at > ^now and
           fragment(
-            "?->'data'->>? = ?",
-            event.payload,
+            "?->>? = ?",
+            event.data,
             ^@defer_reason_key,
             ^@capacity_defer_reason
           )
@@ -1925,10 +1918,10 @@ defmodule Ankole.Workflow do
 
     case candidate do
       %{agent_uid: agent_uid, session_id: session_id, event_id: event_id} ->
-        :ok = Actors.lock_actor_session_in_tx(repo, agent_uid, session_id)
+        :ok = Queue.lock_session_in_tx(repo, agent_uid, session_id)
 
-        case Actors.lock_actor_event_in_tx(repo, event_id) do
-          %ActorEvent{} = event -> wake_capacity_deferred_event(repo, event, now)
+        case Ankole.Signals.lock_signal_in_tx(repo, event_id) do
+          %Signal{} = event -> wake_capacity_deferred_event(repo, event, now)
           nil -> :ok
         end
 
@@ -1939,27 +1932,27 @@ defmodule Ankole.Workflow do
 
   defp wake_capacity_deferred_event(
          repo,
-         %ActorEvent{
+         %Signal{
            type: "workflow.task.dispatch",
            input_state: "open",
            completed_at: nil,
            available_at: available_at,
-           payload: payload
+           data: data
          } = event,
          now
        ) do
-    deferred_reason = get_in(payload, ["data", @defer_reason_key])
+    deferred_reason = data[@defer_reason_key]
 
     if deferred_reason == @capacity_defer_reason and DateTime.after?(available_at, now) do
       with {:ok, event} <-
              event
-             |> ActorEvent.changeset(%{
+             |> Signal.changeset(%{
                available_at: now,
-               payload: clear_dispatch_defer_reason(payload)
+               data: clear_dispatch_defer_reason(data)
              })
              |> repo.update(),
            :ok <-
-             Ankole.Conversations.Jobs.EnsureDriver.enqueue_in_tx(
+             Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
                repo,
                %{agent_uid: event.agent_uid, session_id: event.session_id},
                now
@@ -1971,42 +1964,35 @@ defmodule Ankole.Workflow do
     end
   end
 
-  defp wake_capacity_deferred_event(_repo, %ActorEvent{}, _now), do: :ok
+  defp wake_capacity_deferred_event(_repo, %Signal{}, _now), do: :ok
 
-  defp clear_dispatch_defer_reason(%{"data" => data} = payload) when is_map(data) do
-    %{payload | "data" => Map.delete(data, @defer_reason_key)}
-  end
+  defp clear_dispatch_defer_reason(data), do: Map.delete(data, @defer_reason_key)
 
-  defp clear_dispatch_defer_reason(payload), do: payload
+  defp put_dispatch_defer_reason(data, reason),
+    do: Map.put(data, @defer_reason_key, Atom.to_string(reason))
 
-  defp put_dispatch_defer_reason(%{"data" => data} = payload, reason) when is_map(data) do
-    %{payload | "data" => Map.put(data, @defer_reason_key, Atom.to_string(reason))}
-  end
-
-  defp put_dispatch_defer_reason(payload, _reason), do: payload
-
-  defp clear_task_event_defer_in_tx(repo, %ActorEvent{} = actor_event) do
+  defp clear_task_event_defer_in_tx(repo, %Signal{} = signal) do
     :ok =
-      Actors.lock_actor_session_in_tx(
+      Queue.lock_session_in_tx(
         repo,
-        actor_event.agent_uid,
-        actor_event.session_id
+        signal.agent_uid,
+        signal.session_id
       )
 
-    case Actors.lock_actor_event_in_tx(repo, actor_event.id) do
-      %ActorEvent{input_state: "open", completed_at: nil} = event ->
-        payload = clear_dispatch_defer_reason(event.payload)
+    case Ankole.Signals.lock_signal_in_tx(repo, signal.id) do
+      %Signal{input_state: "open", completed_at: nil} = event ->
+        payload = clear_dispatch_defer_reason(event.data)
 
-        if payload == event.payload do
+        if payload == event.data do
           :ok
         else
-          case event |> ActorEvent.changeset(%{payload: payload}) |> repo.update() do
+          case event |> Signal.changeset(%{data: payload}) |> repo.update() do
             {:ok, _event} -> :ok
             {:error, _changeset} = error -> error
           end
         end
 
-      %ActorEvent{} ->
+      %Signal{} ->
         {:error, :workflow_task_event_not_open}
 
       nil ->

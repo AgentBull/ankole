@@ -1,7 +1,8 @@
 defmodule Ankole.IdentityProviders.DirectoryAccessTest do
   use Ankole.DataCase, async: false
   alias Ankole.{Principals, Repo}
-  alias Ankole.IdentityProviders.{DirectoryAccess, DirectoryEvent}
+  alias Ankole.IdentityProviders.DirectoryAccess
+  alias Ankole.IdentityProviders.DirectoryEvent
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Principals.HumanAccess
 

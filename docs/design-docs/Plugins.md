@@ -98,7 +98,7 @@ requested action. If there is no material investigation gap, answer directly.
 
 The public `github` package owns GitHub repository webhook setup,
 reconciliation, redelivery, and removal in its `github-webhooks` Skill.
-SignalsGateway supplies only the callback capability. It does not contain a
+Signals supplies only the callback capability. It does not contain a
 GitHub adapter or store a copy of GitHub hook state.
 
 ### Decide Which Capabilities an Agent Can Use
@@ -296,6 +296,40 @@ Callback declarations use atom keys.
 
 Control Plane Plugins do not control Agent capabilities. A control-plane
 adapter and a related Agent Plugin can have different enabled states.
+
+### Declare a Message Adapter
+
+`Ankole.Plugins.Plugin.adapter_declarations/0` returns atom-keyed declarations.
+Each messaging adapter declares `contract_id: "signals.adapter"`, a unique
+adapter ID, catalog fields, and an `adapter_category`. `Ankole.Signals.Adapters`
+validates the declaration from the active Plugin snapshot. The catalog category
+groups enterprise IM, consumer IM, and Email; it does not grant authority.
+
+`observe_module` converts provider events and calls `Ankole.Conversations.Observe`.
+It provides `chat_consumer/2` and the callbacks for its declared inbound
+capabilities. Observation records a shared Conversation, public Message, and
+`ExternalMessageRef`; work then enters the sole `Ankole.Signals.accept_in_tx/2`
+intake. The adapter supplies `provider_conversation_id` and
+`provider_message_id`. Public `conversation_id` and `message_id` are UUIDs
+assigned by Conversations.
+
+`deliver_module` implements the `Ankole.Conversations.Delivery.Adapter`
+behaviour through `deliver/1`. It receives one persisted provider intent.
+`outbound_reconciliation` also requires `reconcile/1`.
+`reply_preview_module` implements the optional provider preview contract.
+Delivery owns attempts and provider confirmation; provider adapters do not
+create public Agent Messages before the provider confirms a send.
+
+An HTTP provider adapter declares `signals.webhook_handler`. Its handler
+verifies the provider protocol and commits observation before it acknowledges
+the request. Long connections use `Ankole.Plugins.ConnectionLifecycle`.
+
+The built-in CloudEvents source needs no message-provider Plugin. It reuses
+Signals Bindings and callback Endpoints to select an explicit Agent Session.
+It does not declare a delivery module or IM sender policy. See
+[Signals](Signals.md) for intake, filters, capabilities, and Endpoint security;
+see [Conversations](Conversations.md) for shared history and Delivery, and
+[Sessions](Sessions.md) for execution and recovery.
 
 ## Rules
 

@@ -6,7 +6,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Observability
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
 
   defmodule Exporter do
     @moduledoc false
@@ -88,7 +88,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
         "principal-1",
         %{
           "input" => [%{"role" => "user", "content" => "hello"}],
-          "metadata" => %{"actor_event_id" => "event-1"}
+          "metadata" => %{"signal_id" => "event-1"}
         },
         stateful: %{conversation_id: "conversation-1"}
       )
@@ -183,29 +183,29 @@ defmodule Ankole.AIGateway.ObservabilityTest do
   test "one turn root parents AIGateway responses and carries sanitized trace input and output" do
     enable_export(self(), "langfuse")
 
-    actor_event = %ActorEvent{
+    signal = %Signal{
       id: "01915f9d-5f00-7000-8000-000000000001",
       agent_uid: "agent-turn",
       session_id: "job:1000",
       type: "background_agent_job.dispatch",
-      payload: %{"data" => %{"task" => "investigate", "api_key" => "must-not-leave"}}
+      data: %{"task" => "investigate", "api_key" => "must-not-leave"}
     }
 
     %{traceparent: traceparent, user_id: nil} =
       turn =
-      Observability.start_turn(actor_event, %{
+      Observability.start_turn(canonical_trace_signal(signal), %{
         request_context: %{"job_id" => 1000, "attempts" => 2}
       })
 
     observation =
       AIGatewayObservability.start_response(
-        actor_event.agent_uid,
+        signal.agent_uid,
         %{"input" => "hello"},
         request_context: %{
           "headers" => %{"traceparent" => traceparent},
           "observability_user_id" => nil
         },
-        stateful: %{conversation_id: actor_event.session_id},
+        stateful: %{conversation_id: signal.session_id},
         subject_type: "agent"
       )
 
@@ -242,8 +242,8 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     Enum.each([root, generation], fn span ->
       refute Map.has_key?(span.attributes, "user.id")
-      assert span.attributes["session.id"] == actor_event.session_id
-      assert span.attributes["ankole.principal.uid"] == actor_event.agent_uid
+      assert span.attributes["session.id"] == signal.session_id
+      assert span.attributes["ankole.principal.uid"] == signal.agent_uid
       assert span.attributes["ankole.principal.type"] == "agent"
     end)
 
@@ -358,81 +358,81 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     enable_export(self(), "langfuse")
 
     cases = [
-      {%ActorEvent{
+      {%Signal{
          id: "01915f9d-5f00-7000-8000-000000000011",
          agent_uid: "agent-dm",
          session_id: "session-dm",
-         type: "im.message.addressed",
+         type: "conversation.message.addressed",
          source_event_id: "source-dm",
-         signal_channel_id: "mock:chat:dm",
-         payload: %{"data" => %{"channel" => %{"kind" => "im_dm"}}}
+         conversation_id: "mock:chat:dm",
+         data: %{"channel" => %{"kind" => "im_dm"}}
        }, "human-dm", "principal:human-dm"},
-      {%ActorEvent{
+      {%Signal{
          id: "01915f9d-5f00-7000-8000-000000000012",
          agent_uid: "agent-group",
          session_id: "session-group",
-         type: "im.message.addressed",
+         type: "conversation.message.addressed",
          source_event_id: "source-group",
-         signal_channel_id: "mock:chat:group",
-         payload: %{"data" => %{"channel" => %{"kind" => "im_group"}}}
+         conversation_id: "mock:chat:group",
+         data: %{"channel" => %{"kind" => "im_group"}}
        }, "human-group", "channel:mock:chat:group"},
-      {%ActorEvent{
+      {%Signal{
          id: "01915f9d-5f00-7000-8000-000000000013",
          agent_uid: "agent-action",
          session_id: "session-action",
          type: "signal.action.invoked",
          source_event_id: "source-action",
-         signal_channel_id: "mock:chat:action",
-         payload: %{"data" => %{"channel" => %{"kind" => "im_dm"}}}
+         conversation_id: "mock:chat:action",
+         data: %{"channel" => %{"kind" => "im_dm"}}
        }, "human-action", "channel:mock:chat:action"},
-      {%ActorEvent{
+      {%Signal{
          id: "01915f9d-5f00-7000-8000-000000000014",
          agent_uid: "agent-retry",
          session_id: "session-retry",
-         type: "im.message.addressed",
+         type: "conversation.message.addressed",
          source_event_id: "retry:source-group",
-         signal_channel_id: "mock:chat:retry",
-         payload: %{"data" => %{"channel" => %{"kind" => "im_dm"}, "entry" => %{}}}
+         conversation_id: "mock:chat:retry",
+         data: %{"channel" => %{"kind" => "im_dm"}, "entry" => %{}}
        }, "human-retry", "channel:mock:chat:retry"},
-      {%ActorEvent{
+      {%Signal{
          id: "01915f9d-5f00-7000-8000-000000000015",
          agent_uid: "agent-no-channel",
          session_id: "session-no-channel",
          type: "command.new",
          source_event_id: "source-no-channel",
-         signal_channel_id: nil,
-         payload: %{"data" => %{}}
+         conversation_id: nil,
+         data: %{}
        }, "human-no-channel", "principal:human-no-channel"},
-      {%ActorEvent{
+      {%Signal{
          id: "01915f9d-5f00-7000-8000-000000000016",
          agent_uid: "agent-scheduled",
          session_id: "session-scheduled",
          type: "cron.fire",
          source_event_id: "source-scheduled",
-         signal_channel_id: "mock:chat:scheduled",
-         payload: %{"data" => %{}}
+         conversation_id: "mock:chat:scheduled",
+         data: %{}
        }, nil, "channel:mock:chat:scheduled"}
     ]
 
-    Enum.each(cases, fn {actor_event, human_uid, expected_user_id} ->
-      assert_turn_identity(actor_event, human_uid, expected_user_id)
+    Enum.each(cases, fn {signal, human_uid, expected_user_id} ->
+      assert_turn_identity(signal, human_uid, expected_user_id)
     end)
   end
 
   test "a silent turn records its terminal outcome as observable output" do
     enable_export(self(), "langfuse")
 
-    actor_event = %ActorEvent{
+    signal = %Signal{
       id: "01915f9d-5f00-7000-8000-000000000017",
       agent_uid: "agent-silent",
       session_id: "cron:silent",
       type: "cron.fire",
-      payload: %{"data" => %{"task" => "check quietly"}}
+      data: %{"task" => "check quietly"}
     }
 
     assert %{traceparent: traceparent, user_id: nil} =
              turn =
-             Observability.start_turn(actor_event, %{request_context: %{}})
+             Observability.start_turn(canonical_trace_signal(signal), %{request_context: %{}})
 
     assert is_binary(traceparent)
 
@@ -998,7 +998,16 @@ defmodule Ankole.AIGateway.ObservabilityTest do
            end)
   end
 
-  defp assert_turn_identity(actor_event, human_uid, expected_user_id) do
+  defp canonical_trace_signal(signal) do
+    %{
+      signal
+      | source: "test://trace",
+        source_event_id: signal.source_event_id || signal.id,
+        occurred_at: DateTime.utc_now(:microsecond)
+    }
+  end
+
+  defp assert_turn_identity(signal, human_uid, expected_user_id) do
     runtime_env =
       if is_binary(human_uid) do
         %{"ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL" => human_uid}
@@ -1008,20 +1017,20 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     %{traceparent: traceparent, user_id: ^expected_user_id} =
       turn =
-      Observability.start_turn(actor_event, %{
+      Observability.start_turn(canonical_trace_signal(signal), %{
         request_context: %{},
         runtime_env: runtime_env
       })
 
     observation =
       AIGatewayObservability.start_response(
-        actor_event.agent_uid,
+        signal.agent_uid,
         %{"input" => "hello"},
         request_context: %{
           "traceparent" => traceparent,
           "observability_user_id" => expected_user_id
         },
-        stateful: %{conversation_id: actor_event.session_id},
+        stateful: %{conversation_id: signal.session_id},
         subject_type: "agent"
       )
 
@@ -1051,7 +1060,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     assert :ok = Observability.finish_turn(turn)
 
     spans = exported_spans()
-    root = span!(spans, "turn #{actor_event.type}")
+    root = span!(spans, "turn #{signal.type}")
     generation = span!(spans, "chat gpt-trigger-identity")
 
     assert generation.trace_id == root.trace_id
@@ -1060,8 +1069,8 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     Enum.each([root, generation], fn span ->
       assert span.attributes["user.id"] == expected_user_id
-      assert span.attributes["session.id"] == actor_event.session_id
-      assert span.attributes["ankole.principal.uid"] == actor_event.agent_uid
+      assert span.attributes["session.id"] == signal.session_id
+      assert span.attributes["ankole.principal.uid"] == signal.agent_uid
       assert span.attributes["ankole.principal.type"] == "agent"
     end)
   end

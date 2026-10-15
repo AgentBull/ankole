@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.SlackAdapterMentionRoutingTest do
   use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.SlackAdapter.Inbound
-  alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.Conversations.AdapterContext
   alias SlackOpenAPI.Event
 
   test "group mention routing is fail-closed without a configured bot identity" do

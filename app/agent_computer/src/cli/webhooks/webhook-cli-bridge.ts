@@ -12,8 +12,6 @@ import {
 import { WebhookCLICommand } from './webhook-cli-protocol'
 
 /**
- * Starts the turn-local bridge used by the shell webhook CLIs.
- *
  * The bridge binds every request to the current turn before it uses the
  * existing RuntimeFabric requester, so the CLI never receives the worker auth
  * key or fabric endpoint.

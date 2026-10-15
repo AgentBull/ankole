@@ -14,8 +14,7 @@ defmodule Ankole.AutomationJobs do
   alias Ankole.AutomationJobs.Schemas.Run
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorRuntime.ReplyRoute
+  alias Ankole.Conversations.Route
   alias Ankole.Text
 
   @log_max_bytes 65_536
@@ -25,7 +24,7 @@ defmodule Ankole.AutomationJobs do
   @type enqueue_result :: %{
           required(:status) => :queued | :failed,
           required(:automation_job_run) => Run.t(),
-          optional(:actor_event) => Ankole.SignalsGateway.ActorEvent.t() | nil
+          optional(:signal) => Ankole.Signals.Signal.t() | nil
         }
 
   @doc """
@@ -342,7 +341,7 @@ defmodule Ankole.AutomationJobs do
           Ecto.UUID.t(),
           term(),
           keyword()
-        ) :: {:ok, Ankole.SignalsGateway.ActorEvent.t()} | {:error, term()}
+        ) :: {:ok, Ankole.Signals.Signal.t()} | {:error, term()}
   def emit_event(agent_uid, run_id, attempt_id, payload, opts \\ [])
 
   def emit_event(agent_uid, run_id, attempt_id, payload, opts)
@@ -355,20 +354,19 @@ defmodule Ankole.AutomationJobs do
            true <- active_attempt?(run, attempt_id),
            true <- job.agent_uid == String.downcase(agent_uid),
            {:ok, payload} <- normalize_emitted_payload(payload),
-           {:ok, actor_event} <-
+           {:ok, signal} <-
              append_owner_event(repo, job, "automation_job.emitted", now, %{
                "automation_job" => %{"id" => job.id, "label" => job.label},
                "automation_job_run_id" => run.id,
                "payload" => payload
              }) do
-        {:ok, actor_event}
+        {:ok, signal}
       else
         nil -> {:error, :automation_job_run_not_found}
         false -> {:error, :automation_job_attempt_not_active}
         {:error, _reason} = error -> error
       end
     end)
-    |> Ankole.Conversations.deliver_committed(&[&1])
   end
 
   def emit_event(_agent_uid, _run_id, _attempt_id, _payload, _opts),
@@ -421,8 +419,8 @@ defmodule Ankole.AutomationJobs do
         "id" => job.id,
         "agent_uid" => job.agent_uid,
         "owner_session_id" => job.owner_session_id,
-        "source_actor_event_id" => job.source_actor_event_id,
-        "source_entry_id" => job.source_entry_id,
+        "source_signal_id" => job.source_signal_id,
+        "provider_message_id" => job.provider_message_id,
         "source_provenance" => job.source_provenance || %{},
         "reply_route" => job.reply_route || %{},
         "drive_prefix" => job.drive_prefix,
@@ -477,7 +475,7 @@ defmodule Ankole.AutomationJobs do
            })
            |> repo.insert(),
          {:ok, {run, event}} <- maybe_append_failure_event(repo, job, run, now) do
-      {:ok, %{status: :failed, automation_job_run: run, actor_event: event}}
+      {:ok, %{status: :failed, automation_job_run: run, signal: event}}
     end
   end
 
@@ -582,8 +580,7 @@ defmodule Ankole.AutomationJobs do
     end
   end
 
-  defp deliver_failure({:ok, {value, event}}) do
-    Ankole.Conversations.deliver_events([event])
+  defp deliver_failure({:ok, {value, _event}}) do
     {:ok, value}
   end
 
@@ -593,30 +590,27 @@ defmodule Ankole.AutomationJobs do
     source_event_id =
       "automation-job:#{job.id}:run:#{data["automation_job_run_id"]}:#{type}:#{Ecto.UUID.generate()}"
 
-    with {:ok, owner} <- ReplyRoute.long_lived_owner(job.agent_uid, job.owner_session_id) do
+    with {:ok, owner} <- Route.long_lived_owner(job.agent_uid, job.owner_session_id) do
       route = owner.reply_route || job.reply_route
 
-      SignalsGateway.append_actor_event_in_tx(repo, %{
-        source_work: job,
-        agent_uid: job.agent_uid,
-        binding_name: route_text(route, "binding_name"),
-        session_id: owner.session_id,
-        source_event_id: source_event_id,
-        signal_channel_id: route_text(route, "signal_channel_id"),
-        provider_thread_id: route_text(route, "provider_thread_id"),
-        source_entry_id: route_text(route, "source_entry_id") || job.source_entry_id,
+      Ankole.Signals.accept_in_tx(repo, %{
+        producer: :kernel,
+        source: "control-plane://automation-jobs/#{job.id}",
+        id: source_event_id,
         type: type,
+        subject: "automation_job_run:#{data["automation_job_run_id"]}",
+        time: DateTime.to_iso8601(now),
         available_at: now,
-        sender_key: nil,
-        payload: %{
-          "specversion" => "1.0",
-          "id" => source_event_id,
-          "source" => "control-plane://automation-jobs/#{job.id}",
-          "subject" => "automation_job_run:#{data["automation_job_run_id"]}",
-          "time" => DateTime.to_iso8601(now),
-          "type" => type,
-          "data" => data
-        }
+        target: %{agent_uid: job.agent_uid, session_id: owner.session_id},
+        sender: nil,
+        authorization: Ankole.Principals.WorkAccess.fields(job),
+        reply_route: %{
+          binding_name: route_text(route, "binding_name"),
+          conversation_id: route_text(route, "conversation_id"),
+          provider_thread_id: route_text(route, "provider_thread_id"),
+          provider_message_id: route_text(route, "provider_message_id") || job.provider_message_id
+        },
+        data: data
       })
     end
   end

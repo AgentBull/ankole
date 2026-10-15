@@ -8,11 +8,12 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
 
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.E2E.{DockerWorker, FakeOpenAIState}
+  alias Ankole.E2E.DockerWorker
+  alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.Signals.Signal
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.AgentWorker
 
   def reconnect(max_slots) do
     cleanup_committed_fixtures_on_exit!()
@@ -24,14 +25,14 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
       put_in(provider.settings, ["env", "ANKOLE_MAX_CONCURRENT_SLOTS"], to_string(max_slots))
 
     assert {:ok, _} = Providers.update(provider_id, %{config: Ankole.JSON.encode!(config)})
-    ctx = Map.merge(ctx, start_worker!([ctx.agent.uid]))
+    ctx = Map.merge(ctx, start_worker!([ctx.agent.uid], server_port: ctx.server_port))
     uid = ctx.agent.uid
     {:ok, profile} = ModelProfiles.get_model_profile(uid, "primary")
     assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
 
     input = send!(ctx, "reconnect", "CHAOS_JOB_CREATE_RECONNECT")
     assert {:ok, _, _} = wait_for_completed_final_reply(ctx.container, input.id, deadline(60_000))
-    job = Repo.one!(from j in Job, where: j.source_actor_event_id == ^input.id)
+    job = Repo.one!(from j in Job, where: j.source_signal_id == ^input.id)
     event = dispatch!(job)
     workspace = "/workspace/jobs/#{job.id}"
 
@@ -54,13 +55,13 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
       DockerWorker.exec!(ctx.container, ["cat", "#{workspace}/old-command.pid"]) |> String.trim()
 
     driver =
-      Ankole.Conversations.Driver.whereis(%{
+      Ankole.Sessions.Driver.whereis(%{
         agent_uid: uid,
         session_id: Ankole.BackgroundAgentJobs.job_session_id(job.id)
       })
 
     assert is_pid(driver)
-    assert :ok = DynamicSupervisor.terminate_child(Ankole.Conversations.Drivers, driver)
+    assert :ok = DynamicSupervisor.terminate_child(Ankole.Sessions.Drivers, driver)
     restart_control_plane_http_server!(ctx.server_port)
 
     assert {:ok, rejoined} =
@@ -73,7 +74,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
 
     assert rejoined.generation == before.generation
     assert rejoined.incarnation_id == before.incarnation_id
-    retry_until_sent!(Repo.get!(ActorEvent, event.id), DateTime.utc_now(:microsecond))
+    retry_until_sent!(Repo.get!(Signal, event.id), DateTime.utc_now(:microsecond))
 
     assert DockerWorker.exec!(ctx.container, [
              "sh",
@@ -114,10 +115,10 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
              wait_for_completed_final_reply(ctx.container, start.id, deadline(60_000))
 
     assert [created] =
-             tool_results(ai_messages_for_actor_event(start.id), "create_background_job")
+             tool_results(ai_messages_for_signal(start.id), "create_background_job")
 
     refute tool_result_error?(created)
-    job = Repo.one!(from j in Job, where: j.source_actor_event_id == ^start.id)
+    job = Repo.one!(from j in Job, where: j.source_signal_id == ^start.id)
 
     dispatch!(job)
     waiting = wait_job!(job.id, "waiting_on_user")
@@ -129,7 +130,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
 
     notice =
       Repo.one!(
-        from e in ActorEvent,
+        from e in Signal,
           where: e.agent_uid == ^uid and e.type == "background_agent_job.waiting"
       )
 
@@ -160,7 +161,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
              wait_for_completed_final_reply(ctx.container, reply.id, deadline(90_000))
 
     assert [sent] =
-             tool_results(ai_messages_for_actor_event(reply.id), "send_message_to_background_job")
+             tool_results(ai_messages_for_signal(reply.id), "send_message_to_background_job")
 
     refute tool_result_error?(sent)
 
@@ -190,7 +191,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
                mentions: [lark_bot_mention()]
              )
 
-    event = actor_event_by_source_entry_id!(ctx.agent.uid, message_id)
+    event = signal_by_provider_message_id!(ctx.agent.uid, message_id)
     retry_until_sent!(event, DateTime.add(event.available_at, 1, :second))
     event
   end
@@ -199,7 +200,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
     assert {:ok, event} =
              wait_until(deadline(15_000), fn ->
                Repo.one(
-                 from e in ActorEvent,
+                 from e in Signal,
                    where:
                      e.agent_uid == ^job.agent_uid and
                        e.session_id == ^Ankole.BackgroundAgentJobs.job_session_id(job.id) and

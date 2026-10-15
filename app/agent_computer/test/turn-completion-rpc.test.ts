@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'bun:test'
-import type { JobTurnRef } from '../src/lanes/actor_lane'
+import type { JobTurnRef } from '../src/lanes/session_lane'
 import { RPCRejectedError, RPCTimeoutError } from '../src/lanes/rpc_lane'
 import { abortTurnWithAck } from '../src/worker/turn_completion'
 
 const turn: JobTurnRef = {
-  actor: { session_id: 'job:1000' },
+  session: { session_id: 'job:1000' },
   job_id: 1000,
   attempt: 1,
-  actor_event_id: 'event-1'
+  signal_id: 'event-1'
 }
 const failure = { code: 'worker_turn_failed', message: 'worker failed', details: { retryable: true } }
 
@@ -17,7 +17,7 @@ describe('Job abort acknowledgement', () => {
     const rpcClient = {
       request: async () => {
         attempts += 1
-        if (attempts === 1) throw new RPCTimeoutError('actor_turn.abort')
+        if (attempts === 1) throw new RPCTimeoutError('session_turn.abort')
         return {
           $typeName: 'ankole.runtime_fabric.v1.ActorTurnAbortResponse' as const,
           deadLettered: false,

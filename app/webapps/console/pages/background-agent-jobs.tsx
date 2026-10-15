@@ -67,7 +67,7 @@ import type {
 import { AgentFilter, type AgentScope, useAgentScope } from '../console-agent-scope'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, formatDuration, formatJSON, resourceID, truncate } from '../console-primitives'
-import { MarkdownBody } from '../markdown-body'
+import { MarkdownBody } from '../../common/markdown-body'
 import { DiscardConfirmDialog, StatusIndicator, useDialogDiscardGuard } from '../console-form'
 import { CursorPagination, ResourceSearch, ResultCount, useResourceSearchDraft } from '../console-list-page'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
@@ -1151,7 +1151,6 @@ function messageText(message: TrajectoryMessage): string {
     .trim()
 }
 
-/** Re-indents JSON payloads; passes non-JSON text through unchanged. */
 function prettyJSON(text: string): string {
   const trimmed = text.trim()
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return text

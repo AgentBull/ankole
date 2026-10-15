@@ -132,8 +132,6 @@ defmodule Ankole.Brain.Merge do
     end)
   end
 
-  # Candidate scan
-
   defp alias_candidates do
     ObjectAlias
     |> join(:inner, [x], y in ObjectAlias,
@@ -216,8 +214,6 @@ defmodule Ankole.Brain.Merge do
              ))
     )
   end
-
-  # Merge execution
 
   defp required_canonical(attrs) do
     case attrs[:canonical_slug] do
@@ -449,8 +445,6 @@ defmodule Ankole.Brain.Merge do
       created_at: DateTime.utc_now(:microsecond)
     })
   end
-
-  # Bookkeeping
 
   defp canonical_principal_page?(slug) do
     case Scope.parse_principal_page_slug(slug) do

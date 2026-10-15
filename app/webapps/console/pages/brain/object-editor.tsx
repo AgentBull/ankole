@@ -30,7 +30,7 @@ import { requestErrorCode, requestErrorDetails } from '../../../common/request-e
 import { ErrorBlock } from '../../../common/error-block'
 import { EditorNotFound, LabeledField, ReadOnlyValue, ResourceEditorPage } from '../../console-form'
 import { BackLink, PageStack } from '../../console-page'
-import { MarkdownBody } from '../../markdown-body'
+import { MarkdownBody } from '../../../common/markdown-body'
 import {
   BrainObjectEditorModel,
   brainObjectSnapshot,

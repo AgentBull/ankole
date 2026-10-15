@@ -80,5 +80,5 @@ Worker はインストール済み Skill を実行キャッシュにダウンロ
 
 - library を設定するルートについては、[Console](../console-api/) ページを読んでください。
 - Agent 固有の作業指針については、[Skill 教訓](../skill-lessons/) をお読みください。
-- Turn 中に有効化された Skill を実行する worker については、[Actor Runtime](../actor-runtime/) ページを読んでください。
+- Turn 中に有効化された Skill を実行する worker については、[Sessions](../sessions/) ページを読んでください。
 - library がスコープされる Agent の Principal については、[Principal and AuthZ](../principal-authz/) を読んでください。

@@ -10,9 +10,13 @@ defmodule Ankole.Plugins.DingTalkAdapter.ConnectionReconciler do
     registry: Ankole.Plugins.DingTalkAdapter.ConnectionRegistry,
     supervisor: Ankole.Plugins.DingTalkAdapter.ConnectionDynamicSupervisor
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.Plugins.DingTalkAdapter.{Config, Dispatcher, IdentityProvider, Inbound}
-  alias Ankole.SignalsGateway.{AdapterContext, Binding}
+  alias Ankole.Signals.Bindings
+  alias Ankole.Plugins.DingTalkAdapter.Config
+  alias Ankole.Plugins.DingTalkAdapter.Dispatcher
+  alias Ankole.Plugins.DingTalkAdapter.IdentityProvider
+  alias Ankole.Plugins.DingTalkAdapter.Inbound
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.Binding
 
   @impl true
   def binding_spec(%Binding{} = binding, _opts) do

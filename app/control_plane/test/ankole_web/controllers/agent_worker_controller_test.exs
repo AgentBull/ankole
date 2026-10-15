@@ -6,7 +6,7 @@ defmodule AnkoleWeb.AgentWorkerControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway.ActorRuntimeCase
+  alias Ankole.SessionsCase
 
   setup do
     allow_cache_database_access()
@@ -23,7 +23,7 @@ defmodule AnkoleWeb.AgentWorkerControllerTest do
     %{principal: ready_agent} = agent_fixture()
     %{principal: idle_agent} = agent_fixture()
     route = "route-#{System.unique_integer([:positive])}"
-    {:ok, _worker} = ActorRuntimeCase.admit_worker(route, %{worker_id: ready_agent.uid})
+    {:ok, _worker} = SessionsCase.admit_worker(route, %{worker_id: ready_agent.uid})
 
     workers = console_conn(conn) |> get(~p"/api/v1/agent-workers") |> json_response(200)
     workers = workers["workers"]

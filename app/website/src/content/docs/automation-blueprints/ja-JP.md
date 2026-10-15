@@ -27,7 +27,7 @@ Automation job は、ワークフロー言語やステップグラフではあ�
 
 | コンシューマ | 使う場面 | トリガーの結果 |
 |---|---|---|
-| **Agent session** | 各 delivery に判断、memory、実行時に選ぶツール、またはユーザー向けの応答が必要な場合 | トリガーが ActorEvent を追加し、会話を起こします。 |
+| **Agent session** | 各 delivery に判断、memory、実行時に選ぶツール、またはユーザー向けの応答が必要な場合 | トリガーが Signal を追加し、会話を起こします。 |
 | **Automation job** | 処理が決定性のある fetch、比較、parse、または事前に決めたアクションである場合 | トリガーが永続的なスクリプト実行を作成します。スクリプトは静かに終了するか、owner session にイベントを発火できます。 |
 
 処理の形がはっきりしない間は、まず Agent を直接起こしてください。機械的であると証明できた部分だけを automation job に移します。こうすることでスクリプトは小さく保たれ、モデルがアイドル状態のポーリングループに入ることもありません。
@@ -50,7 +50,7 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules
     "idempotency_key": "daily-digest-1",
     "schedule": { "kind": "cron", "expression": "0 9 * * *" },
     "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
+    "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
     "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
   }'
 ```

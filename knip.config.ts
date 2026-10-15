@@ -49,6 +49,7 @@ const config: KnipConfig = {
         'console/**/*.{ts,tsx}!',
         'entrypoints/**/*.{ts,tsx}!',
         'setup/**/*.{ts,tsx}!',
+        'workplace/**/*.{ts,tsx}!',
         '*.ts!'
       ]
     },

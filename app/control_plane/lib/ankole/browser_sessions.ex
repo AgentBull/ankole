@@ -4,8 +4,10 @@ defmodule Ankole.BrowserSessions do
   """
 
   import Ecto.Query
-  alias Ankole.BrowserSessions.{LoginTransaction, Session}
-  alias Ankole.Principals.{HumanAccess, Principal}
+  alias Ankole.BrowserSessions.LoginTransaction
+  alias Ankole.BrowserSessions.Session
+  alias Ankole.Principals.HumanAccess
+  alias Ankole.Principals.Principal
   alias Ankole.Repo
 
   @session_ttl 24 * 60 * 60

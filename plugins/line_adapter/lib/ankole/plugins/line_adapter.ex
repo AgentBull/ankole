@@ -5,7 +5,7 @@ defmodule Ankole.Plugins.LineAdapter do
 
   alias Ankole.Plugins.LineAdapter.Config
   alias Ankole.Plugins.LineAdapter.Inbound
-  alias Ankole.Plugins.LineAdapter.Outbox
+  alias Ankole.Plugins.LineAdapter.Delivery
   alias Ankole.Plugins.LineAdapter.Profile
   alias Ankole.Plugins.LineAdapter.Webhook
 
@@ -31,12 +31,12 @@ defmodule Ankole.Plugins.LineAdapter do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "line",
         adapter_category: "consumer_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "LINE"},
-        config_key_pattern: "signals_gateway.line.bindings.<id>",
+        config_key_pattern: "signals.line.bindings.<id>",
         config_module: Config,
         application_bindings: :one,
         fields: [
@@ -81,8 +81,8 @@ defmodule Ankole.Plugins.LineAdapter do
           }
         ],
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
+        observe_module: Inbound,
+        deliver_module: Delivery,
         author_hydrator: Profile,
         inbound_capabilities: ["entry_receive", "entry_removed", "action_event"],
         outbound_capabilities: [
@@ -94,7 +94,7 @@ defmodule Ankole.Plugins.LineAdapter do
         ]
       },
       %{
-        contract_id: "signals_gateway.webhook_handler",
+        contract_id: "signals.webhook_handler",
         id: "line",
         plugin_id: plugin_id(),
         module: Webhook,

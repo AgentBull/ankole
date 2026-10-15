@@ -5,7 +5,6 @@ use serde_json::Value;
 
 use crate::common::{KernelError, KernelResult};
 
-/// Signs arbitrary JSON claims with a JSON header description.
 pub fn jwt_sign(claims_json: &str, key: &[u8], header_json: &str) -> KernelResult<String> {
     let claims = decode_json_object(claims_json, "claims")?;
     let header = jwt_header_from_json(header_json)?;
@@ -14,7 +13,6 @@ pub fn jwt_sign(claims_json: &str, key: &[u8], header_json: &str) -> KernelResul
         .map_err(|error| KernelError::new(format!("jwt sign failed: {error}")))
 }
 
-/// Verifies a JWT and returns its decoded claims as a JSON object string.
 pub fn jwt_verify(token: &str, key: &[u8], validation_json: &str) -> KernelResult<String> {
     let validation = jwt_validation_from_json(validation_json)?;
 
@@ -23,11 +21,7 @@ pub fn jwt_verify(token: &str, key: &[u8], validation_json: &str) -> KernelResul
         .and_then(encode_claims)
 }
 
-/// Signs JSON claims with an RSA private key in PEM form.
-///
-/// Only the RS* algorithm family is accepted here (default RS256); HMAC
-/// signing stays on `jwt_sign`. The header JSON takes the same fields as
-/// `jwt_sign`, including `kid` for key selection at the receiving side.
+/// Only the RS* family is accepted (default RS256). HMAC signing stays on `jwt_sign`.
 pub fn jwt_sign_pem(
     claims_json: &str,
     private_key_pem: &str,
@@ -42,11 +36,7 @@ pub fn jwt_sign_pem(
         .map_err(|error| KernelError::new(format!("jwt sign failed: {error}")))
 }
 
-/// Verifies an RSA-signed JWT against a JWK and returns its claims as JSON.
-///
-/// The key is a single RFC 7517 JWK object with `kty: "RSA"` and base64url
-/// `n`/`e` components, as served by provider JWKS documents. Only the RS*
-/// algorithm family is accepted here; HMAC verification stays on `jwt_verify`.
+/// Only the RS* family is accepted. HMAC verification stays on `jwt_verify`.
 pub fn jwt_verify_jwk(token: &str, jwk_json: &str, validation_json: &str) -> KernelResult<String> {
     let validation = jwt_rsa_validation_from_json(validation_json)?;
     let key = decoding_key_from_rsa_jwk(jwk_json)?;

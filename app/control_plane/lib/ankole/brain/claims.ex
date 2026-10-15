@@ -181,8 +181,9 @@ defmodule Ankole.Brain.Claims do
         id: UUIDv7.autogenerate(),
         author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
         claim_type: "take",
+        provenance_session: attrs[:provenance_session],
         object_slug: attrs[:object_slug],
-        signal_gateway_channel_id: attrs[:signal_gateway_channel_id],
+        conversation_id: attrs[:conversation_id],
         claim: attrs[:claim],
         kind: attrs[:kind],
         holder: attrs[:holder],
@@ -226,7 +227,7 @@ defmodule Ankole.Brain.Claims do
           |> Map.put_new(:audience_scope, old.audience_scope)
           |> Map.put_new(:provenance, old.provenance)
           |> Map.put(:object_slug, old.object_slug)
-          |> Map.put(:signal_gateway_channel_id, old.signal_gateway_channel_id)
+          |> Map.put(:conversation_id, old.conversation_id)
 
         result =
           case old.claim_type do
@@ -322,6 +323,28 @@ defmodule Ankole.Brain.Claims do
     count
   end
 
+  @doc "Withdraws the current claims derived by one changed conversation Source."
+  def withdraw_source_claims_in_tx(repo, source_id, now) do
+    session = "source:" <> source_id
+
+    repo.update_all(
+      from(c in Claim,
+        where:
+          c.provenance_session == ^session and c.claim_type == "fact" and is_nil(c.expired_at)
+      ),
+      set: [expired_at: now, updated_at: now]
+    )
+
+    repo.update_all(
+      from(c in Claim,
+        where: c.provenance_session == ^session and c.claim_type == "take" and c.active == true
+      ),
+      set: [active: false, updated_at: now]
+    )
+
+    :ok
+  end
+
   @doc """
   Resolves one Take in place. Resolution is immutable: a second resolve
   returns `{:error, :already_resolved}`.
@@ -385,8 +408,6 @@ defmodule Ankole.Brain.Claims do
   end
 
   def snap_to_grid(_value), do: 0.5
-
-  # Embedding preparation and dedup
 
   @doc """
   Prepares one claim text's embedding outside any transaction. The
@@ -494,7 +515,7 @@ defmodule Ankole.Brain.Claims do
        ) do
     attrs = %{
       object_slug: claim.object_slug,
-      signal_gateway_channel_id: claim.signal_gateway_channel_id,
+      conversation_id: claim.conversation_id,
       claim: claim.claim,
       kind: claim.kind,
       holder: claim.holder,
@@ -567,9 +588,9 @@ defmodule Ankole.Brain.Claims do
   defp parent_filter(query, %{object_slug: slug}) when is_binary(slug),
     do: where(query, [claim], claim.object_slug == ^slug)
 
-  defp parent_filter(query, %{signal_gateway_channel_id: channel_id})
+  defp parent_filter(query, %{conversation_id: channel_id})
        when is_binary(channel_id),
-       do: where(query, [claim], claim.signal_gateway_channel_id == ^channel_id)
+       do: where(query, [claim], claim.conversation_id == ^channel_id)
 
   defp maybe_console_object(query, slug) when is_binary(slug) and slug != "",
     do: where(query, [claim], claim.object_slug == ^slug)
@@ -619,7 +640,7 @@ defmodule Ankole.Brain.Claims do
       author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
       claim_type: "fact",
       object_slug: attrs[:object_slug],
-      signal_gateway_channel_id: attrs[:signal_gateway_channel_id],
+      conversation_id: attrs[:conversation_id],
       claim: attrs[:claim],
       kind: attrs[:kind],
       holder: attrs[:holder],
@@ -664,11 +685,9 @@ defmodule Ankole.Brain.Claims do
     |> repo.update()
   end
 
-  # Validation
-
   defp validate_parent(attrs, repo) do
     object_slug = attrs[:object_slug]
-    channel_id = attrs[:signal_gateway_channel_id]
+    channel_id = attrs[:conversation_id]
 
     cond do
       is_binary(object_slug) and is_nil(channel_id) ->

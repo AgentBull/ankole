@@ -28,7 +28,6 @@ export function t(locale: Locale, key: string, values?: Record<string, unknown>)
   return fmt.format(values) as string
 }
 
-/** Builds a localized absolute path: /{lang}/rest/of/path, honoring the deployed base URL. */
 export function localePath(locale: Locale, path: string = ''): string {
   const base = import.meta.env.BASE_URL.replace(/\/+$/, '')
   const clean = path.replace(/^\/+|\/+$/g, '')

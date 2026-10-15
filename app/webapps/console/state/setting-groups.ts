@@ -1,9 +1,8 @@
+import type { TFunction } from 'i18next'
 import type { AppConfigurationItem } from '../api/generated/types.gen'
 
 /**
- * Declared key prefixes that one subsystem owns. A declared group replaces its member rows with one
- * row and edits every member on one page. Add a prefix here when a subsystem grows enough keys that
- * the flat list stops explaining them; nothing else in the console needs to change.
+ * Declared key prefixes that one subsystem owns. Each group selects its typed editor.
  */
 const SETTING_GROUPS = [
   { id: 'brain', prefix: 'brain.' },
@@ -32,12 +31,21 @@ export function settingGroupID(key: string): SettingGroupID | undefined {
   return SETTING_GROUPS.find(group => key.startsWith(group.prefix))?.id
 }
 
-export function settingGroupPrefix(id: string): string | undefined {
-  return SETTING_GROUPS.find(group => group.id === id)?.prefix
+export function settingGroup(id: string) {
+  return SETTING_GROUPS.find(group => group.id === id)
 }
 
 export function settingOwnerRoute(key: string): string | undefined {
   return SETTING_OWNER_ROUTES[key]
+}
+
+export function settingDescription(
+  t: TFunction,
+  setting: Pick<AppConfigurationItem, 'key' | 'pattern_id' | 'description'>
+): string | undefined {
+  const translationKey = `app_configure.descriptions.${setting.pattern_id ?? setting.key}`
+  const translated = t(translationKey)
+  return translated === translationKey ? (setting.description ?? undefined) : translated
 }
 
 /**

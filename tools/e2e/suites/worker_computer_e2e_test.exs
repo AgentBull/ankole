@@ -22,10 +22,10 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
+  alias Ankole.AgentWorkers.SweepJob
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.WorkerBootstrap
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
 
@@ -60,7 +60,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     # The idle-pause contract applies after startup. Admission can precede
     # browser startup; an RPC reply proves that the main loop is running.
     assert {:error, %{"code" => "unknown_rpc_method"}} =
-             Ankole.SignalsGateway.ActorRuntime.WorkerRoute.request_rpc(
+             Ankole.AgentWorkers.WorkerRoute.request_rpc(
                %{worker_id: agent.uid, transport_route: admitted.transport_route},
                "worker.no_such_method",
                <<>>,
@@ -93,7 +93,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert exec!(container, ["cat", "/workspace/resume-marker"]) == "kept"
 
     assert {:error, %{"code" => "unknown_rpc_method"}} =
-             Ankole.SignalsGateway.ActorRuntime.WorkerRoute.request_rpc(
+             Ankole.AgentWorkers.WorkerRoute.request_rpc(
                %{worker_id: agent.uid, transport_route: resumed.transport_route},
                "worker.no_such_method",
                <<>>,
@@ -110,7 +110,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     admitted = Repo.get!(AgentWorker, agent.uid)
     # A real RPC reply proves that startup cleanup finished before the marker.
     assert {:error, %{"code" => "unknown_rpc_method"}} =
-             Ankole.SignalsGateway.ActorRuntime.WorkerRoute.request_rpc(
+             Ankole.AgentWorkers.WorkerRoute.request_rpc(
                %{worker_id: agent.uid, transport_route: admitted.transport_route},
                "worker.no_such_method",
                <<>>,
@@ -187,7 +187,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert output =~ "ANKOLE_RUNTIME_FABRIC_ENDPOINT is required"
   end
 
-  test "Docker image worker rejects actor-specific startup env" do
+  test "Docker image worker rejects a control-plane database URL" do
     assert_docker_image!()
 
     assert {output, status} =
@@ -195,13 +195,13 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
                {"ANKOLE_RUNTIME_FABRIC_ENDPOINT",
                 "ws://host.docker.internal:1/runtime-fabric/worker"},
                {"ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY", "unused-test-secret"},
-               {"WORKER_ID", "worker-actor-env"},
-               {"ANKOLE_AGENT_UID", "agent-1"}
+               {"WORKER_ID", "worker-database-env"},
+               {"DATABASE_URL", "ecto://fixture:unused@127.0.0.1/forbidden_worker_database"}
              ])
 
     assert status != 0
     assert output =~ ~s("event":"worker.error")
-    assert output =~ "ANKOLE_AGENT_UID must not be set on an agent computer worker"
+    assert output =~ "DATABASE_URL must not be set on an agent computer worker"
   end
 
   @tag :post_file_attachment
@@ -290,12 +290,12 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
 
     assert Repo.get!(AgentWorker, ctx.agent.uid) == worker_before
 
-    ctx = Map.merge(ctx, start_worker!([ctx.agent.uid]))
+    ctx = Map.merge(ctx, start_worker!([ctx.agent.uid], server_port: ctx.server_port))
     reply_attachment = run_reply_attachment_tool_loop(ctx)
 
-    dispatch_and_assert_lark_file_outbox(
+    dispatch_and_assert_lark_file_intent(
       ctx.fake_feishu,
-      reply_attachment.outbox,
+      reply_attachment.intent,
       "om_reply_attachment_1"
     )
 
@@ -372,7 +372,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
                create_time_ms: System.system_time(:millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_internal_skill_path")
+    input = signal_by_provider_message_id!(ctx.agent.uid, "om_internal_skill_path")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -384,8 +384,8 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
                deadline(90_000)
              )
 
-    assert reply.text =~ "CHAOS_INTERNAL_SKILL_OK"
-    messages = Ankole.E2E.WaitHelpers.ai_messages_for_actor_event(input.id)
+    assert reply.message.text =~ "CHAOS_INTERNAL_SKILL_OK"
+    messages = Ankole.E2E.WaitHelpers.ai_messages_for_signal(input.id)
     assert [%{"raw" => skill}] = successful_tool_results(messages, "skill_view")
     assert skill =~ "directory=\"#{directory}\""
     assert skill =~ "references/write-operations.md"
@@ -401,7 +401,7 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
     assert [%{arguments: %{"path" => path}}] = tool_results(messages, "read_file")
     assert path == "#{directory}/#{reference}"
     assert FakeOpenAIState.counters()[:internal_skill_tool] == 3
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
   end
 
   @tag :installed_skill_registry

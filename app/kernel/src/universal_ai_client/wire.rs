@@ -256,9 +256,6 @@ fn validate_crc(frame: &[u8]) -> Result<(), StreamError> {
     Ok(())
 }
 
-// Returns a message with its headers set and an empty payload. An exception
-// frame names a modeled exception in `:exception-type`. An error frame names an
-// unmodeled error in `:error-code` and `:error-message`.
 fn parse_eventstream_headers(headers: &[u8]) -> Result<EventStreamMessage, StreamError> {
     let mut index = 0;
     let mut message = EventStreamMessage::default();
@@ -275,9 +272,6 @@ fn parse_eventstream_headers(headers: &[u8]) -> Result<EventStreamMessage, Strea
         let value_type = headers[index];
         index += 1;
 
-        // The AWS eventstream header value types: 0 and 1 are booleans without
-        // value bytes, 6 (bytes) and 7 (string) have a 2-byte length prefix,
-        // and the other types have a fixed width.
         let value_len = match value_type {
             0 | 1 => 0,
             2 => 1,

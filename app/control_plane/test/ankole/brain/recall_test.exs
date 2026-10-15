@@ -202,7 +202,7 @@ defmodule Ankole.Brain.RecallTest do
     {:ok, %{claim: channel_claim}} =
       Claims.write_fact(
         %{
-          signal_gateway_channel_id: channel.id,
+          conversation_id: channel.id,
           claim: "Cinnabar retention remains in channel memory",
           kind: "fact",
           holder: "world",
@@ -464,9 +464,13 @@ defmodule Ankole.Brain.RecallTest do
     now = DateTime.utc_now(:microsecond)
 
     Repo.insert!(
-      Ankole.SignalsGateway.Channel.changeset(%Ankole.SignalsGateway.Channel{}, %{
-        id: "test:recall-#{System.unique_integer([:positive])}",
-        kind: :im_dm,
+      Ankole.Conversations.Conversation.changeset(%Ankole.Conversations.Conversation{}, %{
+        id: Ecto.UUID.generate(),
+        provider_conversation_id: "test:recall-#{System.unique_integer([:positive])}",
+        title: "Conversation",
+        last_activity_at: now,
+        kind: :external,
+        external_kind: :im_dm,
         reply_mode: :entry,
         metadata: %{},
         raw_payload: %{},

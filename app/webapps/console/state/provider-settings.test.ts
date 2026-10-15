@@ -3,12 +3,7 @@ import type {
   AiGatewayProviderKindItem as AIGatewayProviderKindItem,
   AiGatewayProviderSetting as AIGatewayProviderSetting
 } from '../api/generated/types.gen'
-import {
-  buildSettingOptions,
-  connectionSettings,
-  credentialSettings,
-  requestSettings
-} from '../pages/provider-settings'
+import { buildSettingOptions, connectionSettings, credentialSettings, requestSettings } from './provider-settings'
 
 function providerKind(providerKind: string): AIGatewayProviderKindItem {
   return {

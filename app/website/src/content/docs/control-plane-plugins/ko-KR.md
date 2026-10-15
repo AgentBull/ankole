@@ -37,11 +37,11 @@ plugin은 `Ankole.Plugins.Plugin`에 대해 소수의 callback을 구현하는 E
 
 plugin은 이름이 있는 contract를 통해 subsystem에 연결되며, contract id에는 dot이 포함될 수 있어 subsystem이 이를 네임스페이스할 수 있습니다. 실제 사용되는 contract는 다음과 같습니다.
 
-- **`signals_gateway.adapter`** — SignalsGateway가 adapter registry로 해석하는 Signal adapter를 선언합니다. 이것이 새 chat 또는 event provider가 binding target으로 사용 가능해지는 방식입니다.
-- **`signals_gateway.webhook_handler`** — `/webhooks/v1/:handler_id/:instance_id/:kind` 전면(front door)의 handler를 선언합니다. handler는 provider 인증을 담당하고 정규화된 fact로 ingress를 호출합니다.
+- **`signals.adapter`** — Signals가 adapter registry로 해석하는 Signal adapter를 선언합니다. 이것이 새 chat 또는 event provider가 binding target으로 사용 가능해지는 방식입니다.
+- **`signals.webhook_handler`** — `/webhooks/v1/:handler_id/:instance_id/:kind` 전면(front door)의 handler를 선언합니다. handler는 provider 인증을 담당하고 정규화된 fact로 ingress를 호출합니다.
 - **`principals.identity_provider`** — operator가 관리자 로그인용으로 구성할 수 있는 identity provider를 선언합니다.
 
-contract별 callback 의미는 contract를 소비하는 subsystem에 남습니다. plugin registry는 일반 adapter 선언 envelope만 보유하며, subsystem(예: `SignalsGateway.Adapters`)이 자신의 contract id에 대한 선언을 읽고 해석합니다. 이 분리는 registry를 단순한 카탈로그로, subsystem을 똑똑한 소비자로 유지합니다.
+contract별 callback 의미는 contract를 소비하는 subsystem에 남습니다. plugin registry는 일반 adapter 선언 envelope만 보유하며, subsystem(예: `Signals.Adapters`)이 자신의 contract id에 대한 선언을 읽고 해석합니다. 이 분리는 registry를 단순한 카탈로그로, subsystem을 똑똑한 소비자로 유지합니다.
 
 ## 활성화 경계: 다음 프로세스 시작
 
@@ -74,6 +74,6 @@ registry 자체는 프로세스 수명 동안 상태가 불변인 GenServer입�
 
 ## 다음 단계
 
-- plugin이 선언할 수 있는 signal adapter는 [SignalsGateway](../signals-gateway/) 페이지를 참조하세요.
+- plugin이 선언할 수 있는 signal adapter는 [Signals](../signals/) 페이지를 참조하세요.
 - plugin이 기여하는 AppConfigure key는 [Console](../console-api/) 페이지를 참조하세요.
 - 이 확장 표면이 놓여 있는 신뢰 모델은 [Principal과 AuthZ](../principal-authz/)를 참조하세요.

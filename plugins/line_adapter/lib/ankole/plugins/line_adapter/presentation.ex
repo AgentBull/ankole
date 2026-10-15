@@ -3,8 +3,8 @@ defmodule Ankole.Plugins.LineAdapter.Presentation do
 
   alias Ankole.I18n
   alias Ankole.Plugins.UTF16Text
-  alias Ankole.SignalsGateway.ReplyActionToken
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ActionToken
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @text_units 5_000
   @alt_text_units 400
@@ -16,8 +16,8 @@ defmodule Ankole.Plugins.LineAdapter.Presentation do
 
   @chat_types ["user", "group", "room"]
 
-  @spec signal_channel_id(String.t(), String.t(), String.t()) :: String.t()
-  def signal_channel_id(bot_user_id, chat_type, chat_id) when chat_type in @chat_types,
+  @spec conversation_id(String.t(), String.t(), String.t()) :: String.t()
+  def conversation_id(bot_user_id, chat_type, chat_id) when chat_type in @chat_types,
     do: "line:#{bot_user_id}:#{chat_type}:#{chat_id}"
 
   @spec parse_channel(term()) ::
@@ -55,8 +55,8 @@ defmodule Ankole.Plugins.LineAdapter.Presentation do
   so a longer action list becomes several templates under the same prompt.
   """
   @spec action_messages(map(), String.t()) :: [map()]
-  def action_messages(presentation, actor_event_id)
-      when is_map(presentation) and is_binary(actor_event_id) do
+  def action_messages(presentation, signal_id)
+      when is_map(presentation) and is_binary(signal_id) do
     case ReplyPresentation.normalize(presentation) do
       %{"interaction_status" => "pending", "actions" => actions} = normalized
       when is_list(actions) ->
@@ -64,7 +64,7 @@ defmodule Ankole.Plugins.LineAdapter.Presentation do
 
         actions
         |> Enum.with_index()
-        |> Enum.flat_map(&button(&1, actor_event_id))
+        |> Enum.flat_map(&button(&1, signal_id))
         |> Enum.chunk_every(@buttons_per_template)
         |> Enum.map(&template(prompt, &1))
 
@@ -73,12 +73,12 @@ defmodule Ankole.Plugins.LineAdapter.Presentation do
     end
   end
 
-  def action_messages(_presentation, _actor_event_id), do: []
+  def action_messages(_presentation, _signal_id), do: []
 
   @spec chunks(term()) :: [String.t()]
   def chunks(value) do
     case UTF16Text.chunks(to_string(value), @text_units) do
-      [] -> [I18n.t("signals_gateway.reply.no_content")]
+      [] -> [I18n.t("conversations.delivery.reply.no_content")]
       values -> values
     end
   end
@@ -95,7 +95,7 @@ defmodule Ankole.Plugins.LineAdapter.Presentation do
       end
 
     case truncate(prompt, @template_text_units) do
-      "" -> I18n.t("signals_gateway.reply.needs_input")
+      "" -> I18n.t("conversations.delivery.reply.needs_input")
       text -> text
     end
   end
@@ -105,7 +105,7 @@ defmodule Ankole.Plugins.LineAdapter.Presentation do
   defp button({%{"type" => "button"} = action, index}, event_id) do
     with label when is_binary(label) and label != "" <- action["label"],
          {:ok, token} <-
-           ReplyActionToken.encode(event_id, index, action,
+           ActionToken.encode(event_id, index, action,
              prefix: "ln1",
              max_bytes: @postback_data_bytes,
              too_long_error: :postback_data_too_long

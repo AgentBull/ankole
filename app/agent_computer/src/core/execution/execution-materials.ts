@@ -1,7 +1,9 @@
 import type { BrowserRuntime, MaterializedBrowserRuntime } from '../../browser-runtime'
 import { browserRuntimeEnv, withoutBrowserMaterialSourceEnv } from '../../browser-runtime'
+import type { RenderedFetchRuntimeConfig } from '../../fabric/envelope_proto'
 import type { RPCRequester } from '../../lanes/rpc_lane'
 import { materializeMCPorterConfig, type MaterializedMCPorterConfig, type MCPServerConfig } from '../../tools/mcp'
+import type { RenderedWebFetchOptions } from '../../tools/web/web-tools'
 import { materializeLarkCredential, type MaterializedLarkCredential } from './lark-credential'
 import { resolveAgentWorkerEnvParts, type ResolvedAgentWorkerEnv } from './worker_env'
 
@@ -9,6 +11,7 @@ export type PreparedExecutionMaterials = {
   workerEnv: Record<string, string>
   runtimeEnv: Record<string, string>
   browserEnv: Record<string, string>
+  renderedFetch?: RenderedWebFetchOptions
   mcpServers: MCPServerConfig[]
   cleanup(): Promise<void>
 }
@@ -28,7 +31,7 @@ export type PrepareExecutionMaterialsInput = {
   mcpServers: MCPServerConfig[]
   mcporterDirectory?: string
   projectEnv?: (workerEnv: ResolvedAgentWorkerEnv) => Record<string, string>
-  consumeMaterialSourceEnv?: (workerEnv: Record<string, string>) => Promise<void>
+  renderedFetch?: { config: RenderedFetchRuntimeConfig; browserRuntime: BrowserRuntime }
   browser?: BrowserMaterialInput
   abortSignal?: AbortSignal
 }
@@ -42,8 +45,8 @@ type MaterialCleanup = {
 /**
  * Prepares the disposable environment for one execution.
  *
- * The raw Lark token never enters the returned WorkerEnv. Browser source
- * settings are consumed before they are removed, and every caller gets the
+ * The raw Lark token never enters the returned WorkerEnv. The rendered-fetch
+ * capability retains browser source settings before their removal. All callers use the
  * same Browser, MCPorter, then Lark cleanup order.
  */
 export async function prepareExecutionMaterials(
@@ -66,7 +69,13 @@ export async function prepareExecutionMaterials(
     })
 
     const projectedWorkerEnv = input.projectEnv ? input.projectEnv(lark.workerEnv) : lark.workerEnv.vars
-    await input.consumeMaterialSourceEnv?.(projectedWorkerEnv)
+    const renderedFetch = input.renderedFetch?.browserRuntime.renderedWebFetchFallback({
+      workerEnv: projectedWorkerEnv,
+      ssrfFilter: input.renderedFetch.config.ssrfFilter,
+      ...(typeof input.renderedFetch.config.renderedFetchIdleTtlMs === 'number'
+        ? { idleTtlMs: input.renderedFetch.config.renderedFetchIdleTtlMs }
+        : {})
+    })
     input.abortSignal?.throwIfAborted()
     mcporter = materializeMCPorterConfig(
       input.mcpServers,
@@ -92,6 +101,7 @@ export async function prepareExecutionMaterials(
       workerEnv: { ...withoutBrowserMaterialSourceEnv(projectedWorkerEnv), ...mcporter.env },
       runtimeEnv: { ...input.runtimeEnv, ...lark.runtimeEnv },
       browserEnv,
+      renderedFetch,
       mcpServers: input.mcpServers,
       cleanup: async () => {
         if (cleaned) return

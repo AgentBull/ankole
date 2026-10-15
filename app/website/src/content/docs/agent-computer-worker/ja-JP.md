@@ -9,7 +9,7 @@ Agent Computer Worker は 1 つの Agent のコンピュータです。Agent 作
 
 ## 実行と所有権
 
-Bun Worker はコマンド、ファイルとブラウザのツール、Skills、MCP 呼び出し、automation script、Codex Job を実行します。control plane の `Ankole.Conversations` は主 Agent loop、入力完了とツール結果のコミット、最終返信を所有します。AIGateway は永続 Response チェーンと hosted ツールを所有します。
+Bun Worker はコマンド、ファイルとブラウザのツール、Skills、MCP 呼び出し、automation script、Codex Job を実行します。control plane の `Ankole.Sessions` は主 Agent loop、入力完了とツール結果のコミット、最終返信を所有します。AIGateway は永続 Response チェーンと hosted ツールを所有します。
 
 control plane は `WORKER_ID`、RuntimeFabric URL、generation の認証情報、ストレージ設定を渡します。Worker は自身の Agent だけを処理し、子プロセス環境から認証情報を除き、データベースには接続しません。コンテナが Agent の分離境界です。コマンドは sudo なしの uid 1000 で動作します。
 
@@ -60,4 +60,4 @@ Driver は主 loop のストリーミングとツール表示を所有します�
 
 heartbeat は active workspace、Codex turn、空き slot を報告します。control plane は provider YAML の `idleReleaseAfter` で idle instance を回収します。`never` は実行を続けます。再接続はプロセス incarnation と進行中の作業を保持します。
 
-writer と操作のフェンスは [Actor Runtime](../actor-runtime/)、Responses は [AIGateway](../ai-gateway/)、Skills は [Agent Library](../agent-library/)、provider 状態は [Workers](../worker-management/) を参照してください。
+writer と操作のフェンスは [Sessions](../sessions/)、Responses は [AIGateway](../ai-gateway/)、Skills は [Agent Library](../agent-library/)、provider 状態は [Workers](../worker-management/) を参照してください。

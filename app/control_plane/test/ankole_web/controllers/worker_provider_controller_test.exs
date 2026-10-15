@@ -2,20 +2,20 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.PrincipalsFixtures
+  import Ecto.Query, only: [from: 2]
   alias Ankole.{Principals, Repo}
-  alias Ankole.AppConfigure.{Cache, Registry}
+  alias Ankole.AppConfigure.Cache
+  alias Ankole.AppConfigure.Registry
   alias Ankole.Setup.Config, as: SetupConfig
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{
-    Cloudflare,
-    FunctionCompute,
-    Lambda,
-    Providers,
-    Vercel
-  }
+  alias Ankole.AgentWorkers.Cloudflare
+  alias Ankole.AgentWorkers.FunctionCompute
+  alias Ankole.AgentWorkers.Lambda
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Vercel
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.Provider
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers.Providers.Provider
+  alias Ankole.AgentWorkers.AgentWorker
 
   setup do
     allow_cache_database_access()
@@ -23,11 +23,11 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     Cache.clear_for_test()
     {:ok, false} = SetupConfig.put_completed(false)
     :ok = SetupConfig.delete_bootstrap_activation_code()
-    :ok
+    %{providers_before: Repo.all(from p in Provider, order_by: p.provider_id)}
   end
 
   test "admin saves the original YAML, reads the type contract, and sees every YAML error location",
-       %{conn: conn} do
+       %{conn: conn, providers_before: providers_before} do
     conn = console_conn(conn)
     response = get(conn, ~p"/api/v1/site/worker-provider-kinds") |> json_response(200)
     docker = Enum.find(response["worker_provider_kinds"], &(&1["kind"] == "docker"))
@@ -52,7 +52,12 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     response =
       conn |> recycle_api() |> get(~p"/api/v1/site/worker-providers") |> json_response(200)
 
-    assert [%{"config" => ^config}] = response["worker_providers"]
+    rows = response["worker_providers"]
+
+    assert Enum.sort(Enum.map(rows, & &1["provider_id"])) ==
+             Enum.sort(["local" | Enum.map(providers_before, & &1.provider_id)])
+
+    assert %{"config" => ^config} = Enum.find(rows, &(&1["provider_id"] == "local"))
 
     response =
       conn
@@ -92,7 +97,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
       provider_id: "edge",
       display_name: "Edge",
       kind: "cloudflare",
-      config: Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Cloudflare.definition().example,
+      config: Ankole.AgentWorkers.Cloudflare.definition().example,
       credentials: %{adapterToken: "api-secret"}
     }
 
@@ -333,10 +338,13 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     end
   end
 
-  test "the API requires a Console browser session", %{conn: conn} do
+  test "the API requires a Console browser session", %{
+    conn: conn,
+    providers_before: providers_before
+  } do
     {:ok, true} = SetupConfig.put_completed(true)
     assert conn |> get(~p"/api/v1/site/worker-providers") |> json_response(401)
-    refute Repo.exists?(Provider)
+    assert Repo.all(from p in Provider, order_by: p.provider_id) == providers_before
   end
 
   defp attrs(config) do

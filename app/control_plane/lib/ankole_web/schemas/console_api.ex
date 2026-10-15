@@ -1769,13 +1769,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           adapter_id: %Schema{type: :string},
           adapter_category: %Schema{
             type: :string,
-            enum: ["enterprise_im", "consumer_im", "email"]
+            enum: ["enterprise_im", "consumer_im", "email", "event_source"]
           },
           plugin_id: %Schema{type: :string, nullable: true},
           display_name: LocalizedText,
           fields: %Schema{type: :array, items: SignalAdapterField},
-          group_message_mode_field: SignalAdapterField,
-          unmatched_sender_policy_field: SignalAdapterField
+          group_message_mode_field: %Schema{allOf: [SignalAdapterField], nullable: true},
+          unmatched_sender_policy_field: %Schema{allOf: [SignalAdapterField], nullable: true}
         },
         required: [
           :adapter_id,
@@ -2121,6 +2121,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           config: JSONValue,
+          target: JSONValue,
+          filters: JSONValue,
           group_message_mode: %Schema{
             type: :string,
             enum: ["addressed_only", "observe_all", "may_intervene"],
@@ -2151,6 +2153,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         properties: %{
           target_agent_uid: %Schema{type: :string},
           config: JSONValue,
+          target: JSONValue,
+          filters: JSONValue,
           group_message_mode: %Schema{
             type: :string,
             enum: ["addressed_only", "observe_all", "may_intervene"],
@@ -2202,7 +2206,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           agent_uid: %Schema{type: :string},
           binding_name: %Schema{type: :string},
           outbound_key: %Schema{type: :string},
-          status: %Schema{type: :string, enum: ["failed", "unknown_after_send"]},
+          status: %Schema{type: :string, enum: ["failed", "expired", "unknown"]},
           state: %Schema{
             type: :string,
             enum: ["blocked", "permanent", "exhausted"]
@@ -2262,7 +2266,9 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           name: %Schema{type: :string},
           adapter: %Schema{type: :string},
           config_ref: %Schema{type: :string},
-          config_key: %Schema{type: :string},
+          config_key: %Schema{type: :string, nullable: true},
+          target: JSONValue,
+          filters: JSONValue,
           unaddressed_group_message_policy: %Schema{
             type: :string,
             enum: ["ignore", "record_only", "may_intervene"]
@@ -2354,14 +2360,14 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SignalChannelStandingOrdersWriteRequest do
+  defmodule ConversationStandingOrdersWriteRequest do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SignalChannelStandingOrdersWriteRequest",
+        title: "ConversationStandingOrdersWriteRequest",
         type: :object,
         properties: %{
           orders: %Schema{
@@ -2377,40 +2383,40 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
     )
   end
 
-  defmodule SignalChannelStandingOrdersItem do
+  defmodule ConversationStandingOrdersItem do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SignalChannelStandingOrdersItem",
+        title: "ConversationStandingOrdersItem",
         type: :object,
         properties: %{
-          channel_id: %Schema{type: :string},
-          channel_name: %Schema{type: :string, nullable: true},
+          conversation_id: %Schema{type: :string, format: :uuid},
+          title: %Schema{type: :string, nullable: true},
           orders: %Schema{type: :string, nullable: true},
           set_by: %Schema{type: :string, nullable: true},
           updated_at: %Schema{type: :string, format: :"date-time", nullable: true}
         },
-        required: [:channel_id],
+        required: [:conversation_id],
         additionalProperties: false
       },
       struct?: false
     )
   end
 
-  defmodule SignalChannelStandingOrdersResponse do
+  defmodule ConversationStandingOrdersResponse do
     @moduledoc false
 
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
-        title: "SignalChannelStandingOrdersResponse",
+        title: "ConversationStandingOrdersResponse",
         type: :object,
         properties: %{
-          standing_orders: SignalChannelStandingOrdersItem
+          standing_orders: ConversationStandingOrdersItem
         },
         required: [:standing_orders],
         additionalProperties: false
@@ -2501,20 +2507,29 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
 
   defmodule ScheduleDeliveryTarget do
     @moduledoc false
-
     require OpenAPISpex
 
     OpenAPISpex.schema(
       %{
         title: "ScheduleDeliveryTarget",
-        type: :object,
-        properties: %{
-          binding_name: %Schema{type: :string, minLength: 1},
-          signal_channel_id: %Schema{type: :string, minLength: 1},
-          provider_thread_id: %Schema{type: :string}
-        },
-        required: [:binding_name, :signal_channel_id],
-        additionalProperties: false
+        oneOf: [
+          %Schema{
+            type: :object,
+            properties: %{conversation_id: %Schema{type: :string, format: :uuid}},
+            required: [:conversation_id],
+            additionalProperties: false
+          },
+          %Schema{
+            type: :object,
+            properties: %{
+              binding_name: %Schema{type: :string, minLength: 1},
+              conversation_id: %Schema{type: :string, format: :uuid},
+              provider_thread_id: %Schema{type: :string}
+            },
+            required: [:binding_name, :conversation_id],
+            additionalProperties: false
+          }
+        ]
       },
       struct?: false
     )
@@ -2529,7 +2544,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
       %{
         title: "ScheduleDelivery",
         description:
-          "Where the result of a fire goes. The first target is primary and its binding must equal the schedule `binding_name`. When `quiet_success` is true, a fire with nothing to report sends no message. An update that omits `quiet_success` keeps the stored value.",
+          "Where the result of a fire goes. A target is a native conversation ID or an external reply route. An external primary target uses the schedule `binding_name`; a native primary target has no binding. When `quiet_success` is true, a fire with nothing to report sends no message. An update that omits `quiet_success` keeps the stored value.",
         type: :object,
         properties: %{
           targets: %Schema{type: :array, items: ScheduleDeliveryTarget, minItems: 1},
@@ -2560,7 +2575,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             type: :string,
             description: "Derived session `cron:<id>` where every fire runs."
           },
-          binding_name: %Schema{type: :string},
+          binding_name: %Schema{type: :string, nullable: true},
           name: %Schema{type: :string},
           schedule: ScheduleRecurrence,
           timezone: %Schema{type: :string},
@@ -2623,7 +2638,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           },
           agent_uid: %Schema{type: :string},
           session_id: %Schema{type: :string},
-          binding_name: %Schema{type: :string},
+          binding_name: %Schema{type: :string, nullable: true},
           due_at: %Schema{type: :string, format: :"date-time"},
           timezone: %Schema{type: :string},
           requested_at: %Schema{type: :string, format: :"date-time"},
@@ -2634,10 +2649,10 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           cron_fire_slot_at: %Schema{type: :string, format: :"date-time", nullable: true},
           tool_call_id: %Schema{type: :string, nullable: true},
           origin_ai_message_id: %Schema{type: :string, format: :uuid, nullable: true},
-          source_actor_event_id: %Schema{type: :string, format: :uuid, nullable: true},
-          signal_channel_id: %Schema{type: :string, nullable: true},
+          source_signal_id: %Schema{type: :string, format: :uuid, nullable: true},
+          conversation_id: %Schema{type: :string, nullable: true},
           provider_thread_id: %Schema{type: :string, nullable: true},
-          source_entry_id: %Schema{type: :string, nullable: true},
+          provider_message_id: %Schema{type: :string, nullable: true},
           source_provenance: %Schema{type: :object, additionalProperties: true},
           wake_payload: %Schema{
             type: :object,
@@ -2645,7 +2660,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             description:
               "Input of the wake turn. A checkback carries `reason`, `check`, and `context_summary`; a cron fire carries `trigger` and the frozen schedule facts."
           },
-          actor_event_id: %Schema{type: :string, format: :uuid, nullable: true},
+          signal_id: %Schema{type: :string, format: :uuid, nullable: true},
           fired_at: %Schema{type: :string, format: :"date-time", nullable: true},
           cancelled_at: %Schema{type: :string, format: :"date-time", nullable: true},
           last_fire_error: %Schema{
@@ -2674,13 +2689,13 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :cron_fire_slot_at,
           :tool_call_id,
           :origin_ai_message_id,
-          :source_actor_event_id,
-          :signal_channel_id,
+          :source_signal_id,
+          :conversation_id,
           :provider_thread_id,
-          :source_entry_id,
+          :provider_message_id,
           :source_provenance,
           :wake_payload,
-          :actor_event_id,
+          :signal_id,
           :fired_at,
           :cancelled_at,
           :last_fire_error,
@@ -2709,7 +2724,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             description:
               "Conversation session that manages this schedule. Fires run in the derived execution session `cron:<schedule_id>`."
           },
-          binding_name: %Schema{type: :string},
+          binding_name: %Schema{type: :string, nullable: true},
           name: %Schema{type: :string, minLength: 1},
           status: %Schema{type: :string, enum: ["active", "paused"], nullable: true},
           schedule: ScheduleRecurrence,
@@ -2720,7 +2735,6 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         },
         required: [
           :owner_session_id,
-          :binding_name,
           :name,
           :schedule,
           :delivery,
@@ -2851,13 +2865,14 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
         type: :object,
         properties: %{
           id: %Schema{type: :string, format: :uuid},
-          agent_uid: %Schema{type: :string},
-          binding_name: %Schema{type: :string},
-          session_id: %Schema{type: :string},
-          signal_channel_id: %Schema{type: :string, nullable: true},
+          agent_uid: %Schema{type: :string, nullable: true},
+          binding_name: %Schema{type: :string, nullable: true},
+          session_id: %Schema{type: :string, nullable: true},
+          event_format: %Schema{type: :string, enum: ["raw", "cloudevents"]},
+          conversation_id: %Schema{type: :string, nullable: true},
           provider_thread_id: %Schema{type: :string, nullable: true},
-          source_actor_event_id: %Schema{type: :string, format: :uuid, nullable: true},
-          source_entry_id: %Schema{type: :string, nullable: true},
+          source_signal_id: %Schema{type: :string, format: :uuid, nullable: true},
+          provider_message_id: %Schema{type: :string, nullable: true},
           source_provenance: JSONValue,
           automation_job_id: %Schema{
             type: :integer,
@@ -2889,6 +2904,44 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :created_at,
           :updated_at
         ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule CloudEventEndpointCreateRequest do
+    @moduledoc false
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "CloudEventEndpointCreateRequest",
+        type: :object,
+        properties: %{
+          label: %Schema{type: :string, minLength: 1, maxLength: 500},
+          expires_at: %Schema{type: :string, format: :"date-time"}
+        },
+        required: [:label, :expires_at],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule CloudEventEndpointCreateResponse do
+    @moduledoc false
+    require OpenAPISpex
+
+    OpenAPISpex.schema(
+      %{
+        title: "CloudEventEndpointCreateResponse",
+        type: :object,
+        properties: %{
+          webhook_endpoint: WebhookEndpointItem,
+          token: %Schema{type: :string}
+        },
+        required: [:webhook_endpoint, :token],
         additionalProperties: false
       },
       struct?: false
@@ -2974,8 +3027,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           id: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
           agent_uid: %Schema{type: :string},
           owner_session_id: %Schema{type: :string},
-          source_actor_event_id: %Schema{type: :string, format: :uuid, nullable: true},
-          source_entry_id: %Schema{type: :string, nullable: true},
+          source_signal_id: %Schema{type: :string, format: :uuid, nullable: true},
+          provider_message_id: %Schema{type: :string, nullable: true},
           source_provenance: JSONValue,
           reply_route: JSONValue,
           drive_prefix: %Schema{type: :string},
@@ -3053,7 +3106,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
       %{
         title: "AgentSession",
         type: :object,
-        description: "One actor session surfaced from durable schedule, event, or job rows.",
+        description: "One Session surfaced from durable schedule, Signal, or job rows.",
         properties: %{
           session_id: %Schema{type: :string},
           kind: %Schema{
@@ -3930,8 +3983,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
             type: :string,
             enum: Ankole.Files.Schemas.AgentFile.sources()
           },
-          signal_channel_id: %Schema{type: :string, nullable: true},
-          source_entry_id: %Schema{type: :string, nullable: true},
+          conversation_id: %Schema{type: :string, nullable: true},
+          message_id: %Schema{type: :string, format: :uuid, nullable: true},
           updated_at: %Schema{type: :string, format: :"date-time"}
         },
         required: [
@@ -3939,8 +3992,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           :size,
           :content_type,
           :source,
-          :signal_channel_id,
-          :source_entry_id,
+          :conversation_id,
+          :message_id,
           :updated_at
         ],
         additionalProperties: false
@@ -4437,7 +4490,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           },
           agent_uid: %Schema{type: :string},
           owner_session_id: %Schema{type: :string},
-          source_actor_event_id: %Schema{type: :string, nullable: true},
+          source_signal_id: %Schema{type: :string, nullable: true},
           source_tool_call_id: %Schema{type: :string},
           runtime_thread_id: %Schema{type: :string, nullable: true},
           title: %Schema{type: :string},
@@ -4651,7 +4704,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI do
           conversation_key: %Schema{type: :string},
           kind: %Schema{
             type: :string,
-            enum: ["signal", "dreaming", "job", "responses_api", "custom"]
+            enum: ["conversation", "signal", "dreaming", "job", "cron", "responses_api", "custom"]
           },
           display_name: %Schema{type: :string, nullable: true},
           channel_kind: %Schema{

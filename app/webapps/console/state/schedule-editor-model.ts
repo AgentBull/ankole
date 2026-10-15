@@ -25,7 +25,7 @@ export type ScheduleOccurrenceBound = { count: number } | { until: string }
 
 export type DeliveryTargetDraft = {
   bindingName: string
-  channelId: string
+  conversationId: string
   threadId: string
 }
 
@@ -50,9 +50,9 @@ export type ScheduleEditorDraft = {
 /** Maps stored delivery targets to editable drafts. */
 export function deliveryTargetDrafts(delivery: ScheduleDelivery | null | undefined): DeliveryTargetDraft[] {
   return (delivery?.targets ?? []).map(target => ({
-    bindingName: target.binding_name,
-    channelId: target.signal_channel_id,
-    threadId: target.provider_thread_id ?? ''
+    bindingName: 'binding_name' in target ? target.binding_name : '',
+    conversationId: target.conversation_id,
+    threadId: 'provider_thread_id' in target ? (target.provider_thread_id ?? '') : ''
   }))
 }
 
@@ -140,25 +140,21 @@ export const ScheduleEditorModel = createModel(() => {
   const effectiveTimezone = (): string => ((scheduleKind.value || 'cron') === 'cron' ? timezone.value.trim() : '')
 
   const buildDelivery = (): ScheduleDelivery | null => {
-    const targets = deliveryTargets.value.map(target => {
-      const out: ScheduleDeliveryTarget = {
-        binding_name: target.bindingName.trim(),
-        signal_channel_id: target.channelId.trim()
-      }
-      if (target.threadId.trim()) out.provider_thread_id = target.threadId.trim()
-      return out
-    })
+    const targets: ScheduleDeliveryTarget[] = deliveryTargets.value.map(target => ({
+      conversation_id: target.conversationId.trim(),
+      ...(target.bindingName.trim() ? { binding_name: target.bindingName.trim() } : {}),
+      ...(target.threadId.trim() ? { provider_thread_id: target.threadId.trim() } : {})
+    }))
 
     if (
       targets.length === 0 ||
-      targets.some(target => !target.binding_name || !target.signal_channel_id) ||
-      targets[0]?.binding_name !== bindingName.value.trim()
-    ) {
+      targets.some(target => !target.conversation_id) ||
+      deliveryTargets.value[0]?.bindingName.trim() !== bindingName.value.trim()
+    )
       return null
-    }
 
-    const keys = targets.map(target =>
-      [target.binding_name, target.signal_channel_id, target.provider_thread_id ?? ''].join('\u0000')
+    const keys = deliveryTargets.value.map(target =>
+      [target.conversationId.trim(), target.bindingName.trim(), target.threadId.trim()].join('\u0000')
     )
     if (new Set(keys).size !== keys.length) return null
     return { targets }
@@ -257,12 +253,7 @@ export const ScheduleEditorModel = createModel(() => {
     },
     isComplete(): boolean {
       return Boolean(
-        bindingName.value.trim() &&
-        name.value.trim() &&
-        taskSatisfied() &&
-        buildSchedule() &&
-        buildDelivery() &&
-        buildPayload() !== null
+        name.value.trim() && taskSatisfied() && buildSchedule() && buildDelivery() && buildPayload() !== null
       )
     },
     toCreateBody(): ScheduleCronWriteRequest | null {
@@ -275,7 +266,6 @@ export const ScheduleEditorModel = createModel(() => {
       const idempotency = idempotencyKey.value.trim()
       if (
         !ownerSession ||
-        !binding ||
         !trimmedName ||
         !schedule ||
         !delivery ||
@@ -287,7 +277,7 @@ export const ScheduleEditorModel = createModel(() => {
       }
       const body: ScheduleCronWriteRequest = {
         owner_session_id: ownerSession,
-        binding_name: binding,
+        ...(binding ? { binding_name: binding } : {}),
         name: trimmedName,
         schedule,
         delivery,
@@ -331,18 +321,18 @@ function sameJSON(left: unknown, right: unknown): boolean {
 }
 
 function emptyTarget(): DeliveryTargetDraft {
-  return { bindingName: '', channelId: '', threadId: '' }
+  return { bindingName: '', conversationId: '', threadId: '' }
 }
 
 /** Targets the operator filled in; the editor's blank placeholder row counts as none. */
 function meaningfulTargets(targets: DeliveryTargetDraft[]): DeliveryTargetDraft[] {
-  return normalizeDraftTargets(targets).filter(target => target.bindingName || target.channelId || target.threadId)
+  return normalizeDraftTargets(targets).filter(target => target.bindingName || target.conversationId || target.threadId)
 }
 
 function normalizeDraftTargets(targets: DeliveryTargetDraft[]): DeliveryTargetDraft[] {
   return targets.map(target => ({
     bindingName: target.bindingName.trim(),
-    channelId: target.channelId.trim(),
+    conversationId: target.conversationId.trim(),
     threadId: target.threadId.trim()
   }))
 }

@@ -37,9 +37,9 @@ Agent は、ワークスペースにディレクトリを 1 つ作成し、`main
 
 各 attempt は最新の Agent WorkerEnv と、現在有効な Skill から呼び出しスコープで生成された `MCPORTER_CONFIG` を受け取ります。Worker は script がどの server を使うかを予測しません。script は mcporter と stdin JSON で、選択した 1 つの MCP tool を呼び出せます。Automation は Skill 指示を読み取らず、永続的な Agent Home mcporter 設定も使いません。
 
-実行 SDK は `context()` と `emitEvent(payload)` を提供します。`context().event` は、直接 trigger が ActorEvent として追加するのと同じ CloudEvents エンベロープです。script は出力なしで成功裏に終了するか、`emitEvent` を 1 回以上呼び出して、永続的な `automation_job.emitted` イベントを所有 session に追加できます。
+実行 SDK は `context()` と `emitEvent(payload)` を提供します。`context().event` は、直接 trigger が Signal として追加するのと同じ CloudEvents エンベロープです。script は出力なしで成功裏に終了するか、`emitEvent` を 1 回以上呼び出して、永続的な `automation_job.emitted` イベントを所有 session に追加できます。
 
-`context()` と `emitEvent` は、プラットフォームの run 内にのみ存在します。直接の `bun main.ts` 実行では、セットアップとこれらの関数を呼ばないブランチを確認できます。登録後は、各 SDK ブランチにテスト trigger を使い、その永続 run を検査してください。`emitEvent` は stdout にフォールバックしません。その promise は ActorEvent が永続化された後にのみ resolve します。
+`context()` と `emitEvent` は、プラットフォームの run 内にのみ存在します。直接の `bun main.ts` 実行では、セットアップとこれらの関数を呼ばないブランチを確認できます。登録後は、各 SDK ブランチにテスト trigger を使い、その永続 run を検査してください。`emitEvent` は stdout にフォールバックしません。その promise は Signal が永続化された後にのみ resolve します。
 
 trigger の消費のたびに、checkback の要求を確定し、cron schedule を進め、または webhook を受け入れる同じ PostgreSQL トランザクション内で永続 run が作成されます。script 例外、非ゼロ終了、タイムアウトは終端の script 結果であり、再試行されません。Worker の喪失はインフラ障害であり、run は既存の Oban wake edge を通じて新しい fenced attempt を受け取ります。リプレイは script の副作用を繰り返す可能性があるため、script は繰り返しが無害になるようにする必要があります。
 

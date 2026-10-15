@@ -4,7 +4,7 @@ defmodule Ankole.AIGateway.ProviderRuntime do
 
   Model requests use `PrepareContext`; provider helper APIs such as live checks
   and model metadata use this smaller context because they do not run inside an
-  actor turn or carry a public request body.
+  stored Response or carry a public request body.
   """
 
   alias Ankole.AIGateway.ProviderConfigs

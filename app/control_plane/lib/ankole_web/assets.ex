@@ -12,9 +12,9 @@ defmodule AnkoleWeb.Assets do
   The shell HTML never hardcodes asset paths; it always asks here.
   """
 
-  # The three SPA bundles the shell can mount. `entry` is a build identity, not
+  # The SPA bundles the shell can mount. `entry` is a build identity, not
   # user input, so an unknown value is a programmer error (it raises below).
-  @valid_entries ~w(auth console setup)
+  @valid_entries ~w(auth console setup workplace)
 
   @doc "Returns stylesheet and script tags for a named webapp entry."
   @spec entry_tags(Plug.Conn.t(), String.t()) :: iodata()

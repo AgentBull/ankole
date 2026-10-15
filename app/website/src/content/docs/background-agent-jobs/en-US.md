@@ -1,19 +1,19 @@
 ---
 title: Background Agent Jobs
-description: Durable, resumable work that survives worker loss — the job state machine, wait-for-input, owner wakeup, and the boundary with the Actor Runtime.
+description: Durable, resumable work that survives worker loss — the job state machine, wait-for-input, owner wakeup, and the boundary with Sessions.
 section: Developer guide
 order: 105
 ---
 
 A Background Agent Job is a unit of work that is meant to outlive any single worker. An agent spawns one to do something that takes too long, too many steps, or too much isolation to run inline in its own turn — and then the job runs, pauses for input, fails, or finishes on its own schedule, while the agent that started it stays free to talk to its owner. This page maps that lifecycle against the real code in `Ankole.BackgroundAgentJobs`.
 
-The decisive property, stated up front: a job is durable work, not a child process. Its state lives in PostgreSQL, every transition is fenced and audited, and when its status changes in a way the owner should know about, the job appends a wakeup event back to the owner's session — through the same actor-event queue that ordinary signals use.
+The decisive property, stated up front: a job is durable work, not a child process. Its state lives in PostgreSQL, every transition is fenced and audited, and when its status changes in a way the owner should know about, the job appends a wakeup event back to the owner's session — through the same Signal queue that ordinary signals use.
 
-## The boundary with the Actor Runtime
+## The boundary with Sessions
 
-A session turn and a background job are different shapes of work, and the runtime keeps them separate. The Actor Runtime owns the live, fenced turn — wake a session, run one model loop, commit. A Background Agent Job owns durable, resumable work that a turn delegates to. The handoff is explicit: a job carries `owner_session_id`, `source_actor_event_id`, and `source_tool_call_id`, so the link from the spawning turn to the job, and back, is always reconstructable.
+A session turn and a background job are different shapes of work, and the runtime keeps them separate. Sessions owns the live, fenced turn — wake a session, run one model loop, commit. A Background Agent Job owns durable, resumable work that a turn delegates to. The handoff is explicit: a job carries `owner_session_id`, `source_signal_id`, and `source_tool_call_id`, so the link from the spawning turn to the job, and back, is always reconstructable.
 
-What this means in practice: a job is not a second session and not a competing claim on the agent. It is work the owner session asked for, with its own state machine, its own retry budget, and its own way of reporting back.
+The job executes in a separate `job:<id>` Session under the same Agent. It reports to `owner_session_id` and has its own state machine, retry budget, and reporting rules.
 
 ## The job state machine
 
@@ -40,7 +40,7 @@ When a job lands in a status the owner should hear about, the lifecycle commits 
 | `failed` | `background_agent_job.failed` |
 | `waiting_on_user` | `background_agent_job.waiting` |
 
-The wakeup is a normal actor event — same queue, same fencing, same session controller as any other signal — addressed to `owner_session_id` and routed through the job's `reply_route` (its binding, channel, thread). The owner session does not poll; it gets woken exactly when there is something to report. A transition into `queued` or `running` produces no wakeup, because those are not things the owner needs to act on.
+The wakeup is a normal Signal — same queue, same fencing, same session controller as any other signal — addressed to `owner_session_id` and routed through the job's `reply_route` (its binding, channel, thread). The owner session does not poll; it gets woken exactly when there is something to report. A transition into `queued` or `running` produces no wakeup, because those are not things the owner needs to act on.
 
 The wakeup event's source id encodes the job, the status, and the attempt number, so a resumed job's later wakeup cannot be confused with an earlier one.
 
@@ -67,7 +67,7 @@ AIGateway quota exhaustion with a known future recovery time returns the Job to 
 
 ## Dispatch and the agent's plugins
 
-A job retains one optional workspace template. Its first real execution admission atomically captures the provider and model binding and the Agent Plugin and Skill selection. Retry and resume use that frozen selection intersected with the agent's current effective set: disabling a selected capability removes it, and re-enabling it restores it, but a capability not selected at admission cannot be added later. Credentials and mutable Skill content still come from their current owners. The dispatch path (`BackgroundAgentJobDispatch.process`) resolves the job from the actor event, hands it to the turn runtime, and treats steer events separately so a live delivery to the session is not mistaken for a job steer. Every model turn goes through AIGateway with the captured binding. If that provider has several credentials, AIGateway owns their selection, affinity, refresh, and retry; the Job has no account field or account concurrency slot.
+A job retains one optional workspace template. Its first real execution admission atomically captures the provider and model binding and the Agent Plugin and Skill selection. Retry and resume use that frozen selection intersected with the agent's current effective set: disabling a selected capability removes it, and re-enabling it restores it, but a capability not selected at admission cannot be added later. Credentials and mutable Skill content still come from their current owners. `Sessions.CodexJob` admits the job attempt from its kernel Signal and treats steer events separately so a live delivery to the session is not mistaken for a job steer. Every model turn goes through AIGateway with the captured binding. If that provider has several credentials, AIGateway owns their selection, affinity, refresh, and retry; the Job has no account field or account concurrency slot.
 
 Background Agent Jobs use the same Ankole `skill_view` loader as the Main Agent. Ordinary compatible Skills enter the Job's Skill index. A Skill with `brain-recall-only: true` stays out of that index and can be discovered through Brain; `get_page` delegates a matching discovery record to `skill_view`. Before each read of `SKILL.md` or a referenced file, the loader checks the current effective Agent Plugin and Skill state with the control plane. A running Job therefore cannot keep reading a Skill after it is disabled. This path does not depend on Codex native Skill discovery, `.agents/skills`, or `skills/list`.
 
@@ -87,10 +87,10 @@ Cancellation moves the Job to `stopped` and requests cancellation of its live ex
 
 ## What Background Agent Jobs are not
 
-A job is not a free-form background process. It is a state machine with a fixed transition table, a bounded retry budget, and a single owner session it reports back to. It is not a way to run work outside the permission boundary — the job runs as its agent, under the same plugins and skills. And it is not a replacement for the Actor Runtime; the two share the actor-event queue and the fencing machinery, but a job owns resumable work while the runtime owns the live turn. The boundary is deliberate, and crossing it goes through a documented transition, not through reaching into the other layer's internals.
+A job is not a free-form background process. It is a state machine with a fixed transition table, a bounded retry budget, and a single owner session it reports back to. It is not a way to run work outside the permission boundary — the job runs as its agent, under the same plugins and skills. And it is not a replacement for Sessions; the two share the Signal queue and the fencing machinery, but a job owns resumable work while the runtime owns the live turn. The boundary is deliberate, and crossing it goes through a documented transition, not through reaching into the other layer's internals.
 
 ## Next steps
 
-- For the live turn a job is spawned from and reports back to, read the [Actor Runtime](../actor-runtime/) page.
+- For the live turn a job is spawned from and reports back to, read the [Sessions](../sessions/) page.
 - For the model turns a job's execution runs, read the [AIGateway API](../ai-gateway/).
-- For how a job's wakeup reaches the owner as a normal signal, read the [SignalsGateway](../signals-gateway/) page.
+- For how a job's wakeup reaches the owner as a normal signal, read the [Signals](../signals/) page.

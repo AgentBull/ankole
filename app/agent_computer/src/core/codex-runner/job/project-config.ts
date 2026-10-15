@@ -79,7 +79,6 @@ function applyRunnerSafety(config: TomlTable, hostedWebSearch: boolean): void {
   // its value; Ankole only supplies the default.
   if (typeof multiAgent.enabled !== 'boolean') multiAgent.enabled = true
   multiAgent.hide_spawn_agent_metadata = true
-  // Reduce model re-entry after empty waits. See https://github.com/openai/codex/issues/35259.
   multiAgent.min_wait_timeout_ms = ms('1m')
   multiAgent.default_wait_timeout_ms = ms('2m')
   delete multiAgent.max_wait_timeout_ms

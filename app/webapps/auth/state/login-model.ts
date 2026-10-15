@@ -11,7 +11,6 @@ export type LoginFormError =
 
 export type RetryDelay = { unit: 'seconds'; seconds: number } | { unit: 'minutes'; minutes: number }
 
-/** Formats a lockout delay as exact seconds, or rounded-up minutes from 90s. */
 export function formatRetryDelay(seconds: number): RetryDelay {
   if (seconds < 90) return { unit: 'seconds', seconds }
   return { unit: 'minutes', minutes: Math.ceil(seconds / 60) }
@@ -40,7 +39,6 @@ export function classifyLoginError(error: unknown): LoginFormError | undefined {
   return undefined
 }
 
-/** Advances the lockout countdown by one second; at zero the form recovers. */
 export function tickLockout(error: LoginFormError | undefined): LoginFormError | undefined {
   if (error?.kind !== 'locked' && error?.kind !== 'busy') return error
   if (error.remainingSeconds <= 1) return undefined

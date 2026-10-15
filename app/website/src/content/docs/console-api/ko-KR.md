@@ -79,8 +79,8 @@ Console REST API는 browser session cookie를 사용합니다. `RequireSiteAdmin
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 라우팅 규칙 생성 또는 교체 |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 갱신 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 라우팅 규칙 제거 |
-| `GET` | `/signal-channels/:channel_id/standing-orders` | 채널 하나의 상시 지시 읽기 |
-| `PUT` | `/signal-channels/:channel_id/standing-orders` | 채널 하나의 상시 지시 교체 |
+| `GET` | `/conversations/:conversation_id/standing-orders` | Conversation 하나의 상시 지시 읽기 |
+| `PUT` | `/conversations/:conversation_id/standing-orders` | Conversation 하나의 상시 지시 교체 |
 
 바인딩을 비활성화하면 바인딩을 삭제하지 않고도 새 시그널이 해당 에이전트를 깨우지 않게 됩니다.
 
@@ -181,6 +181,6 @@ Control Plane Plugins는 컨트롤 플레인 자체가 하는 일을 바꾸는 �
 
 ## 다음 단계
 
-- Console이 구성하는 런타임 표면은 [AIGateway API](../ai-gateway/), [SignalsGateway](../signals-gateway/), [Actor Runtime](../actor-runtime/)을 참고하세요.
+- Console이 구성하는 런타임 표면은 [AIGateway API](../ai-gateway/), [Signals](../signals/), [Sessions](../sessions/)을 참고하세요.
 - Console 자체가 따르는 권한 모델은 [Principal 및 AuthZ](../principal-authz/)를 참고하세요.
 - 새 배포 인스턴스를 구성하려면 [Quick start의 배포 섹션](../quickstart/#deployment)을 참고하세요.

@@ -6,7 +6,7 @@ defmodule Ankole.Plugins.EmailAdapter do
   alias Ankole.Plugins.EmailAdapter.Config
   alias Ankole.Plugins.EmailAdapter.ConnectionReconciler
   alias Ankole.Plugins.EmailAdapter.Inbound
-  alias Ankole.Plugins.EmailAdapter.Outbox
+  alias Ankole.Plugins.EmailAdapter.Delivery
 
   @impl true
   def plugin_id, do: "email-adapter"
@@ -29,18 +29,18 @@ defmodule Ankole.Plugins.EmailAdapter do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "email",
         adapter_category: "email",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Email", "zh-Hans-CN" => "邮件"},
-        config_key_pattern: "signals_gateway.email.bindings.<id>",
+        config_key_pattern: "signals.email.bindings.<id>",
         config_module: Config,
         application_bindings: :one,
         fields: Config.fields(),
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
+        observe_module: Inbound,
+        deliver_module: Delivery,
         inbound_capabilities: ["entry_receive"],
         outbound_capabilities: ["post_entry", "reply_entry"]
       }

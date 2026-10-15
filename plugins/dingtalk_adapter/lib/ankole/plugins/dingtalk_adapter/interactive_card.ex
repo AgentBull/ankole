@@ -6,7 +6,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
   standard Ankole AI card template on the card platform (variable schema in
   `priv/card_template/README.md`) and every instance only injects that fixed
   variable set. This module owns the `cardParamMap` rendering shared by the
-  streaming `AICard` lifecycle and the non-streaming `card` outbox operation,
+  streaming `AICard` lifecycle and the non-streaming `card` intent operation,
   finalizes a non-streaming card through DingTalk's native AI card lifecycle,
   and owns the open-space/deliver models derived from a `{:dm, userid}` or
   `{:group, conversation_id}` target.
@@ -19,8 +19,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
 
   alias Ankole.Plugins.DingTalkAdapter.Markdown
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.ReplyPresentation
   alias DingTalkOpenAPI.Card
   alias DingTalkOpenAPI.Client
   alias DingTalkOpenAPI.Error
@@ -29,19 +29,17 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
 
   @type space :: {:dm, String.t()} | {:group, String.t()}
 
-  # card outbox operation
-
   @doc """
-  Delivers one non-streaming `card` outbox operation as a card instance.
+  Delivers one non-streaming `card` intent operation as a card instance.
 
-  The instance is keyed by an `outTrackId` derived from the outbox idempotency
-  key, so an outbox retry re-delivers the same instance instead of a duplicate.
+  The instance is keyed by an `outTrackId` derived from the intent idempotency
+  key, so an intent retry re-delivers the same instance instead of a duplicate.
   """
-  @spec deliver(Client.t(), String.t(), String.t(), space(), OutboxEntry.t()) ::
+  @spec deliver(Client.t(), String.t(), String.t(), space(), Intent.t()) ::
           {:ok, map()} | {:error, Error.t() | term()}
-  def deliver(%Client{} = client, template_id, robot_code, space, %OutboxEntry{} = outbox) do
-    out_track_id = "ankole:outbox:#{outbox.idempotency_key || outbox.outbound_key}"
-    card_param_map = outbox_param_map(outbox)
+  def deliver(%Client{} = client, template_id, robot_code, space, %Intent{} = intent) do
+    out_track_id = "ankole:outbox:#{intent.idempotency_key || intent.outbound_key}"
+    card_param_map = intent_param_map(intent)
 
     params =
       %{
@@ -55,11 +53,11 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
 
     with {:ok, body} <- Card.create_and_deliver(client, params),
          {:ok, _stream_body} <- finalize(client, out_track_id, card_param_map["answer"]) do
-      {:ok, %{created_source_entry_id: out_track_id, raw_payload: body}}
+      {:ok, %{created_provider_message_id: out_track_id, raw_payload: body}}
     end
   end
 
-  defp outbox_param_map(%OutboxEntry{payload: payload, fallback_visible_text: fallback}) do
+  defp intent_param_map(%Intent{payload: payload, fallback_visible_text: fallback}) do
     output = fetch_value(payload || %{}, "interactive_output") || %{}
 
     body =
@@ -79,7 +77,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
     }
   end
 
-  # A card outbox row carries a finished payload. Creating an AI card starts its
+  # A card intent row carries a finished payload. Creating an AI card starts its
   # native lifecycle, so one full streaming update displays the answer and moves
   # the instance to its completed state. The content-derived guid makes retries
   # idempotent without adding another durable ledger.
@@ -101,12 +99,12 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
     |> String.slice(0, 32)
   end
 
-  # A `card` outbox payload carries the portable interaction output shape
+  # A `card` intent payload carries the portable interaction output shape
   # (`choices` + interaction ids), not presentation actions.
   defp render_output_actions(output) do
     interaction_id = optional_text(output, "interaction_id")
     control_id = optional_text(output, "control_id") || "choice"
-    source_actor_event_id = optional_text(output, "source_actor_event_id")
+    source_signal_id = optional_text(output, "source_signal_id")
     version = integer_value(fetch_value(output, "version")) || 1
     locked? = optional_text(output, "state") in ["answered", "expired", "cancelled", "superseded"]
 
@@ -117,7 +115,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
       label = optional_text(choice, "label") || optional_text(choice, "text") || option_id
 
       if is_binary(option_id) and is_binary(label) and is_binary(interaction_id) and
-           is_binary(source_actor_event_id) do
+           is_binary(source_signal_id) do
         action = %{
           "type" => "button",
           "interaction_id" => interaction_id,
@@ -127,7 +125,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
           "revision" => version
         }
 
-        case ReplyPresentation.callback_value(source_actor_event_id, action) do
+        case ReplyPresentation.callback_value(source_signal_id, action) do
           {:ok, value} ->
             [
               %{
@@ -148,8 +146,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
     end)
     |> encode_actions()
   end
-
-  # presentation actions
 
   @doc """
   Renders normalized presentation actions into the template's `actions` JSON
@@ -172,7 +168,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
            "id" => id,
            "label" => label,
            "interaction_id" => interaction_id,
-           "source_actor_event_id" => source_actor_event_id,
+           "source_signal_id" => source_signal_id,
            "control_id" => control_id,
            "selected_option_id" => selected_option_id,
            "option_value" => option_value,
@@ -180,10 +176,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
          } = action
        )
        when is_binary(id) and is_binary(label) and is_binary(interaction_id) and
-              is_binary(source_actor_event_id) and is_binary(control_id) and
+              is_binary(source_signal_id) and is_binary(control_id) and
               is_binary(selected_option_id) and is_binary(option_value) and
               is_integer(revision) do
-    case ReplyPresentation.callback_value(source_actor_event_id, action) do
+    case ReplyPresentation.callback_value(source_signal_id, action) do
       {:ok, value} ->
         [
           %{
@@ -206,19 +202,19 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
            "id" => id,
            "label" => label,
            "interaction_id" => interaction_id,
-           "source_actor_event_id" => source_actor_event_id,
+           "source_signal_id" => source_signal_id,
            "control_id" => control_id,
            "revision" => revision,
            "fields" => [%{"type" => "input", "id" => input_name} = field]
          } = action
        )
        when is_binary(id) and is_binary(label) and is_binary(interaction_id) and
-              is_binary(source_actor_event_id) and is_binary(control_id) and
+              is_binary(source_signal_id) and is_binary(control_id) and
               is_integer(revision) and is_binary(input_name) do
     if action["disabled"] == true do
       []
     else
-      case ReplyPresentation.callback_value(source_actor_event_id, action) do
+      case ReplyPresentation.callback_value(source_signal_id, action) do
         {:ok, value} ->
           [
             %{
@@ -245,8 +241,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
 
   defp encode_actions([]), do: ""
   defp encode_actions(descriptors), do: Ankole.JSON.encode!(descriptors)
-
-  # open space
 
   @doc "Create-time open-space model for a card instance."
   @spec create_model(space()) :: map()

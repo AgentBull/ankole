@@ -1,6 +1,9 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import i18n, { loadLocale } from '../../common/i18n'
 import type { AppConfigurationItem } from '../api/generated/types.gen'
-import { settingGroupID, settingGroupPrefix, settingOwnerRoute, settingRows } from './setting-groups'
+import { settingDescription, settingGroup, settingGroupID, settingOwnerRoute, settingRows } from './setting-groups'
+
+beforeAll(() => loadLocale('zh-Hans-CN'))
 
 function item(key: string, overrides: Partial<AppConfigurationItem> = {}): AppConfigurationItem {
   return {
@@ -23,7 +26,8 @@ describe('setting groups', () => {
     expect(settingGroupID('observability.tracestore.enabled')).toBeUndefined()
     expect(settingGroupID('observability.metrics.enabled')).toBeUndefined()
     expect(settingGroupID('ai_agent.max_iterations')).toBeUndefined()
-    expect(settingGroupPrefix('observability')).toBe('observability.traces.')
+    expect(settingGroup('observability')).toEqual({ id: 'observability', prefix: 'observability.traces.' })
+    expect(settingGroup('unknown')).toBeUndefined()
   })
 
   test('collects group members and leaves other keys as their own rows', () => {
@@ -67,5 +71,35 @@ describe('setting groups', () => {
   test('sends the identity activation list to the page that writes it', () => {
     expect(settingOwnerRoute('principals.identity_providers.active')).toBe('/identity')
     expect(settingOwnerRoute('observability.traces.enabled')).toBeUndefined()
+  })
+})
+
+describe('setting descriptions', () => {
+  const t = i18n.getFixedT('zh-Hans-CN')
+
+  test('localizes exact and concrete pattern keys through their registry identity', () => {
+    expect(
+      settingDescription(t, {
+        key: 'plugins.enabled_ids',
+        description: 'Plugin ids enabled on the next Ankole process start.'
+      })
+    ).toBe('下次 Ankole 进程启动时启用的 Control Plane Plugin ID。')
+
+    expect(
+      settingDescription(t, {
+        key: 'signals.lark.bindings.primary',
+        pattern_id: 'signals.lark.bindings.*',
+        description: 'Encrypted Lark / Feishu chat binding configuration.'
+      })
+    ).toBe('加密的 Lark / 飞书聊天渠道配置。')
+  })
+
+  test('falls back to the canonical registry description for an untranslated key', () => {
+    expect(
+      settingDescription(t, {
+        key: 'extension.future_key',
+        description: 'Future extension setting.'
+      })
+    ).toBe('Future extension setting.')
   })
 })

@@ -1,13 +1,11 @@
 defmodule Ankole.AIGateway.CompactionSummarizer do
   @moduledoc false
 
-  alias Ankole.AIGateway.{
-    CompactionPrompt,
-    CompactionRender,
-    ModelMetadata,
-    ResponsesPreparation,
-    ResponseStream
-  }
+  alias Ankole.AIGateway.CompactionPrompt
+  alias Ankole.AIGateway.CompactionRender
+  alias Ankole.AIGateway.ModelMetadata
+  alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.ResponseStream
 
   alias Ankole.Logging
 

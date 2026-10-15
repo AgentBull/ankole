@@ -1374,8 +1374,6 @@ fn openai_chat_stream_round_trips_tool_call_extra_content() {
         item_types(&terminal_output),
         ["message", "reasoning", "function_call", "function_call"]
     );
-    // A tool-loop Response keeps its items in `output_item.done` order, which
-    // puts the reasoning item before the assistant text.
     let done_output = events
         .iter()
         .filter(|event| event["type"] == "response.output_item.done")
@@ -3011,8 +3009,7 @@ fn anthropic_replays_tool_calls_without_a_reasoning_envelope() {
     let body = Value::Object(replay.build_body().unwrap());
     let messages = body["messages"].as_array().unwrap();
 
-    // One assistant turn, then its tool result. Thinking is off here, so the turn
-    // has to rebuild from the public items alone.
+    // Thinking is off, so the turn rebuilds from the public items alone.
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0]["role"], "assistant");
     assert_eq!(
@@ -4546,7 +4543,6 @@ fn openai_responses_emulation_restores_streamed_function_calls() {
     assert!(events[0].get("arguments").is_none());
     assert_eq!(events[0]["sequence_number"], 1);
 
-    // A plain function tool keeps its official streaming shape.
     let events = resolver
         .ingest(json!({
             "type": "response.output_item.added",

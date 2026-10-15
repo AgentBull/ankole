@@ -44,10 +44,7 @@ html {
   }
 }
 
-/* The components layer keeps these below Tailwind utilities, so a usage site can
-   override --grid-line or the mask without a specificity fight. */
 @layer components {
-  /* The 2x Grid drawn as a background graphic. */
   .grid-field {
     --grid-line: color-mix(in oklab, var(--border) 55%, transparent);
     background-image:
@@ -56,11 +53,6 @@ html {
     background-size: 4rem 4rem;
   }
 
-  /*
-   * A record answering the pointer: a brand rule draws along the edge it already has,
-   * and the row's own quiet text comes up a step. No geometry moves, so a row can be
-   * read and hovered at the same time. Keyboard focus gets the same answer.
-   */
   .record {
     position: relative;
   }
@@ -113,11 +105,7 @@ html {
   }
 }
 
-/*
- * Unlayered on purpose. `.record-quiet` overrides `text-muted-foreground`, and a Tailwind
- * utility lives in the utilities layer, which wins against any selector inside an earlier
- * layer however specific it is. Cascade layers beat specificity, so this rule leaves them.
- */
+/* Unlayered so `.record-quiet` overrides the `text-muted-foreground` utility. */
 .record .record-quiet {
   transition: color var(--duration-feedback) var(--ease-productive);
 }
@@ -149,7 +137,6 @@ html {
     animation-delay: calc(var(--step, 0) * 0.34s + var(--hold, 0s) + 0.2s);
   }
 
-  /* The beat the page turns on: it lands harder and holds a moment longer. */
   [data-replay='beat'] {
     animation-name: replay-beat;
     animation-duration: 0.78s;
@@ -228,7 +215,6 @@ html.js-reveal [data-reveal='wipe']:not(.is-in) {
   }
 }
 
-/* Docs article typography: bind prose colors to the site theme tokens. */
 .prose {
   --tw-prose-body: var(--foreground);
   --tw-prose-headings: var(--foreground);

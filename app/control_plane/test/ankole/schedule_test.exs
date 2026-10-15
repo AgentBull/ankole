@@ -3,12 +3,16 @@ defmodule Ankole.ScheduleTest do
   use Ankole.DataCase, async: false
 
   alias Ankole.AIGateway.Conversations
-  alias Ankole.Conversations.{Admission, Context, Run, ToolCatalog, Tools}
+  alias Ankole.Sessions.Admission
+  alias Ankole.Sessions.Context
+  alias Ankole.Sessions.Run
+  alias Ankole.Sessions.ToolCatalog
+  alias Ankole.Sessions.Tools
 
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
   alias Ankole.PluginFixtures.MockSignalProvider.Inbound, as: MockInbound
   alias Ankole.Plugins.Spec
@@ -16,16 +20,16 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.Schedule
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.InboundBatch
-  alias Ankole.SignalsGateway.Ingress
-  alias Ankole.SignalsGateway.OutboxEntry
 
-  import Ankole.SignalsGateway.ActorRuntimeCase,
-    only: [complete_actor_event: 4, wait_for_final_mirror: 1]
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.InboundBatch
+  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.Delivery.Intent
 
-  import Ankole.SignalsGatewayFixtures, only: [outbox_adapter: 2]
+  import Ankole.SessionsCase,
+    only: [complete_signal: 4, wait_for_final_mirror: 1]
+
+  import Ankole.SignalsFixtures, only: [delivery_adapter: 2]
   import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
   @base_time DateTime.utc_now(:microsecond)
@@ -43,7 +47,7 @@ defmodule Ankole.ScheduleTest do
         wake_payload: %{},
         last_fire_error: %{
           "reason" => "provider request #{internal_id} failed",
-          "actor_event_id" => internal_id
+          "signal_id" => internal_id
         }
       }
 
@@ -59,7 +63,7 @@ defmodule Ankole.ScheduleTest do
              }
     end
 
-    test "check_back_later creates one wake edge and fires one actor event idempotently" do
+    test "check_back_later creates one wake edge and fires one signal idempotently" do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
       due_at = DateTime.add(@base_time, 5, :minute)
 
@@ -72,7 +76,7 @@ defmodule Ankole.ScheduleTest do
                Schedule.create_check_back_later(attrs, now: @base_time)
 
       assert event.due_at == due_at
-      assert event.source_entry_id == "msg-source"
+      assert event.provider_message_id == "msg-source"
       assert event.wake_payload["quiet_success"] == false
 
       assert {:ok, %{status: :already_scheduled, scheduled_event: duplicate}} =
@@ -80,15 +84,15 @@ defmodule Ankole.ScheduleTest do
 
       assert duplicate.id == event.id
 
-      assert {:ok, %{status: :fired, actor_event: input}} =
+      assert {:ok, %{status: :fired, signal: input}} =
                Schedule.fire_due_event(event.id, now: due_at)
 
       assert input.type == "check_back_later.wakeup"
       assert input.source_event_id == "check_back_later:#{event.id}:wakeup"
-      assert get_in(input.payload, ["data", "wake_payload", "check"]) == "Check the incident."
+      assert get_in(input.data, ["wake_payload", "check"]) == "Check the incident."
 
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(event.id, now: due_at)
-      assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
+      assert Repo.aggregate(from(e in Signal, where: e.type != "test.work"), :count) == 1
     end
 
     test "updating a checkback preserves its id and due time while replacing wake instructions" do
@@ -140,14 +144,14 @@ defmodule Ankole.ScheduleTest do
 
       assert duplicate.id == original.id
 
-      assert {:ok, %{status: :fired, actor_event: wakeup}} =
+      assert {:ok, %{status: :fired, signal: wakeup}} =
                Schedule.fire_due_event(original.id, now: due_at)
 
-      assert get_in(wakeup.payload, ["data", "wake_payload", "check"]) ==
+      assert get_in(wakeup.data, ["wake_payload", "check"]) ==
                "Let the evidence determine the PDF length."
 
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(original.id, now: due_at)
-      assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
+      assert Repo.aggregate(from(e in Signal, where: e.type != "test.work"), :count) == 1
     end
 
     test "successive updates and cancellation keep one checkback id" do
@@ -190,7 +194,7 @@ defmodule Ankole.ScheduleTest do
       assert {:ok, ^cancelled} = Schedule.cancel_checkback(original.id, now: @base_time)
       assert Schedule.list_pending_checkbacks(agent.uid, original.session_id) == []
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(original.id, now: due_at)
-      assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 0
+      assert Repo.aggregate(from(e in Signal, where: e.type != "test.work"), :count) == 0
     end
 
     test "a checkback replaced by an earlier version returns checkback_replaced" do
@@ -241,7 +245,7 @@ defmodule Ankole.ScheduleTest do
       jobs =
         from j in Oban.Job,
           where:
-            j.worker == "Ankole.SignalsGateway.ActorRuntime.Jobs.FireScheduledEvent" and
+            j.worker == "Ankole.Sessions.Jobs.FireScheduledEvent" and
               fragment("?->>'scheduled_event_id' = ?", j.args, ^Integer.to_string(event.id))
 
       assert {1, _} = Repo.update_all(jobs, set: [state: "executing"])
@@ -259,7 +263,7 @@ defmodule Ankole.ScheduleTest do
       assert Enum.sort(Repo.all(from j in jobs, select: j.state)) == ["executing", "scheduled"]
       assert {:ok, %{status: :fired}} = Schedule.fire_due_event(event.id, now: due_at)
       assert {:ok, %{status: :noop}} = Schedule.fire_due_event(event.id, now: due_at)
-      assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
+      assert Repo.aggregate(from(e in Signal, where: e.type != "test.work"), :count) == 1
     end
 
     test "fire failures persist diagnostics and mark final attempt failed" do
@@ -276,21 +280,21 @@ defmodule Ankole.ScheduleTest do
 
       ScheduledEvent
       |> where([scheduled_event], scheduled_event.id == ^event.id)
-      |> Repo.update_all(set: [binding_name: ""])
+      |> Repo.update_all(set: [session_id: ""])
 
-      assert {:error, %Ecto.Changeset{}} =
+      assert {:error, :invalid_signal_target} =
                Schedule.fire_due_event(event.id, now: due_at, attempt: 3, max_attempts: 10)
 
       retried = Repo.get!(ScheduledEvent, event.id)
       assert retried.status == "scheduled"
-      assert retried.last_fire_error["reason"] =~ "binding_name"
+      assert retried.last_fire_error["reason"] =~ "invalid_signal_target"
 
-      assert {:error, %Ecto.Changeset{}} =
+      assert {:error, :invalid_signal_target} =
                Schedule.fire_due_event(event.id, now: due_at, attempt: 10, max_attempts: 10)
 
       failed = Repo.get!(ScheduledEvent, event.id)
       assert failed.status == "failed"
-      assert failed.last_fire_error["reason"] =~ "binding_name"
+      assert failed.last_fire_error["reason"] =~ "invalid_signal_target"
     end
 
     test "FireScheduledEvent Oban job fires a due scheduled event" do
@@ -307,7 +311,7 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert :ok =
-               perform_job(Ankole.SignalsGateway.ActorRuntime.Jobs.FireScheduledEvent, %{
+               perform_job(Ankole.Sessions.Jobs.FireScheduledEvent, %{
                  "scheduled_event_id" => event.id
                })
 
@@ -315,11 +319,11 @@ defmodule Ankole.ScheduleTest do
       assert fired.status == "fired"
       assert %DateTime{} = fired.fired_at
 
-      assert %ActorEvent{type: "check_back_later.wakeup"} =
-               Repo.get!(ActorEvent, fired.actor_event_id)
+      assert %Signal{type: "check_back_later.wakeup"} =
+               Repo.get!(Signal, fired.signal_id)
     end
 
-    test "a slot history rejects a second automatic ActorEvent" do
+    test "a slot history rejects a second automatic Signal" do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
       slot = DateTime.add(@base_time, 1, :minute)
 
@@ -328,13 +332,13 @@ defmodule Ankole.ScheduleTest do
                  now: @base_time
                )
 
-      assert {:ok, %{actor_event: event}} = Schedule.fire_cron(rule.id, now: slot)
+      assert {:ok, %{signal: event}} = Schedule.fire_cron(rule.id, now: slot)
       Repo.update!(Ecto.Changeset.change(Repo.reload!(rule), next_fire_at: slot))
       assert {:error, %Ecto.Changeset{} = error} = Schedule.fire_cron(rule.id, now: slot)
       assert %{cron_schedule_id: [_ | _]} = errors_on(error)
 
       assert Repo.aggregate(
-               from(e in ActorEvent, where: e.source_event_id == ^event.source_event_id),
+               from(e in Signal, where: e.source_event_id == ^event.source_event_id),
                :count
              ) == 1
 
@@ -361,12 +365,12 @@ defmodule Ankole.ScheduleTest do
       pending = cron_job(rule.id)
       assert pending.id != old.id
       assert pending.scheduled_at == slot
-      assert {:ok, %{actor_event: event}} = Schedule.fire_cron(rule.id, now: slot)
+      assert {:ok, %{signal: event}} = Schedule.fire_cron(rule.id, now: slot)
       assert {:ok, %{status: :noop}} = Schedule.fire_cron(rule.id, now: slot)
       assert cron_job(rule.id).scheduled_at == DateTime.add(slot, 1, :minute)
 
       assert Repo.aggregate(
-               from(e in ActorEvent, where: e.source_event_id == ^event.source_event_id),
+               from(e in Signal, where: e.source_event_id == ^event.source_event_id),
                :count
              ) == 1
     end
@@ -401,7 +405,7 @@ defmodule Ankole.ScheduleTest do
                Schedule.fire_cron(rule.id, now: slot)
 
       assert Schedule.list_cron_runs(rule.id) == []
-      assert Repo.aggregate(ActorEvent, :count) == 0
+      assert Repo.aggregate(Signal, :count) == 0
     end
 
     test "a cron rule cannot renew a revoked Human authorization" do
@@ -413,13 +417,13 @@ defmodule Ankole.ScheduleTest do
       assert disabled.access_version > rule.human_access_version
       assert {:error, :human_access_revoked} = Schedule.fire_cron(rule.id, now: rule.next_fire_at)
       assert Schedule.list_cron_runs(rule.id) == []
-      assert Repo.aggregate(ActorEvent, :count) == 0
+      assert Repo.aggregate(Signal, :count) == 0
     end
 
-    test "automatic cron history and ActorEvent retain the rule Human authorization" do
+    test "automatic cron history and Signal retain the rule Human authorization" do
       {rule, _human} = human_cron_rule()
 
-      assert {:ok, %{scheduled_event: history, actor_event: event}} =
+      assert {:ok, %{scheduled_event: history, signal: event}} =
                Schedule.fire_cron(rule.id, now: rule.next_fire_at)
 
       assert Ankole.Principals.WorkAccess.fields(history) ==
@@ -436,7 +440,7 @@ defmodule Ankole.ScheduleTest do
                create_cron_schedule(cron_attrs(agent.uid, []), now: @base_time)
 
       assert rule.authorization_kind == "service"
-      assert {:ok, %{actor_event: event}} = Schedule.fire_cron(rule.id, now: rule.next_fire_at)
+      assert {:ok, %{signal: event}} = Schedule.fire_cron(rule.id, now: rule.next_fire_at)
       assert event.authorization_kind == "service"
     end
 
@@ -449,7 +453,7 @@ defmodule Ankole.ScheduleTest do
       Repo.update!(Ecto.Changeset.change(tenant, suspended_at: @base_time))
       assert {:error, :tenant_suspended} = Schedule.fire_cron(rule.id, now: rule.next_fire_at)
       assert Schedule.list_cron_runs(rule.id) == []
-      assert Repo.aggregate(ActorEvent, :count) == 0
+      assert Repo.aggregate(Signal, :count) == 0
     end
 
     test "cron fire coalesces missed backlog and carries configured delivery route" do
@@ -482,26 +486,26 @@ defmodule Ankole.ScheduleTest do
                "targets" => [
                  %{
                    "binding_name" => "bot",
-                   "signal_channel_id" => "mock:chat:schedule",
+                   "conversation_id" => public_conversation_id("mock:chat:schedule"),
                    "provider_thread_id" => "thread-schedule"
                  }
                ]
              }
 
-      assert {:ok, %{status: :fired, actor_event: input, scheduled_event: event}} =
+      assert {:ok, %{status: :fired, signal: input, scheduled_event: event}} =
                Schedule.fire_cron(schedule.id, now: late_fire)
 
       assert event.due_at == first_slot
-      assert event.signal_channel_id == "mock:chat:schedule"
+      assert event.conversation_id == public_conversation_id("mock:chat:schedule")
       assert event.provider_thread_id == "thread-schedule"
       assert event.origin_ai_message_id == origin_ai_message.id
       assert input.source_event_id == "cron:#{schedule.id}:#{DateTime.to_iso8601(first_slot)}"
 
-      assert get_in(input.payload, ["data", "cron_fire_slot_at"]) ==
+      assert get_in(input.data, ["cron_fire_slot_at"]) ==
                DateTime.to_iso8601(first_slot)
 
-      assert input.payload["subject"] == "schedule:#{event.id}"
-      assert get_in(input.payload, ["data", "wake_payload"]) == event.wake_payload
+      assert input.subject == "schedule:#{event.id}"
+      assert get_in(input.data, ["wake_payload"]) == event.wake_payload
       assert event.wake_payload["trigger"] == "scheduled"
       assert event.wake_payload["cron_schedule_name"] == schedule.name
       assert event.wake_payload["payload"] == schedule.payload
@@ -510,8 +514,8 @@ defmodule Ankole.ScheduleTest do
       assert input.type == "cron.fire"
       assert input.session_id == Schedule.cron_execution_session_id(schedule.id)
       assert input.session_id != schedule.owner_session_id
-      assert input.signal_channel_id == "mock:chat:schedule"
-      assert input.source_entry_id == nil
+      assert input.conversation_id == public_conversation_id("mock:chat:schedule")
+      assert input.provider_message_id == nil
 
       reloaded = Schedule.get_cron_schedule(schedule.id) |> elem(1)
       assert reloaded.last_fire_at == first_slot
@@ -566,12 +570,12 @@ defmodule Ankole.ScheduleTest do
       targets = [
         %{
           "binding_name" => "bot",
-          "signal_channel_id" => "mock:chat:schedule",
+          "conversation_id" => public_conversation_id("mock:chat:schedule"),
           "provider_thread_id" => "thread-schedule"
         },
         %{
           "binding_name" => "secondary-bot",
-          "signal_channel_id" => "mock:chat:secondary"
+          "conversation_id" => public_conversation_id("mock:chat:secondary")
         }
       ]
 
@@ -605,7 +609,8 @@ defmodule Ankole.ScheduleTest do
         hd(targets),
         %{
           "binding_name" => "archive-bot",
-          "signal_channel_id" => "mock:chat:archive"
+          "conversation_id" =>
+            public_conversation_id("mock:chat:archive", agent.uid, "archive-bot")
         }
       ]
 
@@ -658,7 +663,7 @@ defmodule Ankole.ScheduleTest do
                  cron_attrs(agent.uid,
                    name: "invalid-target-list",
                    idempotency_key: "invalid-target-list",
-                   delivery: %{"signal_channel_id" => "mock:chat:legacy"}
+                   delivery: %{"conversation_id" => public_conversation_id("mock:chat:legacy")}
                  ),
                  now: @base_time
                )
@@ -832,10 +837,10 @@ defmodule Ankole.ScheduleTest do
       assert second.id != first.id
       assert first.cron_fire_slot_at == second.cron_fire_slot_at
 
-      assert {:ok, %{actor_event: first_input}} =
+      assert {:ok, %{signal: first_input}} =
                Schedule.fire_due_event(first.id, now: @base_time)
 
-      assert {:ok, %{actor_event: second_input}} =
+      assert {:ok, %{signal: second_input}} =
                Schedule.fire_due_event(second.id, now: @base_time)
 
       assert first_input.source_event_id == "cron-manual:#{schedule.id}:call-manual-1"
@@ -1126,6 +1131,7 @@ defmodule Ankole.ScheduleTest do
           |> Repo.delete_all()
 
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent_uid)
+          Repo.delete_all(Ankole.Conversations.Conversation)
           Repo.get!(Ankole.Tenants.Tenant, tenant_id) |> Repo.delete!()
         end)
       end)
@@ -1195,8 +1201,8 @@ defmodule Ankole.ScheduleTest do
 
         source_event_id = "cron:#{schedule.id}:#{DateTime.to_iso8601(first_slot)}"
 
-        assert ActorEvent
-               |> where([actor_event], actor_event.source_event_id == ^source_event_id)
+        assert Signal
+               |> where([signal], signal.source_event_id == ^source_event_id)
                |> Repo.aggregate(:count) == 1
       end)
     end
@@ -1354,7 +1360,7 @@ defmodule Ankole.ScheduleTest do
       end
 
       active_execution_conversation = fn ->
-        Ankole.SignalsGateway.AIGatewayLink.active_conversation(agent.uid, execution_session_id)
+        Ankole.Sessions.ModelHistory.active_conversation(agent.uid, execution_session_id)
       end
 
       first = ensure_execution_conversation.()
@@ -1383,7 +1389,8 @@ defmodule Ankole.ScheduleTest do
                    "targets" => [
                      %{
                        "binding_name" => "bot",
-                       "signal_channel_id" => "mock:chat:elsewhere",
+                       "conversation_id" =>
+                         public_conversation_id("mock:chat:elsewhere", agent.uid, "bot"),
                        "provider_thread_id" => "thread-elsewhere"
                      }
                    ]
@@ -1463,10 +1470,10 @@ defmodule Ankole.ScheduleTest do
 
       assert manual_event.wake_payload["trigger"] == "manual"
 
-      assert {:ok, %{status: :fired, actor_event: actor_event}} =
+      assert {:ok, %{status: :fired, signal: signal}} =
                Schedule.fire_due_event(manual_event.id, now: now)
 
-      assert actor_event.type == "cron.fire"
+      assert signal.type == "cron.fire"
 
       assert {:ok, unchanged} = Schedule.get_cron_schedule(schedule.id)
       assert unchanged.status == "paused"
@@ -1587,7 +1594,7 @@ defmodule Ankole.ScheduleTest do
                Schedule.create_check_back_later(
                  checkback_attrs(agent.uid,
                    idempotency_key: "missing-source-actor-event",
-                   source_actor_event_id: Ecto.UUID.generate(),
+                   source_signal_id: Ecto.UUID.generate(),
                    schedule: %{"at" => DateTime.to_iso8601(due_at), "timezone" => "Etc/UTC"}
                  ),
                  now: @base_time
@@ -1617,14 +1624,14 @@ defmodule Ankole.ScheduleTest do
                    timezone: "Etc/UTC",
                    requested_at: @base_time,
                    idempotency_key: "missing-fired-actor-event",
-                   actor_event_id: Ecto.UUID.generate(),
+                   signal_id: Ecto.UUID.generate(),
                    source_provenance: %{},
                    wake_payload: %{},
                    last_fire_error: %{}
                  })
                )
 
-      assert %{actor_event_id: [_ | _]} = errors_on(changeset)
+      assert %{signal_id: [_ | _]} = errors_on(changeset)
     end
 
     test "cancelled checkback does not fire after source entry tombstone" do
@@ -1634,13 +1641,13 @@ defmodule Ankole.ScheduleTest do
                  %{principal: agent} = agent_fixture()
                  binding_fixture(agent.uid, "bot", :ignore)
 
-                 assert {:ok, %{actor_event: source_event}} =
+                 assert {:ok, %{signal: source_event}} =
                           emit_entry(agent.uid, "bot", group_entry(%{explicit: true}),
                             now: @base_time
                           )
 
                  assert {:ok, _consumed} =
-                          complete_actor_event(
+                          complete_signal(
                             agent.uid,
                             "bot",
                             source_event.source_event_id,
@@ -1654,11 +1661,11 @@ defmodule Ankole.ScheduleTest do
                             checkback_attrs(agent.uid,
                               session_id: source_event.session_id,
                               reply_route: %{
-                                "signal_channel_id" => source_event.signal_channel_id,
+                                "conversation_id" => source_event.conversation_id,
                                 "provider_thread_id" => source_event.provider_thread_id,
-                                "source_entry_id" => source_event.source_entry_id
+                                "provider_message_id" => source_event.provider_message_id
                               },
-                              source_actor_event_id: source_event.id,
+                              source_signal_id: source_event.id,
                               schedule: %{
                                 "at" => DateTime.to_iso8601(due_at),
                                 "timezone" => "Etc/UTC"
@@ -1668,7 +1675,7 @@ defmodule Ankole.ScheduleTest do
                           )
 
                  assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
-                          Ingress.emit_entry_removed(
+                          Observe.emit_entry_removed(
                             agent.uid,
                             "bot",
                             lifecycle_entry(%{source_event_id: "delete-source"}),
@@ -1676,13 +1683,13 @@ defmodule Ankole.ScheduleTest do
                           )
 
                  assert {:ok, %{status: :entry_lifecycle_ignored, cancelled_checkbacks: 1}} =
-                          Ankole.SignalsGateway.ActorRuntime.EntryLifecycle.process(
+                          Ankole.Sessions.MessageLifecycle.process(
                             lifecycle_event,
                             now: DateTime.add(@base_time, 3, :second)
                           )
 
-                 assert %ActorEvent{completed_at: %DateTime{}} =
-                          Repo.get(ActorEvent, lifecycle_event.id)
+                 assert %Signal{completed_at: %DateTime{}} =
+                          Repo.get(Signal, lifecycle_event.id)
 
                  assert Repo.get!(ScheduledEvent, event.id).status == "cancelled"
                  {:ok, event}
@@ -1697,7 +1704,7 @@ defmodule Ankole.ScheduleTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "mock", :ignore, "mock-provider")
 
-      {:ok, %{actor_event: source}} =
+      {:ok, %{signal: source}} =
         emit_entry(agent.uid, "mock", group_entry(%{explicit: true}), now: @base_time)
 
       run = admit_input(source, @base_time)
@@ -1714,9 +1721,9 @@ defmodule Ankole.ScheduleTest do
       refute result.is_error
       [event] = Repo.all(from e in ScheduledEvent, where: e.kind == "check_back_later")
       assert event.session_id == source.session_id
-      assert event.binding_name == source.binding_name
-      assert event.signal_channel_id == source.signal_channel_id
-      assert event.source_actor_event_id == source.id
+      assert event.binding_name == source.reply_binding_name
+      assert event.conversation_id == source.conversation_id
+      assert event.source_signal_id == source.id
       replacement = admit_input(Repo.reload!(source), DateTime.utc_now(:microsecond))
       assert replacement.epoch > run.epoch
       {_, repeated} = execute_tool(replacement, "check_back_later", args)
@@ -1728,7 +1735,7 @@ defmodule Ankole.ScheduleTest do
                :count
              ) == 1
 
-      assert Repo.get!(Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker, agent.uid).state ==
+      assert Repo.get!(Ankole.AgentWorkers.AgentWorker, agent.uid).state ==
                "absent"
     end
 
@@ -1747,8 +1754,8 @@ defmodule Ankole.ScheduleTest do
             "message.receive",
             %{
               source_event_id: "mock-dashboard-cron-request",
-              signal_channel_id: "mock:chat:dashboard",
-              source_entry_id: "mock-dashboard-request-message",
+              conversation_id: "mock:chat:dashboard",
+              provider_message_id: "mock-dashboard-request-message",
               provider_thread_id: "mock-dashboard-thread",
               text: "Every morning at 7 check https://status.internal and report each service.",
               explicit: true,
@@ -1762,7 +1769,7 @@ defmodule Ankole.ScheduleTest do
       {:ok, received} =
         Repo.transact(fn _repo -> {:ok, maybe_finalize_test_inbound_batch(received)} end)
 
-      source = received.actor_event
+      source = received.signal
       run = admit_input(source, @base_time)
 
       {run, result} =
@@ -1791,8 +1798,8 @@ defmodule Ankole.ScheduleTest do
         )
 
       ack = complete_turn_via_aigateway!(run, "Scheduled for 07:00 Asia/Shanghai.")
-      dispatch_final_reply_outbox!(ack.id)
-      assert wait_for_final_mirror(ack.id).signal_channel_id == source.signal_channel_id
+      dispatch_final_reply_intent!(ack.id)
+      assert wait_for_final_mirror(ack.id).message.conversation_id == source.conversation_id
       due = DateTime.add(DateTime.utc_now(:microsecond), -1)
       Repo.update!(CronSchedule.changeset(schedule, %{next_fire_at: due}))
 
@@ -1806,11 +1813,11 @@ defmodule Ankole.ScheduleTest do
                |> elem(1)
 
       [event] = Schedule.list_cron_runs(schedule.id, 10)
-      input = Repo.get!(ActorEvent, event.actor_event_id)
+      input = Repo.get!(Signal, event.signal_id)
       assert input.type == "cron.fire"
-      assert input.signal_channel_id == source.signal_channel_id
+      assert input.conversation_id == source.conversation_id
 
-      assert get_in(input.payload, ["data", "wake_payload", "payload", "dashboard_url"]) ==
+      assert get_in(input.data, ["wake_payload", "payload", "dashboard_url"]) ==
                "https://status.internal"
 
       run = admit_input(input, DateTime.utc_now(:microsecond))
@@ -1821,11 +1828,11 @@ defmodule Ankole.ScheduleTest do
       final =
         complete_turn_via_aigateway!(run, report)
 
-      dispatch_final_reply_outbox!(final.id)
+      dispatch_final_reply_intent!(final.id)
       mirror = wait_for_final_mirror(final.id)
-      assert mirror.text == report
-      assert mirror.signal_channel_id == source.signal_channel_id
-      assert mirror.metadata["actor_event_id"] == input.id
+      assert mirror.message.text == report
+      assert mirror.message.conversation_id == source.conversation_id
+      assert mirror.external_ref.metadata["signal_id"] == input.id
     end
 
     test "a checkback can finish silently only with explicit quiet success" do
@@ -1843,7 +1850,7 @@ defmodule Ankole.ScheduleTest do
             now: @base_time
           )
 
-        {:ok, %{actor_event: input}} =
+        {:ok, %{signal: input}} =
           Repo.transact(fn _repo -> Schedule.fire_due_event(event.id, now: due) end)
 
         run = admit_input(input, due)
@@ -1851,7 +1858,7 @@ defmodule Ankole.ScheduleTest do
 
         if quiet do
           refute result.is_error
-          assert {:finalize, %{outcome: :silent}} = Ankole.Conversations.Machine.next(run)
+          assert {:finalize, %{outcome: :silent}} = Ankole.Sessions.Machine.next(run)
           assert {:ok, _} = Run.finalize(run, :silent)
           assert Repo.reload!(input).completed_at
         else
@@ -1863,7 +1870,7 @@ defmodule Ankole.ScheduleTest do
         end
       end
 
-      assert Repo.aggregate(OutboxEntry, :count) == 0
+      assert Repo.aggregate(Intent, :count) == 0
     end
 
     test "cron replies post to configured delivery without a Worker" do
@@ -1878,13 +1885,13 @@ defmodule Ankole.ScheduleTest do
           "Daily digest is ready."
         )
 
-      dispatch_final_reply_outbox!(final.id)
+      dispatch_final_reply_intent!(final.id)
       mirror = wait_for_final_mirror(final.id)
-      assert mirror.signal_channel_id == "mock:chat:schedule"
-      assert mirror.text == "Daily digest is ready."
-      assert mirror.metadata["actor_event_id"] == input.id
+      assert mirror.message.conversation_id == public_conversation_id("mock:chat:schedule")
+      assert mirror.message.text == "Daily digest is ready."
+      assert mirror.external_ref.metadata["signal_id"] == input.id
 
-      assert Repo.get!(Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker, agent.uid).state ==
+      assert Repo.get!(Ankole.AgentWorkers.AgentWorker, agent.uid).state ==
                "absent"
     end
 
@@ -1893,7 +1900,7 @@ defmodule Ankole.ScheduleTest do
       binding_fixture(agent.uid, "bot", :ignore, "mock-provider")
       seed_mock_channel(agent.uid, "bot")
 
-      {:ok, %{actor_event: owner}} =
+      {:ok, %{signal: owner}} =
         emit_entry(agent.uid, "bot", group_entry(%{explicit: true}), now: @base_time)
 
       owner_run = admit_input(owner, @base_time)
@@ -1904,17 +1911,17 @@ defmodule Ankole.ScheduleTest do
       {:ok, %{scheduled_event: manual}} =
         Schedule.run_cron_schedule(schedule.id, idempotency_key: "manual-while-running", now: due)
 
-      {:ok, %{actor_event: next}} =
+      {:ok, %{signal: next}} =
         Repo.transact(fn _repo -> Schedule.fire_due_event(manual.id, now: due) end)
 
       assert next.session_id == input.session_id
 
-      assert Ankole.SignalsGateway.Actors.next_ready_event(agent.uid, input.session_id, due).id ==
+      assert Ankole.Sessions.Queue.next_ready_event(agent.uid, input.session_id, due).id ==
                input.id
 
       complete_turn_via_aigateway!(run, "First fire done.")
 
-      assert Ankole.SignalsGateway.Actors.next_ready_event(agent.uid, input.session_id, due).id ==
+      assert Ankole.Sessions.Queue.next_ready_event(agent.uid, input.session_id, due).id ==
                next.id
     end
 
@@ -1953,13 +1960,18 @@ defmodule Ankole.ScheduleTest do
       complete_turn_via_aigateway!(run, "Done; paused.")
     end
 
-    test "cron quiet success consumes the fire without an outbox" do
+    test "cron quiet success consumes the fire without an intent" do
       %{principal: agent} = agent_fixture()
 
       {_, input, run, _} =
         fire_cron(agent.uid,
           delivery: %{
-            "targets" => [%{"binding_name" => "bot", "signal_channel_id" => "mock:chat:schedule"}],
+            "targets" => [
+              %{
+                "binding_name" => "bot",
+                "conversation_id" => public_conversation_id("mock:chat:schedule")
+              }
+            ],
             "quiet_success" => true
           }
         )
@@ -1969,7 +1981,7 @@ defmodule Ankole.ScheduleTest do
       refute result.is_error
       assert {:ok, _} = Run.finalize(run, :silent)
       assert Repo.reload!(input).completed_at
-      assert Repo.aggregate(OutboxEntry, :count) == 0
+      assert Repo.aggregate(Intent, :count) == 0
     end
 
     test "session reset preserves an overdue cron fire until it materializes" do
@@ -1999,7 +2011,7 @@ defmodule Ankole.ScheduleTest do
       assert schedule.next_fire_at == first_slot
 
       assert {:ok, reset_event} =
-               append_runtime_actor_event(agent.uid, execution_session_id, "session.reset_due",
+               append_runtime_signal(agent.uid, execution_session_id, "session.reset_due",
                  now: reset_at,
                  boundary_at: reset_at
                )
@@ -2009,7 +2021,7 @@ defmodule Ankole.ScheduleTest do
                 status: :session_reset,
                 reset_event: ^reset_event
               }} =
-               Ankole.SignalsGateway.ActorRuntime.SessionReset.process_due(
+               Ankole.Sessions.SessionReset.process_due(
                  %{agent_uid: agent.uid, session_id: execution_session_id},
                  reset_event,
                  now: reset_at
@@ -2021,7 +2033,7 @@ defmodule Ankole.ScheduleTest do
       assert before_fire.last_fire_at == nil
       assert before_fire.next_fire_at == first_slot
 
-      assert {:ok, %{status: :fired, actor_event: cron_input}} =
+      assert {:ok, %{status: :fired, signal: cron_input}} =
                Schedule.fire_cron(schedule.id, now: reset_at)
 
       assert cron_input.type == "cron.fire"
@@ -2029,7 +2041,7 @@ defmodule Ankole.ScheduleTest do
       assert cron_input.source_event_id ==
                "cron:#{schedule.id}:#{DateTime.to_iso8601(first_slot)}"
 
-      assert get_in(cron_input.payload, ["data", "cron_fire_slot_at"]) ==
+      assert get_in(cron_input.data, ["cron_fire_slot_at"]) ==
                DateTime.to_iso8601(first_slot)
 
       assert {:ok, %{status: :noop}} = Schedule.fire_cron(schedule.id, now: reset_at)
@@ -2060,7 +2072,7 @@ defmodule Ankole.ScheduleTest do
                }
              })
 
-    :ok = Ankole.SignalsGateway.ActorRuntimeCase.cache_actor_runtime_models(provider_id)
+    :ok = Ankole.SessionsCase.cache_actor_runtime_models(provider_id)
 
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "primary", %{
@@ -2103,8 +2115,8 @@ defmodule Ankole.ScheduleTest do
                "message.receive",
                %{
                  source_event_id: "mock-channel-seed-#{binding_name}",
-                 signal_channel_id: "mock:chat:schedule",
-                 source_entry_id: "mock-channel-seed-message-#{binding_name}",
+                 conversation_id: "mock:chat:schedule",
+                 provider_message_id: "mock-channel-seed-message-#{binding_name}",
                  provider_thread_id: "thread-schedule",
                  text: "channel seed",
                  explicit: false,
@@ -2154,7 +2166,7 @@ defmodule Ankole.ScheduleTest do
         now: @base_time
       )
 
-    {:ok, %{actor_event: input}} =
+    {:ok, %{signal: input}} =
       Repo.transact(fn _repo -> Schedule.fire_cron(schedule.id, now: due) end)
 
     {schedule, input, admit_input(input, due), due}
@@ -2193,7 +2205,7 @@ defmodule Ankole.ScheduleTest do
   defp complete_turn_via_aigateway!(%{kind: :scheduled} = run, text) do
     {run, result} = execute_finish(run, "reply", text)
     refute result.is_error
-    assert {:ok, %{actor_event: event}} = Run.finalize(run, :loop_finished)
+    assert {:ok, %{signal: event}} = Run.finalize(run, :loop_finished)
 
     Ankole.Repo.get!(
       Ankole.AIGateway.Schemas.Message,
@@ -2207,28 +2219,28 @@ defmodule Ankole.ScheduleTest do
     complete
   end
 
-  defp dispatch_final_reply_outbox!(ai_message_id) do
-    outbox =
-      OutboxEntry
-      |> where([outbox], outbox.ai_message_id == ^ai_message_id)
+  defp dispatch_final_reply_intent!(ai_message_id) do
+    intent =
+      Intent
+      |> where([intent], intent.ai_message_id == ^ai_message_id)
       |> Repo.all()
-      |> Enum.find(fn outbox ->
-        get_in(outbox.payload, ["metadata", "source"]) == "ai_gateway_final_reply" and
-          get_in(outbox.payload, ["metadata", "delivery_target", "primary"]) != false
+      |> Enum.find(fn intent ->
+        get_in(intent.payload, ["metadata", "source"]) == "ai_gateway_final_reply" and
+          get_in(intent.payload, ["metadata", "delivery_target", "primary"]) != false
       end)
 
-    case outbox do
-      %OutboxEntry{} = outbox ->
-        assert {:ok, %OutboxEntry{status: :succeeded}} =
-                 SignalsGateway.dispatch_outbox(
-                   outbox.agent_uid,
-                   outbox.binding_name,
-                   outbox.outbound_key,
-                   outbox_adapter([:post_entry, :reply_entry, :edit_entry], fn outbox ->
+    case intent do
+      %Intent{} = intent ->
+        assert {:ok, %Intent{status: :sent}} =
+                 Ankole.Conversations.Delivery.dispatch(
+                   intent.agent_uid,
+                   intent.binding_name,
+                   intent.outbound_key,
+                   delivery_adapter([:post_entry, :reply_entry, :edit_entry], fn intent ->
                      {:ok,
                       %{
-                        created_source_entry_id:
-                          outbox.target_source_entry_id || "test-final-#{ai_message_id}",
+                        created_provider_message_id:
+                          intent.target_provider_message_id || "test-final-#{ai_message_id}",
                         raw_payload: %{"provider" => "test"}
                       }}
                    end)
@@ -2237,14 +2249,14 @@ defmodule Ankole.ScheduleTest do
         :ok
 
       nil ->
-        flunk("expected final reply outbox for ai_message_id=#{ai_message_id}")
+        flunk("expected final reply intent for ai_message_id=#{ai_message_id}")
     end
   end
 
   defp checkback_attrs(agent_uid, overrides) do
     Map.merge(
       %{
-        "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+        "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
         "agent_uid" => agent_uid,
         "session_id" => "mock:chat:schedule",
         "binding_name" => "bot",
@@ -2255,9 +2267,9 @@ defmodule Ankole.ScheduleTest do
         "check" => "Check the incident.",
         "context_summary" => "The incident was pending.",
         "reply_route" => %{
-          "signal_channel_id" => "mock:chat:schedule",
+          "conversation_id" => public_conversation_id("mock:chat:schedule"),
           "provider_thread_id" => "thread-schedule",
-          "source_entry_id" => "msg-source"
+          "provider_message_id" => "msg-source"
         },
         "source_provenance" => %{"test" => true}
       },
@@ -2282,7 +2294,7 @@ defmodule Ankole.ScheduleTest do
           "targets" => [
             %{
               "binding_name" => "bot",
-              "signal_channel_id" => "mock:chat:schedule",
+              "conversation_id" => public_conversation_id("mock:chat:schedule"),
               "provider_thread_id" => "thread-schedule"
             }
           ]
@@ -2318,7 +2330,7 @@ defmodule Ankole.ScheduleTest do
 
   defp binding_fixture(agent_uid, name, policy, adapter \\ "lark") do
     {:ok, binding} =
-      SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: agent_uid,
         name: name,
         adapter: adapter,
@@ -2342,28 +2354,26 @@ defmodule Ankole.ScheduleTest do
 
   defp emit_entry(agent_uid, binding_name, input, opts) do
     Repo.transact(fn _repo ->
-      with {:ok, result} <- Ingress.emit_entry(agent_uid, binding_name, input, opts),
+      with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts),
            do: {:ok, maybe_finalize_test_inbound_batch(result)}
     end)
   end
 
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do
     with {:ok, finalized_results} <-
-           Ankole.SignalsGatewayFixtures.finalize_due_inbound_batch_events(
-             now: batch.available_at
-           ),
-         %ActorEvent{} = actor_event <- finalized_actor_event(finalized_results, batch.id) do
-      Map.put(result, :actor_event, actor_event)
+           Ankole.SignalsFixtures.finalize_due_inbound_batch_events(now: batch.available_at),
+         %Signal{} = signal <- finalized_signal(finalized_results, batch.id) do
+      Map.put(result, :signal, signal)
     else
-      _no_actor_event -> result
+      _no_signal -> result
     end
   end
 
   defp maybe_finalize_test_inbound_batch(result), do: result
 
-  defp finalized_actor_event(finalized_results, batch_id) do
+  defp finalized_signal(finalized_results, batch_id) do
     Enum.find_value(finalized_results, fn
-      %{inbound_batch: %InboundBatch{id: ^batch_id}, actor_event: %ActorEvent{} = input} -> input
+      %{inbound_batch: %InboundBatch{id: ^batch_id}, signal: %Signal{} = input} -> input
       _result -> nil
     end)
   end
@@ -2372,13 +2382,13 @@ defmodule Ankole.ScheduleTest do
     Map.merge(
       %{
         source_event_id: "evt-" <> Integer.to_string(System.unique_integer([:positive])),
-        signal_channel_id: "lark:chat:group-a",
-        source_entry_id: "msg-source",
+        provider_conversation_id: "lark:chat:group-a",
+        provider_message_id: "msg-source",
         provider_thread_id: "thread-1",
         channel: %{kind: :im_group, reply_mode: :entry, name: "Ops"},
         text: "PING",
         explicit: false,
-        author: Ankole.SignalsGatewayFixtures.group_entry().author,
+        author: Ankole.SignalsFixtures.group_entry().author,
         provider_time: @base_time
       },
       overrides
@@ -2389,8 +2399,8 @@ defmodule Ankole.ScheduleTest do
     Map.merge(
       %{
         source_event_id: "delete-1",
-        signal_channel_id: "lark:chat:group-a",
-        source_entry_id: "msg-source",
+        provider_conversation_id: "lark:chat:group-a",
+        provider_message_id: "msg-source",
         provider_thread_id: "thread-1",
         channel: %{kind: :im_group, reply_mode: :entry, name: "Ops"}
       },
@@ -2401,45 +2411,46 @@ defmodule Ankole.ScheduleTest do
   defp actor_commit_opts(opts) do
     Keyword.merge(
       [
-        actor_event_id: Ecto.UUID.generate(),
+        signal_id: Ecto.UUID.generate(),
         driver_epoch: 1
       ],
       opts
     )
   end
 
-  defp append_runtime_actor_event(agent_uid, session_id, type, opts) do
+  defp append_runtime_signal(agent_uid, session_id, type, opts) do
     now = Keyword.fetch!(opts, :now)
     boundary_at = Keyword.get(opts, :boundary_at, now)
     source_event_id = "#{type}-#{System.unique_integer([:positive])}"
 
     Repo.transact(fn repo ->
-      SignalsGateway.append_actor_event_in_tx(repo, %{
-        sender_key: agent_uid,
-        agent_uid: agent_uid,
-        binding_name: "control-plane:test",
-        session_id: session_id,
-        source_event_id: source_event_id,
+      Ankole.Signals.accept_in_tx(repo, %{
+        source: "control-plane://test",
+        authorization: Ankole.Principals.WorkAccess.service(),
+        id: source_event_id,
         type: type,
+        subject: session_id,
+        time: DateTime.to_iso8601(now),
         available_at: now,
-        payload: %{
-          "specversion" => "1.0",
-          "id" => source_event_id,
-          "source" => "control-plane://test",
-          "time" => DateTime.to_iso8601(now),
-          "type" => type,
-          "data" => %{
-            "session" => %{
-              "agent_uid" => agent_uid,
-              "session_id" => session_id,
-              "binding_name" => "control-plane:test"
-            },
-            "reset" => %{
-              "kind" => "daily",
-              "boundary_at" => DateTime.to_iso8601(boundary_at),
-              "timezone" => "Etc/UTC",
-              "local_time" => "04:30"
-            }
+        target: %{agent_uid: agent_uid, session_id: session_id},
+        sender: agent_uid,
+        reply_route: %{
+          binding_name: "control-plane:test",
+          conversation_id: nil,
+          provider_thread_id: nil,
+          provider_message_id: nil
+        },
+        data: %{
+          "session" => %{
+            "agent_uid" => agent_uid,
+            "session_id" => session_id,
+            "binding_name" => "control-plane:test"
+          },
+          "reset" => %{
+            "kind" => "daily",
+            "boundary_at" => DateTime.to_iso8601(boundary_at),
+            "timezone" => "Etc/UTC",
+            "local_time" => "04:30"
           }
         }
       })
@@ -2472,6 +2483,38 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp create_cron_schedule(attrs, opts) do
+    agent_uid = attrs["agent_uid"] || attrs[:agent_uid]
+    delivery = attrs["delivery"] || attrs[:delivery] || %{}
+
+    for target <- delivery["targets"] || [],
+        {:ok, id} <- [Ecto.UUID.cast(target["conversation_id"])],
+        %Ankole.Conversations.Conversation{} = conversation <- [
+          Repo.get_by(Ankole.Conversations.Conversation, id: id)
+        ],
+        is_binary(target["binding_name"]) do
+      name = target["binding_name"]
+
+      binding =
+        case Ankole.Signals.Bindings.get_binding(agent_uid, name) do
+          {:ok, binding} -> binding
+          _ -> binding_fixture(agent_uid, name, :ignore, "mock-provider")
+        end
+
+      assert {:ok, _} =
+               Repo.transact(fn repo ->
+                 Ankole.Conversations.External.observe_conversation_in_tx(
+                   repo,
+                   binding,
+                   %{
+                     provider_conversation_id: conversation.provider_conversation_id,
+                     external_kind: conversation.external_kind,
+                     reply_mode: conversation.reply_mode
+                   },
+                   @base_time
+                 )
+               end)
+    end
+
     Schedule.create_cron_schedule(
       attrs,
       Keyword.put_new(opts, :created_by, %{
@@ -2483,6 +2526,34 @@ defmodule Ankole.ScheduleTest do
           })
       })
     )
+  end
+
+  defp public_conversation_id(provider_id, agent_uid \\ nil, binding_name \\ "bot") do
+    conversation = Ankole.ExternalConversationsFixtures.external_conversation_fixture(provider_id)
+
+    if agent_uid do
+      binding =
+        case Ankole.Signals.Bindings.get_binding(agent_uid, binding_name) do
+          {:ok, binding} -> binding
+          _ -> binding_fixture(agent_uid, binding_name, :ignore, "mock-provider")
+        end
+
+      assert {:ok, _} =
+               Repo.transact(fn repo ->
+                 Ankole.Conversations.External.observe_conversation_in_tx(
+                   repo,
+                   binding,
+                   %{
+                     provider_conversation_id: provider_id,
+                     external_kind: conversation.external_kind,
+                     reply_mode: conversation.reply_mode
+                   },
+                   @base_time
+                 )
+               end)
+    end
+
+    conversation.id
   end
 
   defp stringify_keys(map) do

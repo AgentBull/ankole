@@ -11,7 +11,7 @@ defmodule AnkoleWeb.AIGatewayController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIGateway
-  alias Ankole.AIGateway.CodexModelBinding
+  alias Ankole.Sessions.CodexModelBinding
   alias Ankole.AIGateway.CodexModels
   alias Ankole.AIGateway.RequestContext
   alias Ankole.AIGateway.ResponseStream
@@ -43,7 +43,9 @@ defmodule AnkoleWeb.AIGatewayController do
     request_context = RequestContext.from_headers(conn.req_headers, "http")
     response_opts = response_opts(conn, subject_type, request_context)
 
-    with {:ok, request} <- bind_codex_request(conn, request, request_context) do
+    with {:ok, request, brain_context} <- bind_codex_request(conn, request, request_context) do
+      response_opts = Keyword.put(response_opts, :brain_context, brain_context)
+
       cond do
         # The trigger is a request item, so it must not reach the provider path
         # on any transport. Streaming renders the same reply as events.
@@ -366,11 +368,16 @@ defmodule AnkoleWeb.AIGatewayController do
   defp bind_codex_request(conn, request, request_context) do
     case get_req_header(conn, CodexModelBinding.header_name()) do
       [] ->
-        {:ok, request}
+        {:ok, request, nil}
 
       [encoded] ->
-        with {:ok, binding} <- CodexModelBinding.decode(encoded) do
-          {:ok, CodexModelBinding.apply(request, binding, request_context)}
+        with {:ok, binding} <- CodexModelBinding.decode(encoded),
+             {:ok, brain_context} <-
+               CodexModelBinding.brain_context(
+                 conn.assigns.current_ai_gateway_subject_uid,
+                 binding
+               ) do
+          {:ok, CodexModelBinding.apply(request, binding, request_context), brain_context}
         end
 
       _values ->

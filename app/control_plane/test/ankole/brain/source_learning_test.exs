@@ -16,7 +16,7 @@ defmodule Ankole.Brain.SourceLearningTest do
   alias Ankole.Brain.SourceLearning
   alias Ankole.Brain.Sources
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
+  alias Ankole.AgentWorkers.WorkerRoute
 
   setup do
     allow_cache_database_access()

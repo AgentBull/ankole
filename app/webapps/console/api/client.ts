@@ -1,5 +1,5 @@
-import { csrfToken, internalAPIDelete } from '../../common/internal-api-client'
-import { clearDataTenant, withDataContext } from './data-context'
+import { csrfToken } from '../../common/internal-api-client'
+import { withDataContext } from '../../common/browser-session'
 import { client } from './generated/client.gen'
 
 export function configureConsoleAPIClient(): void {
@@ -9,9 +9,4 @@ export function configureConsoleAPIClient(): void {
     headers: { 'x-csrf-token': csrfToken() },
     fetch: withDataContext(globalThis.fetch)
   })
-}
-
-export async function logoutConsoleSession(): Promise<void> {
-  clearDataTenant()
-  await internalAPIDelete('/.internal-apis/session')
 }

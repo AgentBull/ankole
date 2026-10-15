@@ -105,7 +105,6 @@ async function removeDeletedFiles(
   return removed
 }
 
-/** Returns the index entry of a local file, hashing it only when it changed on disk. */
 async function currentEntry(localPath: string, indexed: IndexEntry | undefined): Promise<IndexEntry | undefined> {
   let onDisk
   try {
@@ -118,7 +117,6 @@ async function currentEntry(localPath: string, indexed: IndexEntry | undefined):
   return { sha256: await sha256File(localPath), size: onDisk.size, mtimeMs: onDisk.mtimeMs }
 }
 
-/** The path of a drive file inside a folder. */
 function folderRelativePath(prefix: string, path: string): string {
   if (prefix === '') return path
   const folder = `${joinDrivePath(prefix)}/`
@@ -126,7 +124,6 @@ function folderRelativePath(prefix: string, path: string): string {
   return path.slice(folder.length)
 }
 
-/** The files of a folder listing with their paths inside the folder. */
 function filesInside(prefix: string, files: DriveFile[]): Array<[string, DriveFile]> {
   return files.map(file => [folderRelativePath(prefix, file.path), file])
 }

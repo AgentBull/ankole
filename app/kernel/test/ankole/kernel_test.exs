@@ -307,7 +307,7 @@ defmodule Ankole.KernelTest do
          %V1.TurnStart{
            mode: "start",
            turn: job_turn_ref(),
-           actor_event: actor_event_envelope(),
+           signal: signal_envelope(),
            fetch_runtime_config: %V1.FetchRuntimeConfig{ssrf_filter: true},
            model_ref: %V1.TurnModelRef{
              provider_id: "openrouter-main",
@@ -340,11 +340,11 @@ defmodule Ankole.KernelTest do
     golden_dir = Path.expand("../../proto/golden", __DIR__)
 
     for type <- [:workspace_open, :workspace_ready, :tool_call, :tool_status, :tool_result] do
-      bytes = File.read!(Path.join(golden_dir, "#{type}.v9.bin"))
+      bytes = File.read!(Path.join(golden_dir, "#{type}.v10.bin"))
       assert {:ok, envelope} = RuntimeFabric.decode_envelope(bytes)
       assert {^type, value} = envelope.body
-      assert value.run.actor_event_id == "input-1"
-      assert value.run.actor.session_id == "job:1000"
+      assert value.run.signal_id == "input-1"
+      assert value.run.session.session_id == "job:1000"
       assert envelope.protocol_version == RuntimeFabric.protocol_version()
 
       case type do
@@ -364,7 +364,7 @@ defmodule Ankole.KernelTest do
           assert value.images == [
                    File.read!(
                      Path.expand(
-                       "../../../control_plane/test/fixtures/conversations/rgba.png",
+                       "../../../control_plane/test/fixtures/sessions/rgba.png",
                        __DIR__
                      )
                    )
@@ -380,7 +380,9 @@ defmodule Ankole.KernelTest do
     end
 
     assert {:ok, %{body: {:turn_start, %{agent_context: context}}}} =
-             RuntimeFabric.decode_envelope(File.read!(Path.join(golden_dir, "turn_start.v9.bin")))
+             RuntimeFabric.decode_envelope(
+               File.read!(Path.join(golden_dir, "turn_start.v10.bin"))
+             )
 
     assert context.conversation.timezone == "Asia/Shanghai"
     assert context.soul == "Agent instructions" and context.mission == "Mission instructions"
@@ -403,14 +405,16 @@ defmodule Ankole.KernelTest do
            ] = context.agent_plugins
 
     assert {:ok, %{body: {:turn_start, %{mode: "adopt"}}}} =
-             RuntimeFabric.decode_envelope(File.read!(Path.join(golden_dir, "turn_adopt.v9.bin")))
+             RuntimeFabric.decode_envelope(
+               File.read!(Path.join(golden_dir, "turn_adopt.v10.bin"))
+             )
   end
 
   test "runtime fabric golden bytes decode to the same structs across runtimes" do
     golden_dir = Path.expand("../../proto/golden", __DIR__)
 
     with_field =
-      golden_dir |> Path.join("turn_start.v9.bin") |> File.read!() |> V1.Envelope.decode!()
+      golden_dir |> Path.join("turn_start.v10.bin") |> File.read!() |> V1.Envelope.decode!()
 
     assert {:turn_start, %V1.TurnStart{} = turn_start} = with_field.body
 
@@ -419,9 +423,9 @@ defmodule Ankole.KernelTest do
              rendered_fetch_idle_ttl_ms: 60000
            }
 
-    assert turn_start.actor_event.type == "cron.fire"
+    assert turn_start.signal.type == "cron.fire"
 
-    assert Torque.decode!(turn_start.actor_event.payload_json) == %{
+    assert Torque.decode!(turn_start.signal.payload_json) == %{
              "data" => %{
                "wake_payload" => %{
                  "cron_schedule_name" => "golden",
@@ -442,11 +446,11 @@ defmodule Ankole.KernelTest do
     assert turn_start.mode == "start"
     assert turn_start.turn.job_id == 1000
     assert turn_start.turn.attempt == 1
-    assert turn_start.turn.actor_event_id == turn_start.actor_event.actor_event_id
+    assert turn_start.turn.signal_id == turn_start.signal.signal_id
 
     request =
       golden_dir
-      |> Path.join("rpc_read_tool_request.v9.bin")
+      |> Path.join("rpc_read_tool_request.v10.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
 
@@ -461,7 +465,7 @@ defmodule Ankole.KernelTest do
 
     response =
       golden_dir
-      |> Path.join("rpc_read_tool_response.v9.bin")
+      |> Path.join("rpc_read_tool_response.v10.bin")
       |> File.read!()
       |> V1.Envelope.decode!()
 
@@ -526,37 +530,35 @@ defmodule Ankole.KernelTest do
       }
     }
 
-    assert NativeKernel.signals_gateway_validate_filter(
-             "signal.channel.id == 'lark:chat:group-a'"
-           )
+    assert NativeKernel.signals_validate_filter("signal.channel.id == 'lark:chat:group-a'")
 
-    assert NativeKernel.signals_gateway_filter_match(
+    assert NativeKernel.signals_filter_match(
              "binding.name == 'bot' && signal.entry.sender_key.startsWith('lark:user:')",
              context
            )
 
-    assert NativeKernel.signals_gateway_filter_match(
+    assert NativeKernel.signals_filter_match(
              "signal.entry.text.contains('hello') && signal.entry.sender_key.matches('^lark:user:[a-z]+$')",
              context
            )
 
-    assert NativeKernel.signals_gateway_filter_match(
+    assert NativeKernel.signals_filter_match(
              "[1, 2, 3].all(n, n > 0) && ['a', 'bb', 'ccc'].filter(v, v.size() > 1).map(v, v.size()).exists(size, size == 3)",
              context
            )
 
-    refute NativeKernel.signals_gateway_filter_match("signal.channel.kind == 'im_dm'", context)
+    refute NativeKernel.signals_filter_match("signal.channel.kind == 'im_dm'", context)
 
     assert {:error, reason} =
-             NativeKernel.signals_gateway_filter_match("signal.entry.text", context)
+             NativeKernel.signals_filter_match("signal.entry.text", context)
 
     assert reason =~ "signal filter returned string"
 
     assert {:error, reason} =
-             NativeKernel.signals_gateway_filter_match("signal.entry.missing", context)
+             NativeKernel.signals_filter_match("signal.entry.missing", context)
 
     assert reason =~ "signal filter execution failed"
-    assert {:error, reason} = NativeKernel.signals_gateway_validate_filter("signal.")
+    assert {:error, reason} = NativeKernel.signals_validate_filter("signal.")
     assert reason =~ "invalid signal filter"
   end
 
@@ -1063,7 +1065,7 @@ defmodule Ankole.KernelTest do
 
   defp control_plane_golden_envelopes do
     event = %{
-      actor_event_envelope()
+      signal_envelope()
       | type: "cron.fire",
         payload_json:
           Torque.encode!(%{data: %{wake_payload: %{cron_schedule_name: "golden", payload: %{}}}})
@@ -1098,7 +1100,7 @@ defmodule Ankole.KernelTest do
       agent_context: context,
       mode: "start",
       turn: job_turn_ref(),
-      actor_event: event,
+      signal: event,
       model_ref: %V1.TurnModelRef{
         provider_id: "openrouter-main",
         model: "openai/gpt-5.4-mini",
@@ -1117,7 +1119,7 @@ defmodule Ankole.KernelTest do
       }
     }
 
-    run = %V1.RunRef{actor: %V1.ActorKey{session_id: "job:1000"}, actor_event_id: "input-1"}
+    run = %V1.RunRef{session: %V1.SessionKey{session_id: "job:1000"}, signal_id: "input-1"}
 
     response = %V1.JSONPassthroughResponse{
       body_json:
@@ -1138,7 +1140,7 @@ defmodule Ankole.KernelTest do
        }},
       {"workspace_open",
        %V1.Envelope{
-         message_id: "workspace_open.v9.bin",
+         message_id: "workspace_open.v10.bin",
          body:
            {:workspace_open,
             %V1.WorkspaceOpen{
@@ -1166,7 +1168,7 @@ defmodule Ankole.KernelTest do
        }},
       {"tool_call",
        %V1.Envelope{
-         message_id: "tool_call.v9.bin",
+         message_id: "tool_call.v10.bin",
          body:
            {:tool_call,
             %V1.ToolCall{
@@ -1195,13 +1197,13 @@ defmodule Ankole.KernelTest do
     %V1.JobTurnRef{
       job_id: 1000,
       attempt: 1,
-      actor_event_id: "00000000-0000-0000-0000-000000000001"
+      signal_id: "00000000-0000-0000-0000-000000000001"
     }
   end
 
-  defp actor_event_envelope do
-    %V1.ActorEventEnvelope{
-      actor_event_id: "00000000-0000-0000-0000-000000000001",
+  defp signal_envelope do
+    %V1.SignalEnvelope{
+      signal_id: "00000000-0000-0000-0000-000000000001",
       type: "im.message.addressed",
       binding_name: "lark",
       payload_json: Torque.encode!(%{text: "PING"})

@@ -72,7 +72,7 @@ type FakeCodexBehavior = {
 function parsedJSON(bytes: Uint8Array | undefined): JSONObject | undefined {
   return bytes ? jsonObjectFromBytes(bytes, 'test fixture json') : undefined
 }
-import type { TurnStart } from '../src/lanes/actor_lane'
+import type { TurnStart } from '../src/lanes/session_lane'
 import type { CodexJobOptions } from '../src/core/codex-runner/options'
 import { BrowserRuntime } from '../src/browser-runtime'
 import { FakeDrive } from './support/fake-drive'
@@ -669,7 +669,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       const persistedItems = turnUpserts
         .flatMap(request => (request.turnItemsJson ? [new TextDecoder().decode(request.turnItemsJson)] : []))
         .join('\n')
-      expect(persistedItems).toContain(`client:${continuation.actor_event.actor_event_id}`)
+      expect(persistedItems).toContain(`client:${continuation.signal.signal_id}`)
       expect(persistedItems).not.toContain('"answers"')
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       const resumed = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-resume.json'), 'utf8'))
@@ -869,7 +869,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       await runCodexJob(turnStart(), opts)
 
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
-      expect(statusUpdates.at(-1)?.appliedActorEventIds).not.toContain(steerUpdate().actorEvent?.actor_event_id)
+      expect(statusUpdates.at(-1)?.appliedSignalIds).not.toContain(steerUpdate().signal?.signal_id)
     } finally {
       fixture.cleanup()
     }
@@ -890,14 +890,14 @@ describe('@ankole/agent-computer Codex job runner', () => {
     try {
       await runCodexJob(turnStart(), opts)
 
-      const eventID = steerUpdate().actorEvent!.actor_event_id
+      const eventID = steerUpdate().signal!.signal_id
       expect(
         turnUpserts.some(
           request =>
             request.turnItemsJson && new TextDecoder().decode(request.turnItemsJson).includes(`client:${eventID}`)
         )
       ).toBe(true)
-      expect(statusUpdates.at(-1)?.appliedActorEventIds).toContain(eventID)
+      expect(statusUpdates.at(-1)?.appliedSignalIds).toContain(eventID)
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
     } finally {
       fixture.cleanup()
@@ -1286,13 +1286,13 @@ function turnStart(skills: RuntimeSkillSummary[] = []): TurnStart {
     }),
     fetch_runtime_config: { ssrfFilter: true },
     turn: {
-      actor: { session_id: `job:${jobID}` },
+      session: { session_id: `job:${jobID}` },
       job_id: Number(jobID),
       attempt: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000001'
+      signal_id: '00000000-0000-0000-0000-000000000001'
     },
-    actor_event: {
-      actor_event_id: '00000000-0000-0000-0000-000000000001',
+    signal: {
+      signal_id: '00000000-0000-0000-0000-000000000001',
       type: 'background_agent_job.dispatch',
       payload_json: { data: { job_id: Number(jobID), owner_session_id: 'parent-session', attempts: 1 } }
     },
@@ -1309,14 +1309,14 @@ function turnStart(skills: RuntimeSkillSummary[] = []): TurnStart {
 
 function messageTurnStart(): TurnStart {
   const base = turnStart()
-  const actorEventID = '00000000-0000-0000-0000-000000000002'
+  const signalID = '00000000-0000-0000-0000-000000000002'
 
   return {
     mode: 'start',
     fetch_runtime_config: { ssrfFilter: true },
-    turn: { ...base.turn, actor_event_id: actorEventID },
-    actor_event: {
-      actor_event_id: actorEventID,
+    turn: { ...base.turn, signal_id: signalID },
+    signal: {
+      signal_id: signalID,
       type: 'command.steer',
       payload_json: { data: { command: { argsText: 'The audience is operators.' } } }
     },
@@ -1330,8 +1330,8 @@ function steerUpdate() {
   return {
     turn: turnStart().turn,
     correlationID: 'steer-correlation-1',
-    actorEvent: {
-      actor_event_id: '00000000-0000-0000-0000-000000000002',
+    signal: {
+      signal_id: '00000000-0000-0000-0000-000000000002',
       type: 'command.steer',
       payload_json: { data: { command: { argsText: 'Use the latest operator guidance.' } } }
     }

@@ -11,8 +11,8 @@ defmodule Ankole.PluginsTest do
   alias Ankole.PluginFixtures.InvalidAdapterModulePlugin
   alias Ankole.PluginFixtures.KebabAIGatewayProviderKindPlugin
   alias Ankole.PluginFixtures.MissingRemovedCallbackPlugin
-  alias Ankole.PluginFixtures.MissingSignalsOutboxReconcilePlugin
-  alias Ankole.PluginFixtures.MissingSignalsOutboxSendPlugin
+  alias Ankole.PluginFixtures.MissingSignalsDeliveryReconcilePlugin
+  alias Ankole.PluginFixtures.MissingSignalsDeliverySendPlugin
   alias Ankole.PluginFixtures.MissingDefaultLocalizedTextPlugin
   alias Ankole.PluginFixtures.MissingIdentityCallbackPlugin
   alias Ankole.PluginFixtures.MissingAIGatewayEmbeddingPreparePlugin
@@ -143,8 +143,8 @@ defmodule Ankole.PluginsTest do
     for module <- [
           MissingIdentityCallbackPlugin,
           MissingRemovedCallbackPlugin,
-          MissingSignalsOutboxReconcilePlugin,
-          MissingSignalsOutboxSendPlugin,
+          MissingSignalsDeliveryReconcilePlugin,
+          MissingSignalsDeliverySendPlugin,
           UnknownSignalsInboundCapabilityPlugin,
           UnknownSignalsOutboundCapabilityPlugin,
           UnknownIdentityCapabilityPlugin,
@@ -159,30 +159,30 @@ defmodule Ankole.PluginsTest do
   test "active invalid known adapter contract declarations fail registry startup" do
     assert_contract_startup_failure(
       MissingRemovedCallbackPlugin,
-      "signals_gateway.adapter",
+      "signals.adapter",
       "missing-removed-callback",
       {:missing_adapter_callback, MissingRemovedCallbackPlugin, :handle_message_removed, 3}
     )
 
     assert_contract_startup_failure(
       UnknownSignalsOutboundCapabilityPlugin,
-      "signals_gateway.adapter",
+      "signals.adapter",
       "unknown-signals-outbound-capability",
-      {:unknown_outbox_capability, "made_up"}
+      {:unknown_intent_capability, "made_up"}
     )
 
     assert_contract_startup_failure(
-      MissingSignalsOutboxSendPlugin,
-      "signals_gateway.adapter",
-      "missing-signals-outbox-send",
-      {:missing_adapter_callback, MissingSignalsOutboxSendPlugin, :send, 1}
+      MissingSignalsDeliverySendPlugin,
+      "signals.adapter",
+      "missing-signals-intent-send",
+      {:missing_adapter_callback, MissingSignalsDeliverySendPlugin, :deliver, 1}
     )
 
     assert_contract_startup_failure(
-      MissingSignalsOutboxReconcilePlugin,
-      "signals_gateway.adapter",
-      "missing-signals-outbox-reconcile",
-      {:missing_adapter_callback, MissingSignalsOutboxReconcilePlugin, :reconcile, 1}
+      MissingSignalsDeliveryReconcilePlugin,
+      "signals.adapter",
+      "missing-signals-intent-reconcile",
+      {:missing_adapter_callback, MissingSignalsDeliveryReconcilePlugin, :reconcile, 1}
     )
 
     assert_contract_startup_failure(

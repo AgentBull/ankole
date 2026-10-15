@@ -99,7 +99,6 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
     metadata = value(reason, "hosted_tool_metadata") || %{}
 
     %{
-      actor_event_id: string(image_spec, "actor_event_id"),
       image_model: string(metadata, "model") || string(image_spec, "selected_model"),
       image_provider_tag: string(metadata, "provider_tag") || string(image_spec, "provider_tag"),
       image_provider_slug:
@@ -245,7 +244,7 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
              catalog_opts
            ),
          :ok <-
-           log_routing(subject_uid, request, tool, tool_index, references, selection, opts),
+           log_routing(subject_uid, tool, tool_index, references, selection, opts),
          runtime = Map.put(runtime, "model", selection.model),
          image_request = image_request(tool, references, selection, opts),
          {:ok, prepared_request} <-
@@ -263,7 +262,6 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
       {:ok,
        %{
          "tool_config" => tool,
-         "actor_event_id" => get_in(request, ["metadata", "actor_event_id"]),
          "selected_model" => selection.model,
          "prepared_request" => prepared_request,
          "endpoint_capabilities" => selection.endpoint,
@@ -653,13 +651,12 @@ defmodule Ankole.AIGateway.HostedTools.ImageGeneration do
 
   defp maybe_put_moderation(provider, _tool, _provider_slugs), do: provider
 
-  defp log_routing(subject_uid, request, tool, tool_index, references, selection, opts) do
+  defp log_routing(subject_uid, tool, tool_index, references, selection, opts) do
     Logging.info(
       "ai_gateway.image_generation_route_selected",
       "AIGateway image generation route selected",
       %{
         subject_uid: subject_uid,
-        actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
         tool_index: tool_index,
         model: selection.model,
         provider_tags: selection.provider_tags,

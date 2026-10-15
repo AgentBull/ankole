@@ -22,7 +22,6 @@ type ComboboxOption = CreatableComboboxOption & {
   creatable?: boolean
 }
 
-/** Selects a known option or commits the current input as a new option. */
 export function CreatableCombobox({
   ariaLabel,
   clearLabel,

@@ -5,7 +5,7 @@ import type {
   AiGatewayProviderKindItem as AIGatewayProviderKindItem
 } from '../api/generated/types.gen'
 import type { ProfileDraft } from '../state/model-profiles-model'
-import type { SettingValidationError } from './provider-settings'
+import type { SettingValidationError } from '../state/provider-settings'
 
 export type ModelProfileCapability = 'llm' | 'web_search' | 'web_fetch' | 'image_generate'
 

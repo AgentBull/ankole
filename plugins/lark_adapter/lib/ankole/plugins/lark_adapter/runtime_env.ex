@@ -10,10 +10,10 @@ defmodule Ankole.Plugins.LarkAdapter.RuntimeEnv do
   identity before any request is sent.
   """
 
-  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.Signals.Bindings
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.Plugins.LarkAdapter.Config
-  alias Ankole.SignalsGateway.Binding
+  alias Ankole.Signals.Binding
   alias FeishuOpenAPI.TokenManager
 
   @minimum_token_validity_ms :timer.minutes(10)

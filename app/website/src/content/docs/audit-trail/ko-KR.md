@@ -28,9 +28,9 @@ log는 PostgreSQL이 아닙니다 — log ingester가 받는 모든 것이 log�
 
 log 설정은 [Environment variables](../environment-variables/)를, 진단 방법은 [Read Ankole logs](../log-reading/)를 참조하십시오.
 
-## actor-event 및 delivery 행
+## Signal 및 delivery 행
 
-모든 actor event(session을 구동하는 durable inbox)와 모든 delivery 시도는 PostgreSQL의 행입니다. 이들은 일반적으로 감사용으로 읽히지는 않습니다 — 운영 상태이기 때문입니다 — 그러나 시스템이 무엇을 하도록 요청받았고 전달되었는지에 대한 기록을 형성합니다. Console의 `/background-agent-jobs/:id` 라우트는 job의 `attempts`와 `error`를 보여 주고, `/ai-gateway/conversations` 라우트는 turn이 수행한 model 호출을 보여 줍니다.
+모든 Signal(session을 구동하는 durable inbox)와 모든 delivery 시도는 PostgreSQL의 행입니다. 이들은 일반적으로 감사용으로 읽히지는 않습니다 — 운영 상태이기 때문입니다 — 그러나 시스템이 무엇을 하도록 요청받았고 전달되었는지에 대한 기록을 형성합니다. Console의 `/background-agent-jobs/:id` 라우트는 job의 `attempts`와 `error`를 보여 주고, `/ai-gateway/conversations` 라우트는 turn이 수행한 model 호출을 보여 줍니다.
 
 ## 함께 사용하기
 

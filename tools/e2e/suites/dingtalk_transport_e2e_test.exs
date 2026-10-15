@@ -2,7 +2,8 @@ defmodule Ankole.E2E.DingTalkTransportTest do
   use ExUnit.Case, async: false
   @moduletag plugin_transport: true
 
-  alias Ankole.E2E.FakeDingTalk.{Server, State}
+  alias Ankole.E2E.FakeDingTalk.Server
+  alias Ankole.E2E.FakeDingTalk.State
   alias DingTalkOpenAPI.Stream.Client, as: StreamClient
   alias DingTalkOpenAPI.Stream.Dispatcher
 
@@ -43,19 +44,16 @@ defmodule Ankole.E2E.DingTalkTransportTest do
 
     connect(fake, dispatcher)
 
-    # Registration carried the client id and derived subscriptions.
     assert [register_body | _] = State.register_bodies(fake.state)
     assert register_body["clientId"] == "cli_fake"
     assert %{"type" => "CALLBACK", "topic" => @message_topic} in register_body["subscriptions"]
 
-    # SYSTEM ping is echoed with the same messageId and opaque.
     :ok = State.push_ping(fake.state, "ping-1", "op-1")
     wait_until(fn -> State.acked?(fake.state, "ping-1") end)
     ping_reply = State.ack_response(fake.state, "ping-1")
     assert ping_reply["code"] == 200
     assert Torque.decode!(ping_reply["data"]) == %{"opaque" => "op-1"}
 
-    # CALLBACK is dispatched, then acked 200 with the handler response.
     :ok = State.push_callback(fake.state, "cb-1", @message_topic, %{"msgId" => "in-1"})
     assert_receive {:callback, %{"msgId" => "in-1"}}, 2_000
     wait_until(fn -> State.acked?(fake.state, "cb-1") end)
@@ -63,7 +61,6 @@ defmodule Ankole.E2E.DingTalkTransportTest do
     assert cb_reply["code"] == 200
     assert Torque.decode!(cb_reply["data"]) == %{"response" => %{"received" => true}}
 
-    # EVENT is dispatched, then acked SUCCESS.
     :ok = State.push_event(fake.state, "ev-1", "user_add_org", %{"userId" => ["u1"]})
     assert_receive {:event, %{"userId" => ["u1"]}}, 2_000
     wait_until(fn -> State.acked?(fake.state, "ev-1") end)
@@ -93,7 +90,6 @@ defmodule Ankole.E2E.DingTalkTransportTest do
         State.connection_count(fake.state) == 1
     end)
 
-    # The re-registered connection still delivers events.
     :ok = State.push_event(fake.state, "ev-2", "user_add_org", %{"userId" => ["u2"]})
     assert_receive {:event, %{"userId" => ["u2"]}}, 2_000
   end

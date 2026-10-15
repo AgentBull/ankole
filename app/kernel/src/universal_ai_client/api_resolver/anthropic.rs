@@ -592,7 +592,6 @@ impl APIProtocol for AnthropicState {
     }
 }
 
-// Shared terminal mapping for the stream and one-shot Anthropic Messages paths.
 // `model_context_window_exceeded` maps like `max_tokens`, matching
 // `bedrock_terminal` for the same Claude stop reason.
 fn anthropic_terminal(stop_reason: &str) -> (&'static str, Option<&'static str>) {
@@ -879,9 +878,7 @@ impl AnthropicReplay {
             .push(json!({"role": "user", "content": content}));
     }
 
-    // An item with no content is not a message. Anthropic rejects an empty
-    // content array, so an item this adapter does not model is dropped instead of
-    // being sent as an empty one.
+    // Anthropic rejects an empty content array.
     fn push_item(&mut self, map: &Map<String, Value>) {
         let Some(content) = map.get("content") else {
             return;

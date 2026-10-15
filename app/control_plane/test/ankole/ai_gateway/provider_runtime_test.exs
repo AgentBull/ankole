@@ -1,7 +1,7 @@
 defmodule Ankole.AIGateway.ProviderRuntimeTest do
   use Ankole.DataCase, async: false
 
-  import Ankole.SignalsGateway.ActorRuntimeCase,
+  import Ankole.SessionsCase,
     only: [
       rpc_request: 4,
       handle_rpc: 3,
@@ -29,10 +29,10 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AppConfigure
-  alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
-  alias Ankole.Conversations.Context
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
+  import Ankole.ExternalConversationsFixtures
+  alias Ankole.Sessions.AgentConfig
+  alias Ankole.Sessions.Context
+  alias Ankole.AgentWorkers.WorkerAuthKey
   alias Ankole.Repo
 
   test "provider kind projection uses provider_kind vocabulary" do
@@ -1354,7 +1354,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
   test "runtime RPCLane resolves agent conversation context and DB-backed skill overlays" do
     %{principal: agent} = Ankole.AIGatewayCase.background_agent_fixture()
     {:ok, coding} = ModelProfiles.get_model_profile(agent.uid, "coding")
-    :ok = Ankole.SignalsGateway.ActorRuntimeCase.cache_actor_runtime_models(coding["provider_id"])
+    :ok = Ankole.SessionsCase.cache_actor_runtime_models(coding["provider_id"])
     assert {:ok, _defaults} = Ankole.AIAgent.Library.AgentPlugins.Config.defaults()
     assert {:ok, _sync} = Library.sync_agent_skills(agent.uid)
 
@@ -1384,28 +1384,20 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                documents["design"]["content_hash"]
              )
 
-    channel_id = "lark:context"
-    now = DateTime.utc_now(:microsecond)
+    channel_id =
+      external_conversation_fixture("lark:context", %{
+        title: "策略讨论",
+        metadata: %{"domain" => "feishu"}
+      }).id
 
-    Repo.insert!(%Channel{
-      id: channel_id,
-      kind: :im_group,
-      reply_mode: :entry,
-      name: "策略讨论",
-      metadata: %{"domain" => "feishu"},
-      raw_payload: %{},
-      first_seen_at: now,
-      last_seen_at: now
-    })
-
-    {route, turn} = assign_worker_route(agent.uid, "signal-channel:#{channel_id}")
+    {route, turn} = assign_worker_route(agent.uid, "conversation:#{channel_id}")
 
     Conversation
-    |> Repo.get_by!(subject_uid: agent.uid, conversation_key: "signal-channel:#{channel_id}")
+    |> Repo.get_by!(subject_uid: agent.uid, conversation_key: "conversation:#{channel_id}")
     |> Conversation.changeset(%{
       metadata: %{
         "origin" => %{
-          "channel_id" => channel_id,
+          "conversation_id" => channel_id,
           "channel_kind" => "im_group"
         }
       }
@@ -1416,12 +1408,12 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              Repo.transact(fn _repo ->
                Ankole.BackgroundAgentJobs.create_with_dispatch(%{
                  "agent_uid" => agent.uid,
-                 "owner_session_id" => turn.actor.session_id,
-                 "source_actor_event_id" => turn.actor_event_id,
+                 "owner_session_id" => turn.session.session_id,
+                 "source_signal_id" => turn.signal_id,
                  "source_tool_call_id" => "context-job-#{Ecto.UUID.generate()}",
                  "title" => "Resolve Job context",
                  "task" => "Read the owner conversation context.",
-                 "reply_route" => %{"binding_name" => "lark", "signal_channel_id" => channel_id}
+                 "reply_route" => %{"binding_name" => "lark", "conversation_id" => channel_id}
                })
              end)
 
@@ -1436,7 +1428,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     |> Repo.update!()
 
     job_turn = %FabricProto.JobTurnRef{
-      actor_event_id: input.id,
+      signal_id: input.id,
       job_id: job.id,
       attempt: 1
     }
@@ -1448,11 +1440,11 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
              Context.job(context, Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id))
 
     context_payload =
-      Ankole.SignalsGateway.ActorRuntime.TurnEnvelope.agent_context(selected_context)
+      Ankole.Sessions.TurnEnvelope.agent_context(selected_context)
 
     assert context.agent.display_name == agent.display_name
     assert context.agent.role == "Research Analyst"
-    assert context.conversation.key == "signal-channel:#{channel_id}"
+    assert context.conversation.key == "conversation:#{channel_id}"
     assert context.conversation.origin_channel.adapter == "lark"
     assert context.conversation.origin_channel.kind == "im_group"
     assert context.conversation.origin_channel.label == "策略讨论"
@@ -1514,8 +1506,8 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
     assert {:ok, %{job: job, dispatch_event: input}} =
              Ankole.BackgroundAgentJobs.create_with_dispatch(%{
                "agent_uid" => target_agent.uid,
-               "owner_session_id" => target_turn.actor.session_id,
-               "source_actor_event_id" => target_turn.actor_event_id,
+               "owner_session_id" => target_turn.session.session_id,
+               "source_signal_id" => target_turn.signal_id,
                "source_tool_call_id" => "context-auth-#{Ecto.UUID.generate()}",
                "title" => "Authorize Job context",
                "task" => "Read the owner conversation context.",
@@ -1538,7 +1530,7 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
         "background_agent_job.get",
         %FabricProto.BackgroundAgentJobGetRequest{job_id: Integer.to_string(job.id)},
         job_turn: %FabricProto.JobTurnRef{
-          actor_event_id: input.id,
+          signal_id: input.id,
           job_id: job.id,
           attempt: 1
         }

@@ -51,9 +51,6 @@ export interface WorkspaceProcessFinished {
   stderr: Buffer
 }
 
-/**
- * Runs one foreground command on the Worker.
- */
 export async function runWorkspaceCommand(
   input: WorkspaceCommandInput,
   agentHome: string,
@@ -121,10 +118,6 @@ export function commandArgvWithOptionalTimeout(input: CommandInput, defaultTimeo
   return ['timeout', '-k', '5s', `${Math.max(1, Math.ceil(timeoutMs / 1000))}s`, ...commandArgv]
 }
 
-/**
- * Resolves command path syntax relative to the working directory and the
- * Agent Home.
- */
 export function workspacePath(agentHome: string, cwd: string, path: string): string {
   const expanded = path === '~' ? agentHome : path.startsWith('~/') ? join(agentHome, path.slice(2)) : path
   return isAbsolute(expanded) ? resolve(normalize(expanded)) : resolve(cwd, normalize(expanded))
@@ -176,9 +169,6 @@ async function runCommandProcess(input: {
   }
 }
 
-/**
- * Reads a stream fully without changing its bytes.
- */
 async function readableToBuffer(stream: ReadableStream<Uint8Array> | null): Promise<Buffer> {
   if (!stream) return Buffer.alloc(0)
   return Buffer.from(await new Response(stream).arrayBuffer())
@@ -188,16 +178,10 @@ const BoundedOutputHeadBytes = 1024 * 1024
 const BoundedOutputTailBytes = 1024 * 1024
 
 /**
- * Reads a stream but retains only the first and last 1 MB. The middle is drained
- * and dropped, so a runaway command cannot fill worker memory and never blocks on
- * a full pipe. When bytes are dropped, a marker line with the dropped byte count
- * replaces the middle.
- *
- * Contract note: downstream `truncateOutputDetailed` reports "N chars omitted of M total"
- * against this bounded text. When this collector drops bytes, M undercounts the
- * true output by the dropped middle, and the marker inserted here usually falls
- * inside the range `truncateOutputDetailed` cuts. Below the 2 MB bound the bytes are
- * exact, so the model-visible output is unchanged.
+ * When this collector drops bytes, `truncateOutputDetailed` undercounts the
+ * true output: it reports omitted characters against this bounded text, and
+ * the marker usually falls inside the range it cuts. Below the 2 MB bound the
+ * bytes are exact.
  */
 async function readableToBoundedBuffer(stream: ReadableStream<Uint8Array> | null): Promise<Buffer> {
   if (!stream) return Buffer.alloc(0)
@@ -216,7 +200,6 @@ async function readableToBoundedBuffer(stream: ReadableStream<Uint8Array> | null
     }
   }
   for await (const part of stream) {
-    // Copy: the stream may reuse its chunk buffers, and retained memory stays bounded.
     const chunk = Buffer.from(part)
     const take = Math.min(chunk.length, Math.max(0, BoundedOutputHeadBytes - headLength))
     if (take > 0) {
@@ -235,9 +218,6 @@ async function readableToBoundedBuffer(stream: ReadableStream<Uint8Array> | null
   return Buffer.concat([...head, marker, tailBuffer])
 }
 
-/**
- * Builds the completed-command facade returned by command execution.
- */
 function finishedCommand(exitCode: number, stdout: string, stderr: string): CommandFinished {
   return {
     exitCode,

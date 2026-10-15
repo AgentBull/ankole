@@ -3,7 +3,8 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
 
   @behaviour Ankole.Plugins.Plugin
 
-  alias Ankole.Plugins.GoogleWorkspaceAdapter.{Config, IdentityProvider}
+  alias Ankole.Plugins.GoogleWorkspaceAdapter.Config
+  alias Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider
 
   @zh_fields %{
     "clientID" =>

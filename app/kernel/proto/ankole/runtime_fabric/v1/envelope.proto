@@ -4,18 +4,18 @@ package ankole.runtime_fabric.v1;
 
 import "ankole/runtime_fabric/v1/rpc.proto";
 
-message ActorKey {
+message SessionKey {
   string session_id = 2;
 }
 
 // The control plane owns admission and epoch. Workers echo this run identity.
 message RunRef {
-  ActorKey actor = 1;
-  string actor_event_id = 2;
+  SessionKey session = 1;
+  string signal_id = 2;
 }
 
 message JobTurnRef {
-  string actor_event_id = 2;
+  string signal_id = 2;
   uint64 job_id = 3;
   uint32 attempt = 4;
 }
@@ -32,7 +32,7 @@ enum Stream {
 // Each host writes CURRENT and rejects an envelope with another version.
 enum ProtocolVersion {
   PROTOCOL_VERSION_UNSPECIFIED = 0;
-  PROTOCOL_VERSION_CURRENT = 9;
+  PROTOCOL_VERSION_CURRENT = 10;
 }
 
 message Envelope {
@@ -160,10 +160,10 @@ message WorkerHeartbeat {
   uint64 idle_for_ms = 11;
 }
 
-message ActorEventEnvelope {
-  // References the durable actor-event row. One worker execution processes
-  // exactly one actor_event_id.
-  string actor_event_id = 1;
+message SignalEnvelope {
+  // References the durable Signal row. One worker execution processes
+  // exactly one signal_id.
+  string signal_id = 1;
   string type = 3;
   bytes payload_json = 6;
   string binding_name = 7;
@@ -172,7 +172,7 @@ message ActorEventEnvelope {
 message TurnStart {
   // Starts or adopts one Codex Job attempt.
   JobTurnRef turn = 1;
-  ActorEventEnvelope actor_event = 2;
+  SignalEnvelope signal = 2;
   TurnModelRef model_ref = 3;
   bytes request_context_json = 4;
   reserved 5, 9;
@@ -200,14 +200,14 @@ message TurnModelRef {
 }
 
 message MailboxUpdated {
-  // Mid-run injections carry exactly one already-journaled actor event.
+  // Mid-run injections carry exactly one already-journaled Signal.
   JobTurnRef turn = 2;
-  ActorEventEnvelope actor_event = 3;
+  SignalEnvelope signal = 3;
 }
 
 message TurnAccepted {
   // Confirms acceptance or adoption of this Job attempt. The terminal commit
-  // acknowledges consumed mailbox events through applied_actor_event_ids.
+  // acknowledges consumed mailbox events through applied_signal_ids.
   JobTurnRef turn = 1;
 }
 

@@ -13,7 +13,7 @@ defmodule Ankole.Plugins.Spec do
   alias Ankole.AppConfigure.PatternDefinition
 
   # Plugin/adapter ids are lowercase slugs. Contract ids additionally allow dots
-  # so subsystem contracts can be namespaced, e.g. "signals_gateway.adapter".
+  # so subsystem contracts can be namespaced, e.g. "signals.adapter".
   @id_pattern ~r/\A[a-z][a-z0-9_-]*\z/
   @contract_id_pattern ~r/\A[a-z][a-z0-9_.-]*\z/
 

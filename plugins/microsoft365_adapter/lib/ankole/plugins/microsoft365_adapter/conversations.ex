@@ -1,6 +1,6 @@
 defmodule Ankole.Plugins.Microsoft365Adapter.Conversations do
   @moduledoc """
-  Teams conversation-id algebra shared by ingress and outbox.
+  Teams conversation-id algebra shared by ingress and intent.
 
   Channel activities carry `conversation.id` in the form
   `"19:…@thread.tacv2;messageid={threadRootId}"`. The base id (without the
@@ -32,13 +32,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Conversations do
       when is_binary(base_conversation_id) and is_binary(thread_root),
       do: base_conversation_id <> @thread_marker <> thread_root
 
-  @spec signal_channel_id(String.t()) :: String.t()
-  def signal_channel_id(base_conversation_id),
+  @spec conversation_id(String.t()) :: String.t()
+  def conversation_id(base_conversation_id),
     do: @signal_prefix <> URI.encode(base_conversation_id, &URI.char_unreserved?/1)
 
   @spec conversation_id_from_signal(String.t()) :: String.t() | nil
   def conversation_id_from_signal(@signal_prefix <> encoded), do: URI.decode(encoded)
-  def conversation_id_from_signal(_signal_channel_id), do: nil
+  def conversation_id_from_signal(_conversation_id), do: nil
 
   # A nil thread root means the activity is not inside a Teams thread (personal
   # and group chats): such messages carry no provider_thread_id, so their

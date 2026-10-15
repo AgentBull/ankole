@@ -63,29 +63,18 @@ defmodule FeishuOpenAPI do
     "duration" => :duration
   }
 
-  @doc "Shortcut for `FeishuOpenAPI.Client.new/3`."
   defdelegate new(app_id, app_secret, opts \\ []), to: FeishuOpenAPI.Client
 
-  @doc "HTTP GET."
   def get(client, path, opts \\ []), do: request(client, :get, path, opts)
-  @doc "HTTP POST."
   def post(client, path, opts \\ []), do: request(client, :post, path, opts)
-  @doc "HTTP PUT."
   def put(client, path, opts \\ []), do: request(client, :put, path, opts)
-  @doc "HTTP DELETE."
   def delete(client, path, opts \\ []), do: request(client, :delete, path, opts)
-  @doc "HTTP PATCH."
   def patch(client, path, opts \\ []), do: request(client, :patch, path, opts)
 
-  @doc "Like `get/3` but raises `FeishuOpenAPI.Error` on failure."
   def get!(client, path, opts \\ []), do: bang(request(client, :get, path, opts))
-  @doc "Like `post/3` but raises `FeishuOpenAPI.Error` on failure."
   def post!(client, path, opts \\ []), do: bang(request(client, :post, path, opts))
-  @doc "Like `put/3` but raises `FeishuOpenAPI.Error` on failure."
   def put!(client, path, opts \\ []), do: bang(request(client, :put, path, opts))
-  @doc "Like `delete/3` but raises `FeishuOpenAPI.Error` on failure."
   def delete!(client, path, opts \\ []), do: bang(request(client, :delete, path, opts))
-  @doc "Like `patch/3` but raises `FeishuOpenAPI.Error` on failure."
   def patch!(client, path, opts \\ []), do: bang(request(client, :patch, path, opts))
 
   @doc """
@@ -146,10 +135,6 @@ defmodule FeishuOpenAPI do
 
       result
     catch
-      # Emit an :exception telemetry span on the way out, then re-raise the
-      # original crash unchanged. The SDK does not turn unexpected crashes into
-      # error tuples here — only instrumented request/response failures become
-      # `{:error, %Error{}}`. Genuine bugs/exits keep propagating.
       kind, reason ->
         duration = System.monotonic_time() - start_time
 
@@ -270,8 +255,6 @@ defmodule FeishuOpenAPI do
         err
     end
   end
-
-  # --- internals -----------------------------------------------------------
 
   defp log_id_from(%Req.Response{} = resp), do: fetch_header(resp, "x-tt-logid")
   defp log_id_from(_), do: nil

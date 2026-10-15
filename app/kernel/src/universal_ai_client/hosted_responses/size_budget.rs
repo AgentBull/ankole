@@ -1,5 +1,3 @@
-//! Public-response size accounting for hosted Responses.
-//!
 //! The budget projects the terminal public Response while hidden tool rounds
 //! still run, so an over-limit response fails at the item that crosses the
 //! limit instead of after the whole hosted execution.

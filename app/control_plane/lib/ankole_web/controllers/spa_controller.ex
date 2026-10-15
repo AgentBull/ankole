@@ -21,7 +21,8 @@ defmodule AnkoleWeb.SpaController do
   @spas %{
     console: %{entry: "console", title: "Ankole Console"},
     sessions: %{entry: "auth", title: "Ankole Sign In"},
-    setup: %{entry: "setup", title: "Ankole Setup"}
+    setup: %{entry: "setup", title: "Ankole Setup"},
+    workplace: %{entry: "workplace", title: "Ankole"}
   }
 
   @doc """
@@ -45,7 +46,7 @@ defmodule AnkoleWeb.SpaController do
   Serves the sign-in SPA only after setup is complete and no admin is signed in.
 
   The `cond` clauses are an ordered server-side gate: un-setup installs go to
-  setup, already-signed-in admins skip straight to the console, and only the
+  setup, already-signed-in admins go to the Workplace, and only the
   remaining case (setup done, not signed in) actually renders the sign-in shell.
   """
   def sessions_new(conn, params) do
@@ -63,7 +64,7 @@ defmodule AnkoleWeb.SpaController do
         redirect(conn, to: ~p"/setup")
 
       active_admin_session?(conn) and params["oauth"] != "1" and params["switch"] != "1" ->
-        redirect(conn, to: AnkoleWeb.SiteAdminConsole.path())
+        redirect(conn, to: ~p"/workplace")
 
       not is_binary(params["flow"]) and params["oauth"] != "1" ->
         with {:ok, conn, transaction} <-
@@ -97,7 +98,17 @@ defmodule AnkoleWeb.SpaController do
   unauthenticated visitor. When not signed in, redirect to sign-in carrying a
   `return_to` so the operator lands back on the page they wanted post-login.
   """
-  def console(conn, _params) do
+  def console(conn, _params), do: render_signed_in_spa(conn, :console)
+
+  @doc """
+  Serves the Workplace SPA, which sign-in opens by default.
+
+  Only site administrators can sign in, so the Workplace has the same
+  server-side gate as the Console. Its shell does not receive the Console path.
+  """
+  def workplace(conn, _params), do: render_signed_in_spa(conn, :workplace)
+
+  defp render_signed_in_spa(conn, spa) do
     :ok = WebSession.put_privileged_tenant()
 
     cond do
@@ -105,10 +116,10 @@ defmodule AnkoleWeb.SpaController do
         redirect(conn, to: ~p"/setup")
 
       not active_admin_session?(conn) ->
-        redirect(conn, to: sessions_new_path(%{"return_to" => current_console_return_to(conn)}))
+        redirect(conn, to: sessions_new_path(%{"return_to" => current_return_to(conn)}))
 
       true ->
-        render_spa(conn, :console)
+        render_spa(conn, spa)
     end
   end
 
@@ -208,9 +219,9 @@ defmodule AnkoleWeb.SpaController do
 
   defp sessions_new_path(_params), do: ~p"/sessions/new"
 
-  defp current_console_return_to(%Plug.Conn{query_string: ""} = conn), do: conn.request_path
+  defp current_return_to(%Plug.Conn{query_string: ""} = conn), do: conn.request_path
 
-  defp current_console_return_to(%Plug.Conn{query_string: query_string} = conn),
+  defp current_return_to(%Plug.Conn{query_string: query_string} = conn),
     do: conn.request_path <> "?" <> query_string
 
   # The authentication and administration shells belong to the site, including

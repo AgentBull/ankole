@@ -37,13 +37,7 @@ interface CommandDetails {
   fullOutputPath?: string
 }
 
-/**
- * The model's tool for one-shot, stateless shell commands (builds, installs, git, searches).
- *
- * Each call runs through the worker's isolated `runCommand`, so nothing a command does to
- * cwd/env/aliases leaks into the next one. The long `description` is what the model reads, and it
- * deliberately steers the model away from persistent processes and cat/sed/heredoc tricks.
- */
+/** Each call runs through isolated `runCommand`, so cwd, env, and aliases do not leak into the next call. */
 export function createCommandTool(context: ComputerToolContext): WorkerAgentTool<typeof CommandParams, CommandDetails> {
   return defineWorkerTool({
     name: 'command',
@@ -75,10 +69,6 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
       const startedAt = Date.now()
       const result = await computer.runCommand(runInput)
       const durationMs = Date.now() - startedAt
-      // stdout and stderr are merged and truncated before going back to the model, so a runaway
-      // command cannot blow the context window. The `exit_code=` prefix gives the model the result
-      // up front even when the tail of the output was dropped. When truncation drops content, the
-      // retained output is saved under the Agent Home so the model can read the middle back.
       const raw = await result.output('both', { signal })
       const truncation = truncateOutputDetailed(raw)
       const fullOutputPath =
@@ -99,11 +89,6 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
   })
 }
 
-/**
- * Persists the retained command output so the model can read past the
- * truncation. Best-effort: a failed write only costs the recovery path, so it
- * returns undefined instead of failing the command result.
- */
 async function persistCommandLog(agentHome: string, toolCallId: string, raw: string): Promise<string | undefined> {
   try {
     const dir = join(agentHome, AGENT_RUNTIME_DIRNAME, 'command-logs')
@@ -118,7 +103,6 @@ async function persistCommandLog(agentHome: string, toolCallId: string, raw: str
   }
 }
 
-/** Keeps only the newest logs so the directory stays bounded. */
 async function sweepCommandLogs(dir: string, keepName: string): Promise<void> {
   const names = (await readdir(dir)).filter(name => name.endsWith('.log'))
   if (names.length <= CommandLogRetention) return
@@ -130,9 +114,6 @@ async function sweepCommandLogs(dir: string, keepName: string): Promise<void> {
   }
 }
 
-/**
- * Formats foreground command output with exit code, duration, and timeout hints.
- */
 function formatForegroundCommandResult(input: {
   command: string
   durationMs: number
@@ -156,9 +137,6 @@ function formatForegroundCommandResult(input: {
   return lines.join('\n')
 }
 
-/**
- * Formats command duration for model-visible output.
- */
 function formatDuration(durationMs: number): string {
   if (durationMs < 1000) return `${durationMs}ms`
   return `${(durationMs / 1000).toFixed(1)}s`
@@ -174,9 +152,6 @@ function isLikelyForegroundTimeout(exitCode: number, durationMs: number, timeout
   return durationMs >= Math.max(0, timeoutMs - 1000)
 }
 
-/**
- * Adds known non-error meanings for common command exit code 1 cases.
- */
 function exitCodeNote(command: string, exitCode: number): string | undefined {
   const name = lastCommandName(command)
   if (!name) return undefined
@@ -192,9 +167,6 @@ function exitCodeNote(command: string, exitCode: number): string | undefined {
   return undefined
 }
 
-/**
- * Extracts the last command name from a simple shell command string.
- */
 function lastCommandName(command: string): string | undefined {
   const segments = command.split(/\|\||&&|;|\|/g)
   const segment = segments.at(-1)?.trim()

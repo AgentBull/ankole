@@ -12,7 +12,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
 
   alias Ankole.Repo
   alias Ankole.BackgroundAgentJobs
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
@@ -157,7 +157,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   def message_result(%Job{} = job, command_event_id, caller_session_id)
       when is_binary(command_event_id) and is_binary(caller_session_id) do
     case command_event(job, command_event_id) do
-      %ActorEvent{} = command_event ->
+      %Signal{} = command_event ->
         case causal_message_turn(job, command_event_id) do
           %Turn{status: status} = turn when status in @terminal_turn_statuses ->
             ready_message_result(job, turn, caller_session_id)
@@ -228,7 +228,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       ready: true,
       last_turn_trajectory: turn_trajectory(turn, page.units),
       earlier_trajectory_omitted: page.next_cursor != nil,
-      lifecycle_actor_event_id: if(lifecycle_event, do: lifecycle_event.id)
+      lifecycle_signal_id: if(lifecycle_event, do: lifecycle_event.id)
     }
   end
 
@@ -239,7 +239,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
       ready: false,
       last_turn_trajectory: nil,
       earlier_trajectory_omitted: false,
-      lifecycle_actor_event_id: nil
+      lifecycle_signal_id: nil
     }
   end
 
@@ -247,10 +247,10 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   # Job's one successor.
   defp message_without_trajectory(job, command_event) do
     case command_event do
-      %ActorEvent{input_state: "dead_letter"} ->
+      %Signal{input_state: "dead_letter"} ->
         {:error, :background_agent_job_message_delivery_failed}
 
-      %ActorEvent{completed_at: %DateTime{}} when job.status == "succeeded" ->
+      %Signal{completed_at: %DateTime{}} when job.status == "succeeded" ->
         case Repo.one(
                from(successor in Job,
                  where: successor.continued_from_job_id == ^job.id,
@@ -261,13 +261,13 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
           id -> {:ok, Map.put(pending_message_result(job), :successor_job_id, id)}
         end
 
-      %ActorEvent{completed_at: %DateTime{}} ->
+      %Signal{completed_at: %DateTime{}} ->
         {:error, :background_agent_job_message_delivery_failed}
 
-      %ActorEvent{} when job.status in ~w(succeeded failed stopped) ->
+      %Signal{} when job.status in ~w(succeeded failed stopped) ->
         {:error, :background_agent_job_message_delivery_failed}
 
-      %ActorEvent{} ->
+      %Signal{} ->
         {:ok, pending_message_result(job)}
     end
   end
@@ -275,7 +275,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   defp command_event(job, command_event_id) do
     case Ecto.UUID.cast(command_event_id) do
       {:ok, event_id} ->
-        ActorEvent
+        Signal
         |> where([event], event.id == ^event_id)
         |> where([event], event.agent_uid == ^job.agent_uid)
         |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job.id))
@@ -304,7 +304,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
        ) do
     case lifecycle_event_identity(job) do
       {event_type, source_event_id} ->
-        ActorEvent
+        Signal
         |> where([event], event.agent_uid == ^job.agent_uid)
         |> where([event], event.session_id == ^caller_session_id)
         |> where([event], event.type == ^event_type)

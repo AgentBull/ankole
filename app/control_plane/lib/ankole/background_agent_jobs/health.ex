@@ -14,9 +14,9 @@ defmodule Ankole.BackgroundAgentJobs.Health do
 
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobCap
-  alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.Signals.Signal
+  alias Ankole.Sessions.BackgroundAgentJobCap
+  alias Ankole.Conversations.Delivery.Intent
 
   @wakeup_event_types ~w(
     background_agent_job.completed
@@ -108,15 +108,15 @@ defmodule Ankole.BackgroundAgentJobs.Health do
   end
 
   defp wakeups_in_window(window_start) do
-    ActorEvent
+    Signal
     |> where([event], event.type in ^@wakeup_event_types)
     |> where([event], event.inserted_at >= ^window_start)
     |> Repo.aggregate(:count)
   end
 
   defp dead_letter_notices_in_window(window_start) do
-    OutboxEntry
-    |> join(:inner, [entry], event in ActorEvent, on: entry.source_actor_event_id == event.id)
+    Intent
+    |> join(:inner, [entry], event in Signal, on: entry.source_signal_id == event.id)
     |> where([entry], like(entry.outbound_key, "ai-dead-letter:%"))
     |> where([_entry, event], event.type in ^@wakeup_event_types)
     |> where([entry, _event], entry.inserted_at >= ^window_start)

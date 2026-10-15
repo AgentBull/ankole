@@ -1,4 +1,4 @@
-defmodule Ankole.SignalsGateway.ActorRuntime.LocalWorkerRoutes do
+defmodule Ankole.AgentWorkers.LocalWorkerRoutes do
   @moduledoc """
   Test-only Worker handlers and RPC waiters. Only the test build starts this
   server; routes without a local handler still use the real Worker Channel.
@@ -9,8 +9,8 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LocalWorkerRoutes do
   alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.InboundDispatcher
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
+  alias Ankole.AgentWorkers.InboundDispatcher
+  alias Ankole.AgentWorkers.WorkerRoute
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -22,10 +22,10 @@ defmodule Ankole.SignalsGateway.ActorRuntime.LocalWorkerRoutes do
 
   # A fake channel for the real Tracker and cross-node WorkerRoute boundary.
   def start_tracked_channel(worker, owner) do
-    Task.Supervisor.start_child(Ankole.Conversations.Tasks, fn ->
+    Task.Supervisor.start_child(Ankole.Sessions.Tasks, fn ->
       {:ok, _} =
         Phoenix.Tracker.track(
-          Ankole.SignalsGateway.ActorRuntime.WorkerTracker,
+          Ankole.AgentWorkers.WorkerTracker,
           self(),
           WorkerRoute.topic(worker.agent_uid),
           worker.transport_route,

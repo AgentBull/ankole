@@ -29,8 +29,8 @@ defmodule Ankole.Observability do
   alias Ankole.Logging
   alias Ankole.Observability.Provider
   alias Ankole.Observability.UserID
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.TurnRuntimeEnv
+  alias Ankole.Signals.Signal
+  alias Ankole.Sessions.TurnRuntimeEnv
   alias OpenTelemetry.Ctx
   alias OpenTelemetry.Span
 
@@ -41,7 +41,7 @@ defmodule Ankole.Observability do
   @runtime_key {__MODULE__, :provider}
   @runtime_config_key {__MODULE__, :runtime_config}
   @worker_export_timeout_ms 10_000
-  @direct_message_types ~w(im.message.addressed im.message.may_intervene)
+  @direct_message_types ~w(conversation.message.addressed im.message.may_intervene)
   @otlp_environment_variables ~w(
     OTEL_EXPORTER_OTLP_COMPRESSION
     OTEL_EXPORTER_OTLP_ENDPOINT
@@ -90,13 +90,13 @@ defmodule Ankole.Observability do
 
   A tracing failure returns `nil` and does not change turn delivery.
   """
-  @spec start_turn(ActorEvent.t(), map()) ::
+  @spec start_turn(Signal.t(), map()) ::
           map() | nil
-  def start_turn(%ActorEvent{} = actor_event, %{} = turn_start_spec) do
-    if provider(), do: safe(nil, fn -> start_turn_span(actor_event, turn_start_spec) end)
+  def start_turn(%Signal{} = signal, %{} = turn_start_spec) do
+    if provider(), do: safe(nil, fn -> start_turn_span(signal, turn_start_spec) end)
   end
 
-  def start_turn(_actor_event, _turn_start_spec), do: nil
+  def start_turn(_signal, _turn_start_spec), do: nil
 
   @doc "Starts an execution's turn span and attaches its request trace context."
   @spec attach_turn(map()) :: map()
@@ -261,21 +261,21 @@ defmodule Ankole.Observability do
 
   def terminate(_reason, _state), do: :ok
 
-  defp start_turn_span(%ActorEvent{} = actor_event, turn_start_spec) do
+  defp start_turn_span(%Signal{} = signal, turn_start_spec) do
     provider = provider()
     request_context = map_value(turn_start_spec, "request_context") || %{}
-    user_id = turn_user_id(actor_event, turn_start_spec)
-    {input, truncated?} = encode_content(actor_event.payload)
+    user_id = turn_user_id(signal, turn_start_spec)
+    {input, truncated?} = encode_content(Signal.envelope(signal))
 
     context =
       %{
-        principal_uid: actor_event.agent_uid,
+        principal_uid: signal.agent_uid,
         principal_type: "agent",
         user_id: user_id,
-        actor_event_id: actor_event.id,
-        session_id: actor_event.session_id,
+        signal_id: signal.id,
+        session_id: signal.session_id,
         originator: nil,
-        caller: "signals_gateway.turn",
+        caller: "sessions.turn",
         release: release(),
         job_id: positive_integer(map_value(request_context, "job_id")),
         attempts: positive_integer(map_value(request_context, "attempts"))
@@ -290,7 +290,7 @@ defmodule Ankole.Observability do
       |> maybe_put_true("ankole.observability.input_truncated", truncated?)
 
     span =
-      :otel_tracer.start_span(Ctx.new(), tracer(), turn_span_name(actor_event.type), %{
+      :otel_tracer.start_span(Ctx.new(), tracer(), turn_span_name(signal.type), %{
         attributes: attributes,
         kind: :internal
       })
@@ -355,13 +355,13 @@ defmodule Ankole.Observability do
     end)
   end
 
-  defp turn_user_id(%ActorEvent{} = actor_event, turn_start_spec) do
+  defp turn_user_id(%Signal{} = signal, turn_start_spec) do
     runtime_env = map_value(turn_start_spec, "runtime_env") || %{}
     principal_uid = TurnRuntimeEnv.current_sender_principal_uid(runtime_env)
-    channel_id = text(actor_event.signal_channel_id)
+    channel_id = text(signal.conversation_id)
 
     cond do
-      direct_human_message?(actor_event) and is_binary(principal_uid) ->
+      direct_human_message?(signal) and is_binary(principal_uid) ->
         UserID.principal(principal_uid)
 
       is_binary(channel_id) ->
@@ -375,17 +375,17 @@ defmodule Ankole.Observability do
     end
   end
 
-  defp direct_human_message?(%ActorEvent{
+  defp direct_human_message?(%Signal{
          type: type,
          source_event_id: source_event_id,
-         payload: payload
+         data: data
        })
-       when type in @direct_message_types and is_map(payload) do
-    get_in(payload, ["data", "channel", "kind"]) == "im_dm" and
+       when type in @direct_message_types and is_map(data) do
+    get_in(data, ["channel", "kind"]) == "im_dm" and
       not retry_source_event?(source_event_id)
   end
 
-  defp direct_human_message?(%ActorEvent{}), do: false
+  defp direct_human_message?(%Signal{}), do: false
 
   defp retry_source_event?("retry:" <> _rest), do: true
   defp retry_source_event?(_source_event_id), do: false

@@ -11,7 +11,9 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
   alias Ankole.Brain.OIDCClientLearning
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
-  alias Ankole.Brain.Schemas.{Claim, Object, Source}
+  alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.SourceLearning
   alias Ankole.Brain.Sources
   alias Ankole.OIDC

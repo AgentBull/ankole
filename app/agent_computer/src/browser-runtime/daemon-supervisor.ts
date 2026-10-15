@@ -134,7 +134,6 @@ async function waitForSocketOrExit(
         return
       }
     } catch {
-      // Socket is not ready yet.
     }
     await new Promise(resolve => setTimeout(resolve, 25))
   }

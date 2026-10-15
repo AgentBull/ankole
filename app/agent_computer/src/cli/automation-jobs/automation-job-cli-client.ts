@@ -1,9 +1,6 @@
 import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import type { AutomationJobCLICommand } from './automation-job-cli-protocol'
 
-/**
- * Sends one command to the current turn's automation job CLI bridge.
- */
 export async function requestAutomationJobCLI(
   socketPath: string,
   command: AutomationJobCLICommand

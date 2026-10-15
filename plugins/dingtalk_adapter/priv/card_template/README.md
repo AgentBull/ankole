@@ -81,7 +81,7 @@ element is:
     "controlId": "choice",
     "selectedOptionId": "opt-a",
     "optionValue": "a",
-    "sourceActorEventId": "…"
+    "sourceSignalId": "…"
   }
 }
 ```

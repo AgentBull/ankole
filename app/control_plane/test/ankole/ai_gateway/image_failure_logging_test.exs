@@ -8,7 +8,7 @@ defmodule Ankole.AIGateway.ImageFailureLoggingTest do
     spec = %{
       hosted_tools: %{
         image_generation: %{
-          "actor_event_id" => "event-1",
+          "caller_metadata" => %{"private-caller-key" => "private caller metadata"},
           "selected_model" => "selected-model",
           "provider_tags" => ["tag-a", "", nil],
           "provider_slugs" => ["slug-a"],
@@ -33,7 +33,6 @@ defmodule Ankole.AIGateway.ImageFailureLoggingTest do
     }
 
     assert ImageGeneration.failure_log_fields(spec, reason) == %{
-             actor_event_id: "event-1",
              image_model: "actual-model",
              image_provider_tag: "actual-tag",
              image_provider_slug: "actual-slug",

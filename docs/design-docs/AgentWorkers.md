@@ -11,7 +11,7 @@ plane can delete an instance, change its image, or resume a paused instance.
 The Agent's Home survives those operations. A cache at `/var/cache/ankole`
 can be lost without losing files or unfinished work.
 
-`Ankole.SignalsGateway.ActorRuntime.AgentWorkers` owns placement, credentials,
+`Ankole.AgentWorkers` owns placement, credentials,
 and requests. `ReconcileJob` and `SweepJob` control the lifecycle.
 `WorkerAdmission` owns connection facts. PostgreSQL keeps the decisions that
 must survive a process failure. A provider adapter translates those decisions
@@ -79,7 +79,7 @@ Session and Job workspaces are temporary working directories. The drive is the
 formal store and delivery outlet. Prompts name the conversation's stable
 `chats/<channel>/` drive directory and tell the Agent to leave other
 conversations' files alone. The control plane checks the destination of a
-channel file when it commits an attachment Outbox intent; it does not restrict
+channel file when it commits an attachment Delivery intent; it does not restrict
 the Agent's reads or track copied content. See [Files](Files.md#conversation-files-and-delivery).
 
 The entry, supervisor, and Bun Worker run as root and hold the generation
@@ -225,7 +225,7 @@ a new incarnation. Join is the only transition into `ready`.
 The channel registers its route before admission so the first message after
 commit can find it. Until commit, the route fence rejects that connection.
 The same incarnation on a new connection changes only the route. A new
-incarnation broadcasts `worker_changed`. Conversation Drivers probe pending
+incarnation broadcasts `worker_changed`. Session Drivers probe pending
 calls and adopt or recover Codex work through its Job owner. A disabled
 Agent's Worker can join while its work drains.
 
@@ -262,7 +262,7 @@ acquisition is waiting, the route changed, or the Driver recovered. The separate
 JobDriver observes an active Codex Job. This broadcast does not advance the due
 time of input whose Codex placement was deferred.
 
-`Conversations.WorkerAcquisition` owns one explicit acquisition state for the
+`Sessions.WorkerAcquisition` owns one explicit acquisition state for the
 Run: idle, opening, waiting, ready, or unavailable. Pure transitions return
 effects; the Driver performs the I/O and forwards the result. A Worker change
 discards earlier readiness and connection queries before the Driver reads the
@@ -296,7 +296,7 @@ belong to the control plane, so it does not request a Worker.
 
 A completed run sends `WorkspaceClose` in a background task only if it tried
 to open a workspace. The next input does not wait for the close receipt.
-The Worker ignores a late close for an older `actor_event_id`; a new open
+The Worker ignores a late close for an older `signal_id`; a new open
 closes the older workspace, and idle expiry releases lost workspaces.
 Pure questions send no Worker messages. `worker.workspace_prepared` records
 `duration_ms` for each successful workspace preparation.
@@ -315,7 +315,7 @@ generation and credential, so idle release is not an absolute credential TTL.
 
 An Agent with work in progress stays running. Idle release requires a fresh
 heartbeat, no active task, no open workspace or running Codex Turn, and no
-pending request. Due conversation input does not keep a Worker running.
+pending request. Due Session input does not keep a Worker running.
 A disabled Agent takes no new work and releases its instance when idle.
 
 The pure `Decision.next/1` selects one action from current facts.

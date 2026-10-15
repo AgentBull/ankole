@@ -96,8 +96,6 @@ defmodule DingTalkOpenAPI do
     end
   end
 
-  # --- domain / url --------------------------------------------------------
-
   defp domain_for(path) do
     trimmed = String.trim_leading(path, "/")
 
@@ -116,8 +114,6 @@ defmodule DingTalkOpenAPI do
     end
   end
 
-  # --- token ---------------------------------------------------------------
-
   defp resolve_token(_client, nil), do: {:ok, nil}
   defp resolve_token(_client, {:user, token}) when is_binary(token), do: {:ok, token}
   defp resolve_token(%Client{} = client, :app), do: TokenManager.get_app_token(client)
@@ -132,8 +128,6 @@ defmodule DingTalkOpenAPI do
   end
 
   defp put_old_domain_token(query, _domain, _token), do: query
-
-  # --- response decode -----------------------------------------------------
 
   defp decode_response(:new, %Req.Response{status: 429} = response) do
     {:error,
@@ -192,8 +186,6 @@ defmodule DingTalkOpenAPI do
   end
 
   defp decoded(body), do: body
-
-  # --- request body / headers ---------------------------------------------
 
   defp put_body(req_opts, opts) do
     cond do

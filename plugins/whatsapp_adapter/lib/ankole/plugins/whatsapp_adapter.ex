@@ -5,7 +5,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter do
 
   alias Ankole.Plugins.WhatsAppAdapter.Config
   alias Ankole.Plugins.WhatsAppAdapter.Inbound
-  alias Ankole.Plugins.WhatsAppAdapter.Outbox
+  alias Ankole.Plugins.WhatsAppAdapter.Delivery
   alias Ankole.Plugins.WhatsAppAdapter.Webhook
 
   @impl true
@@ -30,12 +30,12 @@ defmodule Ankole.Plugins.WhatsAppAdapter do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "whatsapp",
         adapter_category: "consumer_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "WhatsApp"},
-        config_key_pattern: "signals_gateway.whatsapp.bindings.<id>",
+        config_key_pattern: "signals.whatsapp.bindings.<id>",
         config_module: Config,
         application_bindings: :one,
         fields: [
@@ -107,13 +107,13 @@ defmodule Ankole.Plugins.WhatsAppAdapter do
           }
         ],
         supported_group_message_modes: ["addressed_only"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
+        observe_module: Inbound,
+        deliver_module: Delivery,
         inbound_capabilities: ["entry_receive", "action_event"],
         outbound_capabilities: ["post_entry", "reply_entry", "divider", "card"]
       },
       %{
-        contract_id: "signals_gateway.webhook_handler",
+        contract_id: "signals.webhook_handler",
         id: "whatsapp",
         plugin_id: plugin_id(),
         module: Webhook,

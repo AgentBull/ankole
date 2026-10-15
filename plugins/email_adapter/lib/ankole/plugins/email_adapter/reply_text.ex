@@ -49,7 +49,6 @@ defmodule Ankole.Plugins.EmailAdapter.ReplyText do
     end
   end
 
-  # Removes the lines below the cut and any quoted or blank tail above it.
   defp cut(lines, index) do
     kept =
       lines
@@ -66,8 +65,6 @@ defmodule Ankole.Plugins.EmailAdapter.ReplyText do
     end
   end
 
-  # The first boundary line decides: a forward marker keeps the whole body,
-  # a reply separator or an Outlook header block cuts below the text above it.
   defp boundary(lines) do
     lines
     |> Enum.with_index()

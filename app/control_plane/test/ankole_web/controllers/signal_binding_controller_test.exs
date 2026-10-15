@@ -3,7 +3,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
   import Ecto.Query
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.SiteConfig
@@ -15,11 +15,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler, as: LarkConnectionReconciler
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.Binding
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.SignalsGateway.Ingress
-  alias Ankole.SignalsGateway.OutboxEntry
+
+  alias Ankole.Signals.Binding
+  alias Ankole.Signals.Bindings
+  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.Delivery.Intent
 
   setup do
     allow_cache_database_access()
@@ -69,7 +69,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert agent_uid == agent.uid
     refute conn.resp_body =~ "secret-lark-main"
 
-    assert {:ok, binding} = SignalsGateway.get_binding(agent.uid, "lark-main")
+    assert {:ok, binding} = Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
     assert binding.adapter == "lark"
     assert binding.unaddressed_group_message_policy == :record_only
 
@@ -100,7 +100,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert %{"signal_binding" => %{"name" => "lark-main", "enabled" => false}} =
              json_response(conn, 200)
 
-    assert {:error, :binding_disabled} = SignalsGateway.get_binding(agent.uid, "lark-main")
+    assert {:error, :binding_disabled} =
+             Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
   end
 
   test "a missing required connection field names the field in the error", %{conn: conn} do
@@ -121,10 +122,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              }
            } = json_response(conn, 422)
 
-    assert {:error, :binding_not_found} = SignalsGateway.get_binding(agent.uid, "lark-main")
+    assert {:error, :binding_not_found} =
+             Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
   end
 
-  test "admin sees an unsupported delivery with a named state", %{conn: conn} do
+  test "admin sees an unsupported operation as a permanent failed delivery", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
     conn =
@@ -134,12 +136,12 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert response(conn, 200)
 
-    assert {:ok, %{status: :accepted}} =
-             Ingress.emit_entry(agent.uid, "lark-main", group_entry(%{explicit: true}),
+    assert {:ok, %{status: :accepted, conversation: conversation}} =
+             Observe.emit_entry(agent.uid, "lark-main", group_entry(%{explicit: true}),
                now: base_time()
              )
 
-    assert {:ok, %OutboxEntry{status: :unsupported}} =
+    assert {:ok, %Intent{status: :failed, next_attempt_at: nil} = failed} =
              commit_and_dispatch(
                agent.uid,
                "lark-main",
@@ -147,13 +149,16 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
                  outbound_key: "ai-reply:console-unsupported",
                  delivery_class: :durable_ai_reply,
                  operation: :edit,
-                 signal_channel_id: "lark:chat:group-a",
-                 target_source_entry_id: "msg-1",
+                 conversation_id: conversation.id,
+                 target_provider_message_id: "msg-1",
                  fallback_visible_text: "cannot be edited here"
                },
                [:post_entry, :reply_entry],
                %{}
              )
+
+    assert failed.last_error == %{"code" => "unsupported_operation"}
+    assert failed.recovery_state == %{"state" => "permanent", "reason" => "unsupported_operation"}
 
     conn =
       conn
@@ -164,10 +169,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              "delivery_failures" => [
                %{
                  "outbound_key" => "ai-reply:console-unsupported",
-                 "status" => "unsupported",
-                 "state" => "unsupported",
+                 "status" => "failed",
+                 "state" => "permanent",
                  "attempt_count" => 0,
-                 "can_retry" => false
+                 "can_retry" => true
                }
              ]
            } = json_response(conn, 200)
@@ -183,28 +188,28 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
 
     assert response(conn, 200)
 
-    assert {:ok, %{status: :accepted}} =
-             Ingress.emit_entry(agent.uid, "lark-main", group_entry(%{explicit: true}),
+    assert {:ok, %{status: :accepted, conversation: conversation}} =
+             Observe.emit_entry(agent.uid, "lark-main", group_entry(%{explicit: true}),
                now: base_time()
              )
 
-    assert {:ok, _outbox} =
-             SignalsGateway.commit_outbox(%{
+    assert {:ok, _intent} =
+             Ankole.Conversations.Delivery.commit(%{
                agent_uid: agent.uid,
                binding_name: "lark-main",
                outbound_key: "ai-reply:console-failure",
                delivery_class: :durable_ai_reply,
                operation: :post,
-               signal_channel_id: "lark:chat:group-a",
+               conversation_id: conversation.id,
                fallback_visible_text: "provider rejects this"
              })
 
-    assert {:ok, %OutboxEntry{status: :failed}} =
-             SignalsGateway.dispatch_outbox(
+    assert {:ok, %Intent{status: :failed}} =
+             Ankole.Conversations.Delivery.dispatch(
                agent.uid,
                "lark-main",
                "ai-reply:console-failure",
-               outbox_adapter([:post_entry], fn _outbox ->
+               delivery_adapter([:post_entry], fn _intent ->
                  {:error, {:reply_delivery, :permanent, %{"code" => 40_201}}}
                end),
                now: base_time()
@@ -254,7 +259,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert %{"error" => %{"code" => "conflict"}} = json_response(conn, 409)
 
     requeued =
-      Repo.get_by!(OutboxEntry,
+      Repo.get_by!(Intent,
         agent_uid: agent.uid,
         binding_name: "lark-main",
         outbound_key: "ai-reply:console-failure"
@@ -450,7 +455,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> put_binding(source_agent.uid, "lark", "lark-main", lark_config("move"))
 
     assert response(conn, 200)
-    assert {:ok, source_binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+
+    assert {:ok, source_binding} =
+             Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
 
     source_binding
     |> Binding.changeset(%{filters: %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}})
@@ -471,8 +478,13 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
            } = json_response(conn, 200)
 
     assert target_agent_uid == target_agent.uid
-    assert {:error, :binding_disabled} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
-    assert {:ok, target_binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+
+    assert {:error, :binding_disabled} =
+             Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
+
+    assert {:ok, target_binding} =
+             Ankole.Signals.Bindings.get_binding(target_agent.uid, "lark-main")
+
     assert target_binding.filters == %{"cel" => "signal.channel.id == 'lark:chat:allowed'"}
 
     assert {:ok, %{"appID" => "cli_move"}} =
@@ -495,7 +507,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       })
 
     assert response(conn, 200)
-    assert {:ok, source_binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+
+    assert {:ok, source_binding} =
+             Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
+
     assert source_binding.unaddressed_group_message_policy == :may_intervene
 
     conn =
@@ -507,7 +522,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       })
 
     assert response(conn, 200)
-    assert {:ok, target_binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+
+    assert {:ok, target_binding} =
+             Ankole.Signals.Bindings.get_binding(target_agent.uid, "lark-main")
+
     assert target_binding.unaddressed_group_message_policy == :may_intervene
   end
 
@@ -526,7 +544,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       })
 
     assert response(conn, 200)
-    assert {:ok, source_binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+
+    assert {:ok, source_binding} =
+             Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
+
     assert source_binding.unmatched_sender_policy == :create_standalone
 
     conn =
@@ -539,7 +560,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       })
 
     assert response(conn, 200)
-    assert {:ok, target_binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+
+    assert {:ok, target_binding} =
+             Ankole.Signals.Bindings.get_binding(target_agent.uid, "lark-main")
+
     assert target_binding.unmatched_sender_policy == :create_standalone
   end
 
@@ -574,8 +598,8 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       )
 
     assert %{"error" => %{"code" => "conflict"}} = json_response(conn, 409)
-    assert {:ok, _binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
-    assert {:ok, _binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+    assert {:ok, _binding} = Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
+    assert {:ok, _binding} = Ankole.Signals.Bindings.get_binding(target_agent.uid, "lark-main")
   end
 
   test "moving a binding replaces a disabled target binding", %{conn: conn} do
@@ -617,8 +641,11 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              json_response(conn, 200)
 
     assert agent_uid == target_agent.uid
-    assert {:error, :binding_disabled} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
-    assert {:ok, _binding} = SignalsGateway.get_binding(target_agent.uid, "lark-main")
+
+    assert {:error, :binding_disabled} =
+             Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
+
+    assert {:ok, _binding} = Ankole.Signals.Bindings.get_binding(target_agent.uid, "lark-main")
   end
 
   test "moving a binding rejects a missing target agent without changing the source", %{
@@ -646,7 +673,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     assert %{"error" => %{"code" => "not_found", "message" => "agent was not found"}} =
              json_response(conn, 404)
 
-    assert {:ok, _binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+    assert {:ok, _binding} = Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
   end
 
   test "moving a binding requires delete permission for the source agent", %{conn: conn} do
@@ -667,10 +694,10 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       |> patch_binding(source_agent.uid, target_agent.uid, "lark-main", lark_config("forbidden"))
 
     assert %{"error" => %{"code" => "forbidden"}} = json_response(conn, 403)
-    assert {:ok, _binding} = SignalsGateway.get_binding(source_agent.uid, "lark-main")
+    assert {:ok, _binding} = Ankole.Signals.Bindings.get_binding(source_agent.uid, "lark-main")
 
     assert {:error, :binding_not_found} =
-             SignalsGateway.get_binding(target_agent.uid, "lark-main")
+             Ankole.Signals.Bindings.get_binding(target_agent.uid, "lark-main")
   end
 
   test "generic AppConfigure updates cannot bypass Lark binding assignment ownership", %{
@@ -838,18 +865,23 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     dingtalk_key = DingTalkConfig.chat_config_key(dingtalk_agent.uid)
 
     assert {:ok, _result} =
-             SignalsGateway.put_binding(lark_agent.uid, "lark", "lark-main", %{
+             Ankole.Signals.Bindings.put_binding(lark_agent.uid, "lark", "lark-main", %{
                "config" => %{"appID" => "cli_concurrent_owner", "appSecret" => "secret"}
              })
 
     assert {:ok, _result} =
-             SignalsGateway.put_binding(dingtalk_agent.uid, "dingtalk", "dingtalk-main", %{
-               "config" => %{
-                 "clientId" => "ding_concurrent_owner",
-                 "clientSecret" => "secret"
-               },
-               "group_message_mode" => "addressed_only"
-             })
+             Ankole.Signals.Bindings.put_binding(
+               dingtalk_agent.uid,
+               "dingtalk",
+               "dingtalk-main",
+               %{
+                 "config" => %{
+                   "clientId" => "ding_concurrent_owner",
+                   "clientSecret" => "secret"
+                 },
+                 "group_message_mode" => "addressed_only"
+               }
+             )
 
     parent = self()
 
@@ -999,7 +1031,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
         })
 
       assert %{"error" => %{"code" => "validation_failed"}} = json_response(conn, 422)
-      assert {:error, :binding_not_found} = SignalsGateway.get_binding(agent.uid, "lark-main")
+
+      assert {:error, :binding_not_found} =
+               Ankole.Signals.Bindings.get_binding(agent.uid, "lark-main")
 
       conn =
         conn

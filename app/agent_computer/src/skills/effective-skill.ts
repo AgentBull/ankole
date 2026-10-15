@@ -24,12 +24,11 @@ export function enabledSkillByName(
   return skill
 }
 
-/** Parses the free-form skill metadata document; empty bytes mean no metadata. */
+/** Empty bytes mean no metadata. */
 export function skillMetadata(skill: RuntimeSkillSummary): JSONObject {
   return jsonObjectFromBytes(skill.metadataJson, 'runtime_skill_summary.metadata_json') ?? {}
 }
 
-/** Returns the Ankole execution surface declared by one Skill. */
 export function ankoleSkillRuntime(skill: RuntimeSkillSummary): AnkoleSkillRuntime {
   const value = skillMetadata(skill)['ankole-runtime']
   if (value === undefined || value === 'any') return 'any'
@@ -37,7 +36,6 @@ export function ankoleSkillRuntime(skill: RuntimeSkillSummary): AnkoleSkillRunti
   throw new Error(`invalid ankole-runtime for Skill ${skill.skillName}: ${String(value)}`)
 }
 
-/** Checks whether one Skill is available to the selected Ankole execution surface. */
 export function skillAvailableInRuntime(skill: RuntimeSkillSummary, runtime: AnkoleSkillExecutionRuntime): boolean {
   const declared = ankoleSkillRuntime(skill)
   return declared === 'any' || declared === runtime

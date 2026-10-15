@@ -1,16 +1,15 @@
 defmodule Ankole.KubernetesWorkerStorageIntegrationTest do
   use Ankole.DataCase, async: false
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Kubernetes, ProviderKind}
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Kubernetes.Client
+  alias Ankole.AgentWorkers.Kubernetes
+  alias Ankole.AgentWorkers.ProviderKind
+  alias Ankole.AgentWorkers.Kubernetes.Client
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.{
-    Configuration,
-    Credentials,
-    Provider
-  }
+  alias Ankole.AgentWorkers.Providers.Configuration
+  alias Ankole.AgentWorkers.Providers.Credentials
+  alias Ankole.AgentWorkers.Providers.Provider
 
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
+  alias Ankole.AgentWorkers.WorkerBootstrap
 
   @moduletag timeout: 240_000
   # Needs Docker, Kubernetes, or cloud tooling; see CONTRIBUTING.md.
@@ -221,7 +220,7 @@ defmodule Ankole.KubernetesWorkerStorageIntegrationTest do
              Configuration.parse(Kubernetes.definition().schema, Ankole.JSON.encode!(config))
 
     secrets = %{"kubeconfig" => ctx.kubeconfig}
-    assert :ok = Credentials.validate(Kubernetes.definition(), settings, secrets)
+    assert :ok = Credentials.validate(Kubernetes, Kubernetes.definition(), settings, secrets)
 
     %Provider{
       provider_id: "kubernetes-test",

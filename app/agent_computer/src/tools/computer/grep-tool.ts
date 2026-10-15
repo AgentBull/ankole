@@ -83,7 +83,6 @@ function detectMode(pattern: string): 'plain' | 'regex' {
   }
 }
 
-/** Groups matches by file in engine order; matches inside a file stay in source order. */
 function formatGrepOutput(
   result: GrepResult,
   root: string,
@@ -115,11 +114,6 @@ function formatGrepOutput(
   return { text: lines.join('\n'), linesClipped }
 }
 
-/**
- * The model's content-search tool over the warm fff index: smart-case,
- * auto-detected regex vs literal, results grouped by file with the most
- * relevant files first.
- */
 export function createGrepTool(
   context: ComputerToolContext,
   runtime: FffSearchRuntime = fffSearchRuntime

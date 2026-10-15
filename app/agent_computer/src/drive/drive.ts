@@ -81,7 +81,6 @@ export class Drive {
     }
   }
 
-  /** Lists one page of drive files under a folder prefix. */
   async listPage(
     prefix: string,
     opts: { limit?: number; after?: string } = {}
@@ -96,7 +95,6 @@ export class Drive {
     return { files: response.files.map(driveFileFromWire), nextAfter: response.nextAfter, revision: response.revision }
   }
 
-  /** Writes one drive file to a local path inside the Agent Home and applies its mode. */
   async get(path: string, localPath: string): Promise<DriveFile> {
     const response = await this.opts.rpc(
       'files.get',
@@ -133,11 +131,7 @@ export class Drive {
     return { files: response.files.map(driveFileFromWire), deleted: response.deleted }
   }
 
-  /**
-   * Copies a local file, or every regular file under a local directory, to a
-   * drive path in one commit. A file already at the same drive path is
-   * replaced; drive files that the local side does not have stay.
-   */
+  /** A file already at the same drive path is replaced; drive files that the local side does not have stay. */
   async put(localPath: string, drivePath: string): Promise<DriveFile[]> {
     const localFiles = await collectLocalFiles(localPath)
     if (localFiles.length === 0) throw new Error(`no regular files to put under ${localPath}`)
@@ -164,10 +158,6 @@ export class Drive {
     return (await this.commit([], [path])).deleted
   }
 
-  /**
-   * Returns the path of a local file relative to the Agent Home. Symlinks are
-   * resolved first, so a link cannot name a file outside the Agent Home.
-   */
   async homeRelativePath(localPath: string, opts: { create?: boolean } = {}): Promise<string> {
     const home = await realpath(this.opts.agentHome)
     const absolute = resolve(localPath)
@@ -184,7 +174,6 @@ export class Drive {
   }
 }
 
-/** Streams one local file through SHA-256. */
 export async function sha256File(path: string): Promise<string> {
   const hasher = new Bun.CryptoHasher('sha256')
   const reader = Bun.file(path).stream().getReader()
@@ -196,12 +185,6 @@ export async function sha256File(path: string): Promise<string> {
   return hasher.digest('hex')
 }
 
-/**
- * Lists the regular files of a local path: the file itself, or every regular
- * file under a directory. Symlinks are skipped, so a link cannot pull a file
- * from outside the directory into the drive. A file that disappears during
- * the walk is left out.
- */
 async function collectLocalFiles(localPath: string): Promise<LocalFile[]> {
   const root = resolve(localPath)
   const rootStat = await lstat(root)
@@ -246,7 +229,6 @@ function disappeared(error: unknown): boolean {
   return code === 'ENOENT' || code === 'ENOTDIR'
 }
 
-/** Joins drive path segments, dropping empty ones. */
 export function joinDrivePath(...parts: string[]): string {
   return parts
     .flatMap(part => part.split('/'))

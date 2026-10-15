@@ -17,22 +17,22 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     only: [
       deadline: 1,
       wait_until: 2,
-      wait_for_completed_actor_event_message: 3,
+      wait_for_completed_signal_message: 3,
       wait_for_completed_final_reply: 3,
-      wait_for_completed_outbox: 3,
-      ai_messages_for_actor_event: 1
+      wait_for_completed_intent: 3,
+      ai_messages_for_signal: 1
     ]
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
+  alias Ankole.Sessions.AgentConfig
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.AppConfigure
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job, as: BackgroundAgentJob
   alias Ankole.BackgroundAgentJobs.Schemas.Turn, as: BackgroundAgentJobTurn
   alias Ankole.E2E.DockerWorker
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.Entry
+  alias Ankole.Conversations.Message, as: ConversationMessage
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
   @real_coding_model "z-ai/glm-5.2"
@@ -70,7 +70,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                create_time_ms: DateTime.to_unix(@base_time, :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_real_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_real_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -78,8 +78,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(120_000))
 
-    assert reply.text =~ "ANKOLE_LARK_REAL_OK"
-    assert_actor_event_completed!(input.id)
+    assert reply.message.text =~ "ANKOLE_LARK_REAL_OK"
+    assert_signal_completed!(input.id)
 
     %{input: input, reply: reply, message: message}
   end
@@ -105,7 +105,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                  DateTime.to_unix(DateTime.add(@base_time, 2, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_real_skill_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_real_skill_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -113,12 +113,12 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(180_000))
 
-    assert reply.text =~ "ANKOLE_LARK_REAL_SKILL_OK"
+    assert reply.message.text =~ "ANKOLE_LARK_REAL_SKILL_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     assert tool_result_succeeded?(messages, "skill_view")
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply, message: message}
   end
 
@@ -149,7 +149,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                  DateTime.to_unix(DateTime.add(@base_time, 9, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_real_web_fetch_rendered_fallback_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_real_web_fetch_rendered_fallback_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -157,10 +157,10 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(container, input.id, deadline(240_000))
 
-    assert reply.text =~ "ANKOLE_WEB_FETCH_LIVE_OK"
-    assert reply.text =~ "Example Domain"
+    assert reply.message.text =~ "ANKOLE_WEB_FETCH_LIVE_OK"
+    assert reply.message.text =~ "Example Domain"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     assert [fetch_call] = tool_results(messages, "web_fetch")
     assert fetch_call.arguments == %{"urls" => ["https://example.com"]}
     refute tool_result_error?(fetch_call)
@@ -177,7 +177,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert called_tools == ["web_fetch"]
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply, message: message}
   end
 
@@ -226,7 +226,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                  DateTime.to_unix(DateTime.add(@base_time, 10, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_real_terminal_tools_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_real_terminal_tools_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -234,19 +234,19 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert {:ok, reply, message} =
              wait_for_completed_final_reply_with_trace(container, input.id, deadline(360_000))
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
 
     assert_text_contains_with_trace!(
-      reply.text,
+      reply.message.text,
       "ANKOLE_TERMINAL_TOOLS_REAL_OK",
       input.id,
       messages
     )
 
-    assert_text_contains_with_trace!(reply.text, "north=6", input.id, messages)
-    assert_text_contains_with_trace!(reply.text, "south=5", input.id, messages)
-    assert_text_contains_with_trace!(reply.text, "west=3", input.id, messages)
-    assert_text_contains_with_trace!(reply.text, "total=14", input.id, messages)
+    assert_text_contains_with_trace!(reply.message.text, "north=6", input.id, messages)
+    assert_text_contains_with_trace!(reply.message.text, "south=5", input.id, messages)
+    assert_text_contains_with_trace!(reply.message.text, "west=3", input.id, messages)
+    assert_text_contains_with_trace!(reply.message.text, "total=14", input.id, messages)
 
     assert apply_patch_created_terminal_files?(messages)
     assert command_tool_succeeded?(messages)
@@ -266,7 +266,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     refute Enum.any?(called_tools, &String.starts_with?(&1, "browser_"))
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply, message: message}
   end
 
@@ -337,22 +337,23 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                  DateTime.to_unix(DateTime.add(@base_time, 12, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_real_codex_ptc_mcp_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_real_codex_ptc_mcp_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, start_message} =
-             wait_for_completed_actor_event_message(container, input.id, deadline(300_000))
+             wait_for_completed_signal_message(container, input.id, deadline(300_000))
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
 
     start_reply =
       case wait_for_completed_final_reply(container, input.id, deadline(60_000)) do
-        {:ok, %Entry{} = reply, %{id: message_id}} when message_id == start_message.id ->
+        {:ok, %{message: %ConversationMessage{}} = reply, %{id: message_id}}
+        when message_id == start_message.id ->
           reply
 
-        {:ok, %Entry{} = _reply, other_message} ->
+        {:ok, %{message: %ConversationMessage{}} = _reply, other_message} ->
           flunk("""
           real background agent job start turn mirrored a different final message.
           expected_message_id=#{start_message.id}
@@ -363,7 +364,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
           """)
       end
 
-    assert start_reply.text =~ "ANKOLE_CODEX_PTC_146_STARTED"
+    assert start_reply.message.text =~ "ANKOLE_CODEX_PTC_146_STARTED"
     assert [create_result] = tool_results(messages, "create_background_job")
     assert create_result.arguments == start_arguments
     refute tool_result_error?(create_result)
@@ -372,7 +373,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       Repo.one!(
         from(job in BackgroundAgentJob,
           where: job.agent_uid == ^agent.uid,
-          where: job.source_actor_event_id == ^input.id
+          where: job.source_signal_id == ^input.id
         )
       )
 
@@ -381,7 +382,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     dispatch_event =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^BackgroundAgentJobs.job_session_id(job.id),
           where: event.type == "background_agent_job.dispatch"
@@ -415,7 +416,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     wakeup_event =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^input.session_id,
           where: event.type == "background_agent_job.completed",
@@ -498,8 +499,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
            ])
            |> String.trim() == "absent"
 
-    assert_actor_event_completed!(input.id)
-    assert_actor_event_completed!(dispatch_event.id)
+    assert_signal_completed!(input.id)
+    assert_signal_completed!(dispatch_event.id)
 
     %{
       input: input,
@@ -563,21 +564,21 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                  DateTime.to_unix(DateTime.add(@base_time, 13, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_real_codex_pptx_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_real_codex_pptx_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
     assert {:ok, start_message} =
-             wait_for_completed_actor_event_message(container, input.id, deadline(300_000))
+             wait_for_completed_signal_message(container, input.id, deadline(300_000))
 
-    start_messages = ai_messages_for_actor_event(input.id)
+    start_messages = ai_messages_for_signal(input.id)
 
-    assert {:ok, %Entry{} = start_reply, %{id: start_message_id}} =
+    assert {:ok, %{message: %ConversationMessage{}} = start_reply, %{id: start_message_id}} =
              wait_for_completed_final_reply(container, input.id, deadline(60_000))
 
     assert start_message_id == start_message.id
-    assert start_reply.text =~ "ANKOLE_CODEX_PPTX_STARTED"
+    assert start_reply.message.text =~ "ANKOLE_CODEX_PPTX_STARTED"
     assert [create_result] = tool_results(start_messages, "create_background_job")
     assert create_result.arguments == start_arguments
     refute tool_result_error?(create_result)
@@ -586,7 +587,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
       Repo.one!(
         from(job in BackgroundAgentJob,
           where: job.agent_uid == ^agent.uid,
-          where: job.source_actor_event_id == ^input.id
+          where: job.source_signal_id == ^input.id
         )
       )
 
@@ -596,7 +597,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     dispatch_event =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^BackgroundAgentJobs.job_session_id(job.id),
           where: event.type == "background_agent_job.dispatch"
@@ -677,7 +678,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     wakeup_event =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^input.session_id,
           where: event.type == "background_agent_job.completed",
@@ -695,15 +696,15 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                )
     end
 
-    assert {:ok, outbox, _message} =
-             wait_for_completed_outbox(container, wakeup_event.id, deadline(300_000))
+    assert {:ok, intent, _message} =
+             wait_for_completed_intent(container, wakeup_event.id, deadline(300_000))
 
-    case outbox.payload["text"] do
+    case intent.payload["text"] do
       text when is_binary(text) -> assert text =~ "ANKOLE_CODEX_PPTX_REAL_OK"
       nil -> :ok
     end
 
-    assert [attachment] = outbox.payload["attachments"]
+    assert [attachment] = intent.payload["attachments"]
     assert "sent/" <> _digest_and_name = attachment["path"]
     assert Path.basename(attachment["path"]) == @pptx_name
     assert is_binary(attachment["blob_ref"])
@@ -714,15 +715,15 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
     assert attachment["size"] > 1_000
 
-    wakeup_messages = ai_messages_for_actor_event(wakeup_event.id)
+    wakeup_messages = ai_messages_for_signal(wakeup_event.id)
     assert [details_result] = tool_results(wakeup_messages, "show_background_job_details")
     assert details_result.arguments == %{"job_id" => job.id, "result_offset" => 0}
     refute tool_result_error?(details_result)
     assert command_tool_succeeded?(wakeup_messages)
     assert tool_result_succeeded?(wakeup_messages, "reply_attachment")
 
-    sent = dispatch_outbox_succeeded!(outbox)
-    platform_message = platform_message!(fake_feishu, sent.created_source_entry_id)
+    sent = dispatch_succeeded!(intent)
+    platform_message = platform_message!(fake_feishu, sent.created_provider_message_id)
     assert platform_message.sender == :bot
     assert platform_message.msg_type == "file"
     assert platform_message.reply_to == "om_real_codex_pptx_1"
@@ -735,14 +736,14 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert binary_part(uploaded_content, 0, 2) == "PK"
     assert [%{"provider_file_key" => ^file_key}] = sent.payload["attachments"]
 
-    assert_actor_event_completed!(input.id)
-    assert_actor_event_completed!(dispatch_event.id)
-    assert_actor_event_completed!(wakeup_event.id)
+    assert_signal_completed!(input.id)
+    assert_signal_completed!(dispatch_event.id)
+    assert_signal_completed!(wakeup_event.id)
 
     %{
       input: input,
       job: job,
-      outbox: sent,
+      intent: sent,
       platform_message: platform_message,
       outline: outline_output,
       text: text_output
@@ -794,7 +795,7 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
           "@_user_1 If an <image_summary> block describes the attached image, decide whether the animal is herbivorous. Reply exactly true or false. If no animal is described, reply exactly UNKNOWN. Do not call tools."
       )
 
-    assert_false_answer_text!(result.reply.text)
+    assert_false_answer_text!(result.reply.message.text)
     assert fallback_summary_recorded?(result.input.id)
 
     result
@@ -835,20 +836,21 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
                create_time_ms: DateTime.to_unix(create_time, :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, message_id)
-    assert input.type == "im.message.addressed"
+    input = signal_by_provider_message_id!(agent.uid, message_id)
+    assert input.type == "conversation.message.addressed"
 
-    assert {:ok, %Entry{text: text, attachments: [attachment]}} =
+    assert {:ok, %{message: %ConversationMessage{text: text, attachments: [attachment]}}} =
              wait_until(deadline(10_000), fn ->
-               case Repo.get_by!(Entry,
-                      signal_channel_id: "lark:#{chat_id}",
-                      source_entry_id: message_id
-                    ) do
-                 %Entry{attachments: [%{"blob_ref" => blob_ref, "path" => path}]} = entry
+               case message_observation("lark:#{chat_id}", message_id) do
+                 %{
+                   message: %ConversationMessage{
+                     attachments: [%{"blob_ref" => blob_ref, "path" => path}]
+                   }
+                 } = entry
                  when is_binary(blob_ref) and is_binary(path) ->
                    entry
 
-                 %Entry{} ->
+                 %{message: %ConversationMessage{}} ->
                    nil
                end
              end)
@@ -875,11 +877,11 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert Path.basename(drive_path) == "vision-dog.jpeg"
     assert String.starts_with?(drive_path, "inbox/")
 
-    assert {:ok, %ActorEvent{} = input} =
+    assert {:ok, %Signal{} = input} =
              wait_until(deadline(10_000), fn ->
-               refreshed = Repo.get!(ActorEvent, input.id)
+               refreshed = Repo.get!(Signal, input.id)
 
-               if get_in(refreshed.payload, ["data", "entry", "attachments"]) == [attachment],
+               if get_in(refreshed.data, ["entry", "attachments"]) == [attachment],
                  do: refreshed,
                  else: nil
              end)
@@ -890,8 +892,8 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(container, input.id, deadline(180_000))
 
-    assert_false_answer_text!(reply.text)
-    assert_actor_event_completed!(input.id)
+    assert_false_answer_text!(reply.message.text)
+    assert_signal_completed!(input.id)
 
     %{input: input, reply: reply, message: message}
   end
@@ -913,9 +915,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
              )
   end
 
-  defp background_agent_job_debug(actor_event_id) do
+  defp background_agent_job_debug(signal_id) do
     BackgroundAgentJob
-    |> where([job], job.source_actor_event_id == ^actor_event_id)
+    |> where([job], job.source_signal_id == ^signal_id)
     |> Repo.all()
     |> Enum.map(fn job ->
       turns =
@@ -973,9 +975,9 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
 
   defp truncate_debug_strings(value), do: value
 
-  defp fallback_summary_recorded?(actor_event_id) do
-    actor_event_id
-    |> ai_messages_for_actor_event()
+  defp fallback_summary_recorded?(signal_id) do
+    signal_id
+    |> ai_messages_for_signal()
     |> Enum.any?(fn message ->
       message
       |> Map.get(:content, [])
@@ -1194,16 +1196,16 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
-  defp wait_for_completed_final_reply_with_trace(container, actor_event_id, deadline) do
-    wait_for_completed_final_reply(container, actor_event_id, deadline)
+  defp wait_for_completed_final_reply_with_trace(container, signal_id, deadline) do
+    wait_for_completed_final_reply(container, signal_id, deadline)
   rescue
     error ->
-      messages = ai_messages_for_actor_event(actor_event_id)
+      messages = ai_messages_for_signal(signal_id)
 
       raise """
       #{Exception.message(error)}
 
-      actor_event_id=#{actor_event_id}
+      signal_id=#{signal_id}
       ai_message_trace=#{inspect(ai_message_trace(messages), limit: :infinity, printable_limit: 4000)}
       """
   end
@@ -1245,12 +1247,12 @@ defmodule Ankole.E2E.Scenarios.RealLLM do
   defp content_texts(%{"output" => output}) when is_binary(output), do: [output]
   defp content_texts(_item), do: []
 
-  defp assert_text_contains_with_trace!(text, needle, actor_event_id, messages) do
+  defp assert_text_contains_with_trace!(text, needle, signal_id, messages) do
     assert text =~ needle,
            """
            expected reply to contain #{inspect(needle)}, got #{inspect(text)}
 
-           actor_event_id=#{actor_event_id}
+           signal_id=#{signal_id}
            ai_message_trace=#{inspect(ai_message_trace(messages), limit: :infinity, printable_limit: 4000)}
            """
   end

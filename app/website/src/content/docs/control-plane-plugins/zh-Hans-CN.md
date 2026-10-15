@@ -37,11 +37,11 @@ Control Plane Plugin 是 Ankole 实例扩展控制面的方式。插件可以提
 
 一个 plugin 通过一个具名契约接入某个子系统，契约 id 允许含点号，这样子系统可以为契约加命名空间。实际在用的契约：
 
-- **`signals_gateway.adapter`**——声明一个 Signal adapter，SignalsGateway 会把它解析进自己的 adapter 注册表。一个新的聊天或事件 provider 就这样成为一个可绑定的目标。
-- **`signals_gateway.webhook_handler`**——为 `/webhooks/v1/:handler_id/:instance_id/:kind` 这扇正门声明一个 handler。handler 负责 provider 鉴权，并用一条归一化事实调用入口。
+- **`signals.adapter`**——声明一个 Signal adapter，Signals 会把它解析进自己的 adapter 注册表。一个新的聊天或事件 provider 就这样成为一个可绑定的目标。
+- **`signals.webhook_handler`**——为 `/webhooks/v1/:handler_id/:instance_id/:kind` 这扇正门声明一个 handler。handler 负责 provider 鉴权，并用一条归一化事实调用入口。
 - **`principals.identity_provider`**——声明一个身份源提供商，供运维者配置管理员登录。
 
-契约相关的回调语义，由消费该契约的子系统定义。plugin 注册表只持有通用的 adapter 声明信封；子系统（例如 `SignalsGateway.Adapters`）读取属于自己契约 id 的那些声明，并解释它们。这种分离让注册表是一个简单的目录，而子系统是聪明的消费方。
+契约相关的回调语义，由消费该契约的子系统定义。plugin 注册表只持有通用的 adapter 声明信封；子系统（例如 `Signals.Adapters`）读取属于自己契约 id 的那些声明，并解释它们。这种分离让注册表是一个简单的目录，而子系统是聪明的消费方。
 
 ## 启用边界：下一次进程启动
 
@@ -74,6 +74,6 @@ Plugin 对整个实例生效，并在启动失败时保持关闭。因此，运�
 
 ## 下一步
 
-- 一个 plugin 可以声明的 signal adapter，读 [SignalsGateway](../signals-gateway/)。
+- 一个 plugin 可以声明的 signal adapter，读 [Signals](../signals/)。
 - 一个 plugin 贡献的 AppConfigure 键，读 [Console](../console-api/)。
 - 这套扩展机制使用的信任模型，见 [主体与 AuthZ](../principal-authz/)。

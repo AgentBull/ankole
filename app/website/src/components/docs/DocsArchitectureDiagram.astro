@@ -68,7 +68,7 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 		<rect x="20" y="140" width="960" height="390" class="zone"></rect>
 		<text x="42" y="168" class="layer-label">{copy.control}</text>
 
-		<a href={docs('signals-gateway')} aria-label={copy.signals[0]}>
+		<a href={docs('conversations-signals-sessions')} aria-label={copy.signals[0]}>
 			<rect x="55" y="190" width="250" height="100" class="node node-link"></rect>
 			<text x="75" y="227" class="node-title">{copy.signals[0]}</text>
 			<text x="75" y="254" class="node-detail">{copy.signals[1]}</text>
@@ -84,10 +84,10 @@ const controlNodes = ARCHITECTURE_CONTROL_NODES.map(node => ({ copy: copy[node.k
 			<text x="715" y="254" class="node-detail">{copy.ai[1]}</text>
 		</a>
 
-		<a href={docs('actor-runtime')} aria-label={copy.actor[0]}>
+		<a href={docs('sessions')} aria-label={copy.sessions[0]}>
 			<rect x="55" y="375" width="250" height="100" class="node node-link node-primary"></rect>
-			<text x="75" y="412" class="node-title">{copy.actor[0]}</text>
-			<text x="75" y="439" class="node-detail">{copy.actor[1]}</text>
+			<text x="75" y="412" class="node-title">{copy.sessions[0]}</text>
+			<text x="75" y="439" class="node-detail">{copy.sessions[1]}</text>
 		</a>
 		<a href={docs('brain')} aria-label={copy.brain[0]}>
 			<rect x="375" y="375" width="250" height="100" class="node node-link node-primary"></rect>

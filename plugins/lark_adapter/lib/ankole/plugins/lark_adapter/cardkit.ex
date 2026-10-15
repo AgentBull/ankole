@@ -8,30 +8,30 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   card and uses whole-card edits instead of guessing old elements.
   """
 
-  @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+  @behaviour Ankole.Conversations.Delivery.PreviewAdapter
 
+  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Plugins.LarkAdapter.CardKit.CardChain
   alias Ankole.Plugins.LarkAdapter.CardKit.ErrorPolicy
   alias Ankole.Plugins.LarkAdapter.CardKit.ImageResolver
   alias Ankole.Plugins.LarkAdapter.CardKit.Renderer
   alias Ankole.Plugins.LarkAdapter.Config
-  alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
+  alias Ankole.Plugins.LarkAdapter.Delivery, as: LarkDelivery
   alias Ankole.Logging
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.Outbox
-  alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias FeishuOpenAPI.Error
 
   @checkpoint_version 1
   @stream_lease_seconds 9 * 60
   @card_id_retry_delays_ms [250, 750, 1_500, 3_000, 5_000]
 
-  defp open_result(%Request{actor_event: event} = request) do
+  defp open_result(%Request{signal: event} = request) do
     with {:ok, config} <- Config.validate_chat_config(request.config),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
@@ -69,10 +69,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              client,
              request_fun
            ),
-         {:ok, event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+         {:ok, event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint) do
       {:ok,
        delivery_result(
-         event.reply_preview_source_entry_id || first_message_id(checkpoint),
+         PreviewState.get(event).provider_message_id ||
+           first_message_id(checkpoint),
          checkpoint
        )
        |> Map.merge(send_result)
@@ -81,7 +83,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   @impl true
-  def update(%Request{actor_event: event, checkpoint: checkpoint} = request) do
+  def update(%Request{signal: event, checkpoint: checkpoint} = request) do
     with %{"card_id" => card_id} = checkpoint when is_binary(card_id) <- checkpoint do
       do_update(event, checkpoint, request)
     else
@@ -94,11 +96,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   def finalize(%Request{} = request) do
     case finalize_result(request) do
       {:error, :cardkit_soft_budget_exceeded} ->
-        plain_text_fallback(request.actor_event, request)
+        plain_text_fallback(request.signal, request)
 
       {:error, %Error{} = error} ->
         case ErrorPolicy.action(error) do
-          :plain_text_fallback -> plain_text_fallback(request.actor_event, request)
+          :plain_text_fallback -> plain_text_fallback(request.signal, request)
           _action -> normalize_lifecycle_result({:error, error})
         end
 
@@ -108,7 +110,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   @impl true
-  def refresh(%Request{actor_event: event, checkpoint: checkpoint} = request) do
+  def refresh(%Request{signal: event, checkpoint: checkpoint} = request) do
     with %{"card_id" => card_id, "refresh_pending" => true} = checkpoint
          when is_binary(card_id) <- checkpoint,
          request <- refresh_request(request, event, checkpoint),
@@ -140,7 +142,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       Enum.any?(CardChain.cards(checkpoint), &(&1["streaming_state"] != "closed"))
   end
 
-  defp finalize_result(%Request{actor_event: event, checkpoint: checkpoint} = request) do
+  defp finalize_result(%Request{signal: event, checkpoint: checkpoint} = request) do
     request = %{request | mode: :terminal}
 
     case checkpoint do
@@ -281,7 +283,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
       # A rollover after the inline first page continues on new CardKit cards.
       %{"card_id" => card_id} when is_binary(card_id) ->
-        update_cardkit(event, checkpoint, %{request | actor_event: event, checkpoint: checkpoint})
+        update_cardkit(event, checkpoint, %{request | signal: event, checkpoint: checkpoint})
 
       _active ->
         {:error, :cardkit_active_card_missing}
@@ -395,7 +397,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              current_card,
              active_page
            ),
-         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+         {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint) do
       {:ok,
        delivery_result(first_message_id(checkpoint), checkpoint)
        |> Map.merge(result_fields)}
@@ -482,7 +485,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     else
       checkpoint = Map.put(checkpoint, "markdown_images", image_state)
 
-      with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      with {:ok, _event} <-
+             PreviewState.put_checkpoint(event.id, checkpoint) do
         {:ok, checkpoint}
       end
     end
@@ -644,7 +648,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
         rebuild_latest_active_message(event, request)
 
       :plain_text_fallback ->
-        if match?(%OutboxEntry{}, request.outbox) do
+        if match?(%Intent{}, request.delivery) do
           plain_text_fallback(event, request)
         else
           {:error, {:degraded, :plain_text, ErrorPolicy.provider_error(error)}}
@@ -663,7 +667,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       "lark_adapter.cardkit.recovery",
       "Lark CardKit provider operation requires recovery",
       %{
-        actor_event_id: event.id,
+        signal_id: event.id,
         card_id: checkpoint["card_id"],
         mode: request.mode,
         operation: stage,
@@ -675,14 +679,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   # Reloads the row: provider mutations earlier in this call already moved the
   # checkpoint past the request's copy.
-  defp rebuild_latest_active_message(%ActorEvent{id: actor_event_id}, request) do
-    with %ActorEvent{} = event <-
-           Repo.get(ActorEvent, actor_event_id) || {:error, :actor_event_not_found},
+  defp rebuild_latest_active_message(%Signal{id: signal_id}, request) do
+    with %Signal{} = event <-
+           PreviewState.load(Repo.get(Signal, signal_id), Repo) ||
+             {:error, :signal_not_found},
          checkpoint when is_map(checkpoint) <-
-           ReplyPreviewAdapter.adapter_checkpoint(event.reply_preview_checkpoint) do
+           PreviewAdapter.adapter_checkpoint(PreviewState.get(event).checkpoint) do
       rebuild_active_message(event, checkpoint, %{
         request
-        | actor_event: event,
+        | signal: event,
           checkpoint: checkpoint
       })
     else
@@ -703,7 +708,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     now = DateTime.utc_now(:microsecond)
 
     previous =
-      request.checkpoint || ReplyPreviewAdapter.adapter_checkpoint(event.reply_preview_checkpoint)
+      request.checkpoint ||
+        PreviewAdapter.adapter_checkpoint(PreviewState.get(event).checkpoint)
 
     element_ids = Renderer.card_element_ids(rendered_card)
 
@@ -735,7 +741,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       |> CardChain.initialize(card)
       |> put_cleanup_at(element_ids, stream_deadline_at)
 
-    with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+    with {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint) do
       {:ok, checkpoint}
     end
   end
@@ -763,7 +770,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
         |> Map.put("stream_deadline_at", deadline)
         |> Map.put("cleanup_at", deadline)
 
-      with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, staged_checkpoint) do
+      with {:ok, _event} <-
+             PreviewState.put_checkpoint(
+               event.id,
+               staged_checkpoint
+             ) do
         {:ok, staged_checkpoint}
       end
     else
@@ -775,7 +786,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     case CardChain.active_card(checkpoint) do
       %{"message_id" => message_id} when is_binary(message_id) and message_id != "" ->
         with {:ok, checkpoint} <- complete_sent_rollover(event, checkpoint) do
-          {:ok, checkpoint, %{created_source_entry_id: message_id}}
+          {:ok, checkpoint, %{created_provider_message_id: message_id}}
         end
 
       _unsent ->
@@ -795,7 +806,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
          rollover["to_index"] == active["index"] and is_binary(active["message_id"]) do
       checkpoint = Map.delete(checkpoint, "pending_rollover")
 
-      with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      with {:ok, _event} <-
+             PreviewState.put_checkpoint(event.id, checkpoint) do
         {:ok, checkpoint}
       end
     else
@@ -808,7 +820,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
     with operation_result <-
            if(active_index == 0,
-             do: Outbox.outbox_operation_for_actor_event(event),
+             do: Delivery.operation_for_signal(event),
              else: {:ok, :post}
            ),
          {:ok, operation} <- operation_result,
@@ -822,11 +834,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              @card_id_retry_delays_ms,
              &Process.sleep/1
            ),
-         message_id when is_binary(message_id) <- result[:created_source_entry_id],
+         message_id when is_binary(message_id) <- result[:created_provider_message_id],
          checkpoint <-
            update_active_card(checkpoint, fn card -> Map.put(card, "message_id", message_id) end),
          source <- if(active_index == 0, do: {message_id, nil}),
-         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint, source) do
+         {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint, source) do
       {:ok, checkpoint, result}
     else
       nil -> {:error, :cardkit_message_id_missing}
@@ -913,7 +926,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
       with {:ok, current_card} <-
              Renderer.render(request.presentation, Keyword.put(page_opts, :mode, :working)),
-           {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, staged),
+           {:ok, _event} <-
+             PreviewState.put_checkpoint(event.id, staged),
            :ok <-
              write_sealed_page(
                event,
@@ -940,7 +954,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              |> Map.delete("pending_mutation")
              |> Map.delete("cleanup_at")
              |> Map.put("stream_deadline_at", nil),
-           {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+           {:ok, _event} <-
+             PreviewState.put_checkpoint(event.id, checkpoint) do
         {:ok, checkpoint}
       end
     end
@@ -1016,7 +1031,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
     with {:ok, card_json} <-
            Renderer.render(request.presentation, Keyword.put(render_opts, :mode, request.mode)),
-         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, staged),
+         {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, staged),
          {:ok, card_id} <- create_card(client, card_json, request_fun),
          element_ids <- Renderer.card_element_ids(card_json),
          card <-
@@ -1046,11 +1062,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
                |> Map.delete("cleanup_at")
              end
            end),
-         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint),
+         {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint),
          {:ok, checkpoint, _result} <-
            ensure_card_sent(event, checkpoint, client, request_fun),
          checkpoint <- Map.delete(checkpoint, "pending_rollover"),
-         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+         {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint) do
       {:ok, checkpoint}
     end
   end
@@ -1156,7 +1174,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       message_id when is_binary(message_id) and message_id != "" ->
         {:ok,
          %{
-           created_source_entry_id: message_id,
+           created_provider_message_id: message_id,
            provider_thread_id: data["root_id"],
            delivered_operation: operation,
            raw_payload: body
@@ -1171,10 +1189,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   defp normalize_message_result(_body, _operation), do: {:error, :cardkit_message_id_missing}
 
-  defp put_reply_target({:ok, result}, source_entry_id),
-    do: {:ok, Map.put(result, :reply_to_source_entry_id, source_entry_id)}
+  defp put_reply_target({:ok, result}, provider_message_id),
+    do: {:ok, Map.put(result, :reply_to_provider_message_id, provider_message_id)}
 
-  defp put_reply_target(result, _source_entry_id), do: result
+  defp put_reply_target(result, _provider_message_id), do: result
 
   defp update_mutations(request, checkpoint, render_opts, current_card) do
     previous =
@@ -1240,7 +1258,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
     %{
       request
-      | actor_event: event,
+      | signal: event,
         presentation: presentation,
         previous_presentation:
           checkpoint["previous_presentation"] || request.previous_presentation,
@@ -1253,8 +1271,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   defp resume_unsent_refresh(event, checkpoint, request) do
     checkpoint = clear_refresh(checkpoint)
 
-    with {:ok, event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
-      request = %{request | actor_event: event, checkpoint: checkpoint}
+    with {:ok, event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint) do
+      request = %{request | signal: event, checkpoint: checkpoint}
 
       case request.mode do
         :terminal -> do_finalize(event, checkpoint, request)
@@ -1325,7 +1344,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              close_streaming?,
              active_page
            ),
-         {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+         {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint) do
       {:ok, delivery_result(first_message_id(checkpoint), checkpoint)}
     else
       nil -> {:error, :cardkit_message_id_missing}
@@ -1350,7 +1370,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
        ) do
     checkpoint = update_active_card(checkpoint, &Map.put(&1, "transport", "inline_message"))
 
-    with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint),
+    with {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint),
          {:ok, checkpoint, chain_result} <-
            ensure_page_chain(
              event,
@@ -1377,7 +1398,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
         :working ->
           checkpoint = clear_refresh(checkpoint)
 
-          with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+          with {:ok, _event} <-
+                 PreviewState.put_checkpoint(event.id, checkpoint) do
             {:ok,
              delivery_result(first_message_id(checkpoint), checkpoint)
              |> Map.merge(chain_result)}
@@ -1487,7 +1509,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     actions_digest = :crypto.hash(:sha256, actions_json) |> Base.encode16(case: :lower)
 
     with {:ok, %{"sequence" => sequence, "uuid" => uuid} = mutation} <-
-           Actors.prepare_reply_preview_mutation(
+           PreviewState.prepare_mutation(
              event.id,
              purpose,
              actions_digest,
@@ -1503,7 +1525,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     content_digest = :crypto.hash(:sha256, content) |> Base.encode16(case: :lower)
 
     with {:ok, %{"sequence" => sequence, "uuid" => uuid} = mutation} <-
-           Actors.prepare_reply_preview_mutation(
+           PreviewState.prepare_mutation(
              event.id,
              "answer_content",
              content_digest,
@@ -1624,7 +1646,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       )
       |> put_stream_deadline(streaming_state, element_ids)
 
-    with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+    with {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint) do
       {:ok, checkpoint}
     end
   end
@@ -1665,7 +1688,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
       |> update_active_card(&Map.put(&1, "answer_content", answer_content))
       |> Map.delete("pending_mutation")
 
-    with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+    with {:ok, _event} <-
+           PreviewState.put_checkpoint(event.id, checkpoint) do
       {:ok, checkpoint}
     end
   end
@@ -1767,11 +1791,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     end
   end
 
-  defp plain_text_fallback(event, %Request{outbox: %OutboxEntry{} = outbox} = request) do
+  defp plain_text_fallback(event, %Request{delivery: %Intent{} = intent} = request) do
     with {:ok, config} <- Config.validate_chat_config(request.config),
          client <- Config.client(config),
          request_fun <- &FeishuOpenAPI.request/4,
-         {:ok, operation} <- Outbox.outbox_operation_for_actor_event(event),
+         {:ok, operation} <- Delivery.operation_for_signal(event),
          text <- ReplyPresentation.fallback_text(request.presentation),
          {operation, text} <- undelivered_plain_text(event, operation, text),
          {:ok, result} <-
@@ -1780,7 +1804,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
              event,
              operation,
              text,
-             outbox.idempotency_key || "ai-reply:#{event.id}",
+             intent.idempotency_key || "ai-reply:#{event.id}",
              request_fun
            ) do
       {:ok, Map.put(result, :delivered_operation, result[:delivered_operation] || operation)}
@@ -1788,14 +1812,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   end
 
   defp plain_text_fallback(_event, _request) do
-    {:error, {:degraded, :plain_text, %{"reason" => "outbox_required"}}}
+    {:error, {:degraded, :plain_text, %{"reason" => "intent_required"}}}
   end
 
-  defp undelivered_plain_text(%ActorEvent{id: actor_event_id}, operation, text) do
+  defp undelivered_plain_text(%Signal{id: signal_id}, operation, text) do
     checkpoint =
-      case Repo.get(ActorEvent, actor_event_id) do
-        %ActorEvent{reply_preview_checkpoint: checkpoint} when is_map(checkpoint) ->
-          ReplyPreviewAdapter.adapter_checkpoint(checkpoint)
+      case PreviewState.load(Repo.get(Signal, signal_id), Repo) do
+        %Signal{preview: %PreviewState{checkpoint: checkpoint}}
+        when is_map(checkpoint) ->
+          PreviewAdapter.adapter_checkpoint(checkpoint)
 
         _missing ->
           %{}
@@ -1819,14 +1844,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   defp send_plain_text_chunks(client, event, operation, text, idempotency_key, request_fun) do
     text
-    |> LarkOutbox.split_text()
+    |> LarkDelivery.split_text()
     |> Enum.with_index(1)
     |> Enum.reduce_while({:ok, []}, fn {chunk, index}, {:ok, results} ->
       checkpoint = %{
         "message_uuid" =>
           idempotency_key
-          |> LarkOutbox.chunk_idempotency_key(index)
-          |> LarkOutbox.provider_message_uuid()
+          |> LarkDelivery.chunk_idempotency_key(index)
+          |> LarkDelivery.provider_message_uuid()
       }
 
       chunk_operation = if index == 1, do: operation, else: :post
@@ -1847,16 +1872,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   defp send_message(client, event, :reply, body, request_fun) do
     case request_fun.(client, :post, "im/v1/messages/:message_id/reply",
-           path_params: %{message_id: event.source_entry_id},
+           path_params: %{message_id: event.provider_message_id},
            body: Map.put(body, :reply_in_thread, false)
          ) do
       {:ok, response} ->
         response
         |> normalize_message_result(:reply)
-        |> put_reply_target(event.source_entry_id)
+        |> put_reply_target(event.provider_message_id)
 
       {:error, %Error{} = error} ->
-        if LarkOutbox.target_gone_error?(error) do
+        if LarkDelivery.target_gone_error?(error) do
           send_message(client, event, :post, body, request_fun)
         else
           {:error, error}
@@ -1870,7 +1895,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
   defp send_message(client, event, _operation, body, request_fun) do
     request_fun.(client, :post, "im/v1/messages",
       query: [receive_id_type: "chat_id"],
-      body: Map.put(body, :receive_id, chat_id(event.signal_channel_id))
+      body: Map.put(body, :receive_id, chat_id(event.conversation_id))
     )
     |> case do
       {:ok, response} -> normalize_message_result(response, :post)
@@ -1897,7 +1922,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
 
   defp delivery_result(message_id, checkpoint) do
     %{
-      created_source_entry_id: message_id,
+      created_provider_message_id: message_id,
       reply_preview_checkpoint: checkpoint,
       recovery_state: %{
         "card_id" => checkpoint["card_id"],
@@ -1932,14 +1957,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit do
     |> DateTime.to_iso8601()
   end
 
-  defp card_message_uuid(actor_event_id, index) do
-    actor_event_id
+  defp card_message_uuid(signal_id, index) do
+    signal_id
     |> then(&"cardkit-message:#{&1}:#{index}")
-    |> LarkOutbox.provider_message_uuid()
+    |> LarkDelivery.provider_message_uuid()
   end
 
-  defp chat_id("lark:" <> encoded), do: URI.decode(encoded)
-  defp chat_id(value), do: value
+  defp chat_id(conversation_id) do
+    "lark:" <> encoded = Ankole.Conversations.External.provider_conversation_id!(conversation_id)
+    URI.decode(encoded)
+  end
 
   defp normalize_lifecycle_result({:error, %Error{} = error}) do
     case ErrorPolicy.action(error) do

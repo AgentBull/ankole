@@ -17,20 +17,10 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   alias Ankole.Principals
   alias Ankole.Repo
 
-  alias Ankole.AIGateway.{CompactionSummarizer}
+  alias Ankole.AIGateway.CompactionHistory
+  alias Ankole.AIGateway.CompactionPolicy
+  alias Ankole.AIGateway.CompactionSummarizer
   alias Ankole.AIGateway.HostedTools.Brain
-
-  import Ankole.AIGateway.CompactionHistory,
-    only: [
-      raw_history: 3,
-      messages_to_items: 1,
-      provider_neutral_tail_items: 1,
-      input_items: 1,
-      items_token_estimate: 1
-    ]
-
-  import Ankole.AIGateway.CompactionPolicy,
-    only: [checkpoint_budget_tokens: 1, user_message_budget_tokens: 0]
 
   @handle_prefix "ankole:compact:v1:"
 
@@ -51,16 +41,16 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
         }
 
   @spec new_id() :: Ecto.UUID.t()
-  def new_id, do: UUIDv7.autogenerate()
+  defp new_id, do: UUIDv7.autogenerate()
 
   @spec public_id(Ecto.UUID.t()) :: String.t()
-  def public_id(uuid) when is_binary(uuid), do: "cmp_#{uuid}"
+  defp public_id(uuid) when is_binary(uuid), do: "cmp_#{uuid}"
 
   @spec response_id(Ecto.UUID.t()) :: String.t()
   def response_id(uuid) when is_binary(uuid), do: "resp_#{uuid}"
 
   @spec handle(Ecto.UUID.t()) :: String.t()
-  def handle(uuid) when is_binary(uuid), do: @handle_prefix <> public_id(uuid)
+  defp handle(uuid) when is_binary(uuid), do: @handle_prefix <> public_id(uuid)
 
   @spec ref_item(Ecto.UUID.t()) :: map()
   def ref_item(uuid) when is_binary(uuid) do
@@ -119,21 +109,15 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   end
 
   @spec output(CompactionArtifact.t()) :: [term()]
-  def output(%CompactionArtifact{content: %{"output" => output}}) when is_list(output),
+  defp output(%CompactionArtifact{content: %{"output" => output}}) when is_list(output),
     do: output
 
-  def output(_artifact), do: []
+  defp output(_artifact), do: []
 
   @doc "Returns the items that replace a checkpoint in model history."
   @spec replay_items(map()) :: [map()]
   def replay_items(%{"output" => output} = content) when is_list(output),
     do: Map.get(content, "brain_context_pack", []) ++ output
-
-  @spec version(CompactionArtifact.t()) :: 2 | 3 | nil
-  def version(%CompactionArtifact{content: %{"version" => version}}) when version in [2, 3],
-    do: version
-
-  def version(_artifact), do: nil
 
   @spec summary_text(CompactionArtifact.t()) :: String.t() | nil
   def summary_text(%CompactionArtifact{content: %{"summary" => %{"text" => text}}})
@@ -143,11 +127,11 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   def summary_text(_artifact), do: nil
 
   @spec opaque_prefix(CompactionArtifact.t()) :: [map()]
-  def opaque_prefix(%CompactionArtifact{content: %{"opaque_prefix" => opaque_prefix}})
-      when is_list(opaque_prefix),
-      do: opaque_prefix
+  defp opaque_prefix(%CompactionArtifact{content: %{"opaque_prefix" => opaque_prefix}})
+       when is_list(opaque_prefix),
+       do: opaque_prefix
 
-  def opaque_prefix(_artifact), do: []
+  defp opaque_prefix(_artifact), do: []
 
   @spec response_body(CompactionArtifact.t(), keyword()) :: map()
   def response_body(%CompactionArtifact{} = artifact, opts \\ []) do
@@ -435,12 +419,21 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   defp unix_timestamp(%DateTime{} = datetime), do: DateTime.to_unix(datetime)
   defp unix_timestamp(_datetime), do: System.system_time(:second)
 
-  def checkpoint_pack(subject_uid, conversation_id, request, input, history) do
+  def checkpoint_pack(subject_uid, conversation_id, request, input, history, opts \\ []) do
     case ResponseChain.get_conversation_for_subject(subject_uid, conversation_id) do
       {:ok, conversation} ->
-        Brain.checkpoint_context_pack(subject_uid, conversation, request, input, fn ->
-          conversation_id |> source_chain(history, request) |> messages_to_items()
-        end)
+        Brain.checkpoint_context_pack(
+          subject_uid,
+          conversation,
+          request,
+          input,
+          fn ->
+            conversation_id
+            |> source_chain(history, request)
+            |> CompactionHistory.messages_to_items()
+          end,
+          opts
+        )
 
       {:error, _reason} ->
         []
@@ -451,7 +444,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   # through consecutive compactions.
   defp source_chain(conversation_id, history, request) do
     if Enum.any?(history, &(&1.type == "checkpoint")),
-      do: raw_history(conversation_id, history, request),
+      do: CompactionHistory.raw_history(conversation_id, history, request),
       else: history
   end
 
@@ -480,7 +473,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
       brain_context_pack: candidate.brain_context_pack,
       retained_items:
         candidate.retained_client_tool_search ++
-          provider_neutral_tail_items(candidate.retained_tail),
+          CompactionHistory.provider_neutral_tail_items(candidate.retained_tail),
       # The replayed originals may end with a still-unanswered clarify
       # call/output pair; "user_message_count" counts only user messages.
       retained_user_originals:
@@ -489,7 +482,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
         "strategy" => "tail_rows",
         "requested" => candidate.tail_rows_requested,
         "actual" => length(candidate.retained_tail),
-        "user_budget_tokens" => user_message_budget_tokens(),
+        "user_budget_tokens" => CompactionPolicy.user_message_budget_tokens(),
         "user_message_count" => length(candidate.retained_user_originals)
       },
       usage: summary.usage
@@ -538,13 +531,15 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
         candidate.retained_pending_clarify ++
         [compaction_summary_item(summary.text)] ++
         candidate.retained_client_tool_search ++
-        provider_neutral_tail_items(candidate.retained_tail) ++ input_items(current_input)
+        CompactionHistory.provider_neutral_tail_items(candidate.retained_tail) ++
+        CompactionHistory.input_items(current_input)
 
     checkpoint_items_within_budget(checkpoint_items, threshold)
   end
 
   def checkpoint_items_within_budget(checkpoint_items, threshold) do
-    if items_token_estimate(checkpoint_items) <= checkpoint_budget_tokens(threshold) do
+    if CompactionHistory.items_token_estimate(checkpoint_items) <=
+         CompactionPolicy.checkpoint_budget_tokens(threshold) do
       :ok
     else
       {:error, :compaction_output_over_budget}
@@ -565,7 +560,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
         current_input,
         threshold
       ) do
-    checkpoint_items = pack ++ output ++ input_items(current_input)
+    checkpoint_items = pack ++ output ++ CompactionHistory.input_items(current_input)
 
     with :ok <- checkpoint_items_within_budget(checkpoint_items, threshold) do
       {:ok, Map.put(attrs, :brain_context_pack, pack)}

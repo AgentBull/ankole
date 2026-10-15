@@ -50,7 +50,7 @@ import {
   RowViewAction,
   useResourceSearchDraft
 } from '../../console-list-page'
-import { MarkdownBody } from '../../markdown-body'
+import { MarkdownBody } from '../../../common/markdown-body'
 import { BrainSubNav, brainObjectEditPath, brainObjectPath } from './brain-nav'
 
 /** Keeps the list mounted while the nested slug route renders its drawer. */

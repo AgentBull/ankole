@@ -1,8 +1,9 @@
 defmodule Ankole.Plugins.SlackAdapterTest do
   use Ankole.DataCase, async: false
 
+  import Ankole.ExternalConversationsFixtures
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
   alias Ankole.AppConfigure
@@ -10,25 +11,27 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   alias Ankole.AuthZ.Membership
   alias Ankole.Plugins.SlackAdapter
 
-  alias Ankole.Plugins.SlackAdapter.{
-    BlockKit,
-    Channels,
-    Config,
-    ConnectionReconciler,
-    Dispatcher,
-    Emoji,
-    ErrorPolicy,
-    IdentityProvider,
-    Inbound,
-    Mrkdwn,
-    Outbox
-  }
+  alias Ankole.Plugins.SlackAdapter.BlockKit
+  alias Ankole.Plugins.SlackAdapter.Channels
+  alias Ankole.Plugins.SlackAdapter.Config
+  alias Ankole.Plugins.SlackAdapter.ConnectionReconciler
+  alias Ankole.Plugins.SlackAdapter.Dispatcher
+  alias Ankole.Plugins.SlackAdapter.Emoji
+  alias Ankole.Plugins.SlackAdapter.ErrorPolicy
+  alias Ankole.Plugins.SlackAdapter.IdentityProvider
+  alias Ankole.Plugins.SlackAdapter.Inbound
+  alias Ankole.Plugins.SlackAdapter.Mrkdwn
+  alias Ankole.Plugins.SlackAdapter.Delivery
 
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.{AdapterContext, InboundBatch, OutboxEntry}
-  alias Ankole.SignalsGateway.{ActorEvent, ReplyPresentation, ReplyPreviewAdapter}
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.InboundBatch
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias SlackOpenAPI.Event
   alias SlackOpenAPI.SocketMode.Dispatcher, as: SocketDispatcher
 
@@ -73,7 +76,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert SlackAdapter.plugin_id() == "slack-adapter"
 
       assert [
-               %{contract_id: "signals_gateway.adapter", id: "slack", config_module: Config},
+               %{contract_id: "signals.adapter", id: "slack", config_module: Config},
                %{
                  contract_id: "principals.identity_provider",
                  id: "slack",
@@ -247,7 +250,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
             "label" => "Approve",
             "style" => "primary",
             "interaction_id" => "interaction-1",
-            "source_actor_event_id" => "019fbd9e-5800-7000-8000-000000000001",
+            "source_signal_id" => "019fbd9e-5800-7000-8000-000000000001",
             "control_id" => "decision",
             "selected_option_id" => "approve",
             "option_value" => "yes",
@@ -271,7 +274,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                "controlId" => "decision",
                "selectedOptionId" => "approve",
                "optionValue" => "yes",
-               "sourceActorEventId" => "019fbd9e-5800-7000-8000-000000000001"
+               "sourceSignalId" => "019fbd9e-5800-7000-8000-000000000001"
              }
     end
 
@@ -322,7 +325,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
     end
   end
 
-  describe "inbound and outbox normalization" do
+  describe "inbound and intent normalization" do
     test "blocks missing Slack scopes with the required scope visible" do
       error = %SlackOpenAPI.Error{
         reason: "missing_scope",
@@ -379,9 +382,9 @@ defmodule Ankole.Plugins.SlackAdapterTest do
         })
 
       assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
-      assert normalized.signal_channel_id == "slack:C1"
+      assert normalized.provider_conversation_id == "slack:C1"
       assert normalized.provider_thread_id == "slack:C1:1699999999.000001"
-      assert normalized.reply_to_source_entry_id == "1699999999.000001"
+      assert normalized.reply_to_provider_message_id == "1699999999.000001"
       assert normalized.explicit == true
       assert normalized.text =~ "review @U2 doc (https://example.com)"
       assert [%{"provider_ref" => "slack:file:F1"}] = normalized.attachments
@@ -402,13 +405,13 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       assert {:ok, normalized} = Inbound.normalize_message_receive(event, consumer)
       assert is_nil(normalized.provider_thread_id)
-      assert is_nil(normalized.reply_to_source_entry_id)
+      assert is_nil(normalized.reply_to_provider_message_id)
 
       root_event = %{event | content: Map.put(event.content, "thread_ts", "1700000000.000200")}
 
       assert {:ok, root} = Inbound.normalize_message_receive(root_event, consumer)
       assert is_nil(root.provider_thread_id)
-      assert is_nil(root.reply_to_source_entry_id)
+      assert is_nil(root.reply_to_provider_message_id)
     end
 
     test "ignores bot senders, changed messages, and routes deletion payloads" do
@@ -426,36 +429,36 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                Inbound.handle_message_receive("message", changed, [consumer])
     end
 
-    test "builds every Slack outbox request shape" do
-      base = %OutboxEntry{
-        signal_channel_id: "slack:C1",
+    test "builds every Slack intent request shape" do
+      base = %Intent{
+        conversation_id: external_conversation_id("slack:C1"),
         payload: %{},
         fallback_visible_text: "**hello**"
       }
 
       assert {:ok,
               [%{method: "chat.postMessage", body: %{"channel" => "C1", "text" => "*hello*"}}]} =
-               Outbox.requests_for_outbox(%{base | operation: :post})
+               Delivery.requests_for_intent(%{base | operation: :post})
 
       assert {:ok, [%{body: %{"thread_ts" => "1.1"}}]} =
-               Outbox.requests_for_outbox(%{
+               Delivery.requests_for_intent(%{
                  base
                  | operation: :reply,
-                   reply_to_source_entry_id: "1.1"
+                   reply_to_provider_message_id: "1.1"
                })
 
       assert {:ok, [%{method: "chat.update"}]} =
-               Outbox.requests_for_outbox(%{
+               Delivery.requests_for_intent(%{
                  base
                  | operation: :edit,
-                   target_source_entry_id: "1.1"
+                   target_provider_message_id: "1.1"
                })
 
       assert {:ok, [%{method: "reactions.add", body: %{"name" => "thumbsup"}}]} =
-               Outbox.requests_for_outbox(%{
+               Delivery.requests_for_intent(%{
                  base
                  | operation: :reaction_add,
-                   target_source_entry_id: "1.1",
+                   target_provider_message_id: "1.1",
                    payload: %{"reaction_key" => "thumbs_up"}
                })
     end
@@ -467,7 +470,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert {:ok, _} = AppConfigure.put_global_by_key(config_key, chat_config())
 
       assert {:ok, _} =
-               SignalsGateway.upsert_binding(%{
+               Ankole.Signals.Bindings.upsert_binding(%{
                  agent_uid: agent.uid,
                  name: binding_name,
                  adapter: "slack",
@@ -476,13 +479,13 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                  unmatched_sender_policy: :create_standalone
                })
 
-      %{actor_event: event} =
-        emit_addressed_actor_event(
+      %{signal: event} =
+        emit_addressed_signal(
           agent.uid,
           binding_name,
           group_entry(%{
-            signal_channel_id: "slack:C1",
-            source_entry_id: "preview-input",
+            provider_conversation_id: "slack:C1",
+            provider_message_id: "preview-input",
             provider_thread_id: nil,
             explicit: true
           })
@@ -518,15 +521,15 @@ defmodule Ankole.Plugins.SlackAdapterTest do
         end
       )
 
-      {:ok, adapter} = ReplyPreviewAdapter.from_module(SlackAdapter.ReplyPreview)
+      {:ok, adapter} = PreviewAdapter.from_module(SlackAdapter.ReplyPreview)
 
       request = %Request{
-        actor_event: event,
+        signal: event,
         presentation: ReplyPresentation.new() |> ReplyPresentation.replace_answer("first"),
         mode: :working
       }
 
-      assert {:ok, _} = ReplyPreviewAdapter.update(adapter, request)
+      assert {:ok, _} = PreviewAdapter.update(adapter, request)
       assert_receive {:preview_post, "preview-A"}
 
       changed = %{
@@ -536,14 +539,21 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       assert {:error,
               {:reply_delivery, :operator_action_required, %{"code" => "slack_delivery_unknown"}}} =
-               ReplyPreviewAdapter.update(adapter, changed)
+               PreviewAdapter.update(adapter, changed)
 
       assert_receive {:preview_update, "preview-A"}
       assert_receive {:preview_post, "preview-B"}
-      stored = Repo.get!(ActorEvent, event.id)
-      checkpoint = ReplyPreviewAdapter.adapter_checkpoint(stored.reply_preview_checkpoint)
+      stored = Repo.get!(Signal, event.id)
+
+      checkpoint =
+        PreviewAdapter.adapter_checkpoint(
+          Ankole.Conversations.Delivery.PreviewState.get(stored).checkpoint
+        )
+
       assert hd(checkpoint["messages"])["message_id"] == "preview-B"
-      assert stored.reply_preview_source_entry_id == "preview-A"
+
+      assert Ankole.Conversations.Delivery.PreviewState.get(stored).provider_message_id ==
+               "preview-A"
 
       changed = %{
         changed
@@ -552,7 +562,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       assert {:error,
               {:reply_delivery, :operator_action_required, %{"code" => "slack_delivery_unknown"}}} =
-               ReplyPreviewAdapter.update(adapter, changed)
+               PreviewAdapter.update(adapter, changed)
 
       assert_receive {:preview_update, "preview-B"}
       assert Agent.get(posts, & &1) == 2
@@ -563,10 +573,10 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       text = String.duplicate("a", 24_001)
 
       assert {:ok, requests} =
-               Outbox.requests_for_outbox(%OutboxEntry{
+               Delivery.requests_for_intent(%Intent{
                  operation: :reply,
-                 signal_channel_id: "slack:C1",
-                 reply_to_source_entry_id: "1.1",
+                 conversation_id: external_conversation_id("slack:C1"),
+                 reply_to_provider_message_id: "1.1",
                  payload: %{},
                  fallback_visible_text: text
                })
@@ -585,7 +595,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), chat_config())
 
       assert {:ok, _} =
-               SignalsGateway.upsert_binding(%{
+               Ankole.Signals.Bindings.upsert_binding(%{
                  agent_uid: agent.uid,
                  name: binding_name,
                  adapter: "slack",
@@ -609,11 +619,11 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       )
 
       assert :unknown =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: binding_name,
                  operation: :post,
-                 signal_channel_id: "slack:C1",
+                 conversation_id: external_conversation_id("slack:C1"),
                  payload: %{},
                  fallback_visible_text: String.duplicate("a", 12_000) <> "b"
                })
@@ -636,7 +646,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
             Repo.get_by!(InboundBatch,
               agent_uid: agent.uid,
               binding_name: "slack",
-              signal_channel_id: "slack:C1",
+              conversation_id: external_conversation_id("slack:C1"),
               batch_state: "open"
             )
 
@@ -663,7 +673,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
           ]
         })
 
-      assert {:ok, [%{status: :recorded, signal_entry: entry}]} =
+      assert {:ok, [%{status: :recorded, message_observation: observation}]} =
                Inbound.handle_message_receive("message", incoming, [consumer])
 
       assert_receive {:slack_pending_attachment, pending}
@@ -675,8 +685,8 @@ defmodule Ankole.Plugins.SlackAdapterTest do
              ]) ==
                "pending"
 
-      assert entry.metadata["attachment_materialization"]["state"] == "failed"
-      assert [%{"attachment_id" => attachment_id}] = entry.attachments
+      assert observation.external_ref.metadata["attachment_materialization"]["state"] == "failed"
+      assert [%{"attachment_id" => attachment_id}] = observation.message.attachments
       assert attachment_id >= 10_000
     end
 
@@ -705,10 +715,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert {:ok, [%{status: :filtered}]} =
                Inbound.handle_message_receive("message", incoming, [consumer])
 
-      refute Repo.get_by(Ankole.SignalsGateway.Entry,
-               signal_channel_id: "slack:C1",
-               source_entry_id: "1700000000.001"
-             )
+      refute Ankole.Conversations.External.get_conversation(Repo, "slack:C1")
     end
 
     test "Slack actions carry an authorized Principal identity" do
@@ -733,15 +740,15 @@ defmodule Ankole.Plugins.SlackAdapterTest do
         raw: %{}
       }
 
-      assert {:ok, [%{status: :accepted, actor_event: actor_event}]} =
+      assert {:ok, [%{status: :accepted, signal: signal}]} =
                Inbound.handle_block_action("block_actions", action, [consumer])
 
       assert {:ok, operator} =
                Ankole.Principals.resolve_platform_subject("slack-main", "U-ACTION")
 
-      assert actor_event.payload["data"]["action"]["operator_id"] == "U-ACTION"
-      assert actor_event.payload["data"]["action"]["operator_principal_uid"] == operator.uid
-      assert actor_event.payload["data"]["action"]["value"] == %{"custom" => "value"}
+      assert signal.data["action"]["operator_id"] == "U-ACTION"
+      assert signal.data["action"]["operator_principal_uid"] == operator.uid
+      assert signal.data["action"]["value"] == %{"custom" => "value"}
     end
 
     test "private-channel rename schedules a Slack channel refresh" do
@@ -888,7 +895,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
 
       assert {:ok, binding} =
-               SignalsGateway.upsert_binding(%{
+               Ankole.Signals.Bindings.upsert_binding(%{
                  agent_uid: agent.uid,
                  name: binding_name,
                  adapter: "slack",
@@ -1010,7 +1017,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
 
       on_exit(fn -> ConnectionReconciler.stop(key) end)
 
-      assert {:ok, _binding} = SignalsGateway.disable_binding(agent.uid, binding_name)
+      assert {:ok, _binding} = Ankole.Signals.Bindings.disable_binding(agent.uid, binding_name)
 
       assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)

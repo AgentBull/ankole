@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   use Ankole.DataCase, async: false
 
-  import Ankole.SignalsGateway.ActorRuntimeCase,
+  import Ankole.SessionsCase,
     only: [
       handle_rpc: 3,
       rpc_request: 3,
@@ -26,11 +26,11 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   alias Ankole.Plugins.Config, as: PluginsConfig
   alias Ankole.Plugins.Registry, as: PluginsRegistry
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorRuntime.BindingWorkerEnv
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
-  alias Ankole.SignalsGateway.Binding
-  alias Ankole.SignalsGateway.Bindings
+
+  alias Ankole.AgentWorkers.BindingWorkerEnv
+  alias Ankole.AgentWorkers.WorkerEnv
+  alias Ankole.Signals.Binding
+  alias Ankole.Signals.Bindings
 
   defmodule FailingWorkerEnv do
     @moduledoc false
@@ -50,7 +50,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     def adapter_declarations do
       [
         %{
-          contract_id: "signals_gateway.adapter",
+          contract_id: "signals.adapter",
           id: "failing-env",
           adapter_category: "enterprise_im",
           plugin_id: plugin_id(),
@@ -74,7 +74,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     def adapter_declarations do
       [
         %{
-          contract_id: "signals_gateway.adapter",
+          contract_id: "signals.adapter",
           id: "reserved-env",
           adapter_category: "enterprise_im",
           plugin_id: plugin_id(),
@@ -204,7 +204,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert {:ok, _stored} = AppConfigure.put_global_by_key(legacy_config_key, legacy_config)
 
     assert {:ok, %Binding{}} =
-             SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: agent.uid,
                name: "lark-main",
                adapter: "lark",
@@ -245,13 +245,13 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     legacy_config = lark_config("cli_legacy_collision")
     target_config = lark_config("cli_target_collision")
 
-    assert legacy_config_key == "signals_gateway.lark.bindings.binding:#{digest}"
-    assert binding_config_key == "signals_gateway.lark.binding_configs.#{digest}"
+    assert legacy_config_key == "signals.lark.bindings.binding:#{digest}"
+    assert binding_config_key == "signals.lark.binding_configs.#{digest}"
     refute binding_config_key == legacy_config_key
     assert {:ok, _stored} = AppConfigure.put_global_by_key(legacy_config_key, legacy_config)
 
     assert {:ok, %Binding{}} =
-             SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: legacy_agent_uid,
                name: "lark-main",
                adapter: "lark",
@@ -402,7 +402,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     claimed_config = lark_config("cli_claimed_while_owner_unknown")
 
     assert {:ok, %Binding{}} =
-             SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: owner.uid,
                name: "lark-main",
                adapter: "lark",
@@ -744,7 +744,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert is_pid(registry)
 
     assert {:ok, _binding} =
-             SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: agent.uid,
                name: "failing-main",
                adapter: "failing-env",
@@ -773,7 +773,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     )
 
     assert {:ok, _binding} =
-             SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: agent.uid,
                name: "disabled-main",
                adapter: "disabled-env",
@@ -802,7 +802,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     )
 
     assert {:ok, _binding} =
-             SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: agent.uid,
                name: "reserved-main",
                adapter: "reserved-env",

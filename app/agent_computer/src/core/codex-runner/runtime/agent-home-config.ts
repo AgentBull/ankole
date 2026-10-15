@@ -170,9 +170,7 @@ export function encodeAIGatewayModelBinding(runtime: CodexRuntimeConfig): string
             }
           }
         : {}),
-      ...(runtime.brain
-        ? { brain: { operations: runtime.brain.operations, actor_event_id: runtime.brain.actorEventID } }
-        : {})
+      ...(runtime.brain ? { brain: { operations: runtime.brain.operations, signal_id: runtime.brain.signalID } } : {})
     }),
     'utf8'
   ).toString('base64url')

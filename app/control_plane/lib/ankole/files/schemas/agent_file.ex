@@ -32,8 +32,8 @@ defmodule Ankole.Files.Schemas.AgentFile do
     field :mode, :integer, default: 0o644
     field :content_type, :string
     field :source, :string
-    field :signal_channel_id, :string
-    field :source_entry_id, :string
+    field :conversation_id, Ecto.UUID
+    field :message_id, Ecto.UUID
 
     timestamps()
   end

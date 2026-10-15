@@ -8,18 +8,26 @@ defmodule Ankole.Upgrade202610IntegrationTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.{AppConfig, Crypto}
+  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.SiteConfig
+  alias Ankole.AppConfigure.Crypto
   alias Ankole.AuthZ.Group
   alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Plugins.Microsoft365Adapter.Config, as: TeamsConfig
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.{Binding, Bindings}
+  alias Ankole.Signals.Binding
+  alias Ankole.Signals.Bindings
 
   setup %{tenant: tenant} do
     original = Repo.get_by!(Ankole.Tenants.Tenant, slug: "default")
     scope = "tenant:" <> original.id
     active_key = "principals.identity_providers.active"
-    previous_active = Repo.get_by(AppConfig, scope: scope, key: active_key)
+
+    previous_active =
+      Repo.with_tenant(original.id, fn ->
+        Repo.get_by(AppConfig, scope: scope, key: active_key)
+      end)
+
     provider_id = "upgrade-#{Ecto.UUID.generate()}"
     idp_key = LarkConfig.identity_config_key(provider_id)
     name = "upgrade-#{Ecto.UUID.generate()}"
@@ -40,14 +48,12 @@ defmodule Ankole.Upgrade202610IntegrationTest do
           Repo.delete!(tenant)
         end)
 
-        Repo.delete_all(from config in AppConfig, where: config.key in ^keys)
+        Repo.delete_all(from config in SiteConfig, where: config.key in ^keys)
 
-        Repo.delete_all(
-          from config in AppConfig, where: config.scope == ^scope and config.key == ^active_key
-        )
-
-        if previous_active,
-          do: Repo.insert!(Ecto.put_meta(previous_active, state: :built))
+        Repo.with_tenant(original.id, fn ->
+          Repo.delete_all(from config in AppConfig, where: config.key in ^[idp_key, active_key])
+          if previous_active, do: Repo.insert!(Ecto.put_meta(previous_active, state: :built))
+        end)
       end)
     end)
 
@@ -95,6 +101,7 @@ defmodule Ankole.Upgrade202610IntegrationTest do
 
     %{
       scope: scope,
+      original_id: original.id,
       idp_key: idp_key,
       identity_config: identity_config,
       binding_key: binding_key,
@@ -134,13 +141,17 @@ defmodule Ankole.Upgrade202610IntegrationTest do
          context do
       run_command(@args)
 
-      row = Repo.get_by!(AppConfig, scope: context.scope, key: context.idp_key)
+      row =
+        Repo.with_tenant(context.original_id, fn ->
+          Repo.get_by!(AppConfig, scope: context.scope, key: context.idp_key)
+        end)
+
       assert {:ok, value} = Crypto.unseal(row.value["value"], context.scope, context.idp_key)
       assert value == context.identity_config
       assert is_binary(row.value["platform_application"])
-      refute Repo.get_by(AppConfig, scope: "global", key: context.idp_key)
+      refute Repo.get_by(SiteConfig, scope: "global", key: context.idp_key)
       assert :error = AppConfigure.get_by_key(context.idp_key)
-      refute Repo.get_by(AppConfig, scope: "global", key: context.binding_key)
+      refute Repo.get_by(SiteConfig, scope: "global", key: context.binding_key)
 
       for uid <- context.agent_uids do
         binding = Repo.get_by!(Binding, agent_uid: uid, name: context.name)
@@ -150,30 +161,37 @@ defmodule Ankole.Upgrade202610IntegrationTest do
         assert config == context.binding_config
 
         assert is_binary(
-                 Repo.get_by!(AppConfig, scope: "global", key: key).value["platform_application"]
+                 Repo.get_by!(SiteConfig, scope: "global", key: key).value["platform_application"]
                )
       end
 
       keys = [context.idp_key | context.binding_keys]
 
-      before_repeat =
-        Repo.all(from config in AppConfig, where: config.key in ^keys, order_by: config.key)
-
+      before_repeat = configuration_rows(context.original_id, keys)
       run_command(@args)
-
-      assert Repo.all(from config in AppConfig, where: config.key in ^keys, order_by: config.key) ==
-               before_repeat
+      assert configuration_rows(context.original_id, keys) == before_repeat
     end
   end
 
   defp seed_config(key, config) do
     {:ok, ciphertext} = Crypto.seal(config, "global", key)
 
-    Repo.insert!(%AppConfig{
+    Repo.insert!(%SiteConfig{
       scope: "global",
       key: key,
       value: %{"type" => "cipher", "value" => ciphertext}
     })
+  end
+
+  defp configuration_rows(original_id, keys) do
+    site = Repo.all(from config in SiteConfig, where: config.key in ^keys, order_by: config.key)
+
+    tenant =
+      Repo.with_tenant(original_id, fn ->
+        Repo.all(from config in AppConfig, where: config.key in ^keys, order_by: config.key)
+      end)
+
+    {site, tenant}
   end
 
   defp run_command(args) do

@@ -5,7 +5,7 @@ import { resolve } from 'node:path'
 import { errorMessage, toError } from '../../../common/errors'
 import { isRuntimeFabricTransportError } from '../../../fabric/fabric'
 import { jsonBytes, jsonObjectFromBytes } from '../../../fabric/envelope_proto'
-import type { TurnStart, TurnSteerUpdate } from '../../../lanes/actor_lane'
+import type { TurnStart, TurnSteerUpdate } from '../../../lanes/session_lane'
 import { RPCTimeoutError, type BackgroundAgentJobResponse } from '../../../lanes/rpc_lane'
 import type {
   BackgroundAgentJobStatus,
@@ -127,7 +127,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     private readonly job: BackgroundAgentJobResponse,
     private readonly prepared: PreparedCodexJobExecution
   ) {
-    this.appliedEventIDs.add(turnStart.actor_event.actor_event_id)
+    this.appliedEventIDs.add(turnStart.signal.signal_id)
     this.runtimeThreadID = job.runtimeThreadId || undefined
     this.legacyThreadReplay = jsonObjectFromBytes(job.metadataJson, 'Job metadata')?.legacy_thread_replay === true
     this.modelProfile = codexJobModelProfile(turnStart)
@@ -468,7 +468,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     ...args: [
       'background_agent_job.status.update',
       import('../../../lanes/rpc_lane').RPCRequestInit<'background_agent_job.status.update'>,
-      { jobTurn: import('../../../lanes/actor_lane').JobTurnRef }
+      { jobTurn: import('../../../lanes/session_lane').JobTurnRef }
     ]
   ): Promise<void> {
     for (;;) {
@@ -516,7 +516,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         {
           jobId: this.jobID,
           status,
-          appliedActorEventIds: [...this.appliedEventIDs],
+          appliedSignalIds: [...this.appliedEventIDs],
           ...(this.runtimeThreadID ? { runtimeThreadId: this.runtimeThreadID } : {}),
           ...(details.result ? { resultJson: jsonBytes(details.result) } : {}),
           ...(details.error ? { errorJson: jsonBytes(details.error) } : {}),
@@ -1077,7 +1077,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
               await this.turnRecorder.flush()
             },
             async update => {
-              if (update.actorEvent) this.appliedEventIDs.add(update.actorEvent.actor_event_id)
+              if (update.signal) this.appliedEventIDs.add(update.signal.signal_id)
             }
           )
         )
@@ -1107,8 +1107,8 @@ type CompactionHandshake = {
 }
 
 function turnInput(turnStart: TurnStart, job: BackgroundAgentJobResponse): string {
-  if (turnStart.actor_event.type === 'command.steer') {
-    const command = jsonObject(jsonObject(jsonObject(turnStart.actor_event.payload_json).data).command)
+  if (turnStart.signal.type === 'command.steer') {
+    const command = jsonObject(jsonObject(jsonObject(turnStart.signal.payload_json).data).command)
     const message = stringValue(command.argsText)
     if (!message) throw new Error('BackgroundAgentJob message command is missing argsText')
     return message
@@ -1149,7 +1149,7 @@ function ownerVisibleArtifactPath(projectRoot: string, changedPath: string): str
 }
 
 function turnClientUserMessageID(turnStart: TurnStart): string | undefined {
-  if (turnStart.actor_event.type === 'command.steer') return turnStart.actor_event.actor_event_id
+  if (turnStart.signal.type === 'command.steer') return turnStart.signal.signal_id
   return undefined
 }
 
@@ -1186,7 +1186,7 @@ async function steerActiveTurn(
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
 ): Promise<void> {
   for (const update of updates) {
-    const event = update.actorEvent
+    const event = update.signal
     if (!event) continue
     const command = jsonObject(jsonObject(jsonObject(event.payload_json).data).command)
     const text = stringValue(command.argsText)
@@ -1195,11 +1195,11 @@ async function steerActiveTurn(
       await client.request('turn/steer', {
         ['threadId']: threadID,
         ['expectedTurnId']: turnID,
-        ['clientUserMessageId']: event.actor_event_id,
+        ['clientUserMessageId']: event.signal_id,
         input: textInput(text)
       })
       if (!acceptsOutcome()) continue
-      await onTrajectorySteering(event.actor_event_id, text)
+      await onTrajectorySteering(event.signal_id, text)
       await onSteeringApplied?.(update)
     } catch (error) {
       if (!acceptsOutcome()) continue

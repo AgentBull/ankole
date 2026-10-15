@@ -20,9 +20,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   are immutable history — reconcile re-derives them from the ledger, only the
   remainder after the sealed prefix is ever re-split, and only changed pages
   receive provider writes, so a sealed (finalized) card is never re-streamed.
-  `outTrackId` derives deterministically from the actor event and page index,
+  `outTrackId` derives deterministically from the Signal and page index,
   making create/deliver/stream replay-safe across control-plane restarts. The
-  checkpoint also carries the last renderer-safe `ReplyPresentation` and, while
+  checkpoint also carries the last renderer-safe `Presentation` and, while
   a thought is visible, a cleanup deadline, so the host lease sweeper can strip
   stale reasoning even when no preview process survives.
 
@@ -31,22 +31,22 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   sealed prefix marks the reply degraded: transient syncs return a
   non-retryable error (the gateway disables the preview for the turn) and only
   the durable terminal delivery falls back — once — to plain Markdown messages.
-  Fallback chunks are ledgered in the checkpoint so an outbox retry never
+  Fallback chunks are ledgered in the checkpoint so an intent retry never
   re-sends a delivered chunk.
   """
 
-  @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+  @behaviour Ankole.Conversations.Delivery.PreviewAdapter
 
+  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.InteractiveCard
   alias Ankole.Plugins.DingTalkAdapter.Markdown
-  alias Ankole.Plugins.DingTalkAdapter.Outbox
+  alias Ankole.Plugins.DingTalkAdapter.Delivery
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias DingTalkOpenAPI.Card
   alias DingTalkOpenAPI.Error
   alias DingTalkOpenAPI.Robot
@@ -55,7 +55,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   # Conservative single-card source budget; the platform recommends ≤3K total per
   # card, so the chain rolls to a continuation card well before that.
   @page_budget_bytes 2_500
-  # Degraded plain messages ride msgParam (≤15000 bytes); same budget as Outbox.
+  # Degraded plain messages ride msgParam (≤15000 bytes); same budget as Delivery.
   @plain_budget_bytes 10_000
   @answer_key "answer"
   # While a transient thought is visible the checkpoint leases its cleanup so
@@ -78,7 +78,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   end
 
   # Each page is one card instance; DingTalk sends its `outTrackId` back as the
-  # `source_entry_id` of a card action, and the terminal reply reports it as the
+  # `provider_message_id` of a card action, and the terminal reply reports it as the
   # created entry.
   @impl true
   def surface_ids(checkpoint) when is_map(checkpoint) do
@@ -94,9 +94,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   def surface_open?(checkpoint) when is_map(checkpoint),
     do: checkpoint["streaming_state"] != "closed"
 
-  # core reconcile
-
-  defp reconcile(%Request{actor_event: event, checkpoint: checkpoint} = request, final?, repaint?) do
+  defp reconcile(%Request{signal: event, checkpoint: checkpoint} = request, final?, repaint?) do
     with {:ok, config} <- Config.validate_chat_config(request.config) do
       presentation = ReplyPresentation.normalize(request.presentation)
       template_id = card_template_id(config)
@@ -144,7 +142,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
   # Degrade once, and only on the durable terminal path. A transient working
   # sync must never post provider messages — the degraded result makes the
-  # gateway disable the preview for the rest of the turn while the outbox still
+  # gateway disable the preview for the rest of the turn while the intent still
   # delivers the final reply.
   defp degrade(event, config, presentation, checkpoint, request, final?, reason) do
     if final? do
@@ -158,10 +156,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     checkpoint
     |> Map.merge(%{"degraded" => true, "degraded_reason" => to_string(reason)})
     |> merge_common(presentation, request, true)
-    |> then(&Actors.put_reply_preview_checkpoint(event.id, &1))
+    |> then(&PreviewState.put_checkpoint(event.id, &1))
   end
-
-  # card path
 
   defp reconcile_card(
          event,
@@ -203,7 +199,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
           final?
         )
 
-      with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      with {:ok, _event} <-
+             PreviewState.put_checkpoint(event.id, checkpoint) do
         {:ok, delivery_result(event, page_records, checkpoint)}
       end
     end
@@ -479,8 +476,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end
   end
 
-  # rendering
-
   defp card_param_map(presentation, display_answer, card) do
     %{
       "state" => state_text(presentation, card),
@@ -644,27 +639,24 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp text_or_empty(text) when is_binary(text), do: text
   defp text_or_empty(_other), do: ""
 
-  # space (group / DM)
-
-  defp resolve_space(%ActorEvent{signal_channel_id: signal_channel_id}) do
-    conversation_id = decode_channel(signal_channel_id)
-
-    case Repo.get_by(Channel, id: signal_channel_id) do
-      %Channel{kind: :im_dm, metadata: metadata} ->
+  defp resolve_space(%Signal{conversation_id: conversation_id}) do
+    case Repo.get_by(Conversation, id: conversation_id) do
+      %Conversation{external_kind: :im_dm, metadata: metadata} ->
         case metadata["dm_user_id"] do
           user_id when is_binary(user_id) -> {:ok, {:dm, user_id}}
           _missing -> {:error, :dm_recipient_unknown}
         end
 
-      _channel_or_nil ->
-        {:ok, {:group, conversation_id}}
+      %Conversation{provider_conversation_id: provider_id} ->
+        {:ok, {:group, decode_channel(provider_id)}}
+
+      nil ->
+        {:error, :external_conversation_not_found}
     end
   end
 
   defp decode_channel("dingtalk:" <> encoded), do: URI.decode(encoded)
   defp decode_channel(value), do: value
-
-  # checkpoint
 
   defp sealed_records(checkpoint) do
     checkpoint
@@ -762,7 +754,18 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
       page_records |> List.first() |> then(&(&1 && &1["out_track_id"]))
 
     %{
-      created_source_entry_id: event.reply_preview_source_entry_id || first_out_track_id,
+      created_provider_message_id:
+        PreviewState.get(event).provider_message_id ||
+          first_out_track_id,
+      messages:
+        Enum.map(page_records, fn record ->
+          %{
+            created_provider_message_id: record["out_track_id"],
+            text: record["source"],
+            payload: %{"attachments" => []},
+            raw_payload: %{"out_track_id" => record["out_track_id"]}
+          }
+        end),
       reply_preview_checkpoint: checkpoint,
       recovery_state: %{
         "streaming_state" => checkpoint["streaming_state"],
@@ -771,11 +774,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     }
   end
 
-  # degraded plain delivery
-
   # Terminal-only fallback: the durable reply intent is still delivered, just
-  # without a card. Chunks ride the same Markdown split budget as Outbox text,
-  # and each delivered chunk is ledgered in the checkpoint so an outbox retry
+  # without a card. Chunks ride the same Markdown split budget as Delivery text,
+  # and each delivered chunk is ledgered in the checkpoint so an intent retry
   # resumes after the last recorded chunk instead of re-sending it.
   defp plain_text_delivery(event, config, presentation, checkpoint, request) do
     client = Config.client(config)
@@ -802,12 +803,22 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
         })
         |> merge_common(presentation, request, true)
 
-      with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      with {:ok, _event} <-
+             PreviewState.put_checkpoint(event.id, checkpoint) do
         case failure do
           nil ->
             {:ok,
              %{
-               created_source_entry_id: first_process_query_key(records),
+               created_provider_message_id: first_process_query_key(records),
+               messages:
+                 Enum.map(records, fn record ->
+                   %{
+                     created_provider_message_id: record["process_query_key"],
+                     text: record["source"],
+                     payload: %{"attachments" => []},
+                     raw_payload: %{"process_query_key" => record["process_query_key"]}
+                   }
+                 end),
                delivered_operation: :post,
                reply_preview_checkpoint: checkpoint,
                raw_payload: %{"plain_chunks" => length(records)}
@@ -898,8 +909,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end)
   end
 
-  # helpers
-
   defp card_template_id(config) do
     case Map.get(config, "cardTemplateId") do
       id when is_binary(id) -> if String.trim(id) == "", do: nil, else: id
@@ -907,7 +916,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     end
   end
 
-  defp page_out_track_id(%ActorEvent{id: id}, index), do: "ankole:#{id}:#{index}"
+  defp page_out_track_id(%Signal{id: id}, index), do: "ankole:#{id}:#{index}"
 
   # A content-derived guid means an identical retry reuses the same idempotency
   # key while any real change gets a new one.
@@ -922,7 +931,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   # already returned the non-retryable degraded result from
   # inside reconcile.
   defp normalize_result({:error, %Error{} = error}),
-    do: Outbox.normalize_delivery_result({:error, error})
+    do: Delivery.normalize_delivery_result({:error, error})
 
   defp normalize_result(result), do: result
 end

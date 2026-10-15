@@ -87,8 +87,6 @@ defmodule FeishuOpenAPI.Crypto do
       else: {:error, :bad_verification_token}
   end
 
-  # --- internals -----------------------------------------------------------
-
   defp check_len(buf) when byte_size(buf) < @aes_block_size, do: {:error, :cipher_too_short}
   defp check_len(_), do: :ok
 
@@ -105,9 +103,6 @@ defmodule FeishuOpenAPI.Crypto do
         stripped_size = byte_size(bin) - pad
         <<stripped::binary-size(^stripped_size), padding::binary-size(^pad)>> = bin
 
-        # Verify every padding byte, not just the last one. A garbled key/IV or
-        # tampered ciphertext usually yields plausible-looking trailing bytes;
-        # checking the whole padding block rejects those as :invalid_padding.
         if padding == :binary.copy(<<pad>>, pad) do
           {:ok, stripped}
         else
@@ -122,8 +117,7 @@ defmodule FeishuOpenAPI.Crypto do
   defp pkcs7_unpad(_bin), do: {:error, :invalid_padding}
 
   defp secure_equal?(a, b) when is_binary(a) and is_binary(b) do
-    # Constant-time comparison; length mismatch is still reported as unequal
-    # but leaks the length, which is acceptable for hex-encoded signatures.
+    # A length mismatch skips `hash_equals` and leaks the length. Hex signatures accept that.
     if byte_size(a) == byte_size(b) do
       :crypto.hash_equals(a, b)
     else

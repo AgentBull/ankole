@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --bun vite --config vite.config.ts",
     "build": "bun run openapi:generate && bun run type-check && bun --bun vite build --config vite.config.ts",
-    "test": "bun test common console setup/state auth/state",
+    "test": "bun test common console setup/state auth/state workplace/state",
     "type-check": "tsc -p tsconfig.json --noEmit",
     "lint": "tsc -p tsconfig.json --noEmit",
     "fmt": "oxfmt .",
@@ -33,6 +33,7 @@
     "react-markdown": "^10.1.0",
     "react-router": "8.4.0",
     "remark-gfm": "^4.0.1",
+    "use-stick-to-bottom": "1.1.6",
     "valibot": "^1.5.0"
   },
   "devDependencies": {

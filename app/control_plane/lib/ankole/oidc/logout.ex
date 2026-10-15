@@ -3,7 +3,10 @@ defmodule Ankole.OIDC.Logout do
   Persistent delivery of session-specific OIDC Back-Channel Logout.
   """
   import Ecto.Query
-  alias Ankole.OIDC.{Client, LogoutDelivery, LogoutWorker, Session}
+  alias Ankole.OIDC.Client
+  alias Ankole.OIDC.LogoutDelivery
+  alias Ankole.OIDC.LogoutWorker
+  alias Ankole.OIDC.Session
   alias Ankole.{Repo, TokenSigning}
 
   def enqueue_in_tx(_repo, _session, %Client{backchannel_logout_uri: uri}) when uri in [nil, ""],

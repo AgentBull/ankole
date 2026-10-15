@@ -4,11 +4,15 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   import Ecto.Query, warn: false
 
   alias Ankole.{Logging, Principals, Repo}
-  alias Ankole.Plugins.LineAdapter.{Client, Config, Presentation}
+  alias Ankole.Plugins.LineAdapter.Client
+  alias Ankole.Plugins.LineAdapter.Config
+  alias Ankole.Plugins.LineAdapter.Presentation
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.UTF16Text
-  alias Ankole.SignalsGateway.{AdapterContext, Entry, Ingress, OutboxEntry}
-  alias Ankole.SignalsGateway.ReplyActionToken
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.ActionToken
 
   @download_limit_bytes 25 * 1024 * 1024
   @transcoding_polls 10
@@ -68,11 +72,11 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
          attachments <- attachments(message),
          true <- material_message?(projection.text, attachments) || {:ignore, :empty_message} do
       channel_kind = if chat.type == "user", do: :im_dm, else: :im_group
-      signal_channel_id = Presentation.signal_channel_id(bot_user_id, chat.type, chat.id)
+      conversation_id = Presentation.conversation_id(bot_user_id, chat.type, chat.id)
       quoted_message_id = MapHelpers.presence(message["quotedMessageId"])
 
       # LINE has no threads. A group chat is the channel, and a quote is the
-      # only reply relation, carried by `reply_to_source_entry_id`. Naming the
+      # only reply relation, carried by `reply_to_provider_message_id`. Naming the
       # chat as a provider thread would make every quote in a group where the
       # Agent once wrote count as a reply to the Agent.
 
@@ -83,9 +87,9 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
       {:ok,
        %{
          source_event_id: event_id,
-         signal_channel_id: signal_channel_id,
-         source_entry_id: message_id,
-         reply_to_source_entry_id: quoted_message_id,
+         provider_conversation_id: conversation_id,
+         provider_message_id: message_id,
+         reply_to_provider_message_id: quoted_message_id,
          provider_thread_id: nil,
          channel: %{
            kind: channel_kind,
@@ -136,17 +140,22 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   # download runs after, so LINE does not time out and redeliver the batch
   # while Ankole fetches a large file.
   defp emit_with_materialization(input, consumer) do
-    {input, observed_at} = Ingress.reuse_stored_attachments(input, @provider_fact_states)
+    {input, observed_at} = Observe.reuse_stored_attachments(input, @provider_fact_states)
 
-    if Ingress.attachments_need_bytes?(input.attachments) do
+    if Observe.attachments_need_bytes?(input.attachments) do
       pending =
         update_in(
           input.metadata,
-          &Ingress.put_attachment_materialization(&1, "pending", observed_at)
+          &Observe.put_attachment_materialization(&1, "pending", observed_at)
         )
 
       case emit_entry(pending, consumer) do
-        {:ok, %{signal_entry: %Entry{attachments: attachments}}} = result
+        {:ok,
+         %{
+           message_observation: %{
+             message: %Ankole.Conversations.Message{attachments: attachments}
+           }
+         }} = result
         when is_list(attachments) ->
           start_materialization(input, attachments, consumer, observed_at)
           result
@@ -185,9 +194,9 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
     |> Map.put(:attachments, attachments)
     |> update_in(
       [:metadata],
-      &Ingress.put_attachment_materialization(
+      &Observe.put_attachment_materialization(
         &1,
-        Ingress.materialization_state(attachments),
+        Observe.materialization_state(attachments),
         observed_at
       )
     )
@@ -208,7 +217,7 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   end
 
   defp emit_entry(input, consumer) do
-    Ingress.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
+    Observe.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
   end
 
   defp emit_removed(consumer, %{
@@ -223,15 +232,15 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
          message_id when is_binary(message_id) <-
            MapHelpers.presence(get_in(event, ["unsend", "messageId"])),
          {:ok, chat} <- chat(source) do
-      signal_channel_id = Presentation.signal_channel_id(bot_user_id, chat.type, chat.id)
+      conversation_id = Presentation.conversation_id(bot_user_id, chat.type, chat.id)
 
-      Ingress.emit_entry_removed(
+      Observe.emit_entry_removed(
         consumer.context.agent_uid,
         consumer.context.binding_name,
         %{
           source_event_id: event_id,
-          source_entry_id: message_id,
-          signal_channel_id: signal_channel_id,
+          provider_message_id: message_id,
+          provider_conversation_id: conversation_id,
           provider_thread_id: nil,
           channel: %{
             kind: if(chat.type == "user", do: :im_dm, else: :im_group),
@@ -252,7 +261,7 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
 
   defp emit_removed(_consumer, _envelope), do: {:ok, %{status: :ignored_invalid_unsend}}
 
-  # A postback names no message, so the token binds to the ActorEvent, the
+  # A postback names no message, so the token binds to the Signal, the
   # binding, and the action fingerprint. A stale token produces no visible
   # change, which is the right outcome for an action the reply already replaced.
   defp emit_action(
@@ -269,7 +278,7 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
          {:ok, chat} <- chat(source),
          {:ok, principal} <- Principals.resolve_platform_subject("line", user_id),
          {:ok, value} <-
-           ReplyActionToken.resolve(
+           ActionToken.resolve(
              token,
              consumer.context.agent_uid,
              consumer.context.binding_name,
@@ -277,21 +286,21 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
              prefix: "ln1"
            ),
          {:ok, surface_entry_id} <- reply_surface_entry_id(consumer, value),
-         signal_channel_id <- Presentation.signal_channel_id(bot_user_id, chat.type, chat.id),
+         conversation_id <- Presentation.conversation_id(bot_user_id, chat.type, chat.id),
          {:ok, _action_result} = result <-
-           Ingress.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+           Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
              source_event_id: event_id,
              action_id: event_id,
-             signal_channel_id: signal_channel_id,
-             source_entry_id: surface_entry_id,
+             provider_conversation_id: conversation_id,
+             provider_message_id: surface_entry_id,
              provider_thread_id: nil,
-             actor_event_type: "signal.action.invoked",
+             signal_type: "signal.action.invoked",
              action: %{
                "name" => "line_postback",
                "value" => value,
                "operator_id" => user_id,
                "operator_principal_uid" => principal.uid,
-               "source_entry_id" => surface_entry_id
+               "provider_message_id" => surface_entry_id
              },
              raw_payload: %{"webhook_event_id" => event_id, "postback" => event["postback"]}
            }) do
@@ -445,7 +454,7 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   defp materialize_attachments(attachments, consumer) do
     client = Config.client(consumer.config)
 
-    Ingress.materialize_attachments(attachments, "line", &download_attachment(&1, client),
+    Observe.materialize_attachments(attachments, "line", &download_attachment(&1, client),
       restriction: "Ankole downloads LINE content up to 25 MB."
     )
   end
@@ -527,26 +536,26 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
     }
   end
 
-  # The postback names no message. The durable outbox row that carried the
-  # buttons for this ActorEvent names the provider entry the gateway accepted
+  # The postback names no message. The durable intent row that carried the
+  # buttons for this Signal names the provider entry the gateway accepted
   # as the reply surface; without it the buttons were never delivered.
-  defp reply_surface_entry_id(consumer, %{"sourceActorEventId" => actor_event_id})
-       when is_binary(actor_event_id) do
-    OutboxEntry
+  defp reply_surface_entry_id(consumer, %{"sourceSignalId" => signal_id})
+       when is_binary(signal_id) do
+    Intent
     |> where(
-      [outbox],
-      outbox.agent_uid == ^consumer.context.agent_uid and
-        outbox.binding_name == ^consumer.context.binding_name and
-        outbox.source_actor_event_id == ^actor_event_id and
-        outbox.status == :succeeded and not is_nil(outbox.created_source_entry_id)
+      [intent],
+      intent.agent_uid == ^consumer.context.agent_uid and
+        intent.binding_name == ^consumer.context.binding_name and
+        intent.source_signal_id == ^signal_id and
+        intent.status == :sent and not is_nil(intent.created_provider_message_id)
     )
-    |> order_by([outbox], asc: outbox.inserted_at)
+    |> order_by([intent], asc: intent.inserted_at)
     |> limit(1)
-    |> select([outbox], outbox.created_source_entry_id)
+    |> select([intent], intent.created_provider_message_id)
     |> Repo.one()
     |> case do
       nil -> {:error, :reply_surface_not_sent}
-      source_entry_id -> {:ok, source_entry_id}
+      provider_message_id -> {:ok, provider_message_id}
     end
   end
 
@@ -554,21 +563,21 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
 
   # A quoted message from the bot makes the group message explicit, like a
   # reply to the bot elsewhere. The webhook does not name the quoted author,
-  # so the durable outbox record of what Ankole sent answers the question. A
+  # so the durable intent record of what Ankole sent answers the question. A
   # long reply is several LINE messages; the row names the first one as its
   # created entry and keeps every sent id in its payload.
   defp bot_authored?(_consumer, nil), do: false
 
   defp bot_authored?(consumer, quoted_message_id) do
-    OutboxEntry
+    Intent
     |> where(
-      [outbox],
-      outbox.agent_uid == ^consumer.context.agent_uid and
-        outbox.binding_name == ^consumer.context.binding_name and
-        (outbox.created_source_entry_id == ^quoted_message_id or
+      [intent],
+      intent.agent_uid == ^consumer.context.agent_uid and
+        intent.binding_name == ^consumer.context.binding_name and
+        (intent.created_provider_message_id == ^quoted_message_id or
            fragment(
              "(? -> 'line_message_ids') @> to_jsonb(?::text)",
-             outbox.payload,
+             intent.payload,
              ^quoted_message_id
            ))
     )

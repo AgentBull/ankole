@@ -26,8 +26,8 @@ export async function executeActiveTurn(
   const workspaceRoot = prepareTurnWorkspace(config)
   const paths = agentHomePaths(config.agentHomeRoot)
   workerLogger.info('worker.turn_started', 'worker turn started', {
-    actor_event_id: turnStart.turn.actor_event_id,
-    operation: turnOperation(turnStart.turn.actor_event_id)
+    signal_id: turnStart.turn.signal_id,
+    operation: turnOperation(turnStart.turn.signal_id)
   })
   const rpc = throwingRPCRequester(rpcClient, active.abortSignal)
   const drive = new Drive({ agentHome: paths.home, rpc })
@@ -60,9 +60,9 @@ export async function executeActiveTurn(
   }
 }
 
-function turnOperation(actorEventID: string): { id: string; producer: string } {
+function turnOperation(signalID: string): { id: string; producer: string } {
   return {
-    id: actorEventID,
+    id: signalID,
     producer: 'ankole-worker/turn'
   }
 }

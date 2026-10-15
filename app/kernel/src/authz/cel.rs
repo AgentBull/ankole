@@ -13,7 +13,6 @@ pub enum BoolEvalError {
     ResultType(String),
 }
 
-/// Compiles a CEL expression without executing it.
 pub fn validate_condition_source(condition: &str) -> KernelResult<()> {
     compile_condition(condition).map(|_| ())
 }
@@ -24,10 +23,8 @@ pub fn compile_condition(condition: &str) -> KernelResult<Program> {
         .map_err(|reason| KernelError::new(format!("invalid cel condition: {reason}")))
 }
 
-/// Builds the CEL evaluation context with Ankole's supported function surface.
-///
 /// Persisted AuthZ conditions and signal filters can use list and map
-/// `contains`, `max`, and `min`. Register these beside the standard library.
+/// `contains`, `max`, and `min`.
 pub fn base_context() -> Context<'static, 'static> {
     let mut env = Env::stdlib();
     for (target, id) in [
@@ -54,10 +51,7 @@ pub fn base_context() -> Context<'static, 'static> {
     context
 }
 
-/// Builds the CEL variable context from JSON-compatible values supplied by the host.
-///
-/// The kernel does not fetch DB state itself; the caller must pass every
-/// variable a condition can read.
+/// The kernel does not fetch DB state. The caller must pass every variable a condition can read.
 pub fn build_context(variables: Vec<(&str, JSONValue)>) -> KernelResult<Context<'static, 'static>> {
     let mut context = base_context();
 
@@ -70,11 +64,7 @@ pub fn build_context(variables: Vec<(&str, JSONValue)>) -> KernelResult<Context<
     Ok(context)
 }
 
-/// Executes a CEL program that must return a boolean.
-///
-/// Non-boolean results are treated as authorization diagnostics rather than
-/// truthy/falsy values, because grants must fail closed when persisted data is
-/// invalid.
+/// Non-boolean results are diagnostics. Grants fail closed on invalid persisted data.
 pub fn execute_bool(
     program: &Program,
     context: &Context<'_, '_>,

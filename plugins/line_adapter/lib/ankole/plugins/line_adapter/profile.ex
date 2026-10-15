@@ -8,7 +8,8 @@ defmodule Ankole.Plugins.LineAdapter.Profile do
   email or phone number, so it never feeds the contact match.
   """
 
-  alias Ankole.Plugins.LineAdapter.{Client, Config}
+  alias Ankole.Plugins.LineAdapter.Client
+  alias Ankole.Plugins.LineAdapter.Config
   alias Ankole.Plugins.MapHelpers
 
   @spec hydrate_author(map(), map()) :: {:ok, map()} | {:error, term()}

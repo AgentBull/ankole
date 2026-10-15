@@ -49,7 +49,7 @@ defmodule Ankole.FilesFixtures do
     assert attachment["size"] == byte_size(content)
     assert {:ok, ^content} = Files.read_content(blob_ref)
 
-    assert {:ok, %{source: "inbound", signal_channel_id: ^channel_id}, ^content} =
+    assert {:ok, %{source: "inbound", conversation_id: ^channel_id}, ^content} =
              Files.read(agent_uid, path)
   end
 end

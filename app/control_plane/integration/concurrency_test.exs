@@ -19,13 +19,17 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.Conversations.{Admission, CodexJob, JobTurnRef, Receipts, ToolResult}
-  alias Ankole.SignalsGateway.ActorRuntime.RPCLane
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
-  alias Ankole.SignalsGateway.ActorRuntimeCase, as: RuntimeCase
+  alias Ankole.Signals.Signal
+  alias Ankole.Sessions.Admission
+  alias Ankole.Sessions.CodexJob
+  alias Ankole.Sessions.JobTurnRef
+  alias Ankole.Sessions.Receipts
+  alias Ankole.Sessions.ToolResult
+  alias Ankole.Sessions.RPCLane
+  alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.WorkerRoute
+  alias Ankole.SessionsCase, as: RuntimeCase
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.AppConfig
   alias Ankole.AppConfigure.Cache
@@ -82,6 +86,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
     on_exit_in_tenant(fn ->
       Sandbox.unboxed_run(Repo, fn ->
+        delete_agent_jobs!(agent_uid)
         Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent_uid)
       end)
     end)
@@ -99,41 +104,101 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     assert {:ok, %{token_quota: %{"limit_tokens" => 200}}} = TokenQuota.status(agent_uid)
   end
 
-  test "channel creation merges the persisted winner after an insert conflict" do
-    alias Ankole.SignalsGateway.{Channel, Projection}
-    id = "test:concurrent-channel-#{System.unique_integer([:positive])}"
+  test "external conversation creation merges the persisted winner after an insert conflict" do
+    alias Ankole.Conversations.{Conversation, External}
+    provider_id = "test:concurrent-room-#{System.unique_integer([:positive])}"
+    %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+    binding = %{agent_uid: agent.uid}
     now = DateTime.utc_now(:microsecond)
 
     first = %{
-      signal_channel_id: id,
-      channel_kind: :im_group,
+      provider_conversation_id: provider_id,
+      external_kind: :im_group,
       reply_mode: :entry,
-      channel_name: "Original name",
-      channel_visibility: nil,
-      channel_metadata: %{"first" => true},
-      channel_raw_payload: %{}
+      title: "Original name",
+      visibility: nil,
+      metadata: %{"first" => true},
+      raw_payload: %{}
     }
 
-    second = %{first | channel_name: nil, channel_metadata: %{"second" => true}}
+    second = %{first | title: nil, metadata: %{"second" => true}}
 
     on_exit_in_tenant(fn ->
-      Sandbox.unboxed_run(Repo, fn -> Repo.delete_all(from(c in Channel, where: c.id == ^id)) end)
+      Sandbox.unboxed_run(Repo, fn ->
+        Repo.delete_all(from c in Conversation, where: c.provider_conversation_id == ^provider_id)
+        delete_agent_jobs!(agent.uid)
+        Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
+      end)
     end)
 
-    winner = hold_transaction(fn -> Projection.upsert_channel(Repo, first, now) end)
+    winner =
+      hold_transaction(fn -> External.observe_conversation_in_tx(Repo, binding, first, now) end)
 
     loser =
       start_unboxed(fn ->
-        Repo.transact(fn repo -> Projection.upsert_channel(repo, second, now) end)
+        Repo.transact(fn repo ->
+          External.observe_conversation_in_tx(repo, binding, second, now)
+        end)
       end)
 
     assert_blocked_by(loser, winner)
     release(winner)
-    assert {:ok, _} = finish(winner)
-    assert {:ok, channel} = finish(loser)
-    assert channel.name == "Original name"
-    assert channel.metadata == %{"first" => true, "second" => true}
-    assert Repo.get_by!(Channel, id: id).metadata == channel.metadata
+    assert {:ok, winning} = finish(winner)
+    assert {:ok, conversation} = finish(loser)
+    assert conversation.id == winning.id
+    assert conversation.title == "Original name"
+    assert conversation.metadata == %{"first" => true, "second" => true}
+    assert Repo.get_by!(Conversation, id: conversation.id).metadata == conversation.metadata
+  end
+
+  test "external receive and removal both wait for the shared Message advisory lock" do
+    alias Ankole.Conversations.{Conversation, External, Observe, Message}
+    %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+    binding = Ankole.SignalsFixtures.binding_fixture(agent.uid, "lock-proof", :ignore)
+
+    entry =
+      Ankole.SignalsFixtures.group_entry(%{
+        provider_conversation_id: "lark:lock-proof-#{Ecto.UUID.generate()}",
+        explicit: true
+      })
+
+    now = DateTime.utc_now(:microsecond)
+
+    {:ok, conversation} =
+      Repo.transact(fn repo ->
+        External.observe_conversation_in_tx(repo, binding, entry, now)
+      end)
+
+    on_exit_in_tenant(fn ->
+      Sandbox.unboxed_run(Repo, fn ->
+        Repo.delete_all(from c in Conversation, where: c.id == ^conversation.id)
+        delete_agent_jobs!(agent.uid)
+        Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
+      end)
+    end)
+
+    for operation <- [&Observe.emit_entry/4, &Observe.emit_entry_removed/4] do
+      holder =
+        hold_transaction(fn ->
+          :ok =
+            Observe.lock_entry(Repo, %{
+              conversation_id: conversation.id,
+              provider_message_id: entry.provider_message_id
+            })
+
+          {:ok, :released}
+        end)
+
+      waiter = start_unboxed(fn -> operation.(agent.uid, binding.name, entry, now: now) end)
+
+      refute holder.backend_pid == waiter.backend_pid
+      assert_blocked_by(waiter, holder)
+      release(holder)
+      assert {:ok, :released} = finish(holder)
+      assert {:ok, %{status: :accepted}} = finish(waiter)
+    end
+
+    refute Repo.exists?(from m in Message, where: m.conversation_id == ^conversation.id)
   end
 
   describe "runtime placement and automation lock order" do
@@ -144,6 +209,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         Sandbox.unboxed_run(Repo, fn ->
           {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "heavy")
 
+          delete_agent_jobs!(agent.uid)
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
 
           Repo.delete_all(
@@ -195,7 +261,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
                    AutomationJobs.create_job(%{
                      agent_uid: agent.uid,
                      owner_session_id: "cancel-race",
-                     source_actor_event_id: Ankole.WorkFixtures.service_source(agent.uid).id,
+                     source_signal_id: Ankole.WorkFixtures.service_source(agent.uid).id,
                      drive_prefix: "automation/test",
                      label: "Cancellation race"
                    })
@@ -340,17 +406,17 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         Sandbox.unboxed_run(Repo, fn ->
           {:ok, event} =
             Repo.transact(fn repo ->
-              Ankole.SignalsGateway.append_actor_event_in_tx(
-                repo,
-                Map.merge(key, %{
-                  sender_key: agent.uid,
-                  binding_name: "control-plane:test",
-                  source_event_id: Ecto.UUID.generate(),
-                  type: "im.message.addressed",
-                  payload: %{},
-                  available_at: DateTime.utc_now(:microsecond)
-                })
-              )
+              Ankole.Signals.accept_in_tx(repo, %{
+                producer: :kernel,
+                source: "test://concurrency",
+                id: Ecto.UUID.generate(),
+                target: key,
+                sender: agent.uid,
+                authorization: Ankole.Principals.WorkAccess.service(),
+                type: "conversation.message.addressed",
+                data: %{},
+                available_at: DateTime.utc_now(:microsecond)
+              })
             end)
 
           Admission.admit(key, event)
@@ -359,6 +425,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       on_exit_in_tenant(fn ->
         Sandbox.unboxed_run(Repo, fn ->
           {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "primary")
+          delete_agent_jobs!(agent.uid)
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
           Ankole.AIGateway.ProviderConfigs.delete_provider(profile["provider_id"])
         end)
@@ -455,6 +522,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
             from(j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid)
           )
 
+          delete_agent_jobs!(agent.uid)
           Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
 
           Repo.delete_all(
@@ -468,7 +536,17 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       {:ok, context} =
         Sandbox.unboxed_run(Repo, fn ->
           Repo.transact(fn _repo ->
-            RuntimeCase.binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+            binding =
+              RuntimeCase.binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
+
+            {:ok, conversation} =
+              Ankole.Conversations.External.observe_conversation_in_tx(
+                Repo,
+                binding,
+                %{provider_conversation_id: "test:#{route}"},
+                DateTime.utc_now(:microsecond)
+              )
+
             assert {:ok, _worker} = RuntimeCase.admit_worker(route, %{worker_id: agent.uid})
 
             assert {:ok, %{job: job, dispatch_event: dispatch}} =
@@ -476,11 +554,13 @@ defmodule Ankole.ConcurrencyIntegrationTest do
                        "agent_uid" => agent.uid,
                        "owner_session_id" => "owner-#{agent.uid}",
                        "source_tool_call_id" => "tool-#{agent.uid}",
-                       "source_actor_event_id" =>
-                         Ankole.WorkFixtures.service_source(agent.uid).id,
+                       "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                        "title" => "Concurrent Job",
                        "task" => "Finish the report.",
-                       "reply_route" => %{"binding_name" => "bot", "signal_channel_id" => route}
+                       "reply_route" => %{
+                         "binding_name" => "bot",
+                         "conversation_id" => conversation.id
+                       }
                      })
 
             actor_key = %{
@@ -589,11 +669,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       assert_blocked_by(steer, terminal)
 
       Sandbox.unboxed_run(Repo, fn ->
-        assert {:ok, %ActorEvent{}} =
+        assert {:ok, %Signal{}} =
                  Repo.transact(fn repo ->
                    {:ok,
                     repo.one!(
-                      from(event in ActorEvent,
+                      from(event in Signal,
                         where: event.id == ^ctx.steer.id,
                         lock: "FOR UPDATE NOWAIT"
                       )
@@ -604,14 +684,14 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       send(terminal.task.pid, :continue_query)
       assert_terminal_rpc(finish(terminal))
       # Admission completes a terminal Job's event without starting another attempt.
-      assert {:ok, %{status: :idle, actor_event: %ActorEvent{} = completed_event}} = finish(steer)
+      assert {:ok, %{status: :idle, signal: %Signal{} = completed_event}} = finish(steer)
       assert completed_event.id == ctx.steer.id
       assert %DateTime{} = completed_event.completed_at
       persisted = Repo.get!(Job, ctx.job.id)
       assert persisted.status == "succeeded"
       assert persisted.attempts == 1
       assert persisted.runtime_thread_id == "thread-#{ctx.job.id}"
-      assert Repo.get!(ActorEvent, ctx.steer.id).completed_at
+      assert Repo.get!(Signal, ctx.steer.id).completed_at
 
       assert Repo.aggregate(from(j in Job, where: j.continued_from_job_id == ^ctx.job.id), :count) ==
                1
@@ -625,7 +705,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
       assert_terminal_rpc(finish(first))
       assert_terminal_rpc(finish(repeated))
       assert Repo.get!(Job, ctx.job.id).status == "succeeded"
-      assert Repo.get!(ActorEvent, ctx.steer.id).completed_at
+      assert Repo.get!(Signal, ctx.steer.id).completed_at
 
       assert Repo.aggregate(from(j in Job, where: j.continued_from_job_id == ^ctx.job.id), :count) ==
                1
@@ -786,6 +866,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
   defp library_skill_set(name, description) do
     %{
+      kind: :lazy_skills,
       set_id: name,
       name: "Library Skill inventory",
       skills: [
@@ -873,6 +954,15 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
   defp release(operation), do: send(operation.task.pid, :commit_transaction)
   defp finish(operation), do: Task.await(operation.task, 10_000)
+
+  defp delete_agent_jobs!(agent_uid) do
+    tenant_id = Repo.tenant_id!()
+
+    Repo.delete_all(
+      from job in Oban.Job,
+        where: job.args["tenant_id"] == ^tenant_id and job.args["agent_uid"] == ^agent_uid
+    )
+  end
 
   defp on_exit_in_tenant(fun) do
     tenant_id = Repo.tenant_id!()

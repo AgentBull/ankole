@@ -71,9 +71,7 @@ function followRowLink(event: React.MouseEvent<HTMLTableRowElement>) {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
   const row = event.currentTarget
   const control = (event.target as Element).closest(ROW_CONTROLS)
-  // A click on a control in the row belongs to that control.
   if (control && row.contains(control)) return
-  // A drag that selects text in the row is not a click on the row.
   if (document.getSelection()?.isCollapsed === false) return
   row.querySelector<HTMLElement>('[data-row-link]')?.click()
 }

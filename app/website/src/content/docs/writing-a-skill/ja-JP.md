@@ -146,7 +146,7 @@ config :ankole, :control_plane_plugin_modules, [
 def adapter_declarations do
   [
     %{
-      contract_id: "signals_gateway.adapter",
+      contract_id: "signals.adapter",
       id: "my-adapter",
       plugin_id: plugin_id()
     }
@@ -154,7 +154,7 @@ def adapter_declarations do
 end
 ```
 
-adapter 固有のフィールドは、所有する subsystem が定義します。chat adapter は [SignalsGateway](../signals-gateway/) の contract に従います。IdP と model Provider は既存の registry を使用します。Plugin 内に並行した configuration 経路を作らないでください。
+adapter 固有のフィールドは、所有する subsystem が定義します。chat adapter は [Signals](../signals/) の contract に従います。IdP と model Provider は既存の registry を使用します。Plugin 内に並行した configuration 経路を作らないでください。
 
 ### 設定と service を宣言する
 

@@ -118,6 +118,9 @@ defmodule AnkoleWeb.RequestLogger do
   defp redacted_path("/webhooks/v1/event-callbacks/" <> _token),
     do: "/webhooks/v1/event-callbacks/[REDACTED]"
 
+  defp redacted_path("/signals/v1/cloudevents/" <> _token),
+    do: "/signals/v1/cloudevents/[REDACTED]"
+
   defp redacted_path(path) when is_binary(path), do: path
   defp redacted_path(_path), do: "/"
 end

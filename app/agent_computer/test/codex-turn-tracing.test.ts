@@ -269,8 +269,8 @@ function traceFixture() {
       mode: 'start',
       fetch_runtime_config: { ssrfFilter: true },
       turn: actorTurn,
-      actor_event: {
-        actor_event_id: actorTurn.actor_event_id,
+      signal: {
+        signal_id: actorTurn.signal_id,
         type: 'background_agent_job.dispatch'
       },
       request_context: { traceparent: '00-11111111111111111111111111111111-1111111111111111-01' }

@@ -1,7 +1,8 @@
 defmodule Ankole.AIGateway.CredentialPoolTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AIGateway.{CredentialPool, ProviderConfigs}
+  alias Ankole.AIGateway.CredentialPool
+  alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ProviderConfigs.Provider
 
   setup do

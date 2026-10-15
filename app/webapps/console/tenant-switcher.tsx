@@ -5,7 +5,7 @@ import {
   ankoleWebTenantControllerIndexOptions,
   ankoleWebTenantControllerPrivilegedOptions
 } from './api/generated/@tanstack/react-query.gen'
-import { dataTenantID, selectDataTenant } from './api/data-context'
+import { dataTenantID, selectDataTenant } from '../common/browser-session'
 
 export function TenantSwitcher() {
   const { t } = useTranslation()

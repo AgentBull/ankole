@@ -20,14 +20,10 @@ export interface ComputerToolsBinding {
   runtimeEnv?: Record<string, string>
 }
 
-/**
- * Builds the environment tools that the control-plane loop calls on this
- * Worker. The tools use the current workspace and the Agent Home.
- */
+/** The control-plane loop calls these tools on this Worker. */
 export function createComputerTools(binding: ComputerToolsBinding): WorkerAgentTool[] {
   const context = createComputerToolContext(binding)
-  // Warm the workspace search index while the model is still thinking. A warm
-  // index rescans too; fff throttles repeats, so the rescan is cheap.
+  // Warm the workspace search index while the model is still thinking.
   fffSearchRuntime.prewarm(binding.workspaceRoot)
 
   return computerToolsForContext(context)
@@ -45,7 +41,6 @@ export function computerToolsForContext(context: ComputerToolContext): WorkerAge
   ]
 }
 
-/** Builds the shared run-scoped context used by main-agent computer tools. */
 function createComputerToolContext(binding: ComputerToolsBinding): ComputerToolContext {
   const computer = createContainerComputer(binding.agentHome, binding.workspaceRoot, {
     workerEnv: binding.workerEnv,

@@ -36,8 +36,6 @@ defmodule FeishuOpenAPI.Request do
     end
   end
 
-  # --- auth ----------------------------------------------------------------
-
   defp resolve_auth(_client, %Spec{user_access_token: token}) when is_binary(token) do
     {:ok, bearer(token)}
   end
@@ -71,8 +69,6 @@ defmodule FeishuOpenAPI.Request do
 
   defp bearer(token), do: [{"Authorization", "Bearer " <> token}]
 
-  # --- URL -----------------------------------------------------------------
-
   defp build_url(base_url, path) when is_binary(path) do
     if String.match?(path, ~r/^https?:\/\//i) do
       path
@@ -81,24 +77,14 @@ defmodule FeishuOpenAPI.Request do
     end
   end
 
-  # Paths that already begin with `/` are passed through verbatim — this keeps
-  # `/open-apis/...`, `/callback/ws/endpoint`, and any other absolute path
-  # working. Paths that omit the leading slash but still carry the
-  # `open-apis/` prefix just get normalized. Everything else (shorthand, e.g.
-  # `contact/v3/users/me`) receives the `/open-apis/` prefix automatically.
   defp apply_open_apis_prefix(<<"/", _::binary>> = path), do: path
   defp apply_open_apis_prefix(<<"open-apis/", _::binary>> = path), do: "/" <> path
   defp apply_open_apis_prefix(path) when is_binary(path), do: "/open-apis/" <> path
-
-  # --- body / query --------------------------------------------------------
 
   defp put_body(req_opts, %Spec{form_multipart: fm}) when fm != :unset do
     Keyword.put(req_opts, :form_multipart, fm)
   end
 
-  # `:unset` is the sentinel for "no `:body` option was passed" — send no body
-  # at all (e.g. GET/DELETE). An explicit `false`/`nil` body is different: the
-  # caller asked to send that literal JSON value, so it is encoded and sent.
   defp put_body(req_opts, %Spec{body: :unset}), do: req_opts
 
   defp put_body(req_opts, %Spec{body: body}) when body in [false, nil] do

@@ -171,7 +171,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
                to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal)),
              "result_summary" => conn.body_params.result_summary
            }),
-         :ok <- Ankole.Conversations.stop_job_turn(completed, turn),
+         :ok <- Ankole.Sessions.stop_job_turn(completed, turn),
          {:ok, detail} <- detail_projection(completed, nil) do
       json(conn, %{job: detail})
     else
@@ -191,7 +191,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
                to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal)),
              "reason" => "Cancelled from the operator console"
            }),
-         :ok <- Ankole.Conversations.stop_job_turn(cancelled, turn),
+         :ok <- Ankole.Sessions.stop_job_turn(cancelled, turn),
          {:ok, detail} <- detail_projection(cancelled, nil) do
       json(conn, %{job: detail})
     else

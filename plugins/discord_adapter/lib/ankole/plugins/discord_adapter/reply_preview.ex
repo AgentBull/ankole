@@ -1,18 +1,22 @@
 defmodule Ankole.Plugins.DiscordAdapter.ReplyPreview do
   @moduledoc "Discord transport for the shared crash-recoverable message preview ledger."
 
-  @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+  @behaviour Ankole.Conversations.Delivery.PreviewAdapter
   @behaviour Ankole.Plugins.ChunkedMessagePreview
 
   alias Ankole.Plugins.ChunkedMessagePreview
-  alias Ankole.Plugins.DiscordAdapter.{Client, Config, ErrorPolicy, Outbox, Presentation}
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Plugins.DiscordAdapter.Client
+  alias Ankole.Plugins.DiscordAdapter.Config
+  alias Ankole.Plugins.DiscordAdapter.ErrorPolicy
+  alias Ankole.Plugins.DiscordAdapter.Delivery
+  alias Ankole.Plugins.DiscordAdapter.Presentation
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def update(%Request{} = request), do: deliver(request)
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def finalize(%Request{} = request) do
     case ChunkedMessagePreview.reconcile(%{request | mode: :terminal}, __MODULE__, "discord") do
       {:error, reason} when reason in [:discord_partial_delivery, :discord_send_uncertain] ->
@@ -23,13 +27,13 @@ defmodule Ankole.Plugins.DiscordAdapter.ReplyPreview do
     end
   end
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def refresh(%Request{} = request), do: deliver(request)
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def surface_ids(checkpoint), do: ChunkedMessagePreview.surface_ids(checkpoint)
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def surface_open?(checkpoint), do: ChunkedMessagePreview.surface_open?(checkpoint)
 
   defp deliver(request) do
@@ -39,12 +43,12 @@ defmodule Ankole.Plugins.DiscordAdapter.ReplyPreview do
   end
 
   @impl Ankole.Plugins.ChunkedMessagePreview
-  def render_chunks(presentation, %Request{actor_event: event} = request) do
+  def render_chunks(presentation, %Request{signal: event} = request) do
     with {:ok, config} <- Config.validate_binding_config(request.config),
          client <- Config.client(config),
          {:ok, chunks} <- Presentation.render(presentation, event.id),
-         {:ok, channel} <- Outbox.parse_channel(event.signal_channel_id) do
-      {:ok, chunks, {client, channel}, event.signal_channel_id}
+         {:ok, channel} <- Delivery.parse_channel(event.conversation_id) do
+      {:ok, chunks, {client, channel}, event.conversation_id}
     end
   end
 
@@ -109,11 +113,11 @@ defmodule Ankole.Plugins.DiscordAdapter.ReplyPreview do
     end
   end
 
-  defp maybe_reply(body, %ActorEvent{} = event) do
-    case ActorEvent.reply_anchor_source_entry_id(event) |> Outbox.message_id() do
-      {:ok, source_entry_id} ->
+  defp maybe_reply(body, %Signal{} = event) do
+    case Signal.reply_anchor_provider_message_id(event) |> Delivery.message_id() do
+      {:ok, provider_message_id} ->
         Map.put(body, "message_reference", %{
-          "message_id" => source_entry_id,
+          "message_id" => provider_message_id,
           "fail_if_not_exists" => false
         })
 

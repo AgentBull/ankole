@@ -28,7 +28,7 @@ The following terms appear throughout the documentation.
 |---|---|---|
 | **Agent** | A working identity with its own mission, access, tools, and outbound identity. Editable files hold its mission and delivery standards. One deployment instance can hold several Agents. | [Agents](../agents/) |
 | **Brain** | Shared company knowledge with sources, claims, time, confidence, conflicts, and audience boundaries. Authorized Agents use the same current company context. | [Brain](../brain/) |
-| **Session** | The unit of execution that owns context, workspace state, steering, cancellation, and recovery. | [Actor runtime](../actor-runtime/) |
+| **Session** | The unit of execution that owns context, workspace state, steering, cancellation, and recovery. | [Sessions](../sessions/) |
 | **Signal routing rule** | Connects an Agent to a signal source and sets the boundary of what it can do there. | [Signal routing rules](../signal-bindings/) |
 | **Background job** | A task that runs outside a Session for hours and delivers its result to the originating channel. | [Background Agent Jobs](../background-agent-jobs/) |
 | **Skill** | An approved procedure for one kind of work. An Agent can propose an improvement, and a human approves it for the next Session. | [Skills](../skills/) |

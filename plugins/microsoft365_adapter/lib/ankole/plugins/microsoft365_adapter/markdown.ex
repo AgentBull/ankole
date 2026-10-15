@@ -23,7 +23,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Markdown do
     trimmed = String.trim(line)
 
     cond do
-      # Table separator rows carry no content once cells are flattened.
       Regex.match?(~r/\A\|?[\s:|-]+\|[\s:|-]*\z/, trimmed) and String.contains?(trimmed, "-") ->
         ""
 

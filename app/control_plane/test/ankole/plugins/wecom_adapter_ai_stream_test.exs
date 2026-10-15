@@ -2,8 +2,9 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
 
+  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -11,12 +12,12 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
 
   defmodule FakeBotClient do
     use GenServer
@@ -32,8 +33,13 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     def handle_call({:send_frame, cmd, req_id, body}, _from, parent) do
       send(parent, {:bot_frame, cmd, req_id, body})
 
-      {:reply, {:ok, %{"headers" => %{"req_id" => req_id}, "errcode" => 0, "body" => %{}}},
-       parent}
+      {:reply,
+       {:ok,
+        %{
+          "headers" => %{"req_id" => req_id},
+          "errcode" => 0,
+          "body" => %{"msgid" => "provider-#{req_id}"}
+        }}, parent}
     end
   end
 
@@ -52,7 +58,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, _binding} =
-      SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: agent.uid,
         name: "wecom-stream",
         adapter: "wecom",
@@ -62,23 +68,23 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
         unmatched_sender_policy: :create_standalone
       })
 
-    %{actor_event: event} =
-      emit_addressed_actor_event(
+    %{signal: event} =
+      emit_addressed_signal(
         agent.uid,
         "wecom-stream",
         group_entry(%{
           source_event_id: unique_uid("wecom-event"),
-          source_entry_id: unique_uid("wecom-trigger"),
-          signal_channel_id: @channel_id,
+          provider_message_id: unique_uid("wecom-trigger"),
+          provider_conversation_id: @channel_id,
           channel: %{kind: :im_group, reply_mode: :channel, name: nil},
           explicit: true
         })
       )
 
-    channel = Repo.get_by!(Channel, id: @channel_id)
+    channel = Repo.get_by!(Conversation, provider_conversation_id: @channel_id)
 
     channel
-    |> Channel.changeset(%{metadata: Map.merge(channel.metadata, channel_metadata)})
+    |> Conversation.changeset(%{metadata: Map.merge(channel.metadata, channel_metadata)})
     |> Repo.update!()
 
     key = Config.connection_key(config)
@@ -106,16 +112,16 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     ReplyPresentation.new() |> ReplyPresentation.terminal("completed", answer)
   end
 
-  defp fresh(event), do: Repo.get!(ActorEvent, event.id)
+  defp fresh(event), do: Repo.get!(Signal, event.id)
 
   defp request(event, presentation, mode) do
-    %Request{actor_event: event, presentation: presentation, mode: mode}
+    %Request{signal: event, presentation: presentation, mode: mode}
   end
 
   for operation <- [:update, :finalize] do
     defp unquote(operation)(request) do
-      {:ok, adapter} = ReplyPreviewAdapter.from_module(AIStream)
-      apply(ReplyPreviewAdapter, unquote(operation), [adapter, request])
+      {:ok, adapter} = PreviewAdapter.from_module(AIStream)
+      apply(PreviewAdapter, unquote(operation), [adapter, request])
     end
   end
 
@@ -168,7 +174,10 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     assert body["stream"]["finish"] == true
     assert body["stream"]["content"] =~ "已暂停，后续处理续接于下一张卡片"
     assert body["stream"]["content"] =~ "旧卡片答案"
-    assert result.reply_preview_checkpoint["presentation"]["state"] == "continued"
+
+    assert result.reply_preview_checkpoint["presentation"][
+             "state"
+           ] == "continued"
   end
 
   test "an answer beyond the page budget seals earlier pages and continues on new stream ids" do
@@ -201,7 +210,12 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     # Age the open page past the 9-minute axis and clear the write throttle.
     stale = DateTime.utc_now() |> DateTime.add(-10 * 60) |> DateTime.to_iso8601()
     stored = fresh(event)
-    checkpoint = ReplyPreviewAdapter.adapter_checkpoint(stored.reply_preview_checkpoint)
+
+    checkpoint =
+      PreviewAdapter.adapter_checkpoint(
+        Ankole.Conversations.Delivery.PreviewState.get(stored).checkpoint
+      )
+
     [page] = checkpoint["pages"]
 
     aged =
@@ -209,7 +223,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
       |> Map.put("pages", [Map.put(page, "opened_at", stale)])
       |> Map.delete("last_write_at")
 
-    {:ok, _event} = Ankole.SignalsGateway.Actors.put_reply_preview_checkpoint(event.id, aged)
+    {:ok, _event} = PreviewState.put_checkpoint(event.id, aged)
 
     assert {:ok, result} =
              update(request(fresh(event), working("first page text plus growth"), :working))
@@ -257,6 +271,85 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     assert body["stream"]["content"] =~ "one two three"
   end
 
+  test "rollover freezes only confirmed text after a throttled update" do
+    event = setup_stream_binding(fresh_anchor_metadata())
+
+    assert {:ok, _open} = update(request(event, working("confirmed text"), :working))
+    assert_receive {:bot_frame, "aibot_respond_msg", _req, _body}
+
+    assert {:ok, skipped} =
+             update(request(fresh(event), working("confirmed text pending growth"), :working))
+
+    refute_receive {:bot_frame, _cmd, _req, _body}, 100
+
+    assert [%{"source" => "confirmed text"}] =
+             skipped.reply_preview_checkpoint["pages"]
+
+    checkpoint =
+      PreviewAdapter.adapter_checkpoint(
+        Ankole.Conversations.Delivery.PreviewState.get(fresh(event)).checkpoint
+      )
+
+    [page] = checkpoint["pages"]
+    stale = DateTime.utc_now() |> DateTime.add(-10 * 60) |> DateTime.to_iso8601()
+
+    {:ok, _event} =
+      PreviewState.put_checkpoint(
+        event.id,
+        Map.put(checkpoint, "pages", [Map.put(page, "opened_at", stale)])
+      )
+
+    assert {:ok, result} =
+             update(request(fresh(event), working("confirmed text pending growth"), :working))
+
+    assert_receive {:bot_frame, "aibot_respond_msg", _req, seal}
+    assert seal["stream"]["id"] == "ankole:#{event.id}:0"
+    assert seal["stream"]["finish"] == true
+    refute seal["stream"]["content"] =~ "pending growth"
+
+    assert_receive {:bot_frame, "aibot_respond_msg", _req, continuation}
+    assert continuation["stream"]["id"] == "ankole:#{event.id}:1"
+    assert continuation["stream"]["content"] =~ "pending growth"
+
+    assert [%{"source" => "confirmed text"}, %{"source" => " pending growth"}] =
+             result.reply_preview_checkpoint["pages"]
+  end
+
+  test "growth opens a new tail page even inside the refresh throttle" do
+    event = setup_stream_binding(fresh_anchor_metadata())
+    first = String.duplicate("x", 13_900)
+    answer = first <> String.duplicate("y", 1_000)
+
+    assert {:ok, _open} = update(request(event, working(first), :working))
+    assert_receive {:bot_frame, "aibot_respond_msg", _req, _body}
+
+    assert {:ok, result} = update(request(fresh(event), working(answer), :working))
+    frames = collect_frames([])
+    assert length(frames) == 2
+
+    [first_page, tail_page] =
+      result.reply_preview_checkpoint["pages"]
+
+    assert tail_page["source"] =~ "y"
+
+    assert Enum.any?(frames, fn {_cmd, _req, body} ->
+             body["stream"]["id"] == "ankole:#{event.id}:1" and
+               body["stream"]["finish"] == false and
+               String.ends_with?(body["stream"]["content"], tail_page["source"])
+           end)
+
+    assert Enum.any?(frames, fn {_cmd, _req, body} ->
+             body["stream"]["id"] == "ankole:#{event.id}:0" and
+               body["stream"]["finish"] == true and
+               body["stream"]["content"] == first_page["source"] <> "\n\n*（续下一条）*"
+           end)
+
+    assert Enum.map_join(
+             result.reply_preview_checkpoint["pages"],
+             & &1["source"]
+           ) == answer
+  end
+
   test "without a respond anchor working syncs degrade and the terminal falls back to proactive markdown" do
     event = setup_stream_binding(%{})
 
@@ -277,7 +370,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     assert checkpoint["degraded"] == true
     assert [%{"index" => 0, "source" => "final via send"}] = checkpoint["plain_chunks"]
 
-    # A retry of the terminal outbox delivery re-sends nothing.
+    # A retry of the terminal intent delivery re-sends nothing.
     assert {:ok, _retry} =
              finalize(request(fresh(event), completed("final via send"), :terminal))
 

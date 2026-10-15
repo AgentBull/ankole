@@ -79,11 +79,11 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
         repo,
         agent_uid,
         owner_session_id,
-        signal_channel_id,
+        conversation_id,
         binding_name
       )
       when is_binary(agent_uid) and is_binary(owner_session_id) and
-             is_binary(signal_channel_id) and is_binary(binding_name) do
+             is_binary(conversation_id) and is_binary(binding_name) do
     rows =
       Job
       |> where([job], job.agent_uid == ^agent_uid)
@@ -91,7 +91,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       |> where([job], job.status in ~w(queued running waiting_on_user))
       |> where(
         [job],
-        fragment("?->>'signal_channel_id' = ?", job.reply_route, ^signal_channel_id)
+        fragment("?->>'conversation_id' = ?", job.reply_route, ^conversation_id)
       )
       |> where([job], fragment("?->>'binding_name' = ?", job.reply_route, ^binding_name))
       |> excluding_reflection_jobs()
@@ -164,7 +164,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   @spec get(pos_integer()) :: Job.t() | nil
   def get(job_id) when is_integer(job_id) and job_id > 0, do: Repo.get(Job, job_id)
 
-  @doc "Lists live Job ids owned by any of the given actor sessions."
+  @doc "Lists live Job ids owned by any of the given Sessions."
   @spec live_job_ids_for_owner_sessions([String.t()], String.t()) :: [pos_integer()]
   def live_job_ids_for_owner_sessions([], _agent_uid), do: []
 
@@ -305,7 +305,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       id: job.id,
       agent_uid: job.agent_uid,
       owner_session_id: job.owner_session_id,
-      source_actor_event_id: job.source_actor_event_id,
+      source_signal_id: job.source_signal_id,
       source_tool_call_id: job.source_tool_call_id,
       runtime_thread_id: job.runtime_thread_id,
       title: job.title,

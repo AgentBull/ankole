@@ -5,13 +5,13 @@ order: 124
 description: 제어 플레인의 작업 목록과 질문 및 Codex Job 입력 경로.
 ---
 
-`todo`와 `clarify`는 `Ankole.Conversations.Tools.Session`이 소유하는 제어 플레인 도구입니다. Driver는 인수를 검증하고 AIGateway로 모델에 보이는 결과를 저장한 뒤 현재 실행에 반영합니다. Worker는 이 주 턴 도구를 소유하지 않습니다.
+`todo`와 `clarify`는 `Ankole.Sessions.Tools.Session`이 소유하는 제어 플레인 도구입니다. Driver는 인수를 검증하고 AIGateway로 모델에 보이는 결과를 저장한 뒤 현재 실행에 반영합니다. Worker는 이 주 턴 도구를 소유하지 않습니다.
 
 ## 작업 목록
 
 `todo`는 목록을 읽거나 교체하고 항목 ID로 병합합니다. 상태는 `pending`, `in_progress`, `completed`, `cancelled`이며 선언은 최대 256개 항목을 허용합니다. 지침은 3단계 이상의 복잡한 작업에서 목록을 사용하고 우선순위 순으로 배치하며 진행 중 항목을 하나로 유지하고 완료 즉시 표시하며 실패하면 수정 항목을 추가하도록 요구합니다.
 
-목록은 `Ankole.Conversations.Run`의 작업 상태입니다. 복구 시 현재 실행 기록에 저장된 성공 도구 호출로 다시 구성합니다. 새 Session은 다른 Session의 목록을 상속하지 않습니다. Session 간 공유할 지식은 [Brain](../brain/)에 보관합니다.
+목록은 `Ankole.Sessions.Run`의 작업 상태입니다. 복구 시 현재 실행 기록에 저장된 성공 도구 호출로 다시 구성합니다. 새 Session은 다른 Session의 목록을 상속하지 않습니다. Session 간 공유할 지식은 [Brain](../brain/)에 보관합니다.
 
 ## 결정 질문 하나
 

@@ -14,7 +14,7 @@ defmodule AnkoleWeb.AgentController do
   alias Ankole.AIAgent.TokenQuota
   alias Ankole.Principals.Agent
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Providers
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy

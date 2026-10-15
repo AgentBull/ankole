@@ -125,7 +125,7 @@ file はファーストクラスです。`POST /files` がアップロードし�
 
 ## AIGateway ではないもの
 
-これは公開された、認証なしの proxy ではありません。provider の credential を送る場所でもありません。それらは control plane にあります。そして queue や job runner でもありません。長時間の agent の仕事は Actor Runtime と Background Agent Job に属します。AIGateway は request/response boundary です。1 つの呼び出しが入り、1 つの response または 1 つの stream が出ます。selector は解決され、credential は内部に保たれます。
+これは公開された、認証なしの proxy ではありません。provider の credential を送る場所でもありません。それらは control plane にあります。そして queue や job runner でもありません。長時間の agent の仕事は Sessions と Background Agent Job に属します。AIGateway は request/response boundary です。1 つの呼び出しが入り、1 つの response または 1 つの stream が出ます。selector は解決され、credential は内部に保たれます。
 
 ## 次のステップ
 

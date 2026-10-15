@@ -80,5 +80,5 @@ Worker 将已安装 Skill 下载到执行缓存，不扫描缓存来上报或替
 
 - 配置库的路由，读 [Console](../console-api/)。
 - Agent 专属的过程指引，见[技能教训](../skill-lessons/)。
-- 在一个回合中运行已启用 skill 的 worker，读 [Actor Runtime](../actor-runtime/)。
+- 在一个回合中运行已启用 skill 的 worker，读 [Sessions](../sessions/)。
 - 能力库所属的 Agent 主体，见 [主体与 AuthZ](../principal-authz/)。

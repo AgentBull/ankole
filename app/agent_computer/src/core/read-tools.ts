@@ -1,7 +1,7 @@
 import { isRecord } from '@agentbull/active-support'
 import type { JsonObject } from '@agentbull/active-support'
 import { jsonBytes, jsonObjectFromBytes } from '../fabric/envelope_proto'
-import type { JobTurnRef } from '../lanes/actor_lane'
+import type { JobTurnRef } from '../lanes/session_lane'
 import type { RPCRequester } from '../lanes/rpc_lane'
 import type { AgentToolResult } from './types'
 

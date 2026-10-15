@@ -5,13 +5,13 @@ order: 124
 description: Control-plane task lists, decision questions, and the separate Codex Job input path.
 ---
 
-`todo` and `clarify` are control-plane tools owned by `Ankole.Conversations.Tools.Session`. The Driver validates their arguments, stores their model-visible results through AIGateway, and applies their effects to the current run. The Worker does not own these main-turn tools.
+`todo` and `clarify` are control-plane tools owned by `Ankole.Sessions.Tools.Session`. The Driver validates their arguments, stores their model-visible results through AIGateway, and applies their effects to the current run. The Worker does not own these main-turn tools.
 
 ## Task list
 
 `todo` reads, replaces, or merges the current list by item ID. Its states are `pending`, `in_progress`, `completed`, and `cancelled`; the declaration accepts at most 256 items. The instructions call for a list on complex tasks of three or more steps, priority order, one item in progress, immediate completion marking, and a revised item after a failed step.
 
-The list is working state in `Ankole.Conversations.Run`, not organizational knowledge. Recovery reconstructs it from successful recorded tool calls in the current run's history. A new Session does not inherit another Session's list. Knowledge that must be shared across Sessions belongs to [Brain](../brain/).
+The list is working state in `Ankole.Sessions.Run`, not organizational knowledge. Recovery reconstructs it from successful recorded tool calls in the current run's history. A new Session does not inherit another Session's list. Knowledge that must be shared across Sessions belongs to [Brain](../brain/).
 
 ## One decision question
 

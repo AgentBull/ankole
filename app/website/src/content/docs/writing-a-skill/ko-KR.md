@@ -146,7 +146,7 @@ config :ankole, :control_plane_plugin_modules, [
 def adapter_declarations do
   [
     %{
-      contract_id: "signals_gateway.adapter",
+      contract_id: "signals.adapter",
       id: "my-adapter",
       plugin_id: plugin_id()
     }
@@ -154,7 +154,7 @@ def adapter_declarations do
 end
 ```
 
-adapter별 필드는 소유 subsystem이 정의합니다. chat adapter는 [SignalsGateway](../signals-gateway/) contract를 따릅니다. IdP와 model Provider는 기존 registry를 사용합니다. Plugin 내부에 병렬 configuration 경로를 만들지 마십시오.
+adapter별 필드는 소유 subsystem이 정의합니다. chat adapter는 [Signals](../signals/) contract를 따릅니다. IdP와 model Provider는 기존 registry를 사용합니다. Plugin 내부에 병렬 configuration 경로를 만들지 마십시오.
 
 ### 설정과 service 선언
 

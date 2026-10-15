@@ -33,11 +33,13 @@ endpoint에 `/v1/traces`를 넣지 마십시오. Ankole이 `/v1/traces`를 추�
 Langfuse는 Console setting을 추가하지 않아도 새 trace를 trigger identity로 group화합니다. Ankole은 다음 규칙으로 `user.id`를 설정합니다.
 
 - trusted human이 보낸 direct message Turn은 `principal:<principal_uid>`를 사용합니다.
-- group Turn 또는 source channel이 있는 event Turn은 `channel:<signal_channel_id>`를 사용합니다.
-- source channel이 없어도 trusted human trigger가 있는 Turn은 `principal:<principal_uid>`를 사용합니다.
-- trusted human과 source channel이 모두 없는 Turn은 `user.id`를 생략합니다.
+- group Turn 또는 source Conversation이 있는 event Turn은 `channel:<conversation_uuid>`를 사용합니다.
+- source Conversation이 없어도 trusted human trigger가 있는 Turn은 `principal:<principal_uid>`를 사용합니다.
+- trusted human과 source Conversation이 모두 없는 Turn은 `user.id`를 생략합니다.
 
 Turn에 속하지 않는 direct AIGateway request는 `principal:<authenticated_subject_uid>`를 사용합니다. Agent identity는 `ankole.principal.uid`, `ankole.principal.type`, filter 가능한 trace metadata에 별도로 유지됩니다. Main Agent conversation 또는 Background Job Codex session인 기존 Langfuse session은 바뀌지 않습니다.
+
+`channel:` 접두사는 현재 관측 전송 계약의 일부입니다. 값은 플랫폼 channel ID가 아니라 공개 Conversation UUID입니다.
 
 이 identity mapping은 다섯 번째 AppConfigure value를 추가하지 않습니다. 위의 네 values는 계속 export와 OTLP receiver만 제어합니다. 업데이트한 control plane과 Agent Computer를 다시 시작한 후 생성한 span만 새 mapping을 사용합니다. 기존 Langfuse 데이터는 바뀌지 않습니다. control plane에 선택 사항인 `ANKOLE_ENV`와 `ANKOLE_VERSION`을 설정하면 각 trace에 Langfuse environment(소문자 영숫자와 `-`, `_`, 최대 40자)와 release가 붙습니다.
 

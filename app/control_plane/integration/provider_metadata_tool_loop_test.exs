@@ -2,9 +2,11 @@ defmodule Ankole.AIGateway.ProviderMetadataToolLoopIntegrationTest do
   alias Ankole.AIGateway.ResponseChain
   use Ankole.AIGatewayCase
 
-  alias Ankole.AIGateway.{Conversations, ResponseStream}
-  alias Ankole.Conversations.{Model, Run}
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway.ResponseStream
+  alias Ankole.Sessions.Model
+  alias Ankole.Sessions.Run
+  alias Ankole.Signals.Signal
 
   @moduletag :real_llm
   @moduletag timeout: 180_000
@@ -64,9 +66,9 @@ defmodule Ankole.AIGateway.ProviderMetadataToolLoopIntegrationTest do
       run = %Run{
         agent_uid: agent.uid,
         session_id: id,
-        actor_event_id: Ecto.UUID.generate(),
+        signal_id: Ecto.UUID.generate(),
         epoch: 1,
-        event: %ActorEvent{},
+        event: %Signal{},
         conversation: conversation,
         instructions:
           "Call multiply exactly once with a=6 and b=7, then answer with only its numeric result.",
@@ -93,7 +95,7 @@ defmodule Ankole.AIGateway.ProviderMetadataToolLoopIntegrationTest do
           }
         ])
         |> Map.put("metadata", %{
-          "actor_event_id" => run.actor_event_id,
+          "signal_id" => run.signal_id,
           "local_diagnostics" => %{"pages" => %{"private_marker" => "never-send-this"}}
         })
         |> Map.put("provider_options", %{
@@ -124,7 +126,7 @@ defmodule Ankole.AIGateway.ProviderMetadataToolLoopIntegrationTest do
 
       final = complete(kind, agent.uid, continuation)
       assert final["status"] == "completed"
-      assert Ankole.SignalsGateway.AIReplyText.visible_text(final["output"]) == "42"
+      assert Ankole.Conversations.Delivery.Text.visible_text(final["output"]) == "42"
       if kind == "openai", do: assert_local(agent.uid, final["id"], request)
       assert_receive {:provider_body, final_body}, 1_000
       assert_wire(final_body)

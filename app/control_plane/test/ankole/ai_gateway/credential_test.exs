@@ -1,7 +1,7 @@
 defmodule Ankole.AIGateway.CredentialTest do
   use Ankole.AIGatewayCase
 
-  import Ankole.SignalsGateway.ActorRuntimeCase,
+  import Ankole.SessionsCase,
     only: [
       handle_rpc: 3,
       rpc_request: 3,
@@ -112,23 +112,23 @@ defmodule Ankole.AIGateway.CredentialTest do
 
   defp put_ai_gateway_broker_env!(config) do
     old_env =
-      Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker)
+      Application.fetch_env(:ankole, Ankole.Sessions.AIGatewayAPIKeyBroker)
 
-    Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker, config)
+    Application.put_env(:ankole, Ankole.Sessions.AIGatewayAPIKeyBroker, config)
 
     on_exit(fn ->
       case old_env do
         {:ok, value} ->
           Application.put_env(
             :ankole,
-            Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
+            Ankole.Sessions.AIGatewayAPIKeyBroker,
             value
           )
 
         :error ->
           Application.delete_env(
             :ankole,
-            Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
+            Ankole.Sessions.AIGatewayAPIKeyBroker
           )
       end
     end)

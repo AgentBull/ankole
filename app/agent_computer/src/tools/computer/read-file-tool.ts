@@ -25,12 +25,6 @@ interface ReadFileDetails {
   truncated: boolean
 }
 
-/**
- * Builds the `read_file` tool: the model's way to read a text file with line numbers
- * and pagination. Preferred over `cat`/`head` through the command tool because the
- * numbered, length-capped output is both easier for the model to cite and bounded so it
- * cannot flood the context window.
- */
 export function createReadFileTool(
   context: ComputerToolContext
 ): WorkerAgentTool<typeof ReadFileParams, ReadFileDetails> {
@@ -51,16 +45,12 @@ export function createReadFileTool(
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReadFileDetails>> {
       const computer = context.computer
-      // Default window is the first 500 lines from line 1; the model widens or moves it
-      // via offset/limit. The reader process streams the file and returns only this
-      // window plus the binary-sniff prefix, so a huge file never materializes here.
+      // The reader process returns only this window plus the binary-sniff prefix, so a huge file never materializes here.
       const start = Math.max(1, params.offset ?? 1)
       const window = await computer.readFileWindow(
         { path: params.path, cwd: params.workdir, offset: start, limit: params.limit ?? 500 },
         { signal }
       )
-      // Missing file is a normal outcome, not an exception: report it as text with
-      // found:false so the model can react instead of the whole tool call erroring out.
       if (!window) {
         return {
           content: [{ type: 'text', text: `File not found: ${params.path}` }],
@@ -69,7 +59,6 @@ export function createReadFileTool(
       }
       const mimeType = imageMimeType(window.sniff)
       if (mimeType) return viewImage(computer, params, mimeType, signal)
-      // Refuse other binaries: raw bytes are useless to the model and pollute its context.
       if (looksBinary(window.sniff)) {
         return {
           content: [
@@ -87,9 +76,6 @@ export function createReadFileTool(
       const window_ = renderNumberedWindow(window.lines, start, window.totalLines)
       const { startLine, totalLines } = window_
       let { endLine, text, truncated } = window_
-      // Even within the line limit the rendered text can be huge (very long lines).
-      // Return the complete lines that fit the budget with an exact continuation
-      // offset — the model loses nothing and saves the retry round trip.
       let clipNote = ''
       if (text.length > MAX_READ_CHARS) {
         const clipped = clipLinesToBudget(text, MAX_READ_CHARS)
@@ -99,8 +85,6 @@ export function createReadFileTool(
         clipNote = ` (${MAX_READ_CHARS}-char budget)`
       }
 
-      // When more lines remain past this page, append a hint so the model knows to
-      // continue with a higher offset instead of assuming it saw the whole file.
       const hint =
         text.length === 0 && totalLines > 0
           ? `\n[showing lines ${startLine}-${endLine} of ${totalLines}; offset is past end of file]`

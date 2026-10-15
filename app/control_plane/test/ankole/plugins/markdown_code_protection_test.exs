@@ -4,8 +4,9 @@ defmodule Ankole.Plugins.MarkdownCodeProtectionTest do
   alias Ankole.Plugins.DingTalkAdapter.Markdown, as: DingTalk
   alias Ankole.Plugins.WeComAdapter.Markdown, as: WeCom
   alias Ankole.Plugins.Microsoft365Adapter.Markdown, as: Teams
-  alias Ankole.Plugins.Microsoft365Adapter.{Conversations, Outbox}
-  alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.Plugins.Microsoft365Adapter.Conversations
+  alias Ankole.Plugins.Microsoft365Adapter.Delivery
+  alias Ankole.Conversations.Delivery.Intent
 
   @converters [{DingTalk, :to_dingtalk}, {WeCom, :to_wecom}, {Teams, :from_markdown}]
 
@@ -90,16 +91,18 @@ defmodule Ankole.Plugins.MarkdownCodeProtectionTest do
     source = "---\n" <> code
     target = %{conversation_id: "19:room@thread.tacv2", channel?: true}
 
-    entry = %OutboxEntry{
+    entry = %Intent{
       operation: :reply,
       fallback_visible_text: source,
-      reply_to_source_entry_id: "root-1",
+      reply_to_provider_message_id: "root-1",
       provider_thread_id: Conversations.provider_thread_id(target.conversation_id, "root-1"),
-      target_source_entry_id: "existing-preview"
+      target_provider_message_id: "existing-preview"
     }
 
     for operation <- [:reply, :edit] do
-      assert {:ok, requests} = Outbox.requests_for_outbox(%{entry | operation: operation}, target)
+      assert {:ok, requests} =
+               Delivery.requests_for_intent(%{entry | operation: operation}, target)
+
       assert Enum.map_join(requests, & &1.activity["text"]) == "———\n" <> code
       assert Enum.all?(requests, &(String.length(&1.activity["text"]) <= 12_000))
       assert Enum.all?(requests, &(&1.conversation_id == "19:room@thread.tacv2;messageid=root-1"))

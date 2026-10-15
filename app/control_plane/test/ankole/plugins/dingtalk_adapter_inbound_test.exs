@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
   use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.DingTalkAdapter.Inbound
-  alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.Conversations.AdapterContext
   alias DingTalkOpenAPI.Event
 
   defp consumer do
@@ -35,9 +35,9 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
     }
 
     assert {:ok, input} = Inbound.normalize_message_receive(event(payload), consumer())
-    assert input.source_entry_id == "m1"
+    assert input.provider_message_id == "m1"
     assert input.source_event_id == "m1"
-    assert input.signal_channel_id == "dingtalk:cidA"
+    assert input.provider_conversation_id == "dingtalk:cidA"
     assert input.channel.kind == :im_dm
     assert input.channel.reply_mode == :channel
     assert input.channel.metadata["dm_user_id"] == "staff1"
@@ -47,7 +47,7 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
     assert input.author["platform_subject"] == "staff1"
     refute Map.has_key?(input.author, "principal_uid")
     assert input.author["metadata"]["union_id"] == "union1"
-    assert input.reply_to_source_entry_id == nil
+    assert input.reply_to_provider_message_id == nil
     assert input.provider_thread_id == nil
   end
 
@@ -161,7 +161,7 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
       "controlId" => "choice",
       "selectedOptionId" => "opt-a",
       "optionValue" => "a",
-      "sourceActorEventId" => "evt-1"
+      "sourceSignalId" => "evt-1"
     }
 
     payload = %{
@@ -175,14 +175,14 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
     card_event = %Event{type: "CALLBACK", topic: "/v1.0/card/instances/callback", data: payload}
 
     assert {:ok, input} = Inbound.normalize_card_action(card_event)
-    assert input.source_entry_id == "ankole:evt-1:0"
-    assert input.signal_channel_id == "dingtalk:cidG"
+    assert input.provider_message_id == "ankole:evt-1:0"
+    assert input.provider_conversation_id == "dingtalk:cidG"
     # Template param passthrough may stringify integers; the adapter restores
     # the protocol's integer interactionVersion at the provider edge.
     assert input.action["value"]["interactionVersion"] == 7
     assert input.source_event_id == "card:ankole:evt-1:0:int-1:7:choice:opt-a"
 
-    # A second press of a different option is a distinct actor event, not a
+    # A second press of a different option is a distinct Signal, not a
     # replay of the first.
     other =
       put_in(
@@ -209,7 +209,7 @@ defmodule Ankole.Plugins.DingTalkAdapterInboundTest do
              Inbound.normalize_message_receive(event(payload), consumer())
   end
 
-  test "signal_channel_id percent-encodes the conversation id" do
-    assert Inbound.signal_channel_id("cid AB/12") == "dingtalk:cid%20AB%2F12"
+  test "provider_conversation_id percent-encodes the conversation id" do
+    assert Inbound.provider_conversation_id("cid AB/12") == "dingtalk:cid%20AB%2F12"
   end
 end

@@ -155,8 +155,6 @@ defmodule FeishuOpenAPI.Auth do
     |> normalize_user_token()
   end
 
-  # --- internals -----------------------------------------------------------
-
   defp normalize({:ok, %{} = body}, token_field_snake) do
     token_key = Atom.to_string(token_field_snake)
 

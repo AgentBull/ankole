@@ -1,6 +1,8 @@
 defmodule Ankole.AIGateway.CompactionCandidate do
   @moduledoc "Selects a typed, pair-safe history cut that fits its retention budget."
-  alias Ankole.AIGateway.{CompactionArtifacts, CompactionRetention, ResponseItems}
+  alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.CompactionRetention
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Schemas.Message
   import Ankole.AIGateway.CompactionPolicy, only: [tail_rows: 0, user_message_budget_tokens: 0]
 

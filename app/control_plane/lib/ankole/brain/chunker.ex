@@ -117,8 +117,6 @@ defmodule Ankole.Brain.Chunker do
   @spec estimate_tokens(String.t()) :: non_neg_integer()
   def estimate_tokens(text), do: NativeKernel.estimate_o200k_base_tokens(text)
 
-  # Recursive split
-
   defp recursive_split(text, level, target) when level >= length(@delimiters),
     do: split_on_whitespace(text, target)
 
@@ -208,8 +206,6 @@ defmodule Ankole.Brain.Chunker do
     |> Enum.map(&Enum.join/1)
   end
 
-  # Greedy merge and overlap
-
   defp greedy_merge([], _target), do: []
 
   defp greedy_merge([first | rest], target) do
@@ -264,8 +260,6 @@ defmodule Ankole.Brain.Chunker do
       end
     end
   end
-
-  # Hard caps
 
   # Sliding-window cap by graphemes AND estimated tokens. The window derives
   # from measured token density when the text exceeds the token budget, and

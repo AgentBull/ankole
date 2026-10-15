@@ -122,7 +122,7 @@ input contains only:
 
 The tool accepts every live Job: `queued`, `running`, or `waiting_on_user`. For
 a queued Job, the message stays behind the original dispatch and enters the
-first execution in actor-event queue order. For a running Job, the message
+first execution in Signal queue order. For a running Job, the message
 steers the active Codex Turn. For a waiting Job, the message answers the request
 and resumes the same Codex thread. The tool rejects a terminal Job.
 
@@ -202,17 +202,17 @@ run that reaches a terminal status stops the live Jobs its task sessions own.
 See [Workflow](Workflow.md).
 
 A Job retains the turn-local webhook and automation management CLIs. These
-long-lived resources use `ReplyRoute` to follow the persisted Job and Workflow
+long-lived resources use `Conversations.Route` to follow the persisted Job and Workflow
 owner chain to the originating Agent Session. Their callbacks do not target
 the Job or task that created them. This recipient resolution does not change
-the Job lifecycle wakeup described above, the calling ActorEvent, or its
+the Job lifecycle wakeup described above, the calling Signal, or its
 `WorkAccess` authorization. A missing or inconsistent owner fails creation
 before a resource is stored.
 
 When the parent is a cron turn, the Job reply route also freezes that cron
 event's delivery targets. A terminal Job notification keeps this snapshot. The
-parent Agent still handles the notification once, and SignalsGateway creates
-one independent outbox intent for each target from its one final reply. Jobs
+parent Agent still handles the notification once. Sessions.Presentation commits
+one native Message or external Delivery intent per target from its final reply. Jobs
 created from ordinary turns keep the existing one-target route.
 
 Success, failure, and `waiting_on_user` write a notification for the originating
@@ -235,7 +235,7 @@ The Elixir control plane:
 - checks the optional workspace template
 - validates the requested custom Model Profile or selects `coding`
 - resolves the logical profile at first execution admission
-- places or adopts Codex Turns through the Job conversation Driver and checks
+- places or adopts Codex Turns through `Sessions.JobDriver` and checks
   the Job attempt fence
 - notifies the originating conversation
 
@@ -261,7 +261,7 @@ trust. PostgreSQL keeps the Job record that survives process failure.
 
 Each Job stores `authorization_kind`, `human_uid`, and `human_access_version`
 from its authenticated source under [Human Offboarding](HumanOffboarding.md).
-The creation and respawn paths read the current source ActorEvent. Worker
+The creation and respawn paths read the current source Signal. Worker
 recovery retains the original authorization. Brain's independent reflection
 caller supplies its Agent as the trusted `created_by` source.
 
@@ -275,14 +275,14 @@ result. Child work keeps the source Human even when it uses Agent credentials.
 `background_agent_jobs.id` is a PostgreSQL identity bigint that starts at
 `1000` and cannot exceed JavaScript's maximum safe integer. Model tools use the
 number directly. RuntimeFabric carries it as a canonical decimal string so no
-JavaScript or Protobuf boundary can round it. The actor session is `job:<id>`.
+JavaScript or Protobuf boundary can round it. The Session is `job:<id>`.
 
 The `background_agent_jobs` table stores these identity fields:
 
 - `id`
 - `agent_uid`
 - `owner_session_id`
-- `source_actor_event_id`
+- `source_signal_id`
 - `source_tool_call_id`
 - `reply_route`
 - `continued_from_job_id`
@@ -831,7 +831,7 @@ model. An unavailable custom profile fails without fallback. One transaction
 inserts both the Job and its dispatch event. The first real execution admission
 captures the resolved runtime projection and model binding in the Job row.
 
-The dispatch event targets this actor session:
+The dispatch event targets this Session:
 
 ```text
 {agent_uid, "job:<job-id>"}
@@ -878,14 +878,14 @@ source Job's task and final report.
 
 ## Send a Message and Wait for Its Turn
 
-Sending a message writes a `command.steer` ActorEvent. Its ActorEvent ID is the
+Sending a message writes a `command.steer` Signal. Its Signal ID is the
 causal message ID. CodexRunner passes this ID to Codex as
 `clientUserMessageId`. The trajectory recorder stores the same ID as
 `client:<event-id>`. These facts let the control plane find the one Codex Turn
 that received the message without a waiter table or a resident waiter process.
 
 A queued message does not replace or mutate `job.task`. Background Agent Job
-sessions execute open ActorEvents in `queue_sequence` order when no Turn is
+sessions execute open Signals in `queue_sequence` order when no Turn is
 live. A deferred dispatch therefore blocks later messages until the dispatch
 can start. After start or adoption, the Driver sends unapplied messages in
 queue order. Due Oban `EnsureDriver` jobs and the conversation Reconciler recover
@@ -896,11 +896,11 @@ A running Codex Turn receives the text through `turn/steer`. A Job in
 `waiting_on_user` starts a new Turn on the same Codex thread with the message as
 its answer.
 
-The send request uses the source tool-call ID as its stable ActorEvent source
+The send request uses the source tool-call ID as its stable Signal source
 key. A retry of the same parent Turn returns the existing command event and does
 not send the message twice.
 
-When `wait_reply=true`, the parent conversation Driver reads the persisted
+When `wait_reply=true`, the parent Session Driver reads the persisted
 result once per second. The foreground observation window defaults to 30 seconds and is
 bounded to 10–150 seconds. This is not a Job execution timeout. On expiry the
 Job remains durable and continues running. A new parent steer wakes the wait
@@ -925,7 +925,7 @@ commit. A completed, stopped, or dead-letter command that never appears in a
 trajectory returns a delivery error.
 
 If a succeeded commit finds open steer events outside the terminal Turn's
-`applied_actor_event_ids`, the same transaction creates one successor with
+`applied_signal_ids`, the same transaction creates one successor with
 those messages in order and completes the events. The terminal status commit
 consumes the applied IDs with the Job state and parent notification. If the successor cannot be stored,
 the transaction fails and leaves the source Job and unapplied steer events
@@ -956,12 +956,12 @@ user's decision, approval, or information.
 ## Hand Off a Lifecycle Notification
 
 Success, failure, and `waiting_on_user` still create an open lifecycle
-ActorEvent for the originating conversation. The waiting tool can consume that
+Signal for the originating conversation. The waiting tool can consume that
 event only after it records its tool result in the AIGateway history.
 
-Agent Computer attaches the lifecycle ActorEvent ID to an internal tool-result
+Agent Computer attaches the lifecycle Signal ID to an internal tool-result
 field. This field is not model-visible. AIGatewayLink validates the authenticated
-subject, current parent ActorEvent, target session, event type, Job, attempt,
+subject, current parent Signal, target session, event type, Job, attempt,
 and open state. It then writes the idempotent tool-result journal and completes
 the lifecycle event in one PostgreSQL transaction. If journal storage fails or
 is quarantined, the transaction rolls back and the lifecycle event stays open.

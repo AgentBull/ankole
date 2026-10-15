@@ -3,7 +3,6 @@ import { dirname, join } from 'node:path'
 import { Drive } from '../../src/drive/drive'
 import { type RPCRequester } from '../../src/lanes/rpc_lane'
 
-/** One file in the fake drive. */
 export type FakeDriveFile = { content: Buffer; sha256: string; contentType: string; source: string; mode: number }
 
 type WireFile = {
@@ -29,7 +28,6 @@ export class FakeDrive {
 
   constructor(readonly agentHome: string) {}
 
-  /** A `Drive` client whose RPCs this fake answers. */
   drive(): Drive {
     return new Drive({ agentHome: this.agentHome, rpc: this.rpc })
   }
@@ -46,12 +44,10 @@ export class FakeDrive {
     })
   }
 
-  /** Returns the text of one drive file, or undefined. */
   text(path: string): string | undefined {
     return this.files.get(path)?.content.toString('utf8')
   }
 
-  /** Lists drive paths under a folder prefix, in path order. */
   paths(prefix = ''): string[] {
     return [...this.files.keys()].filter(path => underPrefix(path, prefix)).sort()
   }

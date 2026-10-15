@@ -8,13 +8,15 @@ defmodule AnkoleWeb.WebhookEndpointController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
-  alias Ankole.SignalsGateway.Webhooks
+  alias Ankole.Signals.Webhooks
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.ConsoleAPI.WebhookEndpointListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.WebhookEndpointResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.CloudEventEndpointCreateRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.CloudEventEndpointCreateResponse
 
   @agent_parameters [agent_uid: [in: :path, type: :string, required: true]]
 
@@ -49,6 +51,63 @@ defmodule AnkoleWeb.WebhookEndpointController do
       default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
+
+  operation(:create,
+    summary: "Create one authenticated CloudEvents endpoint",
+    request_body:
+      {"CloudEvents endpoint", "application/json", CloudEventEndpointCreateRequest,
+       required: true},
+    responses: [
+      created:
+        {"Endpoint and one-time credential", "application/json", CloudEventEndpointCreateResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  operation(:cancel,
+    summary: "Cancel one CloudEvents endpoint",
+    parameters: [webhook_endpoint_id: [in: :path, type: :string, required: true]],
+    responses: [
+      ok: {"Webhook endpoint", "application/json", WebhookEndpointResponse},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def create(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "webhooks", "update"),
+         {:ok, label} <- ConsoleParams.text(conn.body_params, :label),
+         {:ok, expires_at} <- expiry(conn.body_params),
+         {:ok, result} <-
+           Webhooks.create_endpoint(%{
+             label: label,
+             expires_at: expires_at,
+             mode: "standing",
+             event_format: "cloudevents",
+             source_provenance: %{"kind" => "operator_api"}
+           }) do
+      conn
+      |> put_status(201)
+      |> json(%{
+        webhook_endpoint: Webhooks.console_projection(result.webhook_endpoint),
+        token: result.token
+      })
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def cancel(conn, params) do
+    with :ok <- ConsolePolicy.authorize(conn, "webhooks", "delete"),
+         {:ok, id} <- uuid_param(params, :webhook_endpoint_id),
+         {:ok, %{webhook_endpoint: endpoint}} <- Webhooks.cancel_endpoint(nil, nil, id) do
+      json(conn, %{webhook_endpoint: Webhooks.console_projection(endpoint)})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  defp expiry(%{expires_at: %DateTime{} = expires_at}), do: {:ok, expires_at}
+  defp expiry(_params), do: {:error, :invalid_webhook_expiry}
 
   def index(conn, params) do
     with :ok <- ConsolePolicy.authorize(conn, "webhooks", "read") do

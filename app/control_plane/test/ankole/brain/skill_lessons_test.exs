@@ -11,7 +11,7 @@ defmodule Ankole.Brain.SkillLessonsTest do
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Brain.SkillLessons
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.Binding
+  alias Ankole.Signals.Binding
 
   setup do
     AppConfigure.Cache.clear_for_test()
@@ -34,7 +34,7 @@ defmodule Ankole.Brain.SkillLessonsTest do
 
   defp create_job!(agent, attrs \\ %{}) do
     base = %{
-      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+      "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "signal-channel:lesson-test",
       "source_tool_call_id" => "call-" <> Integer.to_string(System.unique_integer([:positive])),

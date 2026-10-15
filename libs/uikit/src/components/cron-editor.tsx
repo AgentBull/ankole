@@ -60,7 +60,6 @@ const DEFAULT_FIELDS: CronEditorFields = { interval: 5, minute: 0, hour: 9, dayO
 
 const CRON_MODES: CronEditorMode[] = ['every_minutes', 'hourly', 'daily', 'weekly', 'monthly', 'custom']
 
-/** Detects which preset a cron expression matches, or `custom`. */
 export function cronEditorMode(expression: string): CronEditorMode {
   const parts = cronParts(expression)
   if (!parts) return 'custom'
@@ -77,7 +76,6 @@ export function cronEditorMode(expression: string): CronEditorMode {
   return 'custom'
 }
 
-/** Reads the preset fields out of an expression, falling back to defaults per field. */
 export function cronEditorFields(expression: string): CronEditorFields {
   const fields = { ...DEFAULT_FIELDS }
   const parts = cronParts(expression)
@@ -93,7 +91,6 @@ export function cronEditorFields(expression: string): CronEditorFields {
   return fields
 }
 
-/** Builds the cron expression for one preset mode. `custom` returns the raw fallback. */
 export function cronExpressionFor(mode: CronEditorMode, fields: CronEditorFields, rawFallback = ''): string {
   switch (mode) {
     case 'every_minutes':

@@ -197,8 +197,6 @@ defmodule FakeFeishu.AdminRouter do
     send_json(conn, 404, %{"error" => "no such admin endpoint"})
   end
 
-  # -- SSE loop ---------------------------------------------------------------
-
   defp stream_events(conn) do
     receive do
       {:hub_backlog, events} ->
@@ -230,8 +228,6 @@ defmodule FakeFeishu.AdminRouter do
       end
     end)
   end
-
-  # -- helpers ------------------------------------------------------------------
 
   defp state(conn), do: conn.private.fake_feishu_state
 

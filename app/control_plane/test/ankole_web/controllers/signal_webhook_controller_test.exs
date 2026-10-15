@@ -2,12 +2,13 @@ defmodule AnkoleWeb.SignalWebhookControllerTest do
   use AnkoleWeb.ConnCase, async: false
 
   import Ankole.PrincipalsFixtures
+  import Ecto.Query
 
   alias Ankole.Plugins.LineAdapter.Signature
   alias Ankole.Principals.MappingRequests
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.Entry
+
+  alias Ankole.Conversations.{ExternalMessageRef, Message}
 
   @line_channel_id "1650000777"
   @line_secret "controller-line-secret"
@@ -23,7 +24,7 @@ defmodule AnkoleWeb.SignalWebhookControllerTest do
              MappingRequests.bind_subject(human.uid, %{provider: "line", external_id: @line_user})
 
     assert {:ok, _binding} =
-             SignalsGateway.put_binding(agent.uid, "line", "line-http", %{
+             Ankole.Signals.Bindings.put_binding(agent.uid, "line", "line-http", %{
                "config" => %{
                  "channelId" => @line_channel_id,
                  "channelSecret" => @line_secret,
@@ -57,9 +58,15 @@ defmodule AnkoleWeb.SignalWebhookControllerTest do
 
     assert json_response(signed, 200) == %{}
 
-    assert %Entry{text: "hello"} =
+    assert %Message{text: "hello"} =
              Repo.with_tenant(agent.tenant_id, fn ->
-               Repo.get_by(Entry, source_entry_id: "http-m-1")
+               Repo.one(
+                 from message in Message,
+                   join: ref in ExternalMessageRef,
+                   on: ref.message_id == message.id and ref.tenant_id == message.tenant_id,
+                   where: ref.provider_message_id == "http-m-1",
+                   select: message
+               )
              end)
 
     tampered =
@@ -69,14 +76,14 @@ defmodule AnkoleWeb.SignalWebhookControllerTest do
       |> post(path, String.replace(body, "hello", "hacked"))
 
     assert json_response(tampered, 401) == %{"error" => "unauthorized"}
-    assert Repo.with_tenant(agent.tenant_id, fn -> Repo.aggregate(Entry, :count) end) == 1
+    assert Repo.with_tenant(agent.tenant_id, fn -> Repo.aggregate(Message, :count) end) == 1
   end
 
   test "a GET reaches the handler with the subscription query", %{conn: conn} do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _binding} =
-             SignalsGateway.put_binding(agent.uid, "whatsapp", "whatsapp-http", %{
+             Ankole.Signals.Bindings.put_binding(agent.uid, "whatsapp", "whatsapp-http", %{
                "config" => %{
                  "appId" => @whatsapp_app_id,
                  "appSecret" => "controller-app-secret",

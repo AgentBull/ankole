@@ -106,7 +106,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     stream? = Keyword.get(opts, :stream?, false)
 
     with {:ok, provider_request} <- provider_request(subject_uid, runtime, request),
-         {:ok, provider_request, tool_plan} <- plan_tools(subject_uid, runtime, provider_request),
+         {:ok, provider_request, tool_plan} <-
+           plan_tools(subject_uid, runtime, provider_request, opts),
          response_stream_driver? = response_stream_driver?(runtime, tool_plan),
          provider_request =
            StreamLoop.apply_tool_budget(
@@ -180,8 +181,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   # The hosted Brain tool is an AIGateway effect on every provider, so its
   # declaration leaves the tool array before the provider-owned identifiers
   # are validated and before the native-versus-local planning decision.
-  defp plan_tools(subject_uid, runtime, provider_request) do
-    with {:ok, brain, provider_request} <- split_brain(subject_uid, provider_request),
+  defp plan_tools(subject_uid, runtime, provider_request, opts) do
+    with {:ok, brain, provider_request} <- split_brain(subject_uid, provider_request, opts),
          :ok <- validate_tool_identifiers(provider_request) do
       case ToolSearch.plan(provider_request,
              brain: brain,
@@ -193,8 +194,8 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
     end
   end
 
-  defp split_brain(subject_uid, provider_request) do
-    case Brain.split(subject_uid, provider_request) do
+  defp split_brain(subject_uid, provider_request, opts) do
+    case Brain.split(subject_uid, provider_request, opts) do
       {:ok, brain, request} -> {:ok, brain, request}
       {:error, reason} -> {:error, invalid_tool_plan(reason)}
     end

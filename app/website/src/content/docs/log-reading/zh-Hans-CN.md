@@ -48,7 +48,7 @@ bunx wrangler tail ankole-agent-workers
 ```json
 {
   "severity": "warning",
-  "event": "signals_gateway.webhook.dispatch_failed",
+  "event": "signals.webhook.dispatch_failed",
   "message": "provider webhook dispatch failed",
   "handler_id": "lark",
   "reason": "..."

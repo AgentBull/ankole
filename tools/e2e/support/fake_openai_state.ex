@@ -10,7 +10,7 @@ defmodule Ankole.E2E.FakeOpenAIState do
   """
   @spec start_link(pid()) :: {:ok, pid()}
   def start_link(owner) do
-    initial = fn -> %{owner: owner, requests: [], counters: %{}} end
+    initial = fn -> %{owner: owner, requests: [], counters: %{}, waiting: %{}} end
 
     case Agent.start_link(initial, name: __MODULE__) do
       {:ok, pid} ->
@@ -47,4 +47,35 @@ defmodule Ankole.E2E.FakeOpenAIState do
   """
   @spec requests() :: [map()]
   def requests, do: Agent.get(__MODULE__, fn state -> Enum.reverse(state.requests) end)
+
+  def await_release(kind) do
+    receiver = self()
+    ref = make_ref()
+    Agent.update(__MODULE__, &put_in(&1.waiting[kind], {receiver, ref}))
+
+    receive do
+      {:release_fake_response, ^ref} -> :ok
+    after
+      60_000 -> raise "Fake upstream response was not released: #{kind}"
+    end
+  end
+
+  def waiting?(kind), do: Agent.get(__MODULE__, &Map.has_key?(&1.waiting, kind))
+
+  def release(kind) do
+    waiting =
+      Agent.get_and_update(__MODULE__, fn state ->
+        {waiting, remaining} = Map.pop(state.waiting, kind)
+        {waiting, %{state | waiting: remaining}}
+      end)
+
+    case waiting do
+      {receiver, ref} ->
+        send(receiver, {:release_fake_response, ref})
+        :ok
+
+      nil ->
+        {:error, :not_waiting}
+    end
+  end
 end

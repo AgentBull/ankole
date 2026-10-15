@@ -12,11 +12,10 @@ defmodule Ankole.AutomationJobsTest do
   alias Ankole.Repo
   alias Ankole.Schedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ReconcileJob
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Settings
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.Signals.Signal
+  alias Ankole.AgentWorkers.ReconcileJob
+  alias Ankole.AgentWorkers.Settings
+  alias Ankole.AgentWorkers.AgentWorker
 
   @now ~U[2026-07-30 09:00:00.000000Z]
 
@@ -81,8 +80,8 @@ defmodule Ankole.AutomationJobsTest do
              )
 
     assert emitted.type == "automation_job.emitted"
-    assert get_in(emitted.payload, ["data", "automation_job_run_id"]) == run.id
-    assert get_in(emitted.payload, ["data", "payload"]) == %{"decision_needed" => true}
+    assert get_in(emitted.data, ["automation_job_run_id"]) == run.id
+    assert get_in(emitted.data, ["payload"]) == %{"decision_needed" => true}
 
     assert {:ok, failed} =
              AutomationJobs.infrastructure_failure(
@@ -97,8 +96,8 @@ defmodule Ankole.AutomationJobsTest do
     assert failed.attempts == 2
     assert failed.error =~ "worker_replay_exhausted"
 
-    assert %ActorEvent{type: "automation_job.run_failed"} =
-             Repo.get_by!(ActorEvent,
+    assert %Signal{type: "automation_job.run_failed"} =
+             Repo.get_by!(Signal,
                agent_uid: agent.uid,
                session_id: source.session_id,
                type: "automation_job.run_failed"
@@ -145,8 +144,8 @@ defmodule Ankole.AutomationJobsTest do
     assert :ok = execute(run, attempt: 5)
     assert %Run{status: "failed", attempts: 2} = Repo.get!(Run, run.id)
 
-    assert %ActorEvent{type: "automation_job.run_failed"} =
-             Repo.get_by!(ActorEvent,
+    assert %Signal{type: "automation_job.run_failed"} =
+             Repo.get_by!(Signal,
                agent_uid: agent.uid,
                session_id: source.session_id,
                type: "automation_job.run_failed"
@@ -198,7 +197,7 @@ defmodule Ankole.AutomationJobsTest do
     assert failed.stderr == "schema mismatch\nfull stack"
     assert failed.attempts == 1
     assert failed.attempt_id == nil
-    assert Repo.aggregate(ActorEvent, :count) == 1
+    assert Repo.aggregate(Signal, :count) == 1
   end
 
   test "cancelling a job cancels queued runs but lets a running attempt finish and emit" do
@@ -222,7 +221,7 @@ defmodule Ankole.AutomationJobsTest do
     assert Repo.get!(Run, queued.id).status == "cancelled"
     assert Repo.get!(Run, running.id).status == "running"
 
-    assert {:ok, %ActorEvent{type: "automation_job.emitted"}} =
+    assert {:ok, %Signal{type: "automation_job.emitted"}} =
              AutomationJobs.emit_event(
                agent.uid,
                running.id,
@@ -286,17 +285,17 @@ defmodule Ankole.AutomationJobsTest do
     refute Repo.get(ScheduledEvent, scheduled.id)
   end
 
-  test "a bound checkback atomically creates a run with the direct ActorEvent envelope" do
+  test "a bound checkback atomically creates a run with the direct Signal envelope" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)
     job = job!(source)
     due_at = DateTime.add(@now, 5, :minute)
 
     attrs = %{
-      "source_actor_event_id" => source.id,
+      "source_signal_id" => source.id,
       "agent_uid" => agent.uid,
       "session_id" => source.session_id,
-      "binding_name" => source.binding_name,
+      "binding_name" => source.reply_binding_name,
       "tool_call_id" => "automation-checkback-call",
       "idempotency_key" => "automation-checkback-key",
       "schedule" => %{"at" => DateTime.to_iso8601(due_at), "timezone" => "Etc/UTC"},
@@ -304,9 +303,9 @@ defmodule Ankole.AutomationJobsTest do
       "check" => "Read the source and compare the value.",
       "context_summary" => "Wake only when judgment is needed.",
       "reply_route" => %{
-        "signal_channel_id" => source.signal_channel_id,
+        "conversation_id" => source.conversation_id,
         "provider_thread_id" => source.provider_thread_id,
-        "source_entry_id" => source.source_entry_id
+        "provider_message_id" => source.provider_message_id
       },
       "source_provenance" => %{"kind" => "test"},
       "automation_job_id" => job.id
@@ -332,10 +331,10 @@ defmodule Ankole.AutomationJobsTest do
     fired = Repo.get!(ScheduledEvent, scheduled.id)
     assert fired.status == "fired"
     assert fired.automation_job_run_id == run.id
-    assert fired.actor_event_id == nil
+    assert fired.signal_id == nil
 
     assert Repo.aggregate(
-             from(event in ActorEvent, where: event.type == "check_back_later.wakeup"),
+             from(event in Signal, where: event.type == "check_back_later.wakeup"),
              :count
            ) ==
              0
@@ -378,10 +377,10 @@ defmodule Ankole.AutomationJobsTest do
 
     assert direct.automation_job_id == nil
 
-    assert {:ok, %{status: :fired, actor_event: actor_event}} =
+    assert {:ok, %{status: :fired, signal: signal}} =
              Schedule.fire_due_event(direct.id, now: due_at)
 
-    assert actor_event.type == "check_back_later.wakeup"
+    assert signal.type == "check_back_later.wakeup"
   end
 
   test "cron fires and manual runs use the current automation job binding" do
@@ -395,7 +394,7 @@ defmodule Ankole.AutomationJobsTest do
                %{
                  "agent_uid" => agent.uid,
                  "owner_session_id" => source.session_id,
-                 "binding_name" => source.binding_name,
+                 "binding_name" => source.reply_binding_name,
                  "name" => "automation-cron-#{System.unique_integer([:positive])}",
                  "schedule" => %{
                    "kind" => "every",
@@ -406,8 +405,8 @@ defmodule Ankole.AutomationJobsTest do
                  "delivery" => %{
                    "targets" => [
                      %{
-                       "binding_name" => source.binding_name,
-                       "signal_channel_id" => source.signal_channel_id,
+                       "binding_name" => source.reply_binding_name,
+                       "conversation_id" => source.conversation_id,
                        "provider_thread_id" => source.provider_thread_id
                      }
                    ]
@@ -446,12 +445,12 @@ defmodule Ankole.AutomationJobsTest do
 
     assert Schedule.list_cron_runs(schedule.id, 10) == [Repo.reload!(manual)]
 
-    assert {:ok, %{actor_event: actor_event, scheduled_event: automatic}} =
+    assert {:ok, %{signal: signal, scheduled_event: automatic}} =
              Schedule.fire_cron(schedule.id, now: first_slot)
 
     assert automatic.automation_job_id == nil
 
-    assert actor_event.type == "cron.fire"
+    assert signal.type == "cron.fire"
   end
 
   test "a cron slot history rejects a second automation run" do
@@ -465,7 +464,7 @@ defmodule Ankole.AutomationJobsTest do
                %{
                  "agent_uid" => agent.uid,
                  "owner_session_id" => source.session_id,
-                 "binding_name" => source.binding_name,
+                 "binding_name" => source.reply_binding_name,
                  "name" => "automation-once",
                  "schedule" => %{
                    "kind" => "every",
@@ -476,8 +475,8 @@ defmodule Ankole.AutomationJobsTest do
                  "delivery" => %{
                    "targets" => [
                      %{
-                       "binding_name" => source.binding_name,
-                       "signal_channel_id" => source.signal_channel_id
+                       "binding_name" => source.reply_binding_name,
+                       "conversation_id" => source.conversation_id
                      }
                    ]
                  },
@@ -514,14 +513,14 @@ defmodule Ankole.AutomationJobsTest do
     %{
       agent_uid: source.agent_uid,
       owner_session_id: source.session_id,
-      source_actor_event_id: source.id,
-      source_entry_id: source.source_entry_id,
+      source_signal_id: source.id,
+      provider_message_id: source.provider_message_id,
       source_provenance: %{"kind" => "test"},
       reply_route: %{
-        "binding_name" => source.binding_name,
-        "signal_channel_id" => source.signal_channel_id,
+        "binding_name" => source.reply_binding_name,
+        "conversation_id" => source.conversation_id,
         "provider_thread_id" => source.provider_thread_id,
-        "source_entry_id" => source.source_entry_id
+        "provider_message_id" => source.provider_message_id
       },
       drive_prefix: Keyword.get(opts, :drive_prefix, "automation/test"),
       label: "Deterministic test consumer",
@@ -550,10 +549,10 @@ defmodule Ankole.AutomationJobsTest do
 
   defp checkback_attrs(source, due_at, key, automation_job_id) do
     %{
-      "source_actor_event_id" => source.id,
+      "source_signal_id" => source.id,
       "agent_uid" => source.agent_uid,
       "session_id" => source.session_id,
-      "binding_name" => source.binding_name,
+      "binding_name" => source.reply_binding_name,
       "tool_call_id" => "#{key}-call",
       "idempotency_key" => key,
       "schedule" => %{"at" => DateTime.to_iso8601(due_at), "timezone" => "Etc/UTC"},
@@ -561,9 +560,9 @@ defmodule Ankole.AutomationJobsTest do
       "check" => "Read the source and compare the value.",
       "context_summary" => "Wake only when judgment is needed.",
       "reply_route" => %{
-        "signal_channel_id" => source.signal_channel_id,
+        "conversation_id" => source.conversation_id,
         "provider_thread_id" => source.provider_thread_id,
-        "source_entry_id" => source.source_entry_id
+        "provider_message_id" => source.provider_message_id
       },
       "source_provenance" => %{"kind" => "test"},
       "automation_job_id" => automation_job_id
@@ -571,24 +570,11 @@ defmodule Ankole.AutomationJobsTest do
   end
 
   defp source_event!(agent_uid) do
-    unique = System.unique_integer([:positive])
-
-    assert {:ok, source} =
-             SignalsGateway.append_actor_event(%{
-               agent_uid: agent_uid,
-               binding_name: "lark",
-               session_id: "automation-session-#{unique}",
-               source_event_id: "automation-source-#{unique}",
-               signal_channel_id: "lark:chat:#{unique}",
-               provider_thread_id: "thread-#{unique}",
-               source_entry_id: "message-#{unique}",
-               type: "im.message.addressed",
-               available_at: @now,
-               sender_key: agent_uid,
-               payload: trigger_event("source-#{unique}")
-             })
-
-    source
+    Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid,
+      binding_name: "lark",
+      source: "test://automation-source",
+      now: @now
+    )
   end
 
   defp create_cron_schedule(attrs, opts) do

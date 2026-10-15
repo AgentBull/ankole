@@ -1968,8 +1968,8 @@ export const channelTabs = [
         {
           title: 'Know how conversations map to sessions',
           bullets: [
-            'A private chat, a group, and a supergroup each form one Agent session.',
-            'Each forum topic in a supergroup is a separate session.',
+            'A private chat, a group, and a supergroup each form one Conversation.',
+            'Each forum topic in a supergroup is a separate Conversation.',
             'Channel posts, messages from other bots, and anonymous or guest senders are ignored.'
           ]
         },
@@ -2062,8 +2062,8 @@ export const channelTabs = [
         {
           title: 'Know how conversations map to sessions',
           bullets: [
-            'A direct message and each server channel form one Agent session.',
-            'Each thread is a separate session.',
+            'A direct message and each server channel form one Conversation.',
+            'Each thread is a separate Conversation.',
             'Messages from other bots, webhook posts, system notices, and messages with no text or attachment are ignored.',
             'Agent text never notifies a user, a role, or everyone. Ankole disables mention parsing on every message it sends.'
           ]
@@ -2171,7 +2171,7 @@ export const channelTabs = [
         {
           title: 'Know how the Agent behaves in groups',
           bullets: [
-            'A one-to-one chat, a group, and a multi-person chat each form one Agent session. LINE has no threads.',
+            'A one-to-one chat, a group, and a multi-person chat each form one Conversation. LINE has no threads.',
             'In a group, an @-mention of the bot or a quote of one of its messages addresses the Agent. A group reply quotes the asker.',
             'A message that a user unsends is removed from the session context.'
           ]
@@ -2455,6 +2455,11 @@ This page defines the terms used in Ankole user documentation and interfaces. Th
 | **Identity Provider (IdP)** | An external identity source that provides Console SSO and synchronizes employees, contacts, and organization structure | IdP |
 | **Chat platform** | An external conversation platform such as Slack, Teams, Lark/Feishu, DingTalk, WeCom, Telegram, Discord, LINE, WhatsApp, or a mailbox | Platform |
 | **Channel Provider** | One chat application or bot configuration that receives messages and sends Agent replies | Channel Provider |
+| **Conversation** | A shared space for people and Agents; native messages use Ankole as their authority, external messages use their host | Conversation |
+| **Message** | A committed record visible to conversation participants | Message |
+| **Signal** | A durable stimulus from a message, time, external event, or task completion | Signal |
+| **Session** | An execution context with a signal queue and recoverable work; it does not cross conversations | Session |
+| **Delivery** | A durable intent, attempt, and result for a message sent to an external conversation | Delivery |
 | **Signal Routing Rule (Signal Binding)** | The rule that sends messages or events from a signal source to an Agent | Routing rule |
 | **LLM Provider** | A configuration that stores a model service endpoint, credentials, and available models | LLM Provider |
 | **Background Agent Jobs profile (internal key: `coding`)** | Selects the AIGateway provider and model for Background Agent Jobs; normal conversations do not select it by code volume | Background Agent Jobs |
@@ -2578,7 +2583,7 @@ Save the rule. The list must show it as enabled. If the form rejects a credentia
 
 <DocsKnowledgeNote
   label="💡 Did you know?"
-  text="Today, one routing rule sends one signal source to one Agent. Chat apps are the most common source. Future rules can select an Agent by channel, conversation, or another condition. External systems such as Salesforce will also be able to send events that Agents can act on. This module is called Signal Routing because it handles every signal that can start Agent work, not only chat channels."
+  text="A Signal Routing Rule sends messages or events from a source to its target Agent. A chat adapter records messages in a Conversation and then creates Signals. A CloudEvents endpoint can also receive events from an external system. Agents can share Conversation history. Each Agent uses its own Session to process that history."
 />
 
 <QuickstartDisclosure

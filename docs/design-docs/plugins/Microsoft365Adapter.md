@@ -4,8 +4,18 @@ The Microsoft 365 Adapter receives Teams messages, sends Agent replies, and
 imports people and groups from Entra ID. Chat and identity use separate
 settings. The control plane keeps all Microsoft credentials.
 
-Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
+Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+[Sessions](../Sessions.md), [Principal](../Principal.md), and
 [Plugins](../Plugins.md) for the common message, identity, and Plugin rules.
+
+## Provider and Public Identity
+
+The adapter reports an opaque `provider_conversation_id` and a
+`provider_message_id`. Conversations resolves these to a shared public
+Conversation UUID and Message UUID. All Agent observers of the same provider
+conversation in one tenant read those same public facts. Each participating
+Agent has its own `conversation:<public UUID>` Session; a Binding is its
+observation and delivery route, not the owner of the platform room.
 
 ## Current IDs and Features
 
@@ -14,7 +24,7 @@ Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
 | Plugin ID | `microsoft365-adapter` |
 | API version | `1` |
 | Signal adapter ID | `teams` |
-| Signal configuration | `signals_gateway.teams.bindings.<id>` |
+| Signal configuration | `signals.teams.bindings.<id>` |
 | Identity adapter ID | `entra-id` |
 | Identity configuration | `principals.identity_providers.entra-id.<id>` |
 | Subscription state | `principals.entra_id.graph_subscriptions.<id>` |
@@ -49,8 +59,8 @@ https://<host>/webhooks/v1/entra-id/<provider_id>/directory
 ```
 
 The Teams handler checks the Bot Framework token before it loads a binding. The
-token audience must match `appID`. The handler completes durable SignalsGateway
-ingress before it returns status 200.
+token audience must match `appID`. The handler completes durable Conversation
+observation before it returns status 200.
 
 The directory handler checks the stored `clientState`. For an update, it fetches
 the current Graph object before it changes Principal or AuthZ records. For a
@@ -81,18 +91,18 @@ submissions, and conversation events. It ignores message edits,
 undeletes, and unsupported invoke activities.
 
 Personal chats give explicit input. A mention entity for the current bot makes
-a group or channel message explicit. SignalsGateway applies the configured
+a group or channel message explicit. Conversations applies the configured
 group policy to other messages.
 
-The stable signal channel ID uses the base Teams conversation ID. Channel
+The opaque `provider_conversation_id` uses the base Teams conversation ID. Channel
 threads use the thread root from the conversation ID. The activity ID is the
-source entry ID.
+provider message ID.
 
 The default `addressed_only` mode needs only normal bot delivery. The other
 group modes require the Teams application to receive unaddressed messages.
 The application manifest must grant the required RSC read permissions.
 
-## Learn Channels and Send Replies
+## Observe Conversations and Deliver Replies
 
 Teams has no API that lists every bot conversation. The adapter learns a
 conversation when it receives a message. It then imports known channels and
@@ -101,7 +111,7 @@ members through connector APIs.
 The adapter stores the regional service URL with the channel record. It cannot
 guess this URL before it sees the conversation.
 
-The adapter sends only operations already stored in the outbox. It can post,
+The adapter sends only operations already stored as Delivery intents. It can post,
 reply, edit, delete, send a divider, or render an Adaptive Card. It cannot send
 files or reactions.
 
@@ -111,9 +121,9 @@ The adapter converts the full text once before the existing 12,000-grapheme
 paging step. Live preview timing and message IDs keep their existing rules.
 
 Bot Framework has no read-back API for this path. The adapter does not claim
-reconciliation. SignalsGateway can resend an uncertain visible final reply
-inside its remaining attempt budget and marks that reply as a possible
-duplicate; other interrupted operations remain `unknown_after_send`.
+reconciliation. Delivery stops an uncertain send as `unknown`. An operator can
+requeue a visible durable reply for one more call with a possible-duplicate
+notice. Other uncertain operations remain stopped.
 
 ## Import People and Groups
 
@@ -130,8 +140,9 @@ them. Periodic full sync repairs changes missed by notifications.
 
 ## Restart and Recovery
 
-AppConfigure stores encrypted settings and subscription state. SignalsGateway
-records messages, Agent work, and replies. Principals and AuthZ store people,
+AppConfigure stores encrypted settings and subscription state. Conversations
+records public Messages and Delivery intents. Signals stores authorized
+stimuli; Sessions owns Agent execution and recovery. Principals and AuthZ store people,
 groups, memberships, and grants.
 
 The adapter authenticates to Microsoft, converts events, and renews
@@ -144,7 +155,7 @@ ensures or removes its Graph subscriptions.
 ## Tests
 
 The repository tests provider HTTP behavior, token verification, webhook
-dispatch, normalization, outbox mapping, directory sync, and subscriptions.
+dispatch, normalization, intent mapping, directory sync, and subscriptions.
 A real Microsoft acceptance test needs operator credentials and a public HTTPS
 deployment instance.
 

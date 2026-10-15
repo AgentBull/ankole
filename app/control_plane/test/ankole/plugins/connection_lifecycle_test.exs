@@ -1,7 +1,7 @@
 defmodule Ankole.Plugins.ConnectionLifecycleTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures, only: [start_connection_owner: 3]
+  import Ankole.SignalsFixtures, only: [start_connection_owner: 3]
 
   @registry Ankole.Plugins.ConnectionLifecycleTest.Registry
   @supervisor Ankole.Plugins.ConnectionLifecycleTest.Supervisor
@@ -110,7 +110,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, binding} =
-               Ankole.SignalsGateway.upsert_binding(%{
+               Ankole.Signals.Bindings.upsert_binding(%{
                  agent_uid: agent.uid,
                  name: "retry",
                  adapter: "connection_lifecycle_test",
@@ -160,7 +160,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, binding} =
-             Ankole.SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: agent.uid,
                name: "retry",
                adapter: "connection_lifecycle_test",
@@ -197,7 +197,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _} =
-             Ankole.SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: agent.uid,
                name: "retry",
                adapter: "connection_lifecycle_test",
@@ -237,7 +237,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _} =
-             Ankole.SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: agent.uid,
                name: "fatal",
                adapter: "connection_lifecycle_test",
@@ -250,7 +250,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       %{principal: other_agent} = agent_fixture()
 
       assert {:ok, _} =
-               Ankole.SignalsGateway.upsert_binding(%{
+               Ankole.Signals.Bindings.upsert_binding(%{
                  agent_uid: other_agent.uid,
                  name: "healthy",
                  adapter: "connection_lifecycle_test",
@@ -300,14 +300,14 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       filters: %{"cel" => "true"}
     }
 
-    assert {:ok, _} = Ankole.SignalsGateway.upsert_binding(attrs)
+    assert {:ok, _} = Ankole.Signals.Bindings.upsert_binding(attrs)
     assert %{started: 1, errors: []} = Connections.reconcile_once()
     assert [{owner, _}] = Registry.lookup(@registry, "app")
     assert %{started: 1, errors: []} = Connections.reconcile_once()
     assert [{^owner, _}] = Registry.lookup(@registry, "app")
 
     assert {:ok, _} =
-             Ankole.SignalsGateway.upsert_binding(%{attrs | filters: %{"cel" => "false"}})
+             Ankole.Signals.Bindings.upsert_binding(%{attrs | filters: %{"cel" => "false"}})
 
     assert %{started: 1, errors: []} = Connections.reconcile_once()
     assert [{replacement, _}] = Registry.lookup(@registry, "app")
@@ -349,7 +349,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
     %{principal: first} = agent_fixture()
 
     {:ok, _} =
-      Ankole.SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: first.uid,
         name: "old",
         adapter: "connection_lifecycle_test",
@@ -363,7 +363,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
         %{principal: second} = agent_fixture()
 
         {:ok, _} =
-          Ankole.SignalsGateway.upsert_binding(%{
+          Ankole.Signals.Bindings.upsert_binding(%{
             agent_uid: second.uid,
             name: "old",
             adapter: "connection_lifecycle_test",
@@ -374,10 +374,10 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       end)
 
     assert %{started: 2, errors: []} = Connections.reconcile_once()
-    {:ok, _} = Ankole.SignalsGateway.Bindings.disable_binding(first.uid, "old")
+    {:ok, _} = Ankole.Signals.Bindings.disable_binding(first.uid, "old")
 
     {:ok, _} =
-      Ankole.SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: first.uid,
         name: "bad",
         adapter: "connection_lifecycle_test",
@@ -385,7 +385,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       })
 
     Repo.with_tenant(other.id, fn ->
-      Ankole.SignalsGateway.Bindings.disable_binding(second.uid, "old")
+      Ankole.Signals.Bindings.disable_binding(second.uid, "old")
     end)
 
     assert %{stopped: 1, errors: [%{tenant_id: id, reason: :bad_config}]} =
@@ -399,7 +399,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
     %{principal: first} = agent_fixture()
 
     assert {:ok, _} =
-             Ankole.SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: first.uid,
                name: "main",
                adapter: "connection_lifecycle_test",
@@ -414,7 +414,7 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       %{principal: second} = agent_fixture()
 
       assert {:ok, _} =
-               Ankole.SignalsGateway.upsert_binding(%{
+               Ankole.Signals.Bindings.upsert_binding(%{
                  agent_uid: second.uid,
                  name: "main",
                  adapter: "connection_lifecycle_test",

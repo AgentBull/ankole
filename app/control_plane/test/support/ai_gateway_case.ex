@@ -9,8 +9,8 @@ defmodule Ankole.AIGatewayCase do
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.Signals.Signal
+  alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.Repo
 
   using do
@@ -23,7 +23,7 @@ defmodule Ankole.AIGatewayCase do
       alias Ankole.AIGateway, warn: false
       alias Ankole.AIGateway.ProviderConfigs, warn: false
       alias Ankole.AIAgent.ModelProfiles, warn: false
-      alias Ankole.SignalsGateway.ActorRuntime.RPCLane, warn: false
+      alias Ankole.Sessions.RPCLane, warn: false
       alias Ankole.AIGateway.Tokens, warn: false
     end
   end
@@ -150,7 +150,7 @@ defmodule Ankole.AIGatewayCase do
   def start_response_run(%{round_state: run} = attrs) do
     Ankole.Repo.transact(fn repo ->
       with {:ok, message} <- start_response_run(Map.delete(attrs, :round_state)),
-           :ok <- Ankole.Conversations.RoundState.put_in_tx(repo, run, message) do
+           :ok <- Ankole.Sessions.RoundState.put_in_tx(repo, run, message) do
         {:ok, message}
       end
     end)
@@ -388,7 +388,7 @@ defmodule Ankole.AIGatewayCase do
   """
   def put_ready_worker!(agent_uid, route) do
     {:ok, credential} =
-      Ankole.SignalsGateway.ActorRuntime.AgentWorkers.issue_credential(agent_uid, "testgen001")
+      Ankole.AgentWorkers.issue_credential(agent_uid, "testgen001")
 
     {1, _rows} =
       Repo.update_all(
@@ -428,21 +428,23 @@ defmodule Ankole.AIGatewayCase do
         updated_at: now
       })
 
-    actor_event =
+    signal =
       Repo.insert!(
-        ActorEvent.changeset(
-          %ActorEvent{},
+        Signal.changeset(
+          %Signal{},
           Map.merge(
             %{
               agent_uid: agent_uid,
-              binding_name: "test",
+              source: "control-plane://test",
+              subject: session_id,
+              occurred_at: now,
               session_id: session_id,
               source_event_id: "test-turn-#{System.unique_integer([:positive])}",
               type: "test.turn",
               available_at: now,
               queue_sequence: 1,
               input_state: "open",
-              payload: %{}
+              data: %{}
             },
             Ankole.Principals.WorkAccess.fields(source)
           )
@@ -456,7 +458,7 @@ defmodule Ankole.AIGatewayCase do
       status: "generating",
       content: [],
       metadata: %{
-        "request_metadata" => %{"actor_event_id" => actor_event.id},
+        "request_metadata" => %{"signal_id" => signal.id},
         "profile" => "primary",
         "provider" => "test-provider",
         "model" => "z-ai/glm-5.2",
@@ -475,8 +477,8 @@ defmodule Ankole.AIGatewayCase do
 
     {route,
      %Ankole.RuntimeFabric.V1.RunRef{
-       actor: %Ankole.RuntimeFabric.V1.ActorKey{session_id: session_id},
-       actor_event_id: actor_event.id
+       session: %Ankole.RuntimeFabric.V1.SessionKey{session_id: session_id},
+       signal_id: signal.id
      }}
   end
 end

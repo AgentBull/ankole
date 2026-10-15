@@ -6,7 +6,10 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
   their bytes, and normalizes the threading and address headers.
   """
 
-  alias Ankole.Plugins.EmailAdapter.{Address, Charset, HtmlText, Mime}
+  alias Ankole.Plugins.EmailAdapter.Address
+  alias Ankole.Plugins.EmailAdapter.Charset
+  alias Ankole.Plugins.EmailAdapter.HtmlText
+  alias Ankole.Plugins.EmailAdapter.Mime
   alias Ankole.Plugins.EmailAdapter.Mime.Part
 
   @message_id_token ~r/<([^<>\s]+)>/

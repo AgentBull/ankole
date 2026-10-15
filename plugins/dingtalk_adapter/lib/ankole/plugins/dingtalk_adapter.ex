@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.DingTalkAdapter do
   @moduledoc """
   First-party DingTalk (钉钉) plugin declaration.
 
-  DingTalk is both a SignalsGateway chat adapter and a Principals login/identity
+  DingTalk is both a Signals chat adapter and a Principals login/identity
   provider over one Stream long connection. The capability face is trimmed to
   what the DingTalk robot API actually offers: group messages are delivered only
   when the bot is @-mentioned or DMed (`addressed_only`), there are no
@@ -17,7 +17,7 @@ defmodule Ankole.Plugins.DingTalkAdapter do
   alias Ankole.Plugins.DingTalkAdapter.ConnectionReconciler
   alias Ankole.Plugins.DingTalkAdapter.IdentityProvider
   alias Ankole.Plugins.DingTalkAdapter.Inbound
-  alias Ankole.Plugins.DingTalkAdapter.Outbox
+  alias Ankole.Plugins.DingTalkAdapter.Delivery
 
   @impl true
   def plugin_id, do: "dingtalk-adapter"
@@ -45,18 +45,18 @@ defmodule Ankole.Plugins.DingTalkAdapter do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "dingtalk",
         adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: adapter_display_name(),
-        config_key_pattern: "signals_gateway.dingtalk.bindings.<agent_uid>",
+        config_key_pattern: "signals.dingtalk.bindings.<agent_uid>",
         config_module: Config,
         fields: chat_fields(),
         supported_group_message_modes: ["addressed_only"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
-        reply_preview_module: AICard,
+        observe_module: Inbound,
+        deliver_module: Delivery,
+        preview_module: AICard,
         inbound_capabilities: ["entry_receive", "action_event"],
         outbound_capabilities: ["post_entry", "delete_entry", "card"]
       },

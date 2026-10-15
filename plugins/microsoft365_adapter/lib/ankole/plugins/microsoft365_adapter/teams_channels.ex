@@ -16,19 +16,19 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.{Logging, Principals, Repo, SignalsGateway}
-  alias Ankole.Plugins.{ChannelSync, MapHelpers}
-  alias Ankole.Plugins.Microsoft365Adapter.{Config, Conversations}
+  alias Ankole.Signals.Bindings
+  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.Plugins.ChannelSync
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.Microsoft365Adapter.Config
+  alias Ankole.Plugins.Microsoft365Adapter.Conversations
 
-  alias Ankole.SignalsGateway.{
-    AdapterContext,
-    Binding,
-    Channel,
-    IMGroupMembers,
-    IMGroupProjection,
-    Projection
-  }
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.Binding
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.IMGroupMembers
+  alias Ankole.Conversations.IMGroupProjection
+  alias Ankole.Conversations.External
 
   alias MicrosoftOpenAPI.BotConnector
 
@@ -66,7 +66,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def sync_binding(agent_uid, binding_name) do
-    with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, team_channels} <- sync_mirrored_teams(context, config),
@@ -83,7 +83,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   @spec refresh_conversation(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def refresh_conversation(agent_uid, binding_name, conversation_id) do
-    with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, mirror} <- mirrored_conversation(conversation_id),
@@ -105,7 +105,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
         {:ok, %{status: :ignored_missing_conversation}}
 
       bot_added?(consumer, activity) ->
-        upsert_conversation_mirror(consumer.config, activity)
+        upsert_conversation_mirror(consumer.context, consumer.config, activity)
         enqueue_refresh_result(consumer, conversation_id, "bot_added")
 
       bot_removed?(consumer, activity) ->
@@ -117,7 +117,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
         |> left_result(:all_participants_left)
 
       event_type in ["channelCreated", "channelRenamed"] ->
-        upsert_event_channel_mirror(consumer.config, activity)
+        upsert_event_channel_mirror(consumer.context, consumer.config, activity)
         {:ok, %{status: :channel_mirror_updated}}
 
       event_type == "channelDeleted" ->
@@ -131,7 +131,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
         mark_team_channels_left(consumer.config, team_id(activity))
 
       members_changed?(activity) ->
-        upsert_conversation_mirror(consumer.config, activity)
+        upsert_conversation_mirror(consumer.context, consumer.config, activity)
         enqueue_refresh_result(consumer, conversation_id, "members_changed")
 
       true ->
@@ -300,12 +300,27 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   end
 
   @doc false
-  @spec upsert_channel_projection(map(), String.t() | nil) :: {:ok, term()} | {:error, term()}
-  def upsert_channel_projection(mirror, group_id) do
+  @spec upsert_channel_projection(AdapterContext.t(), map(), String.t() | nil) ::
+          {:ok, term()} | {:error, term()}
+  def upsert_channel_projection(context, mirror, group_id) do
     fact = channel_fact(mirror, group_id)
 
     Repo.transact(fn repo ->
-      Projection.upsert_channel(repo, fact, DateTime.utc_now(:microsecond))
+      External.observe_conversation_in_tx(
+        repo,
+        %{agent_uid: context.agent_uid, name: context.binding_name},
+        %{
+          provider_conversation_id: fact.provider_conversation_id,
+          external_kind: fact.channel_kind,
+          title: fact.channel_name,
+          reply_mode: fact.reply_mode,
+          visibility: fact.channel_visibility,
+          principal_group_id: group_id,
+          metadata: fact.channel_metadata,
+          raw_payload: fact.channel_raw_payload
+        },
+        DateTime.utc_now(:microsecond)
+      )
     end)
   end
 
@@ -336,7 +351,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     base_conversation_id = Conversations.base_conversation_id(mirror.conversation_id)
 
     %{
-      signal_channel_id: Conversations.signal_channel_id(base_conversation_id),
+      provider_conversation_id: Conversations.conversation_id(base_conversation_id),
       channel_kind: if(mirror.conversation_type == "personal", do: :im_dm, else: :im_group),
       reply_mode: :entry,
       channel_name: mirror[:name],
@@ -356,7 +371,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     }
   end
 
-  defp upsert_conversation_mirror(config, activity) do
+  defp upsert_conversation_mirror(context, config, activity) do
     conversation_id = conversation_id(activity)
 
     mirror = %{
@@ -374,7 +389,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
       raw: MapHelpers.fetch_map(activity, "conversation", %{})
     }
 
-    case upsert_channel_projection(mirror, nil) do
+    case upsert_channel_projection(context, mirror, nil) do
       {:ok, _channel} ->
         :ok
 
@@ -389,7 +404,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
     end
   end
 
-  defp upsert_event_channel_mirror(config, activity) do
+  defp upsert_event_channel_mirror(context, config, activity) do
     channel = get_in(activity, ["channelData", "channel"]) || %{}
 
     case MapHelpers.optional_text(channel, "id") do
@@ -408,7 +423,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
           raw: channel
         }
 
-        case upsert_channel_projection(mirror, nil) do
+        case upsert_channel_projection(context, mirror, nil) do
           {:ok, _channel} -> :ok
           {:error, _reason} -> :ok
         end
@@ -416,11 +431,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   end
 
   defp mirrored_conversation(conversation_id) do
-    signal_channel_id =
-      conversation_id |> Conversations.base_conversation_id() |> Conversations.signal_channel_id()
+    conversation_id =
+      conversation_id |> Conversations.base_conversation_id() |> Conversations.conversation_id()
 
-    case Repo.get_by(Channel, id: signal_channel_id) do
-      %Channel{} = channel ->
+    case External.get_conversation(Repo, conversation_id) do
+      %Conversation{} = channel ->
         metadata = channel.metadata || %{}
 
         case MapHelpers.optional_text(metadata, "service_url") do
@@ -432,12 +447,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
              %{
                conversation_id:
                  MapHelpers.optional_text(metadata, "conversation_id") ||
-                   Conversations.base_conversation_id(conversation_id),
+                   Conversations.conversation_id_from_signal(channel.provider_conversation_id),
                conversation_type:
                  MapHelpers.optional_text(metadata, "conversation_type") || "channel",
                service_url: service_url,
                team_id: MapHelpers.optional_text(metadata, "team_id"),
-               name: channel.name
+               name: channel.title
              }}
         end
 
@@ -447,8 +462,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   end
 
   defp mirrored_teams(config) do
-    Channel
-    |> where([channel], like(channel.id, "teams:%"))
+    Conversation
+    |> where(
+      [channel],
+      channel.kind == :external and like(channel.provider_conversation_id, "teams:%")
+    )
     |> where_visible_to_app(config)
     |> select([channel], channel.metadata)
     |> Repo.all()
@@ -466,10 +484,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   end
 
   defp mirrored_group_chats(config) do
-    Channel
-    |> where([channel], like(channel.id, "teams:%"))
+    Conversation
+    |> where(
+      [channel],
+      channel.kind == :external and like(channel.provider_conversation_id, "teams:%")
+    )
     |> where_visible_to_app(config)
-    |> select([channel], {channel.name, channel.metadata})
+    |> select([channel], {channel.title, channel.metadata})
     |> Repo.all()
     |> Enum.flat_map(fn {name, metadata} ->
       metadata = metadata || %{}
@@ -516,8 +537,11 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
   defp mark_team_channels_left(_config, nil), do: {:ok, %{status: :ignored_missing_team}}
 
   defp mark_team_channels_left(config, team_id) do
-    Channel
-    |> where([channel], like(channel.id, "teams:%"))
+    Conversation
+    |> where(
+      [channel],
+      channel.kind == :external and like(channel.provider_conversation_id, "teams:%")
+    )
     |> where_visible_to_app(config)
     |> select([channel], channel.metadata)
     |> Repo.all()

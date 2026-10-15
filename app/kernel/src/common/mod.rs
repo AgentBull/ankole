@@ -1,5 +1,3 @@
-//! Host-neutral kernel primitives loaded through Rustler.
-
 pub(crate) mod bounded_cache;
 mod crypto;
 mod encoding;
@@ -207,7 +205,6 @@ WcIZW/EN2+olnpMjA71EXA==
         )
         .unwrap();
 
-        // The kid travels in the protected header.
         let header = jsonwebtoken::decode_header(&token).expect("token header decodes");
         assert_eq!(header.alg, jsonwebtoken::Algorithm::RS256);
         assert_eq!(header.kid.as_deref(), Some("sa-key-1"));
@@ -231,15 +228,12 @@ WcIZW/EN2+olnpMjA71EXA==
     fn jwt_sign_pem_rejects_bad_keys_and_hmac_algorithms() {
         let claims = r#"{"aud":"https://oauth2.googleapis.com/token","exp":4102444800}"#;
 
-        // HMAC algorithms are not accepted on the PEM path.
         assert!(
             jwt_sign_pem(claims, TEST_RSA_PRIVATE_KEY_PEM, r#"{"algorithm":"HS256"}"#).is_err()
         );
 
-        // A non-PEM key is rejected before signing.
         assert!(jwt_sign_pem(claims, "not a pem key", r#"{"algorithm":"RS256"}"#).is_err());
 
-        // The header defaults to RS256 when no algorithm is given.
         let token = jwt_sign_pem(claims, TEST_RSA_PRIVATE_KEY_PEM, r#"{}"#).unwrap();
         let header = jsonwebtoken::decode_header(&token).expect("token header decodes");
         assert_eq!(header.alg, jsonwebtoken::Algorithm::RS256);
@@ -254,7 +248,6 @@ WcIZW/EN2+olnpMjA71EXA==
         }));
         let jwk = test_rsa_jwk();
 
-        // Wrong audience.
         assert!(
             jwt_verify_jwk(
                 &token,
@@ -264,22 +257,18 @@ WcIZW/EN2+olnpMjA71EXA==
             .is_err()
         );
 
-        // HMAC algorithms are not accepted on the JWK path.
         assert!(jwt_verify_jwk(&token, &jwk, r#"{"algorithms":["HS256"]}"#).is_err());
 
-        // Tampered payload (JWT payloads start with base64url "eyJ").
         let parts: Vec<&str> = token.split('.').collect();
         let tampered = format!("{}.f{}.{}", parts[0], &parts[1][1..], parts[2]);
         assert!(jwt_verify_jwk(&tampered, &jwk, r#"{"algorithms":["RS256"]}"#).is_err());
 
-        // Expired token.
         let expired = rs256_token(&serde_json::json!({
             "aud": "11111111-2222-3333-4444-555555555555",
             "exp": 946_684_800u64
         }));
         assert!(jwt_verify_jwk(&expired, &jwk, r#"{"algorithms":["RS256"]}"#).is_err());
 
-        // Non-RSA keys are rejected.
         assert!(
             jwt_verify_jwk(
                 &token,

@@ -1,7 +1,4 @@
-//! Rustler binding layer for the Elixir runtime.
-//!
-//! These functions stay thin on purpose: they validate BEAM terms, preserve
-//! binary-safe values, and forward real behavior to host-neutral modules.
+//! These functions validate BEAM terms, keep values binary-safe, and forward behavior to host-neutral modules.
 
 use rustler::env::{OwnedEnv, SavedTerm};
 use rustler::types::atom as rustler_atom;
@@ -13,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use crate::authz;
 use crate::common;
 use crate::object_store;
-use crate::signals_gateway;
+use crate::signals;
 use crate::universal_ai_client;
 
 mod atoms {
@@ -35,14 +32,12 @@ mod atoms {
     }
 }
 
-/// Owns a native UniversalAIClient stream task across BEAM demand calls.
+/// Lives across BEAM demand calls.
 pub struct UniversalAIClientStreamResource(pub universal_ai_client::StreamHandle);
 
 #[rustler::resource_impl]
 impl rustler::Resource for UniversalAIClientStreamResource {
-    /// Cancels provider work when BEAM releases its last resource reference.
     const IMPLEMENTS_DESTRUCTOR: bool = true;
-    /// Cancels provider work when the monitored BEAM owner exits.
     const IMPLEMENTS_DOWN: bool = true;
 
     fn destructor(self, _env: Env<'_>) {
@@ -54,7 +49,6 @@ impl rustler::Resource for UniversalAIClientStreamResource {
     }
 }
 
-/// Owns one opened object store for the control-plane file service.
 pub struct ObjectStoreResource(pub object_store::Store);
 
 #[rustler::resource_impl]
@@ -83,10 +77,6 @@ impl Encoder for BeamStreamRef {
     }
 }
 
-/// Decrypts an AEAD token for Elixir callers and returns a BEAM binary.
-///
-/// The function is scheduled on DirtyCpu because runtime cost depends on payload
-/// size and cryptographic work should not risk blocking normal BEAM schedulers.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn aead_decrypt(ciphertext: Term<'_>, key: Term<'_>) -> NIFResult<OwnedBinary> {
     let ciphertext = decode_string(ciphertext, "ciphertext")?;
@@ -97,7 +87,7 @@ pub fn aead_decrypt(ciphertext: Term<'_>, key: Term<'_>) -> NIFResult<OwnedBinar
         .and_then(binary_from_vec)
 }
 
-/// Encrypts an Elixir binary with the shared AEAD token format.
+/// Uses the shared AEAD token format.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NIFResult<String> {
     let plaintext = decode_binary(plaintext, "plaintext")?;
@@ -106,7 +96,6 @@ pub fn aead_encrypt(plaintext: Term<'_>, key: Term<'_>) -> NIFResult<String> {
     common::aead_encrypt(plaintext.as_slice(), &key).map_err(error)
 }
 
-/// Image decode and compression run on a dirty CPU scheduler.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn normalize_model_image_nif(bytes: Term<'_>) -> NIFResult<OwnedBinary> {
     let bytes = decode_binary(bytes, "image")?;
@@ -115,10 +104,7 @@ pub fn normalize_model_image_nif(bytes: Term<'_>) -> NIFResult<OwnedBinary> {
         .and_then(binary_from_vec)
 }
 
-/// Parses one Brain body against its canonical CommonMark audience grammar.
-///
-/// DirtyCpu because parse cost scales with the complete body. Grammar errors
-/// remain encoded JSON results; a NIF error means the native boundary failed.
+/// Grammar errors stay encoded JSON. A NIF error means the native boundary failed.
 #[cfg(feature = "brain_markdoc")]
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn brain_markdoc_analyze_nif(body: Term<'_>) -> NIFResult<String> {
@@ -126,7 +112,6 @@ pub fn brain_markdoc_analyze_nif(body: Term<'_>) -> NIFResult<String> {
     crate::brain_markdoc::analyze_json(&body).map_err(error_message)
 }
 
-/// Parses original CommonMark code ranges on a dirty CPU scheduler.
 #[cfg(feature = "markdown")]
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn markdown_code_ranges_nif(source: Term<'_>) -> NIFResult<Vec<(usize, usize)>> {
@@ -134,10 +119,9 @@ pub fn markdown_code_ranges_nif(source: Term<'_>) -> NIFResult<Vec<(usize, usize
     Ok(crate::markdown::code_ranges(&source))
 }
 
-/// Runs one PTC program to completion or to its next pending tool-call batch.
-///
-/// DirtyCpu because one call owns a V8 isolate for up to the program timeout;
-/// the JSON boundary keeps the NIF layer free of program semantics.
+/// Runs to completion or the next pending tool-call batch.
+/// One call owns a V8 isolate until the program timeout.
+/// Program semantics stay behind the JSON boundary.
 #[cfg(feature = "program_runner")]
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn program_run_nif(run_id: Term<'_>, request: Term<'_>) -> NIFResult<String> {
@@ -183,7 +167,6 @@ pub fn authz_authorize_all_nif(snapshot: Term<'_>) -> NIFResult<String> {
     encode_json(decision)
 }
 
-/// Returns whether a CEL authorization condition compiles.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn authz_validate_condition(condition: Term<'_>) -> NIFResult<bool> {
     let condition = decode_string(condition, "condition")?;
@@ -193,29 +176,23 @@ pub fn authz_validate_condition(condition: Term<'_>) -> NIFResult<bool> {
         .map_err(error)
 }
 
-/// Returns whether a SignalsGateway CEL admission filter compiles.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn signals_gateway_validate_filter(filter_source: Term<'_>) -> NIFResult<bool> {
+pub fn signals_validate_filter(filter_source: Term<'_>) -> NIFResult<bool> {
     let filter_source = decode_string(filter_source, "filter_source")?;
 
-    with_cel_stack(|| signals_gateway::validate_filter_source(&filter_source))
+    with_cel_stack(|| signals::validate_filter_source(&filter_source))
         .map(|_| true)
         .map_err(error)
 }
 
-/// Evaluates a SignalsGateway CEL admission filter from an encoded context.
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn signals_gateway_filter_match_nif(
-    filter_source: Term<'_>,
-    context: Term<'_>,
-) -> NIFResult<bool> {
+pub fn signals_filter_match_nif(filter_source: Term<'_>, context: Term<'_>) -> NIFResult<bool> {
     let filter_source = decode_string(filter_source, "filter_source")?;
     let context = decode_json(context, "context")?;
 
-    with_cel_stack(|| signals_gateway::evaluate_filter(&filter_source, context)).map_err(error)
+    with_cel_stack(|| signals::evaluate_filter(&filter_source, context)).map_err(error)
 }
 
-/// Returns whether a resource pattern is valid.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NIFResult<bool> {
     let pattern = decode_string(pattern, "pattern")?;
@@ -225,7 +202,6 @@ pub fn authz_validate_resource_pattern(pattern: Term<'_>) -> NIFResult<bool> {
         .map_err(error)
 }
 
-/// Opens a native UniversalAIClient stream from a prepared request spec.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn universal_ai_client_open_nif<'a>(
     env: Env<'a>,
@@ -274,7 +250,6 @@ pub fn universal_ai_client_read_nif(
     Ok(atoms::ok())
 }
 
-/// Cancels a native UniversalAIClient stream.
 #[rustler::nif]
 pub fn universal_ai_client_cancel_nif(
     stream: ResourceArc<UniversalAIClientStreamResource>,
@@ -283,11 +258,7 @@ pub fn universal_ai_client_cancel_nif(
     Ok(atoms::ok())
 }
 
-/// Starts one non-streaming UniversalAIClient model request.
-///
-/// The NIF creates the BEAM result sink and delegates the request to
-/// UniversalAIClient, which starts provider work and returns at once. The result
-/// arrives later as one `{:universal_ai_client_request, ref, result}` message.
+/// The result arrives later as one `{:universal_ai_client_request, ref, result}` message.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn universal_ai_client_model_request_nif<'a>(
     env: Env<'a>,
@@ -304,9 +275,7 @@ pub fn universal_ai_client_model_request_nif<'a>(
     }
 }
 
-/// Starts one raw UniversalAIClient HTTP request without model normalization.
-///
-/// Same start-and-message contract as `universal_ai_client_model_request_nif`.
+/// No model normalization. Same result message as `universal_ai_client_model_request_nif`.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn universal_ai_client_raw_request_nif<'a>(
     env: Env<'a>,
@@ -356,10 +325,7 @@ pub fn object_store_open_nif<'a>(env: Env<'a>, spec: Term<'a>) -> NIFResult<Term
     }
 }
 
-/// Starts reading one object into a BEAM binary.
-///
-/// Every object store NIF starts the operation and returns at once. The result
-/// arrives later as one `{:object_store, ref, result}` message.
+/// The result arrives later as one `{:object_store, ref, result}` message.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn object_store_read_nif<'a>(
     env: Env<'a>,
@@ -378,7 +344,6 @@ pub fn object_store_read_nif<'a>(
     )
 }
 
-/// Starts copying one object into a local file on the control-plane host.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn object_store_read_to_file_nif<'a>(
     env: Env<'a>,
@@ -399,7 +364,6 @@ pub fn object_store_read_to_file_nif<'a>(
     )
 }
 
-/// Starts writing one BEAM binary as an object.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn object_store_write_nif<'a>(
     env: Env<'a>,
@@ -420,7 +384,6 @@ pub fn object_store_write_nif<'a>(
     )
 }
 
-/// Starts writing one local file on the control-plane host as an object.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn object_store_write_from_file_nif<'a>(
     env: Env<'a>,
@@ -441,7 +404,7 @@ pub fn object_store_write_from_file_nif<'a>(
     )
 }
 
-/// Starts deleting one object. Deleting a missing object succeeds.
+/// Deleting a missing object succeeds.
 #[rustler::nif(schedule = "DirtyIo")]
 pub fn object_store_delete_nif<'a>(
     env: Env<'a>,
@@ -509,7 +472,6 @@ fn encode_object_store_error<'a>(env: Env<'a>, error: &object_store::StoreError)
     )
 }
 
-/// Returns whether a resource pattern matches a concrete resource key.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> NIFResult<bool> {
     let pattern = decode_string(pattern, "pattern")?;
@@ -518,7 +480,6 @@ pub fn authz_match_resource_pattern(pattern: Term<'_>, resource: Term<'_>) -> NI
     authz::pattern_matches(&pattern, &resource).map_err(error)
 }
 
-/// Estimates provider-neutral token budget with the o200k_base vocabulary.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn estimate_o200k_base_tokens(text: Term<'_>) -> NIFResult<u64> {
     let text = decode_string(text, "text")?;
@@ -526,7 +487,6 @@ pub fn estimate_o200k_base_tokens(text: Term<'_>) -> NIFResult<u64> {
     Ok(common::estimate_o200k_base_tokens(&text))
 }
 
-/// Combines multiple ordered result ID lists with reciprocal-rank fusion.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn reciprocal_rank_fusion_nif(ranked_lists: Term<'_>, k: Term<'_>) -> NIFResult<String> {
     let ranked_lists = decode_json(ranked_lists, "ranked_lists")?;
@@ -540,7 +500,7 @@ pub fn reciprocal_rank_fusion_nif(ranked_lists: Term<'_>, k: Term<'_>) -> NIFRes
     encode_json(fused)
 }
 
-/// Computes the non-cryptological XXH3 128-bit observation fingerprint.
+/// Non-cryptographic observation fingerprint.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn xxh3_128_hex(input: Term<'_>) -> NIFResult<String> {
     let input = decode_binary(input, "input")?;
@@ -548,10 +508,7 @@ pub fn xxh3_128_hex(input: Term<'_>) -> NIFResult<String> {
     Ok(common::xxh3_128_hex(input.as_slice()))
 }
 
-/// Derives a deterministic BLAKE3 sub-key for Elixir callers.
-///
-/// Binary input is decoded as `Binary` so key seeds can contain arbitrary bytes,
-/// not only UTF-8 text.
+/// Key seeds are binaries, so they can contain non-UTF-8 bytes.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn derive_key(
     key_seed: Term<'_>,
@@ -569,7 +526,6 @@ pub fn derive_key(
     ))
 }
 
-/// Signs claims with a JWT header and binary key.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn jwt_sign_nif(claims: Term<'_>, key: Term<'_>, header: Term<'_>) -> NIFResult<String> {
     let claims = decode_string(claims, "claims")?;
@@ -579,7 +535,6 @@ pub fn jwt_sign_nif(claims: Term<'_>, key: Term<'_>, header: Term<'_>) -> NIFRes
     common::jwt_sign(&claims, key.as_slice(), &header).map_err(error)
 }
 
-/// Verifies a JWT with a binary key and validation options.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn jwt_verify_nif(token: Term<'_>, key: Term<'_>, validation: Term<'_>) -> NIFResult<String> {
     let token = decode_string(token, "token")?;
@@ -589,7 +544,6 @@ pub fn jwt_verify_nif(token: Term<'_>, key: Term<'_>, validation: Term<'_>) -> N
     common::jwt_verify(&token, key.as_slice(), &validation).map_err(error)
 }
 
-/// Signs claims with an RSA private key in PEM form and a JWT header.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn jwt_sign_pem_nif(
     claims: Term<'_>,
@@ -603,7 +557,6 @@ pub fn jwt_sign_pem_nif(
     common::jwt_sign_pem(&claims, &private_key_pem, &header).map_err(error)
 }
 
-/// Verifies an RSA-signed JWT against a JWK document and validation options.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn jwt_verify_jwk_nif(
     token: Term<'_>,
@@ -634,7 +587,6 @@ pub fn argon2id_verify(password: Term<'_>, phc_hash: Term<'_>) -> NIFResult<bool
     common::argon2id_verify(&password, &phc_hash).map_err(error)
 }
 
-/// Facts about one parsed web URL for the shared web tools URL policy.
 #[derive(rustler::NifMap)]
 struct WebURLFactsNIF {
     scheme: String,
@@ -674,7 +626,6 @@ pub fn generic_hash(data: Term<'_>, salt: Term<'_>) -> NIFResult<String> {
     common::generic_hash(data.as_slice(), salt.as_deref()).map_err(error)
 }
 
-/// Parses and validates an international phone number, returning E.164 text.
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn phone_normalize_e164(phone: Term<'_>) -> NIFResult<String> {
     let phone = decode_string(phone, "phone")?;
@@ -682,13 +633,11 @@ pub fn phone_normalize_e164(phone: Term<'_>) -> NIFResult<String> {
     common::phone_normalize_e164(&phone).map_err(error)
 }
 
-/// Generates a standard hyphenated UUIDv4 string.
 #[rustler::nif]
 pub fn gen_uuid() -> String {
     common::gen_uuid()
 }
 
-/// Generates a standard hyphenated UUIDv7 string.
 #[rustler::nif]
 pub fn gen_uuid_v7() -> String {
     common::gen_uuid_v7()
@@ -707,18 +656,13 @@ fn binary_from_vec(bytes: Vec<u8>) -> NIFResult<OwnedBinary> {
     Ok(binary)
 }
 
-/// Copies a buffer of one or more chunks into a new BEAM binary, or returns
-/// `None` when the binary cannot be allocated.
 fn binary_from_buf(mut buffer: impl bytes::Buf) -> Option<OwnedBinary> {
     let mut binary = OwnedBinary::new(buffer.remaining())?;
     buffer.copy_to_slice(binary.as_mut_slice());
     Some(binary)
 }
 
-/// Decodes a BEAM term as binary and reports the field name on failure.
-///
-/// The explicit `is_binary` check gives callers a stable, simple error message
-/// instead of exposing Rustler's lower-level conversion wording.
+/// The error text stays stable and does not use Rustler's conversion wording.
 fn decode_binary<'a>(term: Term<'a>, field: &str) -> NIFResult<Binary<'a>> {
     if !term.is_binary() {
         return Err(error_message(format!("{field} must be a binary")));
@@ -727,7 +671,6 @@ fn decode_binary<'a>(term: Term<'a>, field: &str) -> NIFResult<Binary<'a>> {
     Binary::from_term(term).map_err(|_| error_message(format!("{field} must be a binary")))
 }
 
-/// Decodes a JSON string into the host-neutral serde value used by AuthZ.
 fn decode_json(term: Term<'_>, field: &str) -> NIFResult<JSONValue> {
     let json = decode_string(term, field)?;
 
@@ -735,36 +678,30 @@ fn decode_json(term: Term<'_>, field: &str) -> NIFResult<JSONValue> {
         .map_err(|reason| error_message(format!("{field} must contain valid JSON: {reason}")))
 }
 
-/// Decodes an optional Elixir string, where `nil` maps to `None`.
 fn decode_optional_string(term: Term<'_>, field: &str) -> NIFResult<Option<String>> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be a string or nil")))
 }
 
-/// Decodes a non-negative 64-bit integer.
 fn decode_u64(term: Term<'_>, field: &str) -> NIFResult<u64> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be a non-negative integer")))
 }
 
-/// Decodes an Elixir string and reports the field name on failure.
 fn decode_string(term: Term<'_>, field: &str) -> NIFResult<String> {
     term.decode()
         .map_err(|_| error_message(format!("{field} must be a string")))
 }
 
-/// Encodes a host-neutral JSON value into a string for Elixir.
 fn encode_json(value: JSONValue) -> NIFResult<String> {
     serde_json::to_string(&value)
         .map_err(|reason| error_message(format!("failed to encode JSON: {reason}")))
 }
 
-/// Converts a host-neutral kernel error into Rustler's NIF error path.
 fn error(error: common::KernelError) -> Error {
     error_message(error.to_string())
 }
 
-/// Builds a Rustler term error from a message intended for Elixir callers.
 fn error_message(message: impl Into<String>) -> Error {
     Error::Term(Box::new(message.into()))
 }

@@ -25,7 +25,7 @@ import { BackLink, DocumentTitle, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
 import { formatConsoleDate, truncate } from '../console-primitives'
 import { conversationDisplayName } from '../conversation-presentation'
-import { MarkdownBody } from '../markdown-body'
+import { MarkdownBody } from '../../common/markdown-body'
 import { StatusIndicator } from '../console-form'
 import {
   CursorPagination,
@@ -686,7 +686,6 @@ function RawJSON({ value }: { value: unknown }) {
   return <CodeBlock>{truncate(text, 8_000)}</CodeBlock>
 }
 
-/** Re-indents JSON payloads; passes non-JSON text through unchanged. */
 function prettyJSON(text: string): string {
   const trimmed = text.trim()
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return text

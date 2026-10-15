@@ -8,11 +8,11 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
   chunk.
   """
 
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.ReplyInteractionState
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.InteractionState
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
 
   @type provider_context :: term()
   @type provider_response :: term()
@@ -23,25 +23,25 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
               {:ok, [term()], provider_context(), String.t() | nil} | {:error, term()}
   @callback upsert_message(
               provider_context(),
-              ActorEvent.t(),
+              Signal.t(),
               message_record() | nil,
               term(),
               non_neg_integer()
             ) ::
               {:ok, message_record(), provider_response(), String.t() | nil} | {:error, term()}
-  @callback delete_message(provider_context(), ActorEvent.t(), message_record()) ::
+  @callback delete_message(provider_context(), Signal.t(), message_record()) ::
               :ok | {:error, term()}
   @callback classify_error(term(), error_stage(), boolean()) :: term()
 
   @spec reconcile(Request.t(), module(), String.t()) :: {:ok, map()} | {:error, term()}
-  def reconcile(%Request{actor_event: %ActorEvent{}} = request, provider, adapter_id)
+  def reconcile(%Request{signal: %Signal{}} = request, provider, adapter_id)
       when is_atom(provider) and is_binary(adapter_id) and adapter_id != "" do
     checkpoint = request.checkpoint || %{}
 
     presentation =
       request.presentation
       |> ReplyPresentation.normalize()
-      |> ReplyInteractionState.project(checkpoint)
+      |> InteractionState.project(checkpoint)
 
     case provider.render_chunks(presentation, request) do
       {:ok, [_ | _] = chunks, context, default_thread_id} ->
@@ -126,7 +126,7 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
 
       {:ok,
        %{
-         created_source_entry_id: first_id,
+         created_provider_message_id: first_id,
          provider_thread_id: provider_thread_id,
          reply_preview_checkpoint: checkpoint,
          raw_payload: %{"messages" => Enum.reverse(responses)},
@@ -136,7 +136,7 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
            "streaming_state" => checkpoint["streaming_state"]
          }
        }
-       |> maybe_put_payload(request.outbox)}
+       |> maybe_put_payload(request.delivery)}
     end
   end
 
@@ -158,7 +158,7 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
       fn {chunk, index}, {:ok, records, responses, changed?, provider_thread_id} ->
         current = Map.get(records, index)
 
-        case provider.upsert_message(context, request.actor_event, current, chunk, index) do
+        case provider.upsert_message(context, request.signal, current, chunk, index) do
           {:ok, %{"message_id" => message_id} = message, response, response_thread_id}
           when is_binary(message_id) and message_id != "" ->
             message = Map.put(message, "index", index)
@@ -220,7 +220,11 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
         nil -> nil
       end
 
-    case Actors.put_reply_preview_checkpoint(request.actor_event.id, staged, source) do
+    case PreviewState.put_checkpoint(
+           request.signal.id,
+           staged,
+           source
+         ) do
       {:ok, _event} ->
         :ok
 
@@ -248,7 +252,7 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
     |> Enum.filter(fn {index, _message} -> index >= retained_count end)
     |> Enum.sort_by(&elem(&1, 0))
     |> Enum.reduce_while({:ok, records}, fn {index, message}, {:ok, records} ->
-      case provider.delete_message(context, request.actor_event, message) do
+      case provider.delete_message(context, request.signal, message) do
         :ok ->
           records = Map.delete(records, index)
 
@@ -338,8 +342,8 @@ defmodule Ankole.Plugins.ChunkedMessagePreview do
   defp first_message_id([%{"message_id" => message_id} | _rest]), do: message_id
   defp first_message_id(_messages), do: nil
 
-  defp maybe_put_payload(result, %{} = outbox), do: Map.put(result, :payload, outbox.payload)
-  defp maybe_put_payload(result, _outbox), do: result
+  defp maybe_put_payload(result, %{} = intent), do: Map.put(result, :payload, intent.payload)
+  defp maybe_put_payload(result, _intent), do: result
 
   defp failure(provider, reason, stage, changed?) do
     {:error, provider.classify_error(reason, stage, changed?)}

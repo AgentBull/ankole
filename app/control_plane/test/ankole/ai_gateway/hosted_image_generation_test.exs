@@ -274,7 +274,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
              StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
                "model" => "primary",
                "input" => "Run one tool.",
-               "metadata" => %{"actor_event_id" => "hosted-websocket-event"},
+               "metadata" => %{"signal_id" => "hosted-websocket-event"},
                "tools" => [
                  %{"type" => "function", "name" => "command", "parameters" => %{}},
                  %{"type" => "image_generation"}
@@ -288,11 +288,11 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert request.response_context.provider_options["service_tier"] == "fast"
 
     assert request.response_context.request["metadata"] == %{
-             "actor_event_id" => "hosted-websocket-event"
+             "signal_id" => "hosted-websocket-event"
            }
 
     assert request.hosted_tools.public_request["metadata"] == %{
-             "actor_event_id" => "hosted-websocket-event"
+             "signal_id" => "hosted-websocket-event"
            }
 
     assert request.hosted_tools.image_generation["selected_model"] == "openai/gpt-image-2"

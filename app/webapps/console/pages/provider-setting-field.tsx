@@ -12,7 +12,7 @@ import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 import { JSONField, LabeledField } from '../console-form'
 import { EncryptedValueInput } from '../encrypted-value-input'
-import { humanizeKey, settingDraftValue, type ProviderSetting } from './provider-settings'
+import { humanizeKey, settingDraftValue, type ProviderSetting } from '../state/provider-settings'
 
 const UNSET_BOOLEAN = '__unset__'
 export const UNSET_SELECT = '__unset_select__'

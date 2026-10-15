@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { BrowserRuntime } from '../../../src/browser-runtime'
 import { jsonBytes, RPCResponseSchema, type Envelope } from '../../../src/fabric/envelope_proto'
 import {
-  ActorKeySchema,
+  SessionKeySchema,
   RunRefSchema,
   ToolCallSchema,
   WorkspaceCloseSchema,
@@ -75,8 +75,8 @@ function fixture(slots = 2, capacityChanged = async (): Promise<void> => {}) {
     sharedSlots
   )
   const run = create(RunRefSchema, {
-    actor: { sessionId: 'conversation:one' },
-    actorEventId: '019a7d15-6b54-7ed9-ae76-78f7fd91e4d5'
+    session: { sessionId: 'conversation:one' },
+    signalId: '019a7d15-6b54-7ed9-ae76-78f7fd91e4d5'
   })
   const open = create(WorkspaceOpenSchema, {
     run,
@@ -124,10 +124,10 @@ describe('real workspace command adoption', () => {
   it('synchronizes Agent documents on the first environment workspace and each new input', async () => {
     const f = fixture()
     for (const version of ['first', 'updated']) {
-      const run = create(RunRefSchema, { ...f.run, actorEventId: `input-${version}` })
+      const run = create(RunRefSchema, { ...f.run, signalId: `input-${version}` })
       f.spaces.open(create(WorkspaceOpenSchema, { ...f.open, run, agentContext: context(version) }))
       await until(() =>
-        f.sent.some(e => e.body.case === 'workspaceReady' && e.body.value.run?.actorEventId === run.actorEventId)
+        f.sent.some(e => e.body.case === 'workspaceReady' && e.body.value.run?.signalId === run.signalId)
       )
       for (const name of ['SOUL', 'MISSION', 'DESIGN', 'ConfidentialityPolicy']) {
         expect(readFileSync(join(f.root, `${name}.md`), 'utf8')).toBe(`${name} ${version}`)
@@ -197,14 +197,14 @@ describe('real workspace command adoption', () => {
     await until(() => f.sent.some(e => e.body.case === 'workspaceReady'))
     const other = create(RunRefSchema, {
       ...f.run,
-      actor: create(ActorKeySchema, { sessionId: 'conversation:two' })
+      session: create(SessionKeySchema, { sessionId: 'conversation:two' })
     })
     f.spaces.open(create(WorkspaceOpenSchema, { ...f.open, run: other, workspaceId: 10001n }))
     await until(() =>
-      f.sent.some(e => e.body.case === 'workspaceReady' && e.body.value.run?.actor?.sessionId === 'conversation:two')
+      f.sent.some(e => e.body.case === 'workspaceReady' && e.body.value.run?.session?.sessionId === 'conversation:two')
     )
     expect(
-      f.sent.find(e => e.body.case === 'workspaceReady' && e.body.value.run?.actor?.sessionId === 'conversation:two')
+      f.sent.find(e => e.body.case === 'workspaceReady' && e.body.value.run?.session?.sessionId === 'conversation:two')
         ?.body
     ).toMatchObject({ value: { reason: WorkspaceReady_Reason.CAPACITY } })
     f.spaces.call(
@@ -216,10 +216,10 @@ describe('real workspace command adoption', () => {
       })
     )
     await until(() => existsSync(join(f.root, 'started')))
-    const next = create(RunRefSchema, { ...f.run, actorEventId: '019a7d15-6b54-7ed9-ae76-78f7fd91e4d6' })
+    const next = create(RunRefSchema, { ...f.run, signalId: '019a7d15-6b54-7ed9-ae76-78f7fd91e4d6' })
     f.spaces.open(create(WorkspaceOpenSchema, { ...f.open, run: next }))
     await until(() =>
-      f.sent.some(e => e.body.case === 'workspaceReady' && e.body.value.run?.actorEventId === next.actorEventId)
+      f.sent.some(e => e.body.case === 'workspaceReady' && e.body.value.run?.signalId === next.signalId)
     )
     f.spaces.call(
       create(ToolCallSchema, {

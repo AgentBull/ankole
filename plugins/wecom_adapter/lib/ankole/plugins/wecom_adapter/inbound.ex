@@ -1,6 +1,6 @@
 defmodule Ankole.Plugins.WeComAdapter.Inbound do
   @moduledoc """
-  WeCom inbound normalization into SignalsGateway adapter APIs.
+  WeCom inbound normalization into Conversations.Observe APIs.
 
   A message callback (`aibot_msg_callback`) becomes an `emit_entry`; a
   `template_card_event` becomes an `emit_action`. The platform subject is
@@ -23,10 +23,10 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WeComAdapter.Config
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.Ingress
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Observe
   alias WeComOpenAPI.Bot
   alias WeComOpenAPI.Bot.Event
   alias WeComOpenAPI.Media
@@ -38,7 +38,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   @quote_prefix "> 引用："
   @quote_budget_bytes 500
 
-  @doc "Builds the dispatcher consumer record for one SignalsGateway chat binding."
+  @doc "Builds the dispatcher consumer record for one Signal binding."
   @spec chat_consumer(AdapterContext.t(), map()) :: map()
   def chat_consumer(%AdapterContext{} = context, config) when is_map(config) do
     %{
@@ -70,7 +70,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
         config: config
       })
       when is_map(payload) do
-    with {:ok, source_entry_id} <- required_text(payload, "msgid"),
+    with {:ok, provider_message_id} <- required_text(payload, "msgid"),
          {:ok, author} <- author(payload, config),
          {:ok, channel_kind, chat_target} <- channel_target(payload),
          raw_text <- message_text(payload),
@@ -84,10 +84,10 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
       {:ok,
        %{
-         source_event_id: source_entry_id,
-         source_entry_id: source_entry_id,
-         signal_channel_id: signal_channel_id(chat_target),
-         reply_to_source_entry_id: nil,
+         source_event_id: provider_message_id,
+         provider_message_id: provider_message_id,
+         provider_conversation_id: provider_conversation_id(chat_target),
+         reply_to_provider_message_id: nil,
          provider_thread_id: nil,
          channel: %{
            kind: channel_kind,
@@ -99,7 +99,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
                "chat_type" => optional_text(payload, "chattype"),
                "aibot_id" => optional_text(payload, "aibotid"),
                # Durable respond anchor: replies bound to this req_id work for
-               # 24 hours. Channel metadata merges on every entry, so the
+               # 24 hours. Conversation metadata merges on every observation, so the
                # newest inbound always wins.
                "last_req_id" => req_id,
                "last_req_at" => DateTime.to_iso8601(DateTime.utc_now()),
@@ -136,7 +136,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     case normalize_message_receive(event, consumer) do
       {:ok, input} ->
         with {:ok, input} <- materialize_attachments(input, consumer) do
-          Ingress.emit_entry(context.agent_uid, context.binding_name, input)
+          Observe.emit_entry(context.agent_uid, context.binding_name, input)
         end
 
       {:ignore, reason} ->
@@ -146,8 +146,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
         error
     end
   end
-
-  # card events
 
   @doc "Normalizes a template-card event without observing or submitting it. Test seam."
   @spec normalize_card_action(Event.t()) :: {:ok, map()} | {:error, term()}
@@ -169,10 +167,10 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
        %{
          source_event_id: action_id,
          action_id: action_id,
-         signal_channel_id: signal_channel_id(chat_target),
-         source_entry_id: task_id,
+         provider_conversation_id: provider_conversation_id(chat_target),
+         provider_message_id: task_id,
          provider_thread_id: nil,
-         actor_event_type: "signal.action.invoked",
+         signal_type: "signal.action.invoked",
          action:
            compact_map(%{
              "name" => value["controlId"] || button_key(event_body) || "card_action",
@@ -202,7 +200,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
               &Map.put(&1, "operator_principal_uid", operator_principal_uid)
             )
 
-          result = Ingress.emit_action(context.agent_uid, context.binding_name, input)
+          result = Observe.emit_action(context.agent_uid, context.binding_name, input)
           acknowledge_card(consumer, event, input, result)
           result
         end
@@ -256,14 +254,14 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   # Template-card buttons round-trip only their `key` string, so the portable
   # interaction protocol is packed into the key by `TemplateCard` and unpacked
-  # here; `task_id` carries the source actor event. An unmanaged key stays a
+  # here; `task_id` carries the source Signal. An unmanaged key stays a
   # bare value so foreign cards still produce an action.
   defp action_value(event_body, task_id) do
     key = button_key(event_body)
 
     case parse_managed_key(key) do
       {:ok, value} ->
-        Map.put(value, "sourceActorEventId", task_source_actor_event_id(task_id))
+        Map.put(value, "sourceSignalId", task_source_signal_id(task_id))
 
       :unmanaged ->
         compact_map(%{"key" => key, "task_id" => task_id})
@@ -273,8 +271,8 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   @doc false
   defdelegate parse_managed_key(key), to: Ankole.Plugins.WeComAdapter.TemplateCard
 
-  defp task_source_actor_event_id("ankole:" <> event_id), do: event_id
-  defp task_source_actor_event_id(_task_id), do: nil
+  defp task_source_signal_id("ankole:" <> event_id), do: event_id
+  defp task_source_signal_id(_task_id), do: nil
 
   defp button_key(event_body) do
     optional_text(event_body, "key") || optional_text(event_body, "button_key") ||
@@ -304,8 +302,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     |> Enum.map(fun)
     |> collect_results()
   end
-
-  # author / platform subject
 
   defp sender(payload), do: fetch_value(payload, "from") || %{}
 
@@ -347,8 +343,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     end
   end
 
-  # channel
-
   defp channel_target(payload) do
     case optional_text(payload, "chattype") do
       "group" ->
@@ -366,12 +360,10 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   end
 
   @doc false
-  @spec signal_channel_id(String.t()) :: String.t()
-  def signal_channel_id(chat_target), do: "wecom:#{encode_id(chat_target)}"
+  @spec provider_conversation_id(String.t()) :: String.t()
+  def provider_conversation_id(chat_target), do: "wecom:#{encode_id(chat_target)}"
 
   defp encode_id(id), do: URI.encode(id, &URI.char_unreserved?/1)
-
-  # text
 
   # Inbound text stays the user's own words. A voice message arrives as its
   # platform transcript only (no audio file exists in the callback), so the
@@ -463,8 +455,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   defp formatted_content(nil), do: %{}
   defp formatted_content(text), do: %{"format" => "markdown", "body" => text}
 
-  # attachments
-
   defp attachments(payload) do
     own =
       case optional_text(payload, "msgtype") do
@@ -529,14 +519,14 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   defp materialize_attachments(input, _consumer) do
     attachments =
-      Ingress.materialize_attachments(input.attachments, "wecom", &download_attachment/1,
+      Observe.materialize_attachments(input.attachments, "wecom", &download_attachment/1,
         drop_keys: ["temp_url", "aeskey"]
       )
 
     {:ok, %{input | attachments: attachments}}
   end
 
-  # The temporary URL and key are removed from every result by Ingress.
+  # The temporary URL and key are removed from every result by Observe.
   defp download_attachment(%{"temp_url" => url} = attachment) when is_binary(url) do
     result =
       case attachment["aeskey"] do
@@ -551,8 +541,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   end
 
   defp download_attachment(_attachment), do: {:error, :attachment_reference_missing}
-
-  # helpers
 
   defp provider_time(payload) do
     case fetch_value(payload, "create_time") do

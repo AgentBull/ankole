@@ -1,5 +1,3 @@
-//! Native async streaming model client.
-//!
 //! Elixir supplies connection, auth, endpoint, headers, transport preferences,
 //! and the resolved request context. This module owns the per-protocol request
 //! body encoding, the transport, upstream stream parsing, response

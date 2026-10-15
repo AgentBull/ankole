@@ -1,8 +1,11 @@
 defmodule Ankole.AIGateway.CompactionPolicy do
   @moduledoc "Compaction configuration, trigger thresholds and retention budgets."
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.{Definition, Schema}
-  alias Ankole.AIGateway.{ModelMetadata, CompactionRender, CompactionSummarizer}
+  alias Ankole.AppConfigure.Definition
+  alias Ankole.AppConfigure.Schema
+  alias Ankole.AIGateway.ModelMetadata
+  alias Ankole.AIGateway.CompactionRender
+  alias Ankole.AIGateway.CompactionSummarizer
 
   @config_key "ai_gateway.compaction"
   # Compact late. Every token below the trigger is replayed on each model call,
@@ -105,21 +108,6 @@ defmodule Ankole.AIGateway.CompactionPolicy do
       max_threshold_tokens: max_threshold_tokens,
       max_output_tokens: max_output_tokens
     }
-  end
-
-  @spec token_threshold(map(), map()) :: pos_integer()
-  def token_threshold(runtime \\ %{}, request \\ %{}) do
-    runtime
-    |> threshold_spec(request)
-    |> Map.fetch!(:tokens)
-  end
-
-  @spec compute_token_threshold(pos_integer(), number(), pos_integer() | nil) :: pos_integer()
-  def compute_token_threshold(context_length, threshold_percent, max_output_tokens \\ nil) do
-    {tokens, _effective_context_length} =
-      compute_threshold_tokens(context_length, threshold_percent, max_output_tokens)
-
-    tokens
   end
 
   def tail_rows do

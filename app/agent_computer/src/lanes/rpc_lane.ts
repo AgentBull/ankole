@@ -10,8 +10,8 @@ import {
 } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { RuntimeFabricTransportError, isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
-import type { JobTurnRef } from './actor_lane'
-import { runRefToProto, jobTurnRefToProto } from './actor_lane'
+import type { JobTurnRef } from './session_lane'
+import { runRefToProto, jobTurnRefToProto } from './session_lane'
 import {
   createEnvelope,
   envelopeHeader,
@@ -75,7 +75,7 @@ type RPCOperation =
   | { owner: 'worker'; handler: keyof WorkerRPCHandlers; request: DescMessage; response: DescMessage }
 
 export const rpcOperations = {
-  'actor_turn.abort': {
+  'session_turn.abort': {
     scope: 'turn',
     effect: 'complete',
     request: ActorTurnAbortRequestSchema,
@@ -205,7 +205,7 @@ export type WorkerOwnedRPCMethod = {
 export type ControlPlaneOwnedRPCMethod = Exclude<RPCMethod, WorkerOwnedRPCMethod>
 
 /** Turn fence of a turn-scoped call. */
-export type TurnRPCFrame = { run: import('./actor_lane').RunRef } | { jobTurn: JobTurnRef }
+export type TurnRPCFrame = { run: import('./session_lane').RunRef } | { jobTurn: JobTurnRef }
 export type RPCCallOptions = {
   timeoutMs?: number
   signal?: AbortSignal
@@ -259,7 +259,7 @@ export type AutomationJobRPCRequester = <M extends AutomationJobManagementRPCMet
 
 export function webhookRPCRequester(
   rpc: RPCRequester,
-  turn: JobTurnRef | import('./actor_lane').RunRef
+  turn: JobTurnRef | import('./session_lane').RunRef
 ): WebhookRPCRequester {
   // Every webhook method is turn-scoped; same discharge limit as above.
   return async (method, payload) =>
@@ -273,7 +273,7 @@ export function webhookRPCRequester(
 
 export function automationJobRPCRequester(
   rpc: RPCRequester,
-  turn: JobTurnRef | import('./actor_lane').RunRef
+  turn: JobTurnRef | import('./session_lane').RunRef
 ): AutomationJobRPCRequester {
   return async (method, payload) =>
     passthroughJSON(
@@ -638,6 +638,6 @@ export type {
   RuntimeSkillSummary
 } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
-function rpcScope(ref: JobTurnRef | import('./actor_lane').RunRef): TurnRPCFrame {
+function rpcScope(ref: JobTurnRef | import('./session_lane').RunRef): TurnRPCFrame {
   return 'job_id' in ref ? { jobTurn: ref } : { run: ref }
 }

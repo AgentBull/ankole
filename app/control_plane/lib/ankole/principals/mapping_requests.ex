@@ -3,7 +3,7 @@ defmodule Ankole.Principals.MappingRequests do
   Pending manual identity mappings for signal senders that resolve to no
   Principal.
 
-  Ingress records one row per `(provider, external_id)` when a binding holds an
+  Observe records one row per `(provider, external_id)` when a binding holds an
   unmapped sender for manual review. The operator console lists the rows and
   binds each one to a Principal; the bind writes the platform-subject identity
   and removes the row, so the next message from that sender resolves normally.

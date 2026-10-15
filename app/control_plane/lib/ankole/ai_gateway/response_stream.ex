@@ -1727,7 +1727,6 @@ defmodule Ankole.AIGateway.ResponseStream do
     {input_image_count, inline_image_chars} = request_image_stats(request)
 
     %{
-      actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
       model: map_value(response_context, "model") || Map.get(request, "model"),
       api_resolver:
         prepared_request
@@ -1836,7 +1835,6 @@ defmodule Ankole.AIGateway.ResponseStream do
           hosted_tools: %{
             image_generation:
               Map.take(image, [
-                "actor_event_id",
                 "selected_model",
                 "provider_tag",
                 "provider_tags",

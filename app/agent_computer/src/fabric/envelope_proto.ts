@@ -3,8 +3,9 @@ import { create, fromBinary, toBinary } from '@bufbuild/protobuf'
 export { create } from '@bufbuild/protobuf'
 import {
   EnvelopeSchema,
-  type ActorEventEnvelope as ActorEventEnvelopeMessage,
+  type SignalEnvelope as SignalEnvelopeMessage,
   type Envelope,
+  type FetchRuntimeConfig,
   type TurnModelRef as TurnModelRefMessage
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
@@ -30,7 +31,7 @@ export {
   TurnAcceptedSchema,
   WorkerProgressSchema,
   WorkerHeartbeatSchema,
-  ActorKeySchema,
+  SessionKeySchema,
   RunRefSchema,
   JobTurnRefSchema,
   WorkspaceReadySchema,
@@ -38,12 +39,25 @@ export {
   ToolProgressSchema,
   ToolResultSchema
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
-export type { ActorEventEnvelopeMessage, Envelope, TurnModelRefMessage }
+export type { SignalEnvelopeMessage, Envelope, TurnModelRefMessage }
 export type {
   RPCError as RPCErrorMessage,
   RPCRequest as RPCRequestMessage,
   RPCResponse as RPCResponseMessage
 } from './generated/ankole/runtime_fabric/v1/envelope_pb'
+
+export type RenderedFetchRuntimeConfig = {
+  renderedFetchIdleTtlMs?: number
+  ssrfFilter: boolean
+}
+
+export function fetchRuntimeConfigFromProto(
+  message: FetchRuntimeConfig | undefined,
+  field: string
+): RenderedFetchRuntimeConfig {
+  if (!message) throw new Error(`${field} is required`)
+  return { ssrfFilter: message.ssrfFilter, renderedFetchIdleTtlMs: message.renderedFetchIdleTtlMs }
+}
 
 export function encodeEnvelope(envelope: Envelope): Buffer {
   return Buffer.from(toBinary(EnvelopeSchema, envelope))

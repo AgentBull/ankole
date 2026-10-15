@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useLayoutEffect } from 'react'
 
 export type EditorDraftStatus = 'loading' | 'absent' | 'ready'
 
@@ -15,6 +15,7 @@ export type EditorDraftIdentity =
   | { resource: 'worker-env'; name?: string; scope: 'global' | 'tenant' }
   | { resource: 'schedule'; id?: string }
   | { resource: 'setting'; key: string; scope: 'global' | 'tenant' }
+  | { resource: 'setting-group'; group: string; scope: 'global' | 'tenant' }
   | { resource: 'signal-binding'; agentUID: string; adapterID?: string; name?: string }
   | { resource: 'brain-object'; slug?: string }
   | { resource: 'agent-library'; agentUID: string }
@@ -25,6 +26,7 @@ export type EditorDraftIdentity =
 export type EditorDraftModel<Source> = {
   sourceKey: { value: string | undefined }
   initialize: (sourceKey: string, source: Source) => void
+  resetSource?: () => void
 }
 
 type ResolvedEditorDraftIdentity = {
@@ -56,6 +58,8 @@ export function resolveEditorDraftIdentity(identity: EditorDraftIdentity): Resol
       return sameKey(`cron:${identity.id ?? 'new'}`)
     case 'setting':
       return sameKey(`setting:${identity.scope}:${identity.key}`)
+    case 'setting-group':
+      return sameKey(`setting-group:${identity.scope}:${identity.group}`)
     case 'signal-binding':
       return sameKey(`binding:${identity.agentUID}:${identity.adapterID ?? ''}:${identity.name ?? 'new'}`)
     case 'brain-object':
@@ -86,7 +90,9 @@ export function useEditorDraft<Source>(
   const { sourceKey, initializeKey } = resolveEditorDraftIdentity(identity)
   const isAbsent = absent?.() ?? false
 
-  useEffect(() => {
+  useLayoutEffect(() => () => model.resetSource?.(), [model])
+
+  useLayoutEffect(() => {
     seedEditorDraft(model, { sourceKey, initializeKey }, source, isAbsent)
   }, [initializeKey, isAbsent, model, source, sourceKey])
 
@@ -105,6 +111,10 @@ export function seedEditorDraft<Source>(
   source: Source | undefined,
   absent: boolean
 ): void {
+  // Selection changes revoke old request captures before the next source loads.
+  if (model.sourceKey.value !== undefined && (absent || model.sourceKey.value !== identity.sourceKey)) {
+    model.resetSource?.()
+  }
   if (absent || source === undefined || model.sourceKey.value === identity.sourceKey) return
   model.initialize(identity.initializeKey, source)
 }

@@ -15,7 +15,7 @@ import {
   BackgroundAgentJobTurnItemsListResponseSchema,
   BackgroundAgentJobTurnUpsertResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { TurnStart } from '../src/lanes/actor_lane'
+import type { TurnStart } from '../src/lanes/session_lane'
 import {
   RuntimeRPCClient,
   type BackgroundAgentJobResponse,
@@ -514,13 +514,13 @@ function turnStart(): TurnStart {
     mode: 'start',
     fetch_runtime_config: { ssrfFilter: true },
     turn: {
-      actor: { session_id: `job:${jobID}` },
+      session: { session_id: `job:${jobID}` },
       job_id: Number(jobID),
       attempt: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000001'
+      signal_id: '00000000-0000-0000-0000-000000000001'
     },
-    actor_event: {
-      actor_event_id: '00000000-0000-0000-0000-000000000001',
+    signal: {
+      signal_id: '00000000-0000-0000-0000-000000000001',
       type: 'background_agent_job.dispatch',
       payload_json: { data: { job_id: Number(jobID), owner_session_id: 'parent-session', attempts: 1 } }
     },

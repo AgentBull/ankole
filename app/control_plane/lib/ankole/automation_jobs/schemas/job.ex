@@ -11,7 +11,7 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
   alias Ankole.AutomationJobs.Schemas.Run
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
 
   @primary_key {:id, :id, autogenerate: true}
   @foreign_key_type :string
@@ -32,11 +32,11 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
 
     field :owner_session_id, :string
 
-    belongs_to :source_actor_event, ActorEvent,
-      foreign_key: :source_actor_event_id,
+    belongs_to :source_signal, Signal,
+      foreign_key: :source_signal_id,
       type: Ecto.UUID
 
-    field :source_entry_id, :string
+    field :provider_message_id, :string
     field :source_provenance, :map, default: %{}
     field :reply_route, :map, default: %{}
     # Drive folder that holds the script and its `main.ts`.
@@ -67,8 +67,8 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
       :human_access_version,
       :agent_uid,
       :owner_session_id,
-      :source_actor_event_id,
-      :source_entry_id,
+      :source_signal_id,
+      :provider_message_id,
       :source_provenance,
       :reply_route,
       :drive_prefix,
@@ -81,7 +81,7 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
     |> normalize_blank([
       :agent_uid,
       :owner_session_id,
-      :source_entry_id,
+      :provider_message_id,
       :drive_prefix,
       :label,
       :status
@@ -102,7 +102,7 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
     |> JSONPayload.validate_map(:source_provenance)
     |> JSONPayload.validate_map(:reply_route)
     |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:source_actor_event_id)
+    |> foreign_key_constraint(:source_signal_id)
     |> check_constraint(:id, name: :automation_jobs_id_range)
     |> check_constraint(:status, name: :automation_jobs_status_check)
     |> check_constraint(:owner_session_id, name: :automation_jobs_owner_session_present)

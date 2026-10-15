@@ -15,9 +15,6 @@ defmodule Ankole.MixProject do
     ]
   end
 
-  # Configuration for the OTP application.
-  #
-  # Type `mix help compile.app` for more information.
   def application do
     [
       mod: {Ankole.Application, []},
@@ -38,7 +35,6 @@ defmodule Ankole.MixProject do
     ]
   end
 
-  # Specifies which paths to compile per environment.
   defp elixirc_paths(:test),
     do: ["lib", "test/support" | e2e_support_paths()] ++ plugin_elixirc_paths()
 
@@ -108,9 +104,6 @@ defmodule Ankole.MixProject do
     release
   end
 
-  # Specifies your project dependencies.
-  #
-  # Type `mix help deps` for examples and options.
   defp deps do
     [
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: :dev, runtime: false},
@@ -162,12 +155,6 @@ defmodule Ankole.MixProject do
     ]
   end
 
-  # Aliases are shortcuts or tasks specific to the current project.
-  # For example, to install project dependencies and perform other setup tasks, run:
-  #
-  #     $ mix setup
-  #
-  # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup"],
@@ -209,7 +196,8 @@ defmodule Ankole.MixProject do
         "ecto.create --quiet",
         "ecto.migrate --quiet",
         "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs " <>
-          "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs --trace"
+          "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs " <>
+          "../../tools/e2e/suites/conversations_cli_real_llm_e2e_test.exs --trace"
       ],
       "e2e.ai_gateway_real_provider": [
         "ecto.create --quiet",

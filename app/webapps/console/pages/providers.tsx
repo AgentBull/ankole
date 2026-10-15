@@ -91,7 +91,7 @@ import {
   initialSettingValue,
   settingValidationMessage,
   type ProviderSetting
-} from './provider-settings'
+} from '../state/provider-settings'
 
 type CredentialStrategy = AIGatewayCredentialStrategyWriteRequest['strategy']
 type LoginPayload = Record<string, unknown>

@@ -15,9 +15,9 @@ manage shared infrastructure. See [Tenants](design-docs/Tenants.md).
 A Principal identifies the person or Agent responsible for an action. AuthZ
 decides what that Principal can do.
 
-An Agent receives work from provider messages, schedules, and Background Agent
-Jobs. It can use tools and resume work after a process fails. PostgreSQL stores
-the data that Ankole needs after a restart.
+An Agent receives work from native Workplace messages, provider messages,
+schedules, and Background Agent Jobs. It can use tools and resume work after a
+process fails. PostgreSQL stores the data that Ankole needs after a restart.
 
 ## System Map
 
@@ -25,7 +25,7 @@ the data that Ankole needs after a restart.
 Providers and schedules
           |
           v
-SignalsGateway --> Conversations --> AIGateway --> model providers
+Conversations --> Signals --> Sessions --> AIGateway --> model providers
                           |               |
                           +-- PostgreSQL -+
                           |
@@ -36,8 +36,9 @@ SignalsGateway --> Conversations --> AIGateway --> model providers
 
 | Part | What it does | Detailed document |
 | --- | --- | --- |
-| SignalsGateway | Receives provider events, starts Agent turns, and sends replies | [SignalsGateway](design-docs/SignalsGateway.md) |
-| Conversations | Drives the main model loop and recovers durable steps | [RuntimeFabric](design-docs/RuntimeFabric.md) |
+| Conversations | Owns shared conversations, public Messages, provider observations, and Delivery | [Conversations](design-docs/Conversations.md) |
+| Signals | Accepts stimuli, routes CloudEvents, and stores authorization and target facts | [Signals](design-docs/Signals.md) |
+| Sessions | Drives each Agent's model loop and recovers durable steps | [Sessions](design-docs/Sessions.md) |
 | AIGateway | Selects model providers and stores Responses for each Principal | [AIGateway](design-docs/AIGateway.md) |
 | Brain | Stores tenant-shared knowledge and finds it when an Agent needs it | [BrainV3](design-docs/BrainV3.md) |
 | RuntimeFabric | Carries live messages and RPC calls; coordinates HTTP file relay | [RuntimeFabric](design-docs/RuntimeFabric.md) |
@@ -46,9 +47,13 @@ SignalsGateway --> Conversations --> AIGateway --> model providers
 | Agent Computer | Runs Codex and environment tools | `app/agent_computer/` |
 | PostgreSQL | Stores facts that must survive a restart | Migrations in `app/control_plane/priv/repo/migrations/` |
 
-Schedule creates an `ActorEvent` when work becomes due. A `BackgroundAgentJob`
-runs work outside the conversation that created it. AppConfigure stores settings
+Schedule creates a `Signal` through the same intake when work becomes due. A `BackgroundAgentJob`
+runs work outside the Session that created it. AppConfigure stores settings
 that an operator can change while Ankole runs.
+
+Workplace sends native messages through Conversations and Signals to Sessions.
+Native and provider Messages use shared public history. Each Agent's model
+history remains separate from that Conversation.
 
 ## What Each Process Does
 
@@ -93,7 +98,7 @@ Automation scripts, and is available while its Worker is absent. See
 | `app/control_plane/` | Elixir control plane, Phoenix APIs, Ecto schemas, and migrations |
 | `app/kernel/` | Shared Rust kernel and host bindings |
 | `app/agent_computer/` | Bun worker, tools, Codex runner, and browser runtime |
-| `app/webapps/` | Auth, setup, and console React applications |
+| `app/webapps/` | Auth, setup, Workplace, and console React applications |
 | `app/library/` | Built-in Skills, Agent Plugins, and Agent templates |
 | `app/locales/` | Shared translation catalogs |
 | `plugins/` | First-party control-plane plugins |
@@ -123,7 +128,7 @@ It starts the children in this order:
 4. Worker provider configuration and seed, then Oban
 5. Plugin cohort and local-password retry guard
 6. AIGateway credential pool, task and response-stream supervisors, and WorkerFiles supervisor
-7. SignalsGateway and Workflow supervisors
+7. Sessions and Workflow supervisors
 8. Optional identity startup sync
 9. AIGateway model metadata cache and DNSCluster
 10. Phoenix endpoint
@@ -137,14 +142,14 @@ PostgreSQL keeps the following data because Ankole needs it after a restart:
 
 - Principals, humans, Agents, groups, memberships, and permission grants
 - AppConfigure values and encrypted provider configuration
-- Signal routing rules (`SignalBinding` records), channels, entries, tombstones, ActorEvent rows, and outbox rows
+- Signal routing rules, Signals, callback Endpoints, Conversations, Messages, external references, tombstones, and Delivery intents
 - Schedules and scheduled events
 - AIGateway conversations, messages, compaction artifacts, and provider rows
 - Brain pages, versions, chunks, claims, timelines, links, sources, schema packs, contradictions, and skill lessons
 - BackgroundAgentJob rows and their turn records
-- Conversation workspace epochs and tool receipts
+- Session workspace epochs and tool receipts
 
-Conversation drivers rebuild their progress from these facts. A process exit
+Session drivers rebuild their progress from these facts. A process exit
 does not delete the work history.
 
 ## Message Lifecycle
@@ -152,29 +157,32 @@ does not delete the work history.
 This sequence shows how Ankole handles a provider message addressed to an Agent.
 
 1. The provider adapter converts the event to Ankole's common format.
-2. SignalsGateway checks the Agent's message policy and updates its copy of the provider message.
-3. SignalsGateway groups related input and writes one `ActorEvent` work item.
-4. Conversations starts or wakes the conversation driver. Admission claims the input and advances the workspace epoch.
+2. Conversations.Observe applies the Binding policy and records the shared public Message and its provider reference.
+3. IM batching groups related input; Signals.accept_in_tx records one authorized stimulus and a durable Session wakeup.
+4. Sessions starts or wakes the Session Driver. Admission claims the input and advances the workspace epoch.
 5. The driver prepares the Agent context and asks AIGateway to create a stateful Response.
 6. AIGateway stores the Response and streams its live events to current subscribers.
 7. The driver runs control-plane tools in database transactions. It requests a Worker only for environment tools or Codex Jobs.
 8. One transaction records a complete tool round, consumes applied input, and removes its tool receipts. The next Response continues that tape.
-9. At the end of the run, one transaction checks the epoch, completes the input, and records replies in the outbox.
-10. The provider adapter sends each reply and records the provider's result.
+9. At the end of the run, one transaction checks the epoch, completes the input, and records provider Delivery intents.
+10. The provider adapter delivers each intent. Provider confirmation records the public Agent Message and external reference.
 
-A terminal Response does not complete a conversation run. After a driver exits,
+A terminal Response does not complete a Session run. After a driver exits,
 the next driver recovers the run from the stored input, tape, and tool receipts.
 
-Live previews can disappear. The final reply always comes from a stored outbox
-row. Ankole records the provider's success before it treats the reply as sent.
+Live provider previews can disappear. A final external reply comes from a stored
+Delivery intent. Native replies commit directly as public Agent Messages. Neither
+path uses the model Response tape as the public Conversation transcript.
 
 ## Do Not Mix These IDs
 
 | Identifier | Meaning |
 | --- | --- |
 | `source_event_id` | One provider event and its duplicate-prevention key |
-| `source_entry_id` | One provider-visible entry |
-| `actor_event_id` | One Ankole work item stored in PostgreSQL |
+| `provider_conversation_id` | One opaque provider room or thread identity |
+| `provider_message_id` | One provider-visible message |
+| `conversation_id`, `message_id` | Public Conversation and Message UUIDs |
+| `signal_id` | One accepted Ankole stimulus |
 | `ai_message_id` | One stored AIGateway message row |
 
 Do not use one identifier as a substitute for another. The module responsible
@@ -195,11 +203,11 @@ and runs Skills without help from a Control Plane Plugin.
 
 - Add a model provider under `app/control_plane/lib/ankole/ai_gateway/providers/`
   or through the `ai_gateway.provider` plugin contract.
-- Add a main Agent tool under `app/control_plane/lib/ankole/conversations/tools/`.
+- Add a main Agent tool under `app/control_plane/lib/ankole/sessions/tools/`.
   Add an environment or Codex Job tool under `app/agent_computer/src/tools/`
   and regenerate its declared Worker catalog.
-- Add a signal provider as a plugin with declared ingress and outbox modules.
-- Add a worker RPC in the ActorRuntime RPC lane and its worker requester.
+- Add a message provider through `signals.adapter` with `observe_module` and `deliver_module`.
+- Add a worker RPC in the Sessions RPC lane and its worker requester.
 - Add a runtime setting through AppConfigure in the owning subsystem.
 - Add a built-in Skill under `app/library/skills/<name>/`.
 - Add console APIs through OpenAPI controllers and regenerate the web client.
@@ -245,7 +253,9 @@ credentials.
 | [Tenants](design-docs/Tenants.md) | Site administration, data contexts, isolation and tenant lifecycle |
 | [AIGateway](design-docs/AIGateway.md) | Model providers, Response history, compaction, and generated files |
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | Per-Agent token limits, periods, resets, and the rejection contract |
-| [SignalsGateway](design-docs/SignalsGateway.md) | Provider input, Agent work, previews, and replies |
+| [Conversations](design-docs/Conversations.md) | Shared public history, provider observation, Delivery, and Workplace SSE |
+| [Signals](design-docs/Signals.md) | Single intake, authorization, routing rules, and CloudEvents Endpoints |
+| [Sessions](design-docs/Sessions.md) | Agent execution, model rounds, unread history, and recovery |
 | [BrainV3](design-docs/BrainV3.md) | Tenant-shared knowledge, scoped disclosure, learning, and Dreaming |
 | [Brain Markdoc](design-docs/BrainMarkdoc.md) | Brain page body syntax and Object editing in the Console (Chinese) |
 | [Skill Lessons](design-docs/SkillLessons.md) | Leased per-skill field notes from finished work |

@@ -89,7 +89,7 @@ defmodule Ankole.Schedule do
   defdelegate cancel_checkbacks_for_provider_entry_in_tx(repo, attrs, now), to: Checkbacks
 
   @doc """
-  Fires a due scheduled event by appending an ActorEvent or automation job run.
+  Fires a due scheduled event by appending an Signal or automation job run.
   """
   @spec fire_due_event(pos_integer(), keyword()) ::
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}

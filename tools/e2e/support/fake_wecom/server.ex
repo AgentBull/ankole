@@ -3,7 +3,8 @@ defmodule Ankole.E2E.FakeWeCom.Server do
 
   import ExUnit.Callbacks, only: [start_supervised!: 1]
 
-  alias Ankole.E2E.FakeWeCom.{Router, State}
+  alias Ankole.E2E.FakeWeCom.Router
+alias Ankole.E2E.FakeWeCom.State
 
   def start!(opts \\ []) do
     state = start_supervised!({State, opts})

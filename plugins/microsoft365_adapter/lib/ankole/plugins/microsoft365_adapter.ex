@@ -3,13 +3,15 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
 
   @behaviour Ankole.Plugins.Plugin
 
-  alias Ankole.Plugins.Microsoft365Adapter.{Config, Inbound, Outbox, TeamsChannels, TeamsWebhook}
+  alias Ankole.Plugins.Microsoft365Adapter.Config
+  alias Ankole.Plugins.Microsoft365Adapter.Inbound
+  alias Ankole.Plugins.Microsoft365Adapter.Delivery
+  alias Ankole.Plugins.Microsoft365Adapter.TeamsChannels
+  alias Ankole.Plugins.Microsoft365Adapter.TeamsWebhook
 
-  alias Ankole.Plugins.Microsoft365Adapter.{
-    DirectoryWebhook,
-    IdentityProvider,
-    SubscriptionReconciler
-  }
+  alias Ankole.Plugins.Microsoft365Adapter.DirectoryWebhook
+  alias Ankole.Plugins.Microsoft365Adapter.IdentityProvider
+  alias Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler
 
   @zh_fields %{
     "appID" => {"应用 ID", "Azure Bot 注册的 Microsoft App ID（client id）。"},
@@ -53,7 +55,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "teams",
         adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
@@ -64,8 +66,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         # RSC read permissions (ChannelMessage.Read.Group, ChatMessage.Read.Chat);
         # without them Teams only delivers @bot messages in group contexts.
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
+        observe_module: Inbound,
+        deliver_module: Delivery,
         binding_saved_module: TeamsChannels,
         inbound_capabilities: [
           "entry_receive",
@@ -87,7 +89,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         ]
       },
       %{
-        contract_id: "signals_gateway.webhook_handler",
+        contract_id: "signals.webhook_handler",
         id: "teams",
         plugin_id: plugin_id(),
         module: TeamsWebhook,
@@ -110,7 +112,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
         ]
       },
       %{
-        contract_id: "signals_gateway.webhook_handler",
+        contract_id: "signals.webhook_handler",
         id: "entra-id",
         plugin_id: plugin_id(),
         module: DirectoryWebhook,

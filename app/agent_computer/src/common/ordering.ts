@@ -1,4 +1,3 @@
-/** Locale-independent lexical ordering by Unicode scalar value. */
 export function compareCodePointStrings(left: string, right: string): number {
   const leftIterator = left[Symbol.iterator]()
   const rightIterator = right[Symbol.iterator]()

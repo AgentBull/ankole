@@ -1,6 +1,6 @@
 ---
 title: 架构
-description: 说明控制面、Agent Computer Worker、Actor Runtime、Brain 和后台 Agent 任务如何构成 Ankole Agent Harness。
+description: 说明控制面、Agent Computer Worker、Sessions、Brain 和后台 Agent 任务如何构成 Ankole Agent Harness。
 section: Developer guide
 order: 100
 ---
@@ -19,13 +19,13 @@ Harness 识别每个行动主体，执行访问规则，恢复中断的长任务
 
 每个私有部署实例包含一个逻辑控制面，并为每个 Agent 提供一台 Agent Computer Worker。控制面管理身份、状态和调度，并负责创建 Worker。每台 Worker 为它的 Agent 提供执行环境。
 
-SignalsGateway 接收外部聊天、Webhook 和计划任务。身份提供商提供人员与组织目录。AIGateway 统一处理模型、Embedding、Rerank、图像和 Web 工具调用。
+Workplace 和外部适配器记录对话发言；Signals 接纳发言、外部事件和定时刺激，Sessions 执行相应工作。身份提供商提供人员与组织目录。AIGateway 统一处理模型、Embedding、Rerank、图像和 Web 工具调用。
 
 ## 控制面与 Agent Computer Worker
 
 ### 控制面保存状态并提交决策
 
-控制面使用 Elixir/OTP，负责 Console、主体与权限、系统配置、信号路由、Actor 会话、Brain、后台 Agent 任务、AIGateway 和 Control Plane Plugin。
+控制面使用 Elixir/OTP，负责 Console、主体与权限、系统配置、信号路由、执行会话、Brain、后台 Agent 任务、AIGateway 和 Control Plane Plugin。
 
 所有会改变用户可见结果的状态都先写入 PostgreSQL，再驱动执行或对外投递。进程重启后，已接收的消息、任务状态、记忆和审计记录仍然保留。
 
@@ -51,27 +51,39 @@ RuntimeFabric 通过每个 Worker 一条 Phoenix Channel 连接控制面与 Work
 
 ## 一条消息如何变成可恢复的工作
 
-### SignalsGateway 接收外部事件
+### 对话保存参与者的发言
 
-聊天适配器、Webhook 和计划任务先将外部事件转换为统一信号。信号路由规则指定接收信号的 Agent 和会话，以及回复的目标频道或话题。
+对话是人和 Agent 共享的空间。`Ankole.Conversations` 保存参与者与发言。Workplace 直接写入原生发言；适配器观察外部对话中的发言，内容仍以外部平台为准。
 
-群聊可以只处理明确提及 Agent 的消息，也可以记录未提及 Agent 的对话，或允许 Agent 判断是否主动介入。可用模式取决于聊天平台和信号路由规则。
+对话发言与 Agent 的工作分开记录。发言属于参与者；模型调用、工具结果和压缩属于执行会话在 AIGateway 中的模型会话状态。执行会话不跨对话，一个对话中的工作不会进入另一个对话。
 
-SignalsGateway 先保存收到的消息及其来源，再唤醒 Agent。回复在发送前进入可追踪的投递状态，再由适配器发送到聊天平台。系统分别记录回复内容和投递结果。
+### 所有刺激由 Signals 接纳
 
-### 触发器可以唤醒 Agent，也可以运行脚本
+点名 Agent 的发言派生 signal。时间到达、外部事件、check-back 和任务完成也都是 signal。`Ankole.Signals` 先持久保存来源、来源事件 ID、目标、归因和授权，再唤醒执行会话。
 
-Cron、Checkback 和 Webhook 端点都可以作为触发器。触发器默认唤醒 Agent 会话。绑定 Automation Job 后，触发器运行 Agent 编写的确定性脚本。
+原生发言与它派生的 signal 在同一事务中提交。接纳按 `(Agent, source, id)` 去重；这不代表后续的所有动作都只执行一次。
 
-脚本静默执行确定性检查，每次运行都留下可查询的记录。需要 Agent 判断时，脚本通过 `emitEvent` 将事件发送到发起任务的会话，再由 Agent 复核并执行操作。模型无需持续轮询。参见 [Automation Job](../automation-jobs/)。
+signal 可以显式指定执行会话；也可以由对话参与关系或信号路由规则选择目标。对话宿主适配器观察发言并执行投递，事件源适配器只产生 signal。Automation Job 可以先完成确定性检查，需要判断时向父执行会话接纳 signal。参见 [Automation Job](../automation-jobs/)。
 
-### Actor Runtime 管理长时会话
+### Sessions 执行并恢复工作
 
-每个活跃会话都是可寻址的 Virtual Actor，包含信箱、生命周期和恢复点。新消息或计划任务可以唤醒 Actor。Actor 在执行期间可以接收补充信息、取消请求和人工引导。
+`Ankole.Sessions` 拥有队列、Admission、Driver、Run、工具和恢复。一个执行会话同时只运行一个 Run。每次开始执行时，Admission 检查租户、Agent 状态、授权与配额。
 
-对话 Driver 管理长任务，用 PostgreSQL 中的 epoch 栅栏保护自身写入，从持久 Response 链保留已完成步骤。Worker 结果按 RunRef 或 JobTurnRef 的操作标识接纳，新 Driver 可以领养在途工作。
+每个 Agent 在对话中拥有自己的执行会话，其中的工作对全体参与者可见。点名的一轮采用请求人的授权；主动介入默认以 Agent 自己的身份执行。现有介入策略认定某个人是当前请求人时，才改用这个人的授权。
 
-流式内容表示执行进度。控制面确认并持久化的消息、工具结果和状态迁移构成已提交记录。控制面将「界面显示工作进度」与「工作已经完成」作为两种状态分别记录。
+cron 规则和后台任务在独立执行会话中工作，再向目标对话发言。对话的下一轮读取这些新发言，不引入其他执行会话的内部过程。
+
+AIGateway 保存和续接模型会话状态；运行时决定输入、指令、工具、续接与压缩。Driver 用 PostgreSQL 中的 epoch 拒绝过期写入。恢复从已提交进度继续：模型调用可能重做，已记录的工具结果直接复用，结果不明的工具调用标记为中断。
+
+### Presentation 与 Delivery 提交可见结果
+
+Presentation 只决定一次可见回复。原生回复在完成事务中追加为发言；silent turn 不发言。外部回复先创建持久的 Delivery 意图，再由适配器发送。
+
+平台确认成功后，在标记投递成功的同一事务中写入发言。平台随后推送的相同消息 ID 合并为同一条发言。失败、过期和结果不明的投递不产生发言；结果不明时不盲目重发。
+
+流式文本表示当前进度，发言提交后才进入对话历史。页面断线后重新读取已提交历史和执行状态，不补发半段文本。
+
+设计选择、代价与经过源码核对的比较见[对话、信号与执行会话](../conversations-signals-sessions/)。
 
 ## Brain 维护当前世界模型
 
@@ -105,7 +117,7 @@ AIGateway 是模型调用的统一边界。主 Agent、后台任务、Brain 和�
 
 Agent 的模型档案指定执行所用的模型。每个租户选择 Brain 维护 Agent，使用其 `light`、`heavy` 和 `web_fetch` profile 执行 Brain 工作。站点级 AppConfigure 设置 Embedding 模型，租户级 AppConfigure 设置 Rerank 模型。控制面加密保存 Provider 凭证，AIGateway 使用这些凭证请求上游服务。
 
-AIGateway 支持不保存历史的单次调用和可继续的有状态会话。AIGateway 负责请求转换、流式事件、工具结果、上下文压缩、用量记录和最终结果提交，并统一处理各 Provider 的生命周期。
+AIGateway 支持不保存历史的单次调用和可继续的模型会话状态。AIGateway 负责请求转换、流式事件、工具结果、上下文压缩、用量记录和最终结果提交，并统一处理各 Provider 的生命周期。
 
 工具数量较多时，模型可以通过 Tool Search 按需检索工具，也可以提交程序，在受限沙盒中批量调用工具并返回结果。原生支持这些能力的 Provider 直接处理请求，其他 Provider 由 AIGateway 提供对应实现。一个 Provider 可以配置多个凭证组成凭证池，其中包括 ChatGPT 订阅等账号凭证。系统按单个凭证记录失败、重试和用量。
 

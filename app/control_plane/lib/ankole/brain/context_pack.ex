@@ -47,12 +47,14 @@ defmodule Ankole.Brain.ContextPack do
       forgetting = Config.forgetting()
       now = DateTime.utc_now()
 
-      channel_id = params[:channel_id]
+      conversation_id = params[:conversation_id]
 
       cards =
         params
         |> pack_entity_slugs(visibility)
-        |> Enum.map(&base_card(&1, access, disclosure, forgetting, now, channel_id, visibility))
+        |> Enum.map(
+          &base_card(&1, access, disclosure, forgetting, now, conversation_id, visibility)
+        )
         |> Enum.reject(&is_nil/1)
 
       ContextPackStats.record(:served)
@@ -79,7 +81,7 @@ defmodule Ankole.Brain.ContextPack do
   Builds the entity card of one object: title, type, aliases, selected
   current facts, open threads, edge summary, and backlink count.
 
-  `channel_id` is the conversation the card is built for, or `nil` outside a
+  `conversation_id` is the conversation the card is built for, or `nil` outside a
   channel; it brings in the claims this entity holds that were filed on that
   channel instead of a page.
   """
@@ -92,8 +94,8 @@ defmodule Ankole.Brain.ContextPack do
           String.t() | nil,
           LazySkillVisibility.t()
         ) :: map() | nil
-  def entity_card(slug, access, disclosure, forgetting, now, channel_id, visibility) do
-    case base_card(slug, access, disclosure, forgetting, now, channel_id, visibility) do
+  def entity_card(slug, access, disclosure, forgetting, now, conversation_id, visibility) do
+    case base_card(slug, access, disclosure, forgetting, now, conversation_id, visibility) do
       nil ->
         nil
 
@@ -124,7 +126,7 @@ defmodule Ankole.Brain.ContextPack do
     end
   end
 
-  defp base_card(slug, access, disclosure, forgetting, now, channel_id, visibility) do
+  defp base_card(slug, access, disclosure, forgetting, now, conversation_id, visibility) do
     case Repo.get_by(Object, slug: slug) do
       nil ->
         nil
@@ -136,7 +138,7 @@ defmodule Ankole.Brain.ContextPack do
         if LazySkillVisibility.visible?(visibility, object.slug) do
           facts =
             object.slug
-            |> entity_claims(channel_id)
+            |> entity_claims(conversation_id)
             |> where([claim], claim.claim_type == "fact" and is_nil(claim.expired_at))
             |> Access.filter_claims(access)
             |> LazySkillVisibility.filter_claims(visibility)
@@ -252,12 +254,12 @@ defmodule Ankole.Brain.ContextPack do
   # not this entity's.
   defp entity_claims(slug, nil), do: where(Claim, [claim], claim.object_slug == ^slug)
 
-  defp entity_claims(slug, channel_id) do
+  defp entity_claims(slug, conversation_id) do
     where(
       Claim,
       [claim],
       claim.object_slug == ^slug or
-        (claim.signal_gateway_channel_id == ^channel_id and claim.holder == ^slug)
+        (claim.conversation_id == ^conversation_id and claim.holder == ^slug)
     )
   end
 

@@ -5,7 +5,9 @@ defmodule Ankole.AIGateway.ToolResultJournal do
   import Ankole.AIGateway.ResponseChain,
     only: [previous_response_id: 1, decode_response_id: 1, complete_message_for_subject: 3]
 
-  alias Ankole.AIGateway.{Conversations, Events, ResponseItems}
+  alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway.Events
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Principals
 

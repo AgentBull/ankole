@@ -11,7 +11,7 @@ Group behavior in this mode depends on two controls: channel standing orders and
 
 ## Each message is judged once
 
-The Agent keeps a judgment cursor per channel. Each check judges only the messages that arrived after the last check; older messages appear only as background and are never re-evaluated. A message the Agent decided to leave alone does not suddenly get answered several rounds later.
+Each Agent keeps its own judgment progress for a Conversation. Agents in the same external Conversation share messages and standing orders, but they do not share judgment progress. Each check judges only the messages that arrived after the last check; older messages appear only as background and are never re-evaluated. A message the Agent decided to leave alone does not suddenly get answered several rounds later.
 
 Every judgment records its action, authorization source, and reason. A background handoff also records its exact target. When the Agent seems too quiet or too eager, operators can inspect the selected route instead of guessing.
 
@@ -20,7 +20,7 @@ Every judgment records its action, authorization source, and reason. A backgroun
 - **No action (`NOOP`)** keeps the Agent silent. This is the usual result for chatter, acknowledgements, duplicated answers, or work already handled by a person.
 - **Foreground reply (`FOREGROUND_REPLY`)** starts one concise visible turn for an answer, clarification, coordination, status report, or small bounded lookup. This route cannot create or respawn a background job.
 - **New work (`NEW_WORK`)** identifies a distinct, substantive task. A direct human request or a matching standing order authorizes the normal owner turn. Without either source, the Agent can only ask whether it should take the work on; it gets no tools and cannot start a job in that confirmation turn.
-- **Handoff (`HANDOFF`)** silently sends the new messages to exactly one matching live background job from the same Agent, owner session, channel, and binding. An ambiguous or incomplete candidate set cannot produce a handoff.
+- **Handoff (`HANDOFF`)** silently sends the new messages to exactly one matching live background job from the same Agent, owner Session, Conversation, and binding. An ambiguous or incomplete candidate set cannot produce a handoff.
 
 The recognizer never creates a background job. It only selects the route and authorization source. The normal owner turn still applies the usual approval and background-work rules.
 
@@ -31,11 +31,11 @@ When the Agent decides to speak, it separates two cases:
 - **Someone is asking it** — one of the new messages actually asks or addresses the Agent, even without an @ mention. Its reply then anchors to that message: on channels that support it, this renders as a quote reply or a thread reply, so the room can see whom it is answering.
 - **Volunteering** — nobody addressed it, but the Agent judges that adding information helps now (or a standing order matched). The reply goes out as a normal group message.
 
-The attribution is validated: the identified ask must exist in the judged batch, come from a human, and its author must still be the latest speaker. The Agent does not dig up an old question after the room has moved on; that case degrades to a normal proactive reply.
+The attribution is validated: the identified ask must exist in the judged batch, come from a human, and its author must still be the latest speaker. The Agent does not dig up an old question after the room has moved on; that case degrades to a normal proactive reply. If the platform later deletes an accepted ask, the stored attribution becomes degraded with no message anchor. The judgment and its progress remain.
 
 ## Channel standing orders
 
-Standing orders are one durable policy text attached to a channel. They tell the Agent when to speak proactively in that room. Examples:
+Standing orders are one durable policy text attached to a Conversation and shared by its Agent participants. They tell the Agent when to speak proactively in that room. Examples:
 
 - "Only speak when CI turns red or a deploy fails."
 - "After 18:00, when someone posts a daily report, summarize it; stay quiet otherwise."
@@ -50,7 +50,7 @@ Two boundaries:
 - **They activate only in May intervene mode.** Under other binding modes the text is stored but fully inert, and the Agent tells you it is inactive after saving. Switching the binding to May intervene activates it without further steps.
 - One orders text holds at most 4000 characters.
 
-The Console can also read and write standing orders; see the `/signal-channels/:channel_id/standing-orders` endpoints in the [Console API reference](../console-api/).
+The Console can also read and write standing orders; see the `/conversations/:conversation_id/standing-orders` endpoints in the [Console API reference](../console-api/).
 
 ## Still speaking too much or too little
 
@@ -61,4 +61,4 @@ The Console can also read and write standing orders; see the `/signal-channels/:
 ## Next steps
 
 - Group message modes and binding configuration: read [Signal bindings](../signal-bindings/).
-- How messages become Agent work items: read [SignalsGateway](../signals-gateway/).
+- How messages become Agent work items: read [Signals](../signals/).

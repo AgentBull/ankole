@@ -12,20 +12,22 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     only: [
       deadline: 1,
       wait_until: 2,
-      wait_for_completed_actor_event_message: 3,
+      wait_for_completed_signal_message: 3,
       wait_for_completed_final_reply: 3,
-      wait_for_completed_outbox: 3,
-      ai_messages_for_actor_event: 1
+      wait_for_completed_intent: 3,
+      ai_messages_for_signal: 1
     ]
 
   alias Ankole.Repo
   alias Ankole.Schedule
-  alias Ankole.Schedule.Schemas.{CronSchedule, ScheduledEvent}
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.Entry
-  alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.Schedule.Schemas.CronSchedule
+  alias Ankole.Schedule.Schemas.ScheduledEvent
+
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.Message, as: ConversationMessage
+  alias Ankole.Conversations.External
+  alias Ankole.Conversations.Delivery.Intent
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
@@ -44,7 +46,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  DateTime.to_unix(DateTime.add(@base_time, 2, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_checkback_tool_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_checkback_tool_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -52,24 +54,27 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(60_000))
 
-    assert reply.text =~ "CHAOS_CHECKBACK_OK"
+    assert reply.message.text =~ "CHAOS_CHECKBACK_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     assert tool_result_succeeded?(messages, "check_back_later")
 
-    checkback = Repo.get_by!(ScheduledEvent, source_actor_event_id: input.id)
+    checkback = Repo.get_by!(ScheduledEvent, source_signal_id: input.id)
     assert checkback.status == "scheduled"
     assert checkback.binding_name == "lark-chaos-primary"
-    assert checkback.source_actor_event_id == input.id
+    assert checkback.source_signal_id == input.id
     assert checkback.origin_ai_message_id in Enum.map(messages, & &1.id)
-    assert checkback.signal_channel_id == "lark:oc_chaos_schedule"
+
+    assert checkback.conversation_id ==
+             External.get_conversation(Repo, "lark:oc_chaos_schedule").id
+
     assert is_nil(checkback.provider_thread_id)
-    assert checkback.source_entry_id == "om_checkback_tool_1"
+    assert checkback.provider_message_id == "om_checkback_tool_1"
     assert checkback.wake_payload["reason"] == "Lark chaos checkback"
     assert checkback.wake_payload["check"] == "Confirm CHAOS_CHECKBACK_WAKE_OK"
     assert DateTime.diff(checkback.due_at, checkback.requested_at, :second) == 5
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply, checkback: checkback}
   end
 
@@ -80,7 +85,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  do: :due
              end)
 
-    assert {:ok, %{status: :fired, actor_event: wake_input}} =
+    assert {:ok, %{status: :fired, signal: wake_input}} =
              Schedule.fire_due_event(checkback.id)
 
     assert wake_input.type == "check_back_later.wakeup"
@@ -94,9 +99,9 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(container, wake_input.id, deadline(60_000))
 
-    assert reply.text =~ "CHAOS_CHECKBACK_WAKE_OK"
+    assert reply.message.text =~ "CHAOS_CHECKBACK_WAKE_OK"
 
-    assert_actor_event_completed!(wake_input.id)
+    assert_signal_completed!(wake_input.id)
     %{input: wake_input, reply: reply, message: message}
   end
 
@@ -115,7 +120,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  DateTime.to_unix(DateTime.add(@base_time, 3, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_cron_tool_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_cron_tool_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -123,9 +128,9 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(60_000))
 
-    assert reply.text =~ "CHAOS_CRON_OK"
+    assert reply.message.text =~ "CHAOS_CRON_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     assert tool_result_succeeded?(messages, "cron")
 
     cron_schedule = Repo.get_by!(CronSchedule, agent_uid: agent.uid, name: "lark-chaos-cron")
@@ -137,13 +142,16 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert cron_schedule.payload == %{"task" => "CHAOS_CRON_WAKE_OK"}
     assert [primary_target] = cron_schedule.delivery["targets"]
     assert primary_target["binding_name"] == "lark-chaos-primary"
-    assert primary_target["signal_channel_id"] == "lark:oc_chaos_schedule"
+
+    assert primary_target["conversation_id"] ==
+             External.get_conversation(Repo, "lark:oc_chaos_schedule").id
+
     assert is_nil(primary_target["provider_thread_id"])
 
     assert %DateTime{} = cron_schedule.next_fire_at
     assert Schedule.list_cron_runs(cron_schedule.id) == []
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply, cron_schedule: cron_schedule}
   end
 
@@ -151,7 +159,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
         %{fake_feishu: fake_feishu, primary_binding: primary, record_binding: secondary},
         cron_schedule
       ) do
-    secondary_channel_id = "lark:oc_chaos_schedule_secondary"
+    secondary_provider_conversation_id = "lark:oc_chaos_schedule_secondary"
 
     assert :ok =
              FakeFeishu.State.user_sends_message(fake_feishu.state,
@@ -166,19 +174,24 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  DateTime.to_unix(DateTime.add(@base_time, 3_500, :millisecond), :millisecond)
              )
 
-    assert %Entry{} =
-             wait_for_signal_entry!(secondary_channel_id, "om_cron_target_secondary_1")
+    assert %{message: %ConversationMessage{}} =
+             wait_for_message_observation!(
+               secondary_provider_conversation_id,
+               "om_cron_target_secondary_1"
+             )
 
-    assert %Channel{reply_mode: :entry} = Repo.get_by!(Channel, id: secondary_channel_id)
+    assert %Conversation{reply_mode: :entry} =
+             External.get_conversation(Repo, secondary_provider_conversation_id)
 
     targets = [
       %{
         "binding_name" => primary.name,
-        "signal_channel_id" => "lark:oc_chaos_schedule"
+        "conversation_id" => External.get_conversation(Repo, "lark:oc_chaos_schedule").id
       },
       %{
         "binding_name" => secondary.name,
-        "signal_channel_id" => secondary_channel_id
+        "conversation_id" =>
+          External.get_conversation(Repo, secondary_provider_conversation_id).id
       }
     ]
 
@@ -205,7 +218,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  do: :due
              end)
 
-    assert {:ok, %{status: :fired, actor_event: fire_input}} =
+    assert {:ok, %{status: :fired, signal: fire_input}} =
              Schedule.fire_cron(cron_schedule.id)
 
     assert fire_input.type == "cron.fire"
@@ -216,32 +229,32 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                DateTime.add(due_at, 1, :second)
              )
 
-    # This scenario owns delivery attempts. Wait without draining the outbox
+    # This scenario owns delivery attempts. Wait without draining the intent
     # queue before the provider fault and retry assertions are in place.
-    assert {:ok, %ActorEvent{}} =
+    assert {:ok, %Signal{}} =
              wait_until(deadline(60_000), fn ->
-               case Repo.get(ActorEvent, fire_input.id) do
-                 %ActorEvent{completed_at: %DateTime{}} = event -> event
+               case Repo.get(Signal, fire_input.id) do
+                 %Signal{completed_at: %DateTime{}} = event -> event
                  _other -> nil
                end
              end)
 
     assert {:ok, message} =
-             wait_for_completed_actor_event_message(container, fire_input.id, deadline(60_000))
+             wait_for_completed_signal_message(container, fire_input.id, deadline(60_000))
 
-    assert {:ok, [_primary, _secondary] = outboxes} =
+    assert {:ok, [_primary, _secondary] = intents} =
              wait_until(deadline(10_000), fn ->
-               case final_outboxes(fire_input.id, message.id) do
-                 [_, _] = outboxes -> outboxes
+               case final_intents(fire_input.id, message.id) do
+                 [_, _] = intents -> intents
                  _other -> nil
                end
              end)
 
-    assert Enum.all?(outboxes, &(&1.status == :created))
-    assert Enum.map(outboxes, & &1.ai_message_id) |> Enum.uniq() == [message.id]
-    assert Enum.map(outboxes, & &1.payload["text"]) |> Enum.uniq() == ["CHAOS_CRON_WAKE_OK"]
+    assert Enum.all?(intents, &(&1.status == :pending))
+    assert Enum.map(intents, & &1.ai_message_id) |> Enum.uniq() == [message.id]
+    assert Enum.map(intents, & &1.payload["text"]) |> Enum.uniq() == ["CHAOS_CRON_WAKE_OK"]
 
-    # One provider route rejects one request. Each target is a separate outbox
+    # One provider route rejects one request. Each target is a separate intent
     # row, so the other route succeeds and is never sent again when this row retries.
     assert :ok =
              FakeFeishu.State.fail_next(
@@ -251,74 +264,74 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
              )
 
     first_attempts =
-      Enum.map(outboxes, fn outbox ->
-        assert {:ok, %OutboxEntry{} = dispatched} =
-                 SignalsGateway.dispatch_outbox_by_key(
-                   outbox.agent_uid,
-                   outbox.binding_name,
-                   outbox.outbound_key
+      Enum.map(intents, fn intent ->
+        assert {:ok, %Intent{} = dispatched} =
+                 Ankole.Conversations.Delivery.dispatch_by_key(
+                   intent.agent_uid,
+                   intent.binding_name,
+                   intent.outbound_key
                  )
 
         dispatched
       end)
 
-    assert [%OutboxEntry{status: :failed} = failed] =
+    assert [%Intent{status: :failed} = failed] =
              Enum.filter(first_attempts, &(&1.status == :failed))
 
-    assert [%OutboxEntry{status: :succeeded, attempt_count: 1}] =
-             Enum.filter(first_attempts, &(&1.status == :succeeded))
+    assert [%Intent{status: :sent, attempt_count: 1}] =
+             Enum.filter(first_attempts, &(&1.status == :sent))
 
     assert %DateTime{} = failed.next_attempt_at
 
-    assert {:ok, %OutboxEntry{status: :succeeded, attempt_count: 2}} =
-             SignalsGateway.dispatch_outbox_by_key(
+    assert {:ok, %Intent{status: :sent, attempt_count: 2}} =
+             Ankole.Conversations.Delivery.dispatch_by_key(
                failed.agent_uid,
                failed.binding_name,
                failed.outbound_key,
                now: DateTime.add(failed.next_attempt_at, 1, :second)
              )
 
-    final_outboxes = final_outboxes(fire_input.id, message.id)
-    assert Enum.all?(final_outboxes, &(&1.status == :succeeded))
-    assert Enum.sort(Enum.map(final_outboxes, & &1.attempt_count)) == [1, 2]
+    final_intents = final_intents(fire_input.id, message.id)
+    assert Enum.all?(final_intents, &(&1.status == :sent))
+    assert Enum.sort(Enum.map(final_intents, & &1.attempt_count)) == [1, 2]
 
     assert {:ok, reply, ^message} =
              wait_for_completed_final_reply(container, fire_input.id, deadline(10_000))
 
     secondary =
-      Enum.find(final_outboxes, fn outbox ->
-        get_in(outbox.payload, ["metadata", "delivery_target", "primary"]) == false
+      Enum.find(final_intents, fn intent ->
+        get_in(intent.payload, ["metadata", "delivery_target", "primary"]) == false
       end)
 
-    secondary_source_entry_id =
-      secondary.created_source_entry_id || secondary.target_source_entry_id
+    secondary_provider_message_id =
+      secondary.created_provider_message_id || secondary.target_provider_message_id
 
     secondary_reply =
-      Repo.get_by!(Entry,
-        signal_channel_id: secondary.signal_channel_id,
-        source_entry_id: secondary_source_entry_id
-      )
+      External.get_message(Repo, secondary.conversation_id, secondary_provider_message_id)
 
-    assert reply.text =~ "CHAOS_CRON_WAKE_OK"
-    assert reply.signal_channel_id == "lark:oc_chaos_schedule"
-    assert secondary_reply.text == reply.text
-    assert secondary_reply.ai_message_id == reply.ai_message_id
+    assert reply.message.text =~ "CHAOS_CRON_WAKE_OK"
 
-    assert_actor_event_completed!(fire_input.id)
+    assert reply.message.conversation_id ==
+             External.get_conversation(Repo, "lark:oc_chaos_schedule").id
+
+    assert secondary_reply.message.text == reply.message.text
+    assert secondary_reply.external_ref.ai_message_id == reply.external_ref.ai_message_id
+
+    assert_signal_completed!(fire_input.id)
 
     %{
       input: fire_input,
       reply: reply,
       secondary_reply: secondary_reply,
       message: message,
-      outboxes: final_outboxes
+      intents: final_intents
     }
   end
 
-  defp final_outboxes(actor_event_id, ai_message_id) do
-    OutboxEntry
-    |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
-    |> where([outbox], outbox.ai_message_id == ^ai_message_id)
+  defp final_intents(signal_id, ai_message_id) do
+    Intent
+    |> where([intent], intent.source_signal_id == ^signal_id)
+    |> where([intent], intent.ai_message_id == ^ai_message_id)
     |> Repo.all()
     |> Enum.filter(&(get_in(&1.payload, ["metadata", "source"]) == "ai_gateway_final_reply"))
     |> Enum.sort_by(&get_in(&1.payload, ["metadata", "delivery_target", "primary"]), :desc)
@@ -368,20 +381,22 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  DateTime.to_unix(DateTime.add(@base_time, 4, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_file_1")
-    assert input.type == "im.message.addressed"
+    input = signal_by_provider_message_id!(agent.uid, "om_file_1")
+    assert input.type == "conversation.message.addressed"
 
-    assert {:ok, %Entry{text: ^expected_text, attachments: [attachment]}} =
+    assert {:ok,
+            %{message: %ConversationMessage{text: ^expected_text, attachments: [attachment]}}} =
              wait_until(deadline(10_000), fn ->
-               case Repo.get_by!(Entry,
-                      signal_channel_id: "lark:oc_chaos_file",
-                      source_entry_id: "om_file_1"
-                    ) do
-                 %Entry{attachments: [%{"blob_ref" => blob_ref, "path" => path}]} = entry
+               case message_observation("lark:oc_chaos_file", "om_file_1") do
+                 %{
+                   message: %ConversationMessage{
+                     attachments: [%{"blob_ref" => blob_ref, "path" => path}]
+                   }
+                 } = entry
                  when is_binary(blob_ref) and is_binary(path) ->
                    entry
 
-                 %Entry{} ->
+                 %{message: %ConversationMessage{}} ->
                    nil
                end
              end)
@@ -402,11 +417,11 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                ~w(provider_ref provider source_message_id file_key download_type resource_type name)
              )
 
-    assert {:ok, %ActorEvent{} = input} =
+    assert {:ok, %Signal{} = input} =
              wait_until(deadline(10_000), fn ->
-               refreshed = Repo.get!(ActorEvent, input.id)
+               refreshed = Repo.get!(Signal, input.id)
 
-               if get_in(refreshed.payload, ["data", "entry", "attachments"]) == [attachment],
+               if get_in(refreshed.data, ["entry", "attachments"]) == [attachment],
                  do: refreshed,
                  else: nil
              end)
@@ -417,8 +432,8 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, reply, message} =
              wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(60_000))
 
-    assert reply.text =~ "CHAOS_GENERIC_OK"
-    assert_actor_event_completed!(input.id)
+    assert reply.message.text =~ "CHAOS_GENERIC_OK"
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply, message: message, attachment: attachment}
   end
 
@@ -436,37 +451,50 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                chat_id: "oc_chaos_reply_attachment",
                chat_type: "p2p",
                text:
-                 "@_user_1 Run CHAOS_REPLY_ATTACHMENT. Create the file, register it with reply_attachment, then reply exactly CHAOS_REPLY_ATTACHMENT_OK.",
+                 "@_user_1 Run CHAOS_REPLY_ATTACHMENT. Create the file, save it with ankole-files put, register its drive_path with reply_attachment, then reply exactly CHAOS_REPLY_ATTACHMENT_OK.",
                mentions: [mention],
                create_time_ms:
                  DateTime.to_unix(DateTime.add(@base_time, 4_500, :millisecond), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_reply_attachment_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_reply_attachment_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
-    assert {:ok, outbox, message} =
-             wait_for_completed_outbox(container, input.id, deadline(90_000))
+    {:ok, intent, message} =
+      try do
+        wait_for_completed_intent(container, input.id, deadline(90_000))
+      rescue
+        error in ExUnit.AssertionError ->
+          IO.inspect(
+            Enum.filter(Ankole.E2E.FakeOpenAIState.requests(), &(&1.kind == :reply_attachment)),
+            label: "reply attachment actual upstream requests",
+            limit: :infinity,
+            printable_limit: :infinity
+          )
+
+          reraise error, __STACKTRACE__
+      end
 
     # One completion commits two rows. The visible answer belongs to the final
     # reply; the attachment row carries the file and no text, so no adapter
     # posts the same wall twice. Both rows commit in the same transaction, so
     # the final reply is already durable here.
     final_reply =
-      Repo.get_by!(OutboxEntry,
-        source_actor_event_id: input.id,
+      Repo.get_by!(Intent,
+        source_signal_id: input.id,
         outbound_key: "ai-reply:#{message.id}"
       )
 
     assert final_reply.payload["text"] =~ "CHAOS_REPLY_ATTACHMENT_OK"
-    assert is_nil(outbox.payload["text"])
+    assert is_nil(intent.payload["text"])
 
-    # reply_attachment pins the file it read under sent/ in the Agent's drive.
+    # The command saves the file in the drive. reply_attachment preserves
+    # that original path and records its content digest for provider delivery.
     content = "CHAOS_REPLY_ATTACHMENT_FILE"
     blob_ref = Base.encode16(:crypto.hash(:sha256, content), case: :lower)
-    expected_path = "sent/#{String.slice(blob_ref, 0, 16)}/chaos-report.txt"
+    expected_path = "reports/chaos-report.txt"
 
     assert [
              %{
@@ -475,17 +503,17 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                "name" => "chaos-report.txt",
                "mime_type" => "text/plain"
              } = attachment
-           ] = outbox.payload["attachments"]
+           ] = intent.payload["attachments"]
 
     assert attachment["size"] == byte_size(content)
     assert {:ok, _file, ^content} = Ankole.Files.read(agent.uid, expected_path)
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     assert command_tool_succeeded?(messages)
     assert tool_result_succeeded?(messages, "reply_attachment")
 
-    assert_actor_event_completed!(input.id)
-    %{input: input, outbox: outbox}
+    assert_signal_completed!(input.id)
+    %{input: input, intent: intent}
   end
 
   def run_todo_tool_loop(%{fake_feishu: fake_feishu, agent: agent}) do
@@ -504,7 +532,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  DateTime.to_unix(DateTime.add(@base_time, 4_650, :millisecond), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_todo_tool_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_todo_tool_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -512,15 +540,15 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(90_000))
 
-    assert reply.text =~ "CHAOS_TODO_OK"
+    assert reply.message.text =~ "CHAOS_TODO_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     todo_results = successful_tool_results(messages, "todo")
     assert length(todo_results) == 2
     assert tool_detail(List.last(todo_results), ["summary", "total"]) == 3
     assert tool_detail(List.last(todo_results), ["summary", "completed"]) == 3
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply}
   end
 
@@ -543,7 +571,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  DateTime.to_unix(DateTime.add(@base_time, 5_100, :millisecond), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_read_file_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_read_file_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -551,14 +579,14 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(90_000))
 
-    assert reply.text =~ "CHAOS_READ_FILE_OK"
+    assert reply.message.text =~ "CHAOS_READ_FILE_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     assert command_tool_succeeded?(messages)
     assert [read_result] = successful_tool_results(messages, "read_file")
     assert inspect(read_result) =~ "CHAOS_READ_FILE_CONTENT"
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply}
   end
 
@@ -581,7 +609,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  DateTime.to_unix(DateTime.add(@base_time, 5_150, :millisecond), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_patch_tool_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_patch_tool_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -589,9 +617,9 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(90_000))
 
-    assert reply.text =~ "CHAOS_PATCH_TOOL_OK"
+    assert reply.message.text =~ "CHAOS_PATCH_TOOL_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     assert command_tool_succeeded?(messages)
 
     assert [_patch_result] = successful_tool_results(messages, "apply_patch"),
@@ -600,7 +628,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     read_results = successful_tool_results(messages, "read_file")
     assert read_results |> List.last() |> inspect() =~ "CHAOS_PATCH_NEW"
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply}
   end
 
@@ -628,7 +656,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  DateTime.to_unix(DateTime.add(@base_time, 5_200, :millisecond), :millisecond)
              )
 
-    write_input = actor_event_by_source_entry_id!(agent.uid, "om_workspace_write_1")
+    write_input = signal_by_provider_message_id!(agent.uid, "om_workspace_write_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(
@@ -639,9 +667,9 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, write_reply, _write_message} =
              wait_for_completed_final_reply(container, write_input.id, deadline(90_000))
 
-    assert write_reply.text =~ "CHAOS_WORKSPACE_WRITE_OK"
-    assert command_tool_succeeded?(ai_messages_for_actor_event(write_input.id))
-    assert_actor_event_completed!(write_input.id)
+    assert write_reply.message.text =~ "CHAOS_WORKSPACE_WRITE_OK"
+    assert command_tool_succeeded?(ai_messages_for_signal(write_input.id))
+    assert_signal_completed!(write_input.id)
 
     # The two files of the folder travel in one bundled transfer.
     assert {:ok, _file, "CHAOS_WORKSPACE_PERSISTED\n"} =
@@ -671,7 +699,7 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
                  DateTime.to_unix(DateTime.add(@base_time, 5_300, :millisecond), :millisecond)
              )
 
-    read_input = actor_event_by_source_entry_id!(agent.uid, "om_workspace_read_1")
+    read_input = signal_by_provider_message_id!(agent.uid, "om_workspace_read_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(
@@ -682,14 +710,14 @@ defmodule Ankole.E2E.Scenarios.ScheduleAndTool do
     assert {:ok, read_reply, _read_message} =
              wait_for_completed_final_reply(container, read_input.id, deadline(90_000))
 
-    assert read_reply.text =~ "CHAOS_WORKSPACE_READ_OK"
+    assert read_reply.message.text =~ "CHAOS_WORKSPACE_READ_OK"
 
     assert [read_result] =
-             successful_tool_results(ai_messages_for_actor_event(read_input.id), "read_file")
+             successful_tool_results(ai_messages_for_signal(read_input.id), "read_file")
 
     assert inspect(read_result) =~ "CHAOS_WORKSPACE_PERSISTED"
 
-    assert_actor_event_completed!(read_input.id)
+    assert_signal_completed!(read_input.id)
     %{input: read_input, reply: read_reply}
   end
 end

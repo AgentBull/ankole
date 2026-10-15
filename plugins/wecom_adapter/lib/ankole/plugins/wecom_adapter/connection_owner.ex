@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
   Per-bot owner for the WeCom AI-bot long-connection client.
 
   Builds an immutable dispatcher from all active consumers and starts one
-  `WeComOpenAPI.Bot.Client`, registered under `{:client, key}` so Outbox and
+  `WeComOpenAPI.Bot.Client`, registered under `{:client, key}` so Delivery and
   AIStream can reach the live connection. A changed consumer set restarts the
   owner so the dispatcher is rebuilt rather than mutated on a live socket.
 

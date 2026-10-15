@@ -35,8 +35,6 @@ defmodule DingTalkOpenAPI.TokenManager do
 
   @type key :: {:app, Client.cache_namespace()}
 
-  # Public API
-
   @doc false
   @spec start_link(Client.t()) :: GenServer.on_start()
   def start_link(%Client{} = client) do
@@ -70,8 +68,6 @@ defmodule DingTalkOpenAPI.TokenManager do
     :ets.delete(TokenStore.table(), app_token_key(client))
     :ok
   end
-
-  # GenServer callbacks
 
   @impl true
   def init(%Client{} = client) do

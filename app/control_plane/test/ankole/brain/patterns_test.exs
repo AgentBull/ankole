@@ -2,8 +2,15 @@ defmodule Ankole.Brain.PatternsTest do
   use Ankole.AIGatewayCase
 
   alias Ankole.AppConfigure
-  alias Ankole.Brain.{Claims, Markdoc, Objects, Patterns, Recall, SchemaPacks}
-  alias Ankole.Brain.Schemas.{Link, Object, ObjectVersion}
+  alias Ankole.Brain.Claims
+  alias Ankole.Brain.Markdoc
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.Patterns
+  alias Ankole.Brain.Recall
+  alias Ankole.Brain.SchemaPacks
+  alias Ankole.Brain.Schemas.Link
+  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.ObjectVersion
 
   setup context do
     allow_cache_database_access()

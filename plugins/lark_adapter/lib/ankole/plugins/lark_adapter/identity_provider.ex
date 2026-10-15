@@ -484,7 +484,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   @doc """
   Fetches contact email, mobile, and name for one inbound author, best effort.
 
-  SignalsGateway calls this only when an unmatched sender needs a contact
+  Signals calls this only when an unmatched sender needs a contact
   match or a pending-list entry. Cross-tenant senders and missing contact
   scopes fail soft with an error the gateway logs and ignores.
   """

@@ -80,5 +80,5 @@ It is not a marketplace and not a hot-load system. Skills and Plugins are truste
 
 - For the routes that configure the library, read the [Console](../console-api/) page.
 - For Agent-specific process guidance, read [Skill lessons](../skill-lessons/).
-- For the worker that runs an enabled skill during a turn, read the [Actor Runtime](../actor-runtime/) page.
+- For the worker that runs an enabled skill during a turn, read the [Sessions](../sessions/) page.
 - For the agent Principal a library is scoped to, read [Principal and AuthZ](../principal-authz/).

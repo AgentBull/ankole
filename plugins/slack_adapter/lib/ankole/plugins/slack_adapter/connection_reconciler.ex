@@ -9,9 +9,13 @@ defmodule Ankole.Plugins.SlackAdapter.ConnectionReconciler do
     registry: Ankole.Plugins.SlackAdapter.ConnectionRegistry,
     supervisor: Ankole.Plugins.SlackAdapter.ConnectionDynamicSupervisor
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.Plugins.SlackAdapter.{Config, Dispatcher, IdentityProvider, Inbound}
-  alias Ankole.SignalsGateway.{AdapterContext, Binding}
+  alias Ankole.Signals.Bindings
+  alias Ankole.Plugins.SlackAdapter.Config
+  alias Ankole.Plugins.SlackAdapter.Dispatcher
+  alias Ankole.Plugins.SlackAdapter.IdentityProvider
+  alias Ankole.Plugins.SlackAdapter.Inbound
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.Binding
 
   @impl true
   def binding_spec(%Binding{} = binding, _opts) do

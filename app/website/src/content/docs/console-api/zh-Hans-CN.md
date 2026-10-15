@@ -79,8 +79,8 @@ agent 是核心单位，运维者的其它配置都围绕它展开：
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | 创建或替换路由规则 |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | 更新路由规则 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | 移除路由规则 |
-| `GET` | `/signal-channels/:channel_id/standing-orders` | 读取一个频道的常驻指令 |
-| `PUT` | `/signal-channels/:channel_id/standing-orders` | 替换一个频道的常驻指令 |
+| `GET` | `/conversations/:conversation_id/standing-orders` | 读取一个 Conversation 的常驻指令 |
+| `PUT` | `/conversations/:conversation_id/standing-orders` | 替换一个 Conversation 的常驻指令 |
 
 禁用一个 binding 会停止新信号唤醒它的 agent，而不删除这个 binding。
 
@@ -181,6 +181,6 @@ Control Plane Plugin 是改变控制面自身行为的第一方扩展，例如 s
 
 ## 下一步
 
-- Console 所配置的那些运行时界面，读 [AIGateway API](../ai-gateway/)、[SignalsGateway](../signals-gateway/)、[Actor Runtime](../actor-runtime/)。
+- Console 所配置的那些运行时界面，读 [AIGateway API](../ai-gateway/)、[Signals](../signals/)、[Sessions](../sessions/)。
 - Console 使用的权限模型，见 [主体与 AuthZ](../principal-authz/)。
 - 如果还没有运行中的实例，请先阅读 [快速开始的部署部分](../quickstart/#deployment)。

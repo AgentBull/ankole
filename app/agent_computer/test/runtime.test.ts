@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import { FileTransferError } from '../src/lanes/file/errors'
 import { pullFile, pushBundle, pushFile } from '../src/lanes/file/relay'
 import {
-  ActorEventEnvelopeSchema,
+  SignalEnvelopeSchema,
   EnvelopeSchema,
   MailboxUpdatedSchema,
   TurnStartSchema
@@ -40,8 +40,8 @@ import { handleWorkerRPCRequest } from '../src/lanes/rpc_lane'
 import { controlShutdownEnvelope, workerProgressEnvelope } from '../src/fabric/envelopes'
 import type { WorkerConfig } from '../src/worker/config'
 import { prepareTurnWorkspace } from '../src/worker/workspace'
-import { jobTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/actor_lane'
-import type { TurnStart } from '../src/lanes/actor_lane'
+import { jobTurnRefToProto, mailboxUpdatedFromEnvelope, turnStartFromEnvelope } from '../src/lanes/session_lane'
+import type { TurnStart } from '../src/lanes/session_lane'
 import { ActiveTurn, ActiveTurns, startTurnProgress } from '../src/worker/active_turns'
 import { WorkerDrainState } from '../src/worker/drain'
 import type { BrowserRuntime } from '../src/browser-runtime'
@@ -86,8 +86,8 @@ describe('@ankole/agent-computer runtime', () => {
             mode: 'start',
             fetchRuntimeConfig: { ssrfFilter: true },
             turn: jobTurnRefToProto(jobTurnRef()),
-            actorEvent: create(ActorEventEnvelopeSchema, {
-              actorEventId: jobTurnRef().actor_event_id,
+            signal: create(SignalEnvelopeSchema, {
+              signalId: jobTurnRef().signal_id,
               type: 'im.message.addressed'
             })
           })
@@ -143,8 +143,8 @@ describe('@ankole/agent-computer runtime', () => {
             mode: 'start',
             fetchRuntimeConfig: { ssrfFilter: true },
             turn: jobTurnRefToProto(jobTurnRef()),
-            actorEvent: create(ActorEventEnvelopeSchema, {
-              actorEventId: jobTurnRef().actor_event_id,
+            signal: create(SignalEnvelopeSchema, {
+              signalId: jobTurnRef().signal_id,
               type: 'im.message.addressed'
             })
           })
@@ -280,7 +280,7 @@ describe('@ankole/agent-computer runtime', () => {
     expect(envelope.body.value.turn).toMatchObject({
       jobId: 1000n,
       attempt: 1,
-      actorEventId: jobTurnRef().actor_event_id
+      signalId: jobTurnRef().signal_id
     })
   })
 
@@ -315,8 +315,8 @@ describe('@ankole/agent-computer runtime', () => {
     const active = new ActiveTurn({ turn } as unknown as TurnStart)
 
     active.pushSteering({
-      actorEvent: {
-        actor_event_id: '00000000-0000-0000-0000-000000000102',
+      signal: {
+        signal_id: '00000000-0000-0000-0000-000000000102',
         type: 'command.steer'
       }
     })
@@ -350,7 +350,7 @@ describe('@ankole/agent-computer runtime', () => {
           }
         })
       )
-    ).toThrow(/mailbox_updated\.actor_event is required/)
+    ).toThrow(/mailbox_updated\.signal is required/)
   })
 
   it('rejects turn_start envelopes without a durable turn fence', () => {
@@ -363,8 +363,8 @@ describe('@ankole/agent-computer runtime', () => {
             value: create(TurnStartSchema, {
               mode: 'start',
               fetchRuntimeConfig: { ssrfFilter: true },
-              actorEvent: create(ActorEventEnvelopeSchema, {
-                actorEventId: '00000000-0000-0000-0000-000000000001',
+              signal: create(SignalEnvelopeSchema, {
+                signalId: '00000000-0000-0000-0000-000000000001',
                 type: 'im.message.addressed'
               })
             })
@@ -384,8 +384,8 @@ describe('@ankole/agent-computer runtime', () => {
             mode: 'start',
             fetchRuntimeConfig: { ssrfFilter: true },
             turn: jobTurnRefToProto(jobTurnRef()),
-            actorEvent: create(ActorEventEnvelopeSchema, {
-              actorEventId: '00000000-0000-0000-0000-000000000001',
+            signal: create(SignalEnvelopeSchema, {
+              signalId: '00000000-0000-0000-0000-000000000001',
               type: 'im.message.addressed'
             }),
             runtimeEnv: { ANKOLE_RUNTIME_CURRENT_ACTOR_SENDER_PRINCIPAL: 'human-alice' }
@@ -409,8 +409,8 @@ describe('@ankole/agent-computer runtime', () => {
             mode: 'start',
             fetchRuntimeConfig: { ssrfFilter: true },
             turn: jobTurnRefToProto(jobTurnRef()),
-            actorEvent: create(ActorEventEnvelopeSchema, {
-              actorEventId: '00000000-0000-0000-0000-000000000001',
+            signal: create(SignalEnvelopeSchema, {
+              signalId: '00000000-0000-0000-0000-000000000001',
               type: 'im.message.addressed'
             }),
             hostedTools
@@ -693,13 +693,13 @@ function workerConfig(): WorkerConfig {
 
 function jobTurnRef() {
   return {
-    actor: {
+    session: {
       agent_uid: 'agent-1',
       session_id: 'job:1000'
     },
     job_id: 1000,
     attempt: 1,
-    actor_event_id: '00000000-0000-0000-0000-000000000101'
+    signal_id: '00000000-0000-0000-0000-000000000101'
   }
 }
 

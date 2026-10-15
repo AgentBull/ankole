@@ -25,8 +25,6 @@ defmodule WeComOpenAPI.Bot do
 
   @type media_type :: String.t()
 
-  # --- replies (bound to an inbound req_id) --------------------------------
-
   @doc """
   Create or refresh a streaming reply. The same `stream_id` refreshes the
   message with the full `content` snapshot; `finish: true` closes the stream.
@@ -93,8 +91,6 @@ defmodule WeComOpenAPI.Bot do
     Client.reply(server, req_id, body, cmd: @welcome_cmd)
   end
 
-  # --- proactive sends -----------------------------------------------------
-
   @doc """
   Proactively send markdown to a conversation. `chat_type` is `1` for a DM
   (chatid = userid) and `2` for a group (chatid = group chatid).
@@ -121,8 +117,6 @@ defmodule WeComOpenAPI.Bot do
       "template_card" => template_card
     })
   end
-
-  # --- media upload --------------------------------------------------------
 
   @doc """
   Upload a temporary media item over the connection (three-step chunked flow)

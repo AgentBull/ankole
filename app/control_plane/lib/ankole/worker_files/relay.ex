@@ -23,7 +23,7 @@ defmodule Ankole.WorkerFiles.Relay do
 
   use GenServer, restart: :temporary
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Providers
 
   @registry Ankole.WorkerFiles.RelayRegistry
   @supervisor Ankole.WorkerFiles.RelaySupervisor

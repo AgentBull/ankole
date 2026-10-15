@@ -7,8 +7,8 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.Webhooks
+
+  alias Ankole.Signals.Webhooks
 
   setup do
     allow_cache_database_access()
@@ -88,12 +88,12 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
     assert {:ok, %{webhook_endpoint: endpoint, token: token}} =
              Webhooks.create_endpoint(%{
                agent_uid: agent_uid,
-               binding_name: source.binding_name,
+               binding_name: source.reply_binding_name,
                session_id: source.session_id,
-               signal_channel_id: source.signal_channel_id,
+               conversation_id: source.conversation_id,
                provider_thread_id: source.provider_thread_id,
-               source_actor_event_id: source.id,
-               source_entry_id: source.source_entry_id,
+               source_signal_id: source.id,
+               provider_message_id: source.provider_message_id,
                source_provenance: %{"kind" => "console-test"},
                label: label,
                mode: "standing",
@@ -104,29 +104,9 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
   end
 
   defp source_event!(agent_uid) do
-    unique = System.unique_integer([:positive])
-
-    {:ok, event} =
-      SignalsGateway.append_actor_event(%{
-        agent_uid: agent_uid,
-        binding_name: "github",
-        session_id: "conversation-#{unique}",
-        source_event_id: "source-#{unique}",
-        signal_channel_id: "github:repo:ankole-#{unique}",
-        provider_thread_id: "issue:42",
-        source_entry_id: "comment:7",
-        type: "im.message.addressed",
-        available_at: DateTime.utc_now(:microsecond),
-        sender_key: nil,
-        payload: %{
-          "specversion" => "1.0",
-          "id" => "source-#{unique}",
-          "source" => "test://webhook-console",
-          "type" => "im.message.addressed",
-          "data" => %{}
-        }
-      })
-
-    event
+    Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid,
+      binding_name: "github",
+      source: "test://webhook-source"
+    )
   end
 end

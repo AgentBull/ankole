@@ -5,17 +5,17 @@ defmodule AnkoleWeb.WorkerChannelTest do
 
   alias Ankole.Kernel.RuntimeFabric
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerTracker
-  alias Ankole.SignalsGateway.ActorRuntimeCase
+  alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.WorkerRoute
+  alias Ankole.AgentWorkers.WorkerTracker
+  alias Ankole.SessionsCase
   alias AnkoleWeb.RuntimeFabricSocket
   alias AnkoleWeb.WorkerChannel
 
   setup do
     %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
-    :ok = ActorRuntimeCase.provision_worker(agent.uid)
+    :ok = SessionsCase.provision_worker(agent.uid)
 
     {:ok,
      worker_id: agent.uid,
@@ -63,7 +63,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
 
     test "rejects the credential of another Agent's Worker", %{token: token} do
       %{principal: other} = Ankole.PrincipalsFixtures.agent_fixture()
-      :ok = ActorRuntimeCase.provision_worker(other.uid)
+      :ok = SessionsCase.provision_worker(other.uid)
 
       assert :error =
                connect(RuntimeFabricSocket, %{"worker_id" => other.uid},
@@ -554,7 +554,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
     @tag :capture_log
     test "a crashing RPC handler answers rpc_error and the connection stays open", ctx do
       # An invalid gateway URL makes the API key handler raise.
-      config_owner = Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
+      config_owner = Ankole.Sessions.AIGatewayAPIKeyBroker
       previous = Application.fetch_env(:ankole, config_owner)
       Application.put_env(:ankole, config_owner, base_url: :invalid_test_value)
 
@@ -574,7 +574,7 @@ defmodule AnkoleWeb.WorkerChannelTest do
            %FabricProto.RPCRequest{
              request_id: "handler-crash",
              method: "ai_gateway.api_key_for.create_or_find_by_agent",
-             payload: ActorRuntimeCase.encode_proto!(%FabricProto.AIGatewayAPIKeyRequest{})
+             payload: SessionsCase.encode_proto!(%FabricProto.AIGatewayAPIKeyRequest{})
            }}
       }
 

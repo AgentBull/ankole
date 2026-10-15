@@ -4,7 +4,9 @@ defmodule AnkoleWeb.HumanAccessController do
   use OpenApiSpex.ControllerSpecs
   import Ecto.Query
   alias Ankole.{AuthZ, Principals, Repo}
-  alias Ankole.Principals.{HumanAccess, WorkAccess, WorkCleanup}
+  alias Ankole.Principals.HumanAccess
+  alias Ankole.Principals.WorkAccess
+  alias Ankole.Principals.WorkCleanup
   alias AnkoleWeb.{ConsoleErrors, ConsolePolicy}
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.HumanAccessAPI

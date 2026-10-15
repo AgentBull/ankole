@@ -4,7 +4,7 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
   @behaviour Ankole.Plugins.Plugin
 
   alias Ankole.PluginFixtures.MockSignalProvider.Inbound
-  alias Ankole.PluginFixtures.MockSignalProvider.Outbox
+  alias Ankole.PluginFixtures.MockSignalProvider.Delivery
   alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview
 
   @impl true
@@ -15,18 +15,18 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
 
   # `mock-provider` is a plain-text provider; `mock-rich-provider` also declares
   # a reply-preview module, so a gateway test can cover the mutable reply
-  # surface and its terminal outbox route in-process.
+  # surface and its terminal intent route in-process.
   @impl true
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "mock-provider",
         adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Mock Signal Provider"},
-        ingress_module: Inbound,
-        outbox_module: Outbox,
+        observe_module: Inbound,
+        deliver_module: Delivery,
         inbound_capabilities: ["entry_receive"],
         # The plain-text preview edits its first message in place, so this
         # adapter declares the edit it has always accepted.
@@ -38,14 +38,14 @@ defmodule Ankole.PluginFixtures.MockSignalProviderPlugin do
         ]
       },
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "mock-rich-provider",
         adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Mock Rich Signal Provider"},
-        ingress_module: Inbound,
-        outbox_module: Outbox,
-        reply_preview_module: ReplyPreview,
+        observe_module: Inbound,
+        deliver_module: Delivery,
+        preview_module: ReplyPreview,
         inbound_capabilities: ["entry_receive"],
         outbound_capabilities: [
           "post_entry",
@@ -60,11 +60,10 @@ end
 defmodule Ankole.PluginFixtures.MockSignalProvider.ReplyPreview do
   @moduledoc false
 
-  @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+  @behaviour Ankole.Conversations.Delivery.PreviewAdapter
 
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
 
   @recipient_key {__MODULE__, :recipient}
   @finalize_result_key {__MODULE__, :finalize_result}
@@ -125,7 +124,7 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.ReplyPreview do
     end
   end
 
-  defp checkpoint(%Request{actor_event: event} = request, streaming_state) do
+  defp checkpoint(%Request{signal: event} = request, streaming_state) do
     message_id = "mock-preview-#{event.id}"
 
     checkpoint =
@@ -143,12 +142,18 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.ReplyPreview do
       |> Map.delete("refresh_pending")
       |> Map.delete("refresh_reason")
 
-    with :ok <- Actors.record_reply_preview_source_entry(event.id, message_id),
-         {:ok, event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+    with :ok <-
+           Ankole.Conversations.Delivery.PreviewState.record_provider_message(
+             event.id,
+             message_id
+           ),
+         {:ok, event} <-
+           Ankole.Conversations.Delivery.PreviewState.put_checkpoint(event.id, checkpoint) do
       {:ok,
        %{
-         created_source_entry_id: message_id,
-         reply_preview_checkpoint: event.reply_preview_checkpoint,
+         created_provider_message_id: message_id,
+         reply_preview_checkpoint:
+           Ankole.Conversations.Delivery.PreviewState.get(event).checkpoint,
          raw_payload: %{"provider" => "mock-signal-provider"}
        }}
     end
@@ -161,8 +166,8 @@ end
 defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
   @moduledoc false
 
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.Ingress
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Observe
 
   @spec chat_consumer(AdapterContext.t(), map(), keyword()) :: map()
   def chat_consumer(%AdapterContext{} = context, config, opts \\ []) when is_map(config) do
@@ -191,22 +196,22 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
         _value -> []
       end
 
-    Ingress.emit_entry(context.agent_uid, context.binding_name, entry_input(event), options)
+    Observe.emit_entry(context.agent_uid, context.binding_name, entry_input(event), options)
   end
 
   defp emit_receive(_consumer, _event), do: {:error, :invalid_mock_consumer}
 
   defp entry_input(event) do
     event_id = fetch(event, :source_event_id) || "mock-event-#{unique_id()}"
-    channel_id = fetch(event, :signal_channel_id) || "mock:chat:e2e"
-    source_entry_id = fetch(event, :source_entry_id) || "mock-message-#{unique_id()}"
+    channel_id = fetch(event, :conversation_id) || "mock:chat:e2e"
+    provider_message_id = fetch(event, :provider_message_id) || "mock-message-#{unique_id()}"
     provider_thread_id = fetch(event, :provider_thread_id) || "mock-thread"
     text = fetch(event, :text) || "PING"
 
     %{
       source_event_id: event_id,
-      signal_channel_id: channel_id,
-      source_entry_id: source_entry_id,
+      provider_conversation_id: channel_id,
+      provider_message_id: provider_message_id,
       provider_thread_id: provider_thread_id,
       channel: %{
         kind: fetch(event, :channel_kind) || :im_group,
@@ -219,7 +224,7 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
       explicit: fetch(event, :explicit) == true,
       author: author(event),
       metadata: %{"provider" => "mock-signal-provider"},
-      raw_payload: %{"event_id" => event_id, "source_entry_id" => source_entry_id},
+      raw_payload: %{"event_id" => event_id, "provider_message_id" => provider_message_id},
       provider_time: fetch(event, :provider_time)
     }
   end
@@ -271,10 +276,10 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
   defp unique_id, do: System.unique_integer([:positive]) |> Integer.to_string()
 end
 
-defmodule Ankole.PluginFixtures.MockSignalProvider.Outbox do
+defmodule Ankole.PluginFixtures.MockSignalProvider.Delivery do
   @moduledoc false
 
-  @behaviour Ankole.SignalsGateway.OutboxAdapter
+  @behaviour Ankole.Conversations.Delivery.Adapter
 
   @recipient_key {__MODULE__, :recipient}
   @send_result_key {__MODULE__, :send_result}
@@ -299,9 +304,9 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Outbox do
   def delete_reconcile_result, do: :persistent_term.erase(@reconcile_result_key)
 
   @impl true
-  def send(outbox) do
+  def deliver(intent) do
     case :persistent_term.get(@recipient_key, nil) do
-      pid when is_pid(pid) -> Kernel.send(pid, {:mock_provider_outbox_sent, outbox})
+      pid when is_pid(pid) -> Kernel.send(pid, {:mock_provider_intent_sent, intent})
       _value -> :ok
     end
 
@@ -309,12 +314,12 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Outbox do
       @send_result_key,
       {:ok,
        %{
-         created_source_entry_id: "mock-reply-#{System.unique_integer([:positive])}",
+         created_provider_message_id: "mock-reply-#{System.unique_integer([:positive])}",
          raw_payload: %{"provider" => "mock-signal-provider"}
        }}
     )
   end
 
   @impl true
-  def reconcile(_outbox), do: :persistent_term.get(@reconcile_result_key, :unknown)
+  def reconcile(_intent), do: :persistent_term.get(@reconcile_result_key, :unknown)
 end

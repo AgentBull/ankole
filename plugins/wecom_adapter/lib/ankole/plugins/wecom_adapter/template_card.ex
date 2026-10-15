@@ -1,12 +1,12 @@
 defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
   @moduledoc """
-  Template-card rendering for the non-streaming `card` outbox operation.
+  Template-card rendering for the non-streaming `card` intent operation.
 
   WeCom template cards are plain JSON payloads (no console-hosted template),
   but their buttons round-trip only a `key` string — no structured value — so
   the portable `ankole.interactive_output.action.v1` protocol is packed into
   a JSON list in the key (`ank2:` prefix) and the source
-  actor event rides `task_id` (`ankole:<event id>`). `Inbound` unpacks both on
+  Signal rides `task_id` (`ankole:<event id>`). `Inbound` unpacks both on
   the `template_card_event`.
 
   Choice interactions render as a `button_interaction` card. Free-text form
@@ -18,7 +18,7 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
 
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WeComAdapter.Markdown
-  alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.Conversations.Delivery.Intent
   alias WeComOpenAPI.Bot
 
   import MapHelpers, only: [fetch_list: 2, fetch_value: 2, optional_text: 2]
@@ -34,29 +34,29 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
           respond_req_id: String.t() | nil
         }
 
-  @doc "Delivers one `card` outbox operation as a template card (or Markdown fallback)."
-  @spec deliver(GenServer.server(), delivery(), OutboxEntry.t()) ::
+  @doc "Delivers one `card` intent operation as a template card (or Markdown fallback)."
+  @spec deliver(GenServer.server(), delivery(), Intent.t()) ::
           {:ok, map()} | {:error, term()}
-  def deliver(client, delivery, %OutboxEntry{} = outbox) do
-    output = fetch_value(outbox.payload || %{}, "interactive_output") || %{}
+  def deliver(client, delivery, %Intent{} = intent) do
+    output = fetch_value(intent.payload || %{}, "interactive_output") || %{}
 
-    case render(output, outbox) do
-      {:card, task_id, card} ->
+    case render(output, intent) do
+      {:card, _task_id, card} ->
         client
         |> send_card(delivery, card)
-        |> card_result(task_id)
+        |> card_result(intent)
 
       :fallback ->
-        send_fallback_text(client, delivery, outbox)
+        send_fallback_text(client, delivery, intent)
     end
   end
 
   @doc false
-  @spec render(map(), OutboxEntry.t()) :: {:card, String.t(), map()} | :fallback
-  def render(output, %OutboxEntry{} = outbox) do
+  @spec render(map(), Intent.t()) :: {:card, String.t(), map()} | :fallback
+  def render(output, %Intent{} = intent) do
     interaction_id = optional_text(output, "interaction_id")
     control_id = optional_text(output, "control_id") || "choice"
-    source_actor_event_id = optional_text(output, "source_actor_event_id")
+    source_signal_id = optional_text(output, "source_signal_id")
     version = integer_value(fetch_value(output, "version")) || 1
     locked? = optional_text(output, "state") in ["answered", "expired", "cancelled", "superseded"]
 
@@ -67,18 +67,18 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
       |> Enum.take(@max_buttons)
 
     cond do
-      locked? or buttons == [] or is_nil(source_actor_event_id) or
+      locked? or buttons == [] or is_nil(source_signal_id) or
           Enum.any?(buttons, &(byte_size(&1["key"]) > @max_key_bytes)) ->
         :fallback
 
       true ->
-        task_id = "ankole:#{source_actor_event_id}"
+        task_id = "ankole:#{source_signal_id}"
 
         {:card, task_id,
          %{
            "card_type" => "button_interaction",
-           "main_title" => %{"title" => card_title(output, outbox)},
-           "sub_title_text" => card_body(output, outbox),
+           "main_title" => %{"title" => card_title(output, intent)},
+           "sub_title_text" => card_body(output, intent),
            "task_id" => task_id,
            "button_list" => buttons
          }}
@@ -141,7 +141,7 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
 
   defp action_value(interaction, version, control, option, value) do
     %{
-      "version" => Ankole.SignalsGateway.ReplyPresentation.action_protocol(),
+      "version" => Ankole.Conversations.Delivery.ReplyPresentation.action_protocol(),
       "answerKind" => "choice",
       "interactionId" => interaction,
       "interactionVersion" => version,
@@ -151,10 +151,10 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
     }
   end
 
-  defp card_title(output, outbox) do
+  defp card_title(output, intent) do
     text =
       optional_text(output, "title") || optional_text(output, "body") ||
-        to_string(outbox.fallback_visible_text)
+        to_string(intent.fallback_visible_text)
 
     text
     |> String.split("\n", parts: 2)
@@ -168,10 +168,10 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
     end
   end
 
-  defp card_body(output, outbox) do
+  defp card_body(output, intent) do
     body =
       optional_text(output, "body") || optional_text(output, "text") ||
-        to_string(outbox.fallback_visible_text)
+        to_string(intent.fallback_visible_text)
 
     String.slice(body, 0, 160)
   end
@@ -184,15 +184,19 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
     Bot.send_template_card(client, delivery.chat_target, delivery.chat_type, card)
   end
 
-  defp card_result({:ok, ack}, task_id) do
-    {:ok, %{created_source_entry_id: task_id, raw_payload: ack}}
+  defp card_result({:ok, ack}, intent) do
+    Ankole.Plugins.WeComAdapter.Delivery.confirmed_send_result(
+      ack,
+      intent.fallback_visible_text,
+      %{"attachments" => []}
+    )
   end
 
   defp card_result({:error, _reason} = error, _task_id), do: error
 
-  defp send_fallback_text(client, delivery, outbox) do
+  defp send_fallback_text(client, delivery, intent) do
     content =
-      outbox.fallback_visible_text
+      intent.fallback_visible_text
       |> to_string()
       |> Markdown.to_wecom()
 
@@ -207,13 +211,9 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
 
     case result do
       {:ok, ack} ->
-        {:ok,
-         %{
-           created_source_entry_id:
-             "wecom:card-fallback:#{outbox.idempotency_key || outbox.outbound_key}",
-           synthetic_entry_id: true,
-           raw_payload: ack
-         }}
+        Ankole.Plugins.WeComAdapter.Delivery.confirmed_send_result(ack, content, %{
+          "attachments" => []
+        })
 
       {:error, _reason} = error ->
         error

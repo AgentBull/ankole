@@ -16,11 +16,10 @@ impl AWSBedrockConverseState {
         }
     }
 
-    // Reads one `ConverseStreamOutput` event in the `{event_type: payload}`
-    // shape of the AWS SDK union. `messageStart` only starts the response, and
-    // `ChatState::finish` closes the text block that `contentBlockStop` ends.
-    // `contentBlockStart` starts only toolUse, toolResult, and image blocks,
-    // which this resolver does not support.
+    // `messageStart` only starts the response, and `ChatState::finish` closes
+    // the text block that `contentBlockStop` ends. `contentBlockStart` starts
+    // only toolUse, toolResult, and image blocks, which this resolver does not
+    // support.
     fn ingest(&mut self, context: &ResponseContext, event: Value) -> Vec<Value> {
         let mut events = self.inner.ensure_response_started(context);
 

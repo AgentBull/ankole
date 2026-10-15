@@ -1,7 +1,8 @@
 defmodule Ankole.OIDC.RPLogout do
   @moduledoc false
   alias Ankole.{BrowserSessions, OIDC, Repo}
-  alias Ankole.OIDC.{LogoutRequest, Sessions}
+  alias Ankole.OIDC.LogoutRequest
+  alias Ankole.OIDC.Sessions
   alias Ankole.OIDC.Boruta.IdTokens
 
   def prepare(ref, params) do

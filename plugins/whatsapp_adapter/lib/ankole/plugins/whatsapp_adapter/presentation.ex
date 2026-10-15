@@ -3,8 +3,8 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
 
   alias Ankole.I18n
   alias Ankole.Logging
-  alias Ankole.SignalsGateway.ReplyActionToken
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ActionToken
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @text_chars 4_096
   @body_chars 1_024
@@ -16,8 +16,8 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
   @reply_buttons 3
   @token_bytes 256
 
-  @spec signal_channel_id(String.t(), String.t()) :: String.t()
-  def signal_channel_id(phone_number_id, wa_id)
+  @spec conversation_id(String.t(), String.t()) :: String.t()
+  def conversation_id(phone_number_id, wa_id)
       when is_binary(phone_number_id) and is_binary(wa_id),
       do: "whatsapp:#{phone_number_id}:#{wa_id}"
 
@@ -46,7 +46,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
   @spec chunks(term(), pos_integer()) :: [String.t()]
   def chunks(value, limit \\ @text_chars) do
     case to_string(value) do
-      "" -> [I18n.t("signals_gateway.reply.no_content")]
+      "" -> [I18n.t("conversations.delivery.reply.no_content")]
       text -> split(text, limit)
     end
   end
@@ -75,7 +75,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
   One interactive message for the pending actions of a reply presentation.
 
   Up to three actions become reply buttons, and more become one list section.
-  SignalsGateway allows at most eight choices, which stays inside the Cloud API
+  Signals allows at most eight choices, which stays inside the Cloud API
   limit of ten list rows.
 
   Every title starts with its ordinal, because the Cloud API refuses a whole
@@ -85,8 +85,8 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
   row title keeps its full text in the row description.
   """
   @spec action_message(map(), String.t(), term()) :: map() | nil
-  def action_message(presentation, actor_event_id, fallback_text)
-      when is_map(presentation) and is_binary(actor_event_id) do
+  def action_message(presentation, signal_id, fallback_text)
+      when is_map(presentation) and is_binary(signal_id) do
     case ReplyPresentation.normalize(presentation) do
       %{"interaction_status" => "pending", "actions" => actions} = normalized
       when is_list(actions) ->
@@ -94,7 +94,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
 
         actions
         |> Enum.with_index()
-        |> Enum.flat_map(&option(&1, actor_event_id))
+        |> Enum.flat_map(&option(&1, signal_id))
         |> Enum.with_index(1)
         |> Enum.map(fn {option, ordinal} -> Map.put(option, :ordinal, ordinal) end)
         |> interactive(body)
@@ -104,7 +104,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
     end
   end
 
-  def action_message(_presentation, _actor_event_id, _fallback_text), do: nil
+  def action_message(_presentation, _signal_id, _fallback_text), do: nil
 
   defp interactive([], _body), do: nil
 
@@ -190,7 +190,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
   defp option({%{"type" => "button"} = action, index}, event_id) do
     with label when is_binary(label) and label != "" <- action["label"],
          {:ok, token} <-
-           ReplyActionToken.encode(event_id, index, action,
+           ActionToken.encode(event_id, index, action,
              prefix: "wa1",
              max_bytes: @token_bytes,
              too_long_error: :interactive_id_too_long
@@ -211,7 +211,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
       end
 
     case truncate(prompt, @body_chars) do
-      "" -> I18n.t("signals_gateway.reply.needs_input")
+      "" -> I18n.t("conversations.delivery.reply.needs_input")
       text -> text
     end
   end
@@ -226,7 +226,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Presentation do
   # The list button only opens the row list. It is a control, not the question,
   # so it carries a fixed localized label instead of a cut of the prompt.
   defp list_button_label do
-    truncate(I18n.t("signals_gateway.reply.choose_option"), @list_button_chars)
+    truncate(I18n.t("conversations.delivery.reply.choose_option"), @list_button_chars)
   end
 
   defp truncate(text, limit) do

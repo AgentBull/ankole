@@ -3,13 +3,11 @@ import { join } from 'node:path'
 import { agentHomePaths, sessionWorkspacePath } from '../core/agent-home-paths'
 import type { WorkerConfig } from './config'
 
-/** Prepares the Job directory inside the current Agent Home. */
 export function prepareTurnWorkspace(config: Pick<WorkerConfig, 'agentHomeRoot'>): string {
   const paths = prepareAgentHome(config.agentHomeRoot)
   return paths.jobs
 }
 
-/** Prepares the Agent Home and returns the Session Workspace. */
 export function prepareActorWorkspace(config: Pick<WorkerConfig, 'agentHomeRoot'>, workspaceID: number): string {
   prepareAgentHome(config.agentHomeRoot)
   const sessionRoot = sessionWorkspacePath(config.agentHomeRoot, workspaceID)

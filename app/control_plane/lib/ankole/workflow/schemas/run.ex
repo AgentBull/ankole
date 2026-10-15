@@ -51,7 +51,7 @@ defmodule Ankole.Workflow.Schemas.Run do
 
     field(:owner_session_id, :string)
     field(:reply_route, :map, default: %{})
-    field(:source_actor_event_id, Ecto.UUID)
+    field(:source_signal_id, Ecto.UUID)
     field(:source_tool_call_id, :string)
     field(:title, :string)
     field(:script, :string)
@@ -81,7 +81,7 @@ defmodule Ankole.Workflow.Schemas.Run do
       :agent_uid,
       :owner_session_id,
       :reply_route,
-      :source_actor_event_id,
+      :source_signal_id,
       :source_tool_call_id,
       :title,
       :script,
@@ -139,7 +139,7 @@ defmodule Ankole.Workflow.Schemas.Run do
     |> validate_json_bytes(:args, 65_536)
     |> JSONPayload.validate_map(:error)
     |> foreign_key_constraint(:agent_uid)
-    |> foreign_key_constraint(:source_actor_event_id)
+    |> foreign_key_constraint(:source_signal_id)
     |> unique_constraint([:agent_uid, :owner_session_id, :source_tool_call_id],
       name: :workflow_runs_source_tool_call_index
     )

@@ -10,7 +10,7 @@ defmodule Ankole.WorkflowTest do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.Workflow
   alias Ankole.Workflow.Program
   alias Ankole.Workflow.Schemas.AgentCall
@@ -18,6 +18,71 @@ defmodule Ankole.WorkflowTest do
   alias Ecto.Adapters.SQL.Sandbox
 
   @memo_budget_bytes 6 * 1_024 * 1_024
+
+  test "a native conversation dispatches Workflow tasks and receives the inherited result" do
+    %{principal: human} = human_fixture()
+    %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
+    id = Ecto.UUID.generate()
+
+    assert {:ok, detail} =
+             Repo.transact(fn _ ->
+               Ankole.ConversationsFixtures.create(human.uid, %{
+                 conversation_id: id,
+                 message_id: Ecto.UUID.generate(),
+                 agent_uid: agent.uid,
+                 text: "Review the case."
+               })
+             end)
+
+    source = Repo.get_by!(Signal, message_id: hd(detail.messages).id)
+
+    assert {:ok, %{run: run}} =
+             Workflow.create_with_dispatch(%{
+               "source_signal_id" => source.id,
+               "agent_uid" => agent.uid,
+               "owner_session_id" => source.session_id,
+               "reply_route" => %{"conversation_id" => id},
+               "source_tool_call_id" => "native-workflow-create",
+               "title" => "Review the case",
+               "script" => "return await agent('Review the case');",
+               "args" => %{},
+               "concurrency" => 1,
+               "max_agent_calls" => 1
+             })
+
+    assert {:ok, %{new_calls: [call]}} =
+             Workflow.commit_replay_pending(
+               run.id,
+               [%{namespace: nil, name: "agent", arguments: %{"prompt" => "Review the case"}}],
+               0
+             )
+
+    dispatch = Repo.get_by!(Signal, source_event_id: "workflow:call:#{call.id}:dispatch")
+    assert dispatch.source == "control-plane://workflow"
+    assert is_nil(dispatch.reply_binding_name)
+    assert dispatch.human_uid == human.uid
+    assert {:ok, %{call: call}} = Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 1)
+
+    assert {:ok, %{accepted: true}} =
+             Repo.transact(fn repo ->
+               Workflow.submit_result_in_tx(
+                 repo,
+                 call.id,
+                 agent.uid,
+                 Workflow.task_session_id(call.id),
+                 %{
+                   "ok" => true,
+                   "value" => "Reviewed"
+                 }
+               )
+             end)
+
+    assert {:ok, %{wakeup_event: result}} = Workflow.complete_replay(run.id, "Reviewed", 1)
+    assert result.session_id == source.session_id
+    assert result.human_uid == human.uid
+    assert is_nil(result.reply_binding_name)
+    assert result.data["reply_route"] == %{"conversation_id" => id}
+  end
 
   test "pending call creation applies the recursive object schema contract before insertion" do
     %{principal: agent} = agent_fixture()
@@ -223,7 +288,7 @@ defmodule Ankole.WorkflowTest do
     session_id = Workflow.task_session_id(call.id)
     deferred_at = DateTime.add(DateTime.utc_now(:microsecond), 30, :second)
 
-    assert {:ok, %ActorEvent{available_at: ^deferred_at}} =
+    assert {:ok, %Signal{available_at: ^deferred_at}} =
              Workflow.defer_task_event(dispatch_event!(sibling), deferred_at, :agent_capacity)
 
     failure = %{
@@ -243,7 +308,7 @@ defmodule Ankole.WorkflowTest do
                end)
 
       assert requeued.status == "queued"
-      assert Repo.get!(ActorEvent, dispatch_event!(sibling).id).available_at == deferred_at
+      assert Repo.get!(Signal, dispatch_event!(sibling).id).available_at == deferred_at
     end
 
     assert {:ok, %{call: claimed}} = Workflow.claim_task_in_tx(Repo, call.id, agent.uid, 8)
@@ -258,7 +323,7 @@ defmodule Ankole.WorkflowTest do
     assert failed.result["code"] == "empty_output"
 
     assert DateTime.before?(
-             Repo.get!(ActorEvent, dispatch_event!(sibling).id).available_at,
+             Repo.get!(Signal, dispatch_event!(sibling).id).available_at,
              deferred_at
            )
   end
@@ -399,7 +464,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{job: %Job{} = job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => Workflow.task_session_id(call.id),
                "source_tool_call_id" => "workflow-job-before-cancel",
@@ -427,7 +492,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:error, {:workflow_run_terminal, "cancelled"}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => Workflow.task_session_id(call.id),
                "source_tool_call_id" => "workflow-job-after-cancel",
@@ -448,7 +513,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{job: %Job{status: "queued"} = successor}} =
              BackgroundAgentJobs.respawn_with_dispatch(source.id, %{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => Workflow.task_session_id(call.id),
                "source_tool_call_id" => "workflow-respawn-before-cancel",
@@ -476,7 +541,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:error, {:workflow_run_terminal, "cancelled"}} =
              BackgroundAgentJobs.respawn_with_dispatch(source.id, %{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => Workflow.task_session_id(call.id),
                "source_tool_call_id" => "workflow-respawn-after-cancel",
@@ -495,7 +560,7 @@ defmodule Ankole.WorkflowTest do
 
     {:ok, %{job: job}} =
       BackgroundAgentJobs.create_with_dispatch(%{
-        "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+        "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
         "agent_uid" => agent.uid,
         "owner_session_id" => Workflow.task_session_id(call.id),
         "source_tool_call_id" => "workflow-steer-successor",
@@ -530,7 +595,7 @@ defmodule Ankole.WorkflowTest do
              })
 
     assert %Job{status: "running"} = Repo.get!(Job, running.id)
-    assert Repo.get!(ActorEvent, steer.id).completed_at == nil
+    assert Repo.get!(Signal, steer.id).completed_at == nil
     refute Repo.get_by(Job, continued_from_job_id: running.id)
 
     assert {:ok, %{run: %Run{cleanup_completed_at: %DateTime{}}}} =
@@ -651,7 +716,7 @@ defmodule Ankole.WorkflowTest do
     failed_at = DateTime.utc_now(:microsecond)
     deferred_at = DateTime.add(failed_at, 30, :second)
 
-    assert {:ok, %ActorEvent{available_at: ^deferred_at}} =
+    assert {:ok, %Signal{available_at: ^deferred_at}} =
              Workflow.defer_task_event(dispatch_event!(sibling), deferred_at, :agent_capacity)
 
     assert {:ok, %{accepted: true, call: failed, run: same_run}} =
@@ -675,7 +740,7 @@ defmodule Ankole.WorkflowTest do
            }
 
     assert Repo.aggregate(AgentCall, :count) == 2
-    assert Repo.get!(ActorEvent, dispatch_event!(sibling).id).available_at == deferred_at
+    assert Repo.get!(Signal, dispatch_event!(sibling).id).available_at == deferred_at
   end
 
   test "memo budget failure cancels parallel siblings, stops their turns, and releases capacity" do
@@ -767,7 +832,7 @@ defmodule Ankole.WorkflowTest do
            }
 
     stop =
-      Repo.get_by!(ActorEvent,
+      Repo.get_by!(Signal,
         agent_uid: agent.uid,
         source_event_id: "workflow:call:#{sibling.id}:stop"
       )
@@ -775,11 +840,11 @@ defmodule Ankole.WorkflowTest do
     assert stop.session_id == sibling_session_id
     assert stop.type == "command.stop"
 
-    assert get_in(stop.payload, ["data", "command", "argsText"]) ==
+    assert get_in(stop.data, ["command", "argsText"]) ==
              "Workflow ended with status failed"
 
-    assert %ActorEvent{type: "workflow.run.failed"} =
-             Repo.get_by!(ActorEvent,
+    assert %Signal{type: "workflow.run.failed"} =
+             Repo.get_by!(Signal,
                agent_uid: agent.uid,
                source_event_id: "workflow:#{run.id}:failed"
              )
@@ -875,7 +940,7 @@ defmodule Ankole.WorkflowTest do
       assert DateTime.after?(sleeping.sleeping_until, DateTime.utc_now())
 
       wake_event =
-        Repo.get_by!(ActorEvent,
+        Repo.get_by!(Signal,
           agent_uid: agent.uid,
           source_event_id: "workflow:call:#{call.id}:wake:1"
         )
@@ -962,13 +1027,13 @@ defmodule Ankole.WorkflowTest do
       end
 
       attention_events =
-        ActorEvent
+        Signal
         |> where([event], event.type == "workflow.run.attention")
         |> Repo.all()
 
       assert [attention] = attention_events
       assert attention.session_id == run.owner_session_id
-      assert attention.payload["data"]["run_id"] == run.id
+      assert attention.data["run_id"] == run.id
     end
 
     test "a crashed wake turn returns the call to sleeping and the attempt budget still fails it" do
@@ -1081,7 +1146,7 @@ defmodule Ankole.WorkflowTest do
         |> Repo.update!()
       end
 
-      Repo.get_by!(ActorEvent,
+      Repo.get_by!(Signal,
         agent_uid: agent.uid,
         source_event_id: "workflow:call:#{without_event.id}:wake:1"
       )
@@ -1114,14 +1179,14 @@ defmodule Ankole.WorkflowTest do
                )
 
       message_event =
-        Repo.get_by!(ActorEvent,
+        Repo.get_by!(Signal,
           agent_uid: agent.uid,
           source_event_id: "workflow:call:#{call.id}:msg:tool-1"
         )
 
       assert message_event.type == "workflow.task.message"
       assert message_event.session_id == Workflow.task_session_id(call.id)
-      assert message_event.payload["data"]["message"] == "Focus on risk."
+      assert message_event.data["message"] == "Focus on risk."
 
       # Idempotent per source tool call.
       assert {:ok, _repeat} =
@@ -1133,7 +1198,7 @@ defmodule Ankole.WorkflowTest do
                  "tool-1"
                )
 
-      assert ActorEvent
+      assert Signal
              |> where([event], event.type == "workflow.task.message")
              |> Repo.aggregate(:count) == 1
 
@@ -1212,7 +1277,7 @@ defmodule Ankole.WorkflowTest do
            Workflow.commit_replay_pending(run.id, pending_calls, memo_length)
          end) do
       {:ok, %{new_calls: [call]}} ->
-        Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+        Ankole.SessionsCase.stub_driver(%{
           agent_uid: run.agent_uid,
           session_id: Workflow.task_session_id(call.id)
         })
@@ -1229,7 +1294,7 @@ defmodule Ankole.WorkflowTest do
 
     {:ok, %{job: job}} =
       BackgroundAgentJobs.create_with_dispatch(%{
-        "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+        "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
         "agent_uid" => agent_uid,
         "owner_session_id" => Workflow.task_session_id(call.id),
         "source_tool_call_id" => "workflow-terminal-job-#{suffix}",
@@ -1274,7 +1339,7 @@ defmodule Ankole.WorkflowTest do
   end
 
   defp dispatch_event!(call) do
-    Repo.get_by!(ActorEvent,
+    Repo.get_by!(Signal,
       agent_uid: call.agent_uid,
       source_event_id: "workflow:call:#{call.id}:dispatch"
     )

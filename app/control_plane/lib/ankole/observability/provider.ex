@@ -16,12 +16,12 @@ defmodule Ankole.Observability.Provider do
   @type observation :: :turn | :response | :generation
 
   @type trace_context :: %{
+          optional(:signal_id) => String.t() | nil,
           tenant_id: String.t(),
           tenant_slug: String.t(),
           principal_uid: String.t() | nil,
           principal_type: String.t() | nil,
           user_id: String.t() | nil,
-          actor_event_id: String.t() | nil,
           session_id: String.t() | nil,
           originator: String.t() | nil,
           caller: String.t() | nil,

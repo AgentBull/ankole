@@ -5,10 +5,13 @@ defmodule Ankole.TenantsTest do
   alias Ankole.{AppConfigure, AuthZ, BrowserSessions, Tenants}
   alias Ankole.AppConfigure.Schema
   alias Ankole.AuthZ.Group
-  alias Ankole.OIDC.{Client, LogoutDelivery, Session}
-  alias Ankole.Principals.{HumanAccess, WorkAccess}
-  alias Ankole.SignalsGateway.{ActorEvent, Actors}
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
+  alias Ankole.OIDC.Client
+  alias Ankole.OIDC.LogoutDelivery
+  alias Ankole.OIDC.Session
+  alias Ankole.Principals.HumanAccess
+  alias Ankole.Principals.WorkAccess
+  alias Ankole.Signals.Signal
+  alias Ankole.AgentWorkers.WorkerEnv
 
   setup %{tenant: tenant} do
     :ok = set_privileged_tenant(tenant)
@@ -199,17 +202,19 @@ defmodule Ankole.TenantsTest do
       Repo.with_tenant(second.id, fn ->
         %{principal: agent} = agent_fixture(%{owner_principal_uid: next_admin.uid})
 
+        conversation =
+          Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid, binding_name: "test")
+
         {:ok, event} =
           Repo.transact(fn repo ->
-            Actors.append_actor_event_in_tx(repo, %{
-              agent_uid: agent.uid,
-              sender_key: author.uid,
-              binding_name: "test:tenant-delete",
-              session_id: "test:tenant-delete",
-              source_event_id: Ecto.UUID.generate(),
+            Ankole.Signals.accept_in_tx(repo, %{
+              target: %{agent_uid: agent.uid, session_id: "test:tenant-delete"},
+              sender: author.uid,
+              source: "test://tenant-delete",
+              id: Ecto.UUID.generate(),
               type: "test.work",
-              available_at: DateTime.utc_now(),
-              payload: %{}
+              time: DateTime.utc_now(),
+              data: %{}
             })
           end)
 
@@ -231,7 +236,7 @@ defmodule Ankole.TenantsTest do
               "payload" => %{"task" => "Continue the routine"},
               "delivery" => %{
                 "targets" => [
-                  %{"binding_name" => "test", "signal_channel_id" => "mock:chat:review"}
+                  %{"binding_name" => "test", "conversation_id" => conversation.conversation_id}
                 ]
               }
             },
@@ -248,7 +253,7 @@ defmodule Ankole.TenantsTest do
     assert {:error, :not_found} = Tenants.get(first.id)
 
     Repo.with_tenant(second.id, fn ->
-      persisted = Repo.get!(ActorEvent, event.id)
+      persisted = Repo.get!(Signal, event.id)
       assert persisted.input_state == "dead_letter"
       assert persisted.human_uid == author.uid
       assert persisted.authorization_kind == "human"
@@ -279,7 +284,7 @@ defmodule Ankole.TenantsTest do
 
       assert {:error, :work_review_changed} =
                WorkAccess.classify(
-                 "actor_event",
+                 "signal",
                  event.id,
                  next_admin.uid,
                  ref,
@@ -370,20 +375,19 @@ defmodule Ankole.TenantsTest do
 
     {:ok, event} =
       Repo.transact(fn repo ->
-        Actors.append_actor_event_in_tx(repo, %{
-          agent_uid: agent.uid,
-          sender_key: restored.uid,
-          binding_name: "test:cleanup-retry",
-          session_id: "test:cleanup-retry",
-          source_event_id: Ecto.UUID.generate(),
+        Ankole.Signals.accept_in_tx(repo, %{
+          target: %{agent_uid: agent.uid, session_id: "test:cleanup-retry"},
+          sender: restored.uid,
+          source: "test://cleanup-retry",
+          id: Ecto.UUID.generate(),
           type: "test.work",
-          available_at: DateTime.utc_now(),
-          payload: %{}
+          time: DateTime.utc_now(),
+          data: %{}
         })
       end)
 
     assert {:ok, _} = Ankole.Principals.WorkCleanup.cleanup(human.uid, disabled.access_version)
-    assert Repo.get!(ActorEvent, event.id).input_state == "open"
+    assert Repo.get!(Signal, event.id).input_state == "open"
 
     {:ok, revoked_again} =
       HumanAccess.disable(human.uid, "review again", nil, Ecto.UUID.generate())
@@ -394,7 +398,7 @@ defmodule Ankole.TenantsTest do
     assert {:ok, _} =
              Ankole.Principals.WorkCleanup.cleanup(human.uid, revoked_again.access_version)
 
-    assert Repo.get!(ActorEvent, event.id).input_state == "dead_letter"
+    assert Repo.get!(Signal, event.id).input_state == "dead_letter"
     assert 2 == Enum.count(HumanAccess.history(human.uid), &(&1.source == "work_cleanup"))
   end
 

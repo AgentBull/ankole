@@ -28,7 +28,7 @@ order: 1
 |---|---|---|
 | **Agent** | 고유한 미션, 접근 권한, 도구, 대외 ID를 가진 작업 주체입니다. 미션과 전달 기준은 편집 가능한 파일에 저장되며, 하나의 배포 인스턴스에서 여러 Agent를 운영할 수 있습니다. | [Agents](../agents/) |
 | **Brain** | 회사의 공유 지식 계층입니다. 출처, 결론, 시간, 신뢰도, 충돌, 공개 범위를 관리해 권한이 있는 Agent에 같은 최신 컨텍스트를 제공합니다. | [Brain](../brain/) |
-| **Session** | 장기 실행의 단위입니다. 컨텍스트, 워크스페이스 상태, 조정, 취소, 복구가 Session에서 연결됩니다. | [Actor Runtime](../actor-runtime/) |
+| **Session** | 장기 실행의 단위입니다. 컨텍스트, 워크스페이스 상태, 조정, 취소, 복구가 Session에서 연결됩니다. | [Sessions](../sessions/) |
 | **Signal routing rule** | Agent를 신호 소스에 연결하고 해당 소스에서 허용할 작업 범위를 설정합니다. | [Signal routing rules](../signal-bindings/) |
 | **Background job** | Session과 분리되어 수 시간 동안 실행할 수 있는 작업입니다. 완료 결과는 작업을 시작한 채널로 전달됩니다. | [Background Agent Jobs](../background-agent-jobs/) |
 | **Skill** | 특정 작업을 수행하는 승인된 절차입니다. Agent가 개선을 제안하고 사람이 이후 Session에 적용할 내용을 승인합니다. | [Skills](../skills/) |

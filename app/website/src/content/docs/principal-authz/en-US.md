@@ -59,7 +59,7 @@ Diagnostics are emitted on each decision, so a denial is observable. `AuthZ.resu
 AuthZ is not a layer the agent can talk around, because the runtime consults it at the boundaries that matter:
 
 - AIGateway resolves every call's subject from a verified token, and the subject's grants decide which model selectors and providers it can reach.
-- The conversation Driver checks its persisted fence before it commits. Worker Job operations check the durable Job attempt fence and the authenticated connection identity.
+- The Session Driver checks its persisted fence before it commits. Worker Job operations check the durable Job attempt fence and the authenticated connection identity.
 - Console operations use an active administrator browser session and CSRF proof. The Principal's current group membership decides what it may change.
 
 The model never gets to assert "I am allowed." The boundary checks the Principal and the grant, and acts on the decision.
@@ -89,4 +89,4 @@ AuthZ is not a prompt instruction and not a hope. It does not ask the model to b
 ## Next steps
 
 - For how a verified token resolves to a Principal at the AIGateway edge, read the [AIGateway API](../ai-gateway/).
-- For how the agent Principal's Driver fence fences a turn, read the [Actor Runtime](../actor-runtime/).
+- For how the agent Principal's Driver fence fences a turn, read the [Sessions](../sessions/).

@@ -1,7 +1,9 @@
 defmodule Ankole.Plugins.SlackAdapter.Dispatcher do
   @moduledoc false
 
-  alias Ankole.Plugins.SlackAdapter.{Channels, IdentityProvider, Inbound}
+  alias Ankole.Plugins.SlackAdapter.Channels
+  alias Ankole.Plugins.SlackAdapter.IdentityProvider
+  alias Ankole.Plugins.SlackAdapter.Inbound
   alias SlackOpenAPI.Event
   alias SlackOpenAPI.SocketMode.Dispatcher, as: SocketDispatcher
 

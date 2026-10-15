@@ -7,7 +7,7 @@ import {
   ReadToolRequestSchema,
   JSONPassthroughResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import { turnStartFromEnvelope } from '../src/lanes/actor_lane'
+import { turnStartFromEnvelope } from '../src/lanes/session_lane'
 
 /**
  * Pins the cross-language golden bytes.
@@ -18,20 +18,20 @@ import { turnStartFromEnvelope } from '../src/lanes/actor_lane'
  */
 describe('RuntimeFabric generated codec contract', () => {
   it('decodes the golden turn_start bytes into the worker DTO', () => {
-    const envelope = decodeEnvelope(goldenBytes('turn_start.v9.bin'))
+    const envelope = decodeEnvelope(goldenBytes('turn_start.v10.bin'))
     const turnStart = turnStartFromEnvelope(envelope)
 
     expect(envelope.protocolVersion).toBe(ProtocolVersion.CURRENT)
     expect(turnStart.mode).toBe('start')
     expect(turnStart.fetch_runtime_config).toEqual({ ssrfFilter: true, renderedFetchIdleTtlMs: 60000 })
     expect(turnStart.turn).toEqual({
-      actor: { session_id: 'job:1000' },
+      session: { session_id: 'job:1000' },
       job_id: 1000,
       attempt: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000001'
+      signal_id: '00000000-0000-0000-0000-000000000001'
     })
-    expect(turnStart.actor_event.type).toBe('cron.fire')
-    expect(turnStart.actor_event.payload_json).toEqual({
+    expect(turnStart.signal.type).toBe('cron.fire')
+    expect(turnStart.signal.payload_json).toEqual({
       data: { wake_payload: { cron_schedule_name: 'golden', payload: {} } }
     })
     expect(turnStart.request_context).toEqual({
@@ -70,31 +70,31 @@ describe('RuntimeFabric generated codec contract', () => {
       ['tool_status', 'toolStatus'],
       ['tool_result', 'toolResult']
     ] as const) {
-      const envelope = decodeEnvelope(goldenBytes(`${name}.v9.bin`))
+      const envelope = decodeEnvelope(goldenBytes(`${name}.v10.bin`))
       expect(envelope.protocolVersion).toBe(ProtocolVersion.CURRENT)
       if (envelope.body.case !== body) throw new Error(`expected ${body}`)
       expect(envelope.body.value.run).toEqual({
         $typeName: 'ankole.runtime_fabric.v1.RunRef',
-        actor: { $typeName: 'ankole.runtime_fabric.v1.ActorKey', sessionId: 'job:1000' },
-        actorEventId: 'input-1'
+        session: { $typeName: 'ankole.runtime_fabric.v1.SessionKey', sessionId: 'job:1000' },
+        signalId: 'input-1'
       })
     }
-    const open = decodeEnvelope(goldenBytes('workspace_open.v9.bin'))
+    const open = decodeEnvelope(goldenBytes('workspace_open.v10.bin'))
     if (open.body.case !== 'workspaceOpen') throw new Error('expected workspaceOpen')
     expect(open.body.value.agentContext?.soul).toBe('Agent instructions')
     expect(open.body.value.agentContext?.skills).toMatchObject([
       { skillName: 'design-md', skillRoot: 'library', relativePath: 'skills/design-md' }
     ])
-    const ready = decodeEnvelope(goldenBytes('workspace_ready.v9.bin'))
+    const ready = decodeEnvelope(goldenBytes('workspace_ready.v10.bin'))
     if (ready.body.case !== 'workspaceReady') throw new Error('expected workspaceReady')
     expect(ready.body.value.reason).toBe(1)
-    const call = decodeEnvelope(goldenBytes('tool_call.v9.bin'))
+    const call = decodeEnvelope(goldenBytes('tool_call.v10.bin'))
     if (call.body.case !== 'toolCall') throw new Error('expected toolCall')
     expect(call.body.value).toMatchObject({ responseId: 'response-1', callId: 'call-1', mode: 'probe' })
-    const status = decodeEnvelope(goldenBytes('tool_status.v9.bin'))
+    const status = decodeEnvelope(goldenBytes('tool_status.v10.bin'))
     if (status.body.case !== 'toolStatus') throw new Error('expected toolStatus')
     expect(status.body.value.state).toBe('unknown')
-    const result = decodeEnvelope(goldenBytes('tool_result.v9.bin'))
+    const result = decodeEnvelope(goldenBytes('tool_result.v10.bin'))
     if (result.body.case !== 'toolResult') throw new Error('expected toolResult')
     expect(result.body.value.images).toHaveLength(1)
     expect(result.body.value.images[0]).toEqual(
@@ -108,17 +108,17 @@ describe('RuntimeFabric generated codec contract', () => {
     expect(JSON.parse(new TextDecoder().decode(result.body.value.contentJson))).toEqual([
       { type: 'text', text: 'done' }
     ])
-    expect(turnStartFromEnvelope(decodeEnvelope(goldenBytes('turn_adopt.v9.bin'))).mode).toBe('adopt')
+    expect(turnStartFromEnvelope(decodeEnvelope(goldenBytes('turn_adopt.v10.bin'))).mode).toBe('adopt')
   })
 
   it('decodes the shared read-tool request and owner result golden bytes', () => {
-    const requestEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_request.v9.bin'))
+    const requestEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_request.v10.bin'))
     if (requestEnvelope.body.case !== 'rpcRequest') throw new Error('expected request')
     expect(requestEnvelope.body.value.method).toBe('tools.read')
     const request = fromBinary(ReadToolRequestSchema, requestEnvelope.body.value.payload)
     expect(request.name).toBe('skill_view')
     expect(JSON.parse(new TextDecoder().decode(request.argumentsJson))).toEqual({ name: 'pdf' })
-    const responseEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_response.v9.bin'))
+    const responseEnvelope = decodeEnvelope(goldenBytes('rpc_read_tool_response.v10.bin'))
     if (responseEnvelope.body.case !== 'rpcResponse') throw new Error('expected response')
     const response = fromBinary(JSONPassthroughResponseSchema, responseEnvelope.body.value.payload)
     expect(JSON.parse(new TextDecoder().decode(response.bodyJson))).toEqual({

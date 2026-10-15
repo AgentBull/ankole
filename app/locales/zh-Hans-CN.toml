@@ -81,19 +81,19 @@ ssrf_filter = "启用后，模型控制的 URL 抓取将拒绝私有、回环、
 bootstrap_activation_code = "首次设置会话门禁当前使用的启动激活码。"
 completed = "Ankole 实例是否已完成首次设置。"
 
-[app_configure.descriptions.signals_gateway]
+[app_configure.descriptions.signals]
 show_dead_letter_error_details = "启用后，发送到消息渠道的死信通知会包含经过长度限制和脱敏处理的 Actor turn 错误详情。"
 
-[app_configure.descriptions.signals_gateway.dingtalk.bindings]
+[app_configure.descriptions.signals.dingtalk.bindings]
 "*" = "加密的钉钉聊天渠道配置。"
 
-[app_configure.descriptions.signals_gateway.lark.bindings]
+[app_configure.descriptions.signals.lark.bindings]
 "*" = "加密的 Lark / 飞书聊天渠道配置。"
 
-[app_configure.descriptions.signals_gateway.slack.bindings]
+[app_configure.descriptions.signals.slack.bindings]
 "*" = "加密的 Slack 聊天渠道配置。"
 
-[app_configure.descriptions.signals_gateway.teams.bindings]
+[app_configure.descriptions.signals.teams.bindings]
 "*" = "加密的 Microsoft Teams 聊天渠道配置。"
 
 [app_configure.descriptions.system]
@@ -1533,6 +1533,7 @@ source_entry = "消息：{$id}"
 restore_tenant_description = "删除 {$key} 的当前租户覆盖，之后继承站点值或声明的默认值。"
 
 [console.signals]
+adapter_group_event_source = "事件源"
 adapter = "适配器"
 adapter_group_consumer_im = "消费者 IM"
 adapter_group_enterprise_im = "企业 IM"
@@ -1552,6 +1553,9 @@ delivery_state_blocked = "需要处理"
 delivery_state_exhausted = "已达到重试上限"
 delivery_state_permanent = "渠道已拒绝"
 delivery_state_unsupported = "该渠道不支持此操作"
+delivery_status_failed = "投递失败"
+delivery_status_expired = "已过期"
+delivery_status_unknown = "投递结果未知"
 delivery_updated = "更新时间"
 description = "把聊天渠道和其他信号源收到的消息或事件交给指定 Agent。"
 edit_hint = "查看并修改现有路由。已保存的密钥不会加载到浏览器；密钥字段留空会保留原值。"
@@ -1596,7 +1600,7 @@ anchor_hint = "间隔网格起始的 ISO8601 时刻。"
 binding = "路由规则"
 binding_empty = "该 Agent 还没有路由规则"
 binding_empty_action = "去新建路由规则"
-binding_empty_hint = "计划任务通过路由规则投递。"
+binding_empty_hint = "投递到外部对话需要路由规则。"
 binding_placeholder = "选择一条路由规则"
 cancel = "取消 checkback"
 cancel_description = "取消这个待处理的 checkback?"
@@ -1609,10 +1613,11 @@ deleted = "计划任务已删除。"
 delete_description = "删除计划任务 {$name}?"
 delete_title = "删除计划任务"
 add_delivery_target = "添加目标"
-delivery_channel = "投递渠道"
+delivery_conversation = "投递对话 ID"
+native_delivery = "原生对话"
 delivery_target = "目标 {$number}"
 delivery_targets = "投递目标"
-delivery_targets_hint = "计划只执行一次，每个目标通过独立的持久化投递接收同一份最终结果。"
+delivery_targets_hint = "计划只执行一次，每个目标对话接收同一份最终结果。"
 delivery_thread = "投递线程"
 description = "管理各 Agent 全部会话的周期性计划和一次性 checkback。"
 due_at = "到期时间"
@@ -1680,11 +1685,17 @@ timezone_hint = "IANA 时区。控制平面默认回退到系统时区。"
 title = "计划任务"
 
 [console.webhooks]
+create = "创建 CloudEvents 端点"
+create_description = "创建经过认证的事件源，再配置路由规则，指定 Agent 和目标。"
+created_url = "能力 URL（仅显示一次）"
+created_url_description = "关闭前复制 URL。配置路由规则时，用端点 ID 选择这个事件源。"
+endpoint_id = "端点 ID"
+create_failed = "无法创建端点。"
 cancel = "取消端点"
 cancel_description = "取消“{$label}”？它的回调 URL 将不再接收新投递。"
 cancel_title = "取消 Webhook 端点"
 cancelled = "Webhook 端点已取消。"
-description = "查看和取消 Agent 在全部会话中创建的回调能力。能力 URL 只在创建时显示一次。"
+description = "创建 CloudEvents 事件源，查看和取消 Agent 的回调端点。能力 URL 只在创建时显示一次。"
 empty_description = "暂无生效中的 Webhook 端点。打开“含已结束”可查看历史。"
 empty_title = "暂无 Webhook 端点"
 expires_at = "过期时间"
@@ -1693,7 +1704,7 @@ mode = "模式"
 mode_one_shot = "一次性"
 mode_standing = "持续"
 route = "回复路由"
-search_placeholder = "搜索标签、模式、状态、绑定或频道"
+search_placeholder = "搜索标签、模式、状态、绑定或对话"
 status = "状态"
 status_active = "活跃"
 status_armed = "待触发"
@@ -2001,7 +2012,7 @@ steps = "初始化步骤"
 title = "Ankole 初始化"
 validating_and_redirecting = "正在验证并跳转…"
 
-[signals_gateway.reply]
+[conversations.delivery.reply]
 tenant_suspended = "此租户当前无法开始新工作。请联系站点管理员处理后重新发送请求。（actor-event::{$ref}）"
 choose_option = "选择"
 context_withdrawn = "上下文消息已撤回，本次回复已停止。已完成的操作不会回滚。请重新发送请求。"
@@ -2035,7 +2046,7 @@ tool_call_completed = "工具调用完成：{$tool}。正在读取结果。"
 tool_call_started = "正在调用工具：{$tool}"
 unmapped_sender = "当前账号尚未绑定到 Ankole 用户。请联系管理员在 Ankole 后台完成账号绑定后，再重新发送消息。"
 
-[signals_gateway.reply.activity]
+[conversations.delivery.reply.activity]
 starting_computer = "正在启动 Agent 的电脑"
 resuming_computer = "正在唤醒 Agent 的电脑"
 computer_retrying = "电脑启动遇到问题，正在重试"
@@ -2142,7 +2153,7 @@ scheduled = "已安排"
 stopped = "已停止"
 working = "正在处理…"
 
-[signals_gateway.cardkit]
+[conversations.delivery.cardkit]
 activity_title = "处理过程"
 activity_title_current = "处理过程 · 正在{$current}"
 activity_title_parallel = "处理过程 · 正在{$current} 等 {$count} 项"
@@ -2288,3 +2299,46 @@ new_site_admin = "新站点管理员"
 choose_human = "选择活跃人员"
 no_humans = "请先在此租户创建活跃人员，再转移站点管理权。"
 transfer_confirm = "将站点管理权转移到 { $name }？操作后需要以新站点管理员身份登录。"
+
+[workplace.sidebar]
+title = "工作台导航"
+tabs_label = "侧栏分类"
+collapse = "收起侧栏"
+expand = "展开侧栏"
+sign_out = "退出登录"
+home_empty = "还没有内容。"
+chat_empty = "还没有对话。"
+
+[workplace.sidebar.tabs]
+home = "主页"
+chat = "对话"
+
+[workplace.chat]
+new_title = "开始对话"
+new_conversation = "新对话"
+loading_agents = "正在加载 Agent…"
+no_agents = "没有可用的在职 Agent。租户管理员可以启用 Agent。"
+loading_history = "正在加载对话…"
+history_failed = "对话加载失败。"
+message_label = "消息"
+placeholder = "向 Agent 发送消息…"
+choose_agent = "选择 Agent"
+send = "发送消息"
+sending = "正在发送…"
+send_failed = "尚未确认发送"
+retry_send = "重试发送"
+retry_load = "重试加载"
+draft_preserved = "消息文本和 ID 已保留。重试以确认发送。"
+replying = "正在回复…"
+retrying = "正在回复 · 将于 { $time } 重试"
+scroll_latest = "滚动到最新消息"
+reconnecting = "正在重新连接，已保存的消息仍可查看。"
+agent_unavailable = "此 Agent 已停用。历史消息仍可查看，暂时无法发送新消息。"
+
+[workplace.chat.errors]
+agent_unavailable = "此 Agent 已停用，无法发送新消息。"
+conversation_not_found = "此对话不存在，或没有访问权限。"
+conversation_conflict = "这些 ID 已用于另一条消息。"
+invalid_id = "对话或消息 ID 无效。"
+invalid_text = "请输入非空消息。"
+invalid_request = "消息请求无效。"

@@ -9,10 +9,8 @@ use crate::authz::cel::{self, BoolEvalError};
 use crate::authz::resource_pattern::{normalize_resource_for_glob, resource_pattern_matcher};
 use crate::common::{KernelError, KernelResult, bounded_cache::BoundedCache};
 
-/// Single-action authorization snapshot supplied by the host runtime.
-///
-/// The snapshot must already contain all DB state needed for the decision. This
-/// module intentionally has no PostgreSQL, Redis, or external-service access.
+/// The snapshot must already contain all DB state for the decision.
+/// This module has no PostgreSQL, Redis, or external-service access.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthzSnapshot {
@@ -27,7 +25,6 @@ pub struct AuthzSnapshot {
     pub context: JSONValue,
 }
 
-/// Batch authorization snapshot for multiple actions on the same resource.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthzBatchSnapshot {
@@ -42,10 +39,6 @@ pub struct AuthzBatchSnapshot {
     pub context: JSONValue,
 }
 
-/// Minimal Principal shape the native engine needs.
-///
-/// The field is called `principal_type` in Rust because `type` is reserved, but
-/// serde maps it from the `type` JSON field produced by host callers.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SnapshotPrincipal {
@@ -67,9 +60,7 @@ pub struct SnapshotComputedGroup {
     pub condition: String,
 }
 
-/// Candidate permission grant loaded by the control plane.
-///
-/// Native still checks owner, action, resource pattern, and CEL condition; SQL
+/// Native still checks owner, action, resource pattern, and CEL condition. SQL
 /// only prefilters enough to keep the snapshot small.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -84,7 +75,6 @@ pub struct SnapshotGrant {
     pub condition: String,
 }
 
-/// Authorization decision returned to host runtimes.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AuthzDecision {
@@ -95,9 +85,7 @@ pub struct AuthzDecision {
     pub denied_action: Option<String>,
 }
 
-/// Diagnostic for invalid persisted AuthZ data.
-///
-/// Diagnostics do not make a request allowed; invalid grants/groups fail closed
+/// Diagnostics do not make a request allowed. Invalid grants and groups fail closed
 /// and are reported for logging.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -128,10 +116,6 @@ pub fn authorize(snapshot: AuthzSnapshot) -> KernelResult<AuthzDecision> {
     authorize_one(&snapshot)
 }
 
-/// Authorizes every requested action against the same concrete resource.
-///
-/// The first denied action is returned so the caller can produce a useful domain
-/// error while preserving default-deny behavior.
 pub fn authorize_all(snapshot: AuthzBatchSnapshot) -> KernelResult<AuthzDecision> {
     if snapshot.actions.is_empty() {
         return Ok(decision("invalid_request", Vec::new(), Vec::new(), None));
@@ -177,7 +161,6 @@ pub fn authorize_all(snapshot: AuthzBatchSnapshot) -> KernelResult<AuthzDecision
     Ok(decision("allow", diagnostics, effective_group_ids, None))
 }
 
-/// Decodes, evaluates, and encodes a single-action snapshot as host values.
 pub fn authorize_value(snapshot: JSONValue) -> KernelResult<JSONValue> {
     let snapshot: AuthzSnapshot = serde_json::from_value(snapshot)
         .map_err(|reason| KernelError::new(format!("invalid authz snapshot: {reason}")))?;
@@ -187,7 +170,6 @@ pub fn authorize_value(snapshot: JSONValue) -> KernelResult<JSONValue> {
         .map_err(|reason| KernelError::new(format!("failed to encode authz decision: {reason}")))
 }
 
-/// Decodes, evaluates, and encodes a batch-action snapshot as host values.
 pub fn authorize_all_value(snapshot: JSONValue) -> KernelResult<JSONValue> {
     let snapshot: AuthzBatchSnapshot = serde_json::from_value(snapshot)
         .map_err(|reason| KernelError::new(format!("invalid authz batch snapshot: {reason}")))?;
@@ -217,8 +199,6 @@ fn authorize_one(snapshot: &AuthzSnapshot) -> KernelResult<AuthzDecision> {
         ));
     }
 
-    // Authorization starts with the subject lifecycle check above. Grants are
-    // considered only for active Principals.
     let (allowed, mut grant_diagnostics) = grants_allow(
         &snapshot.principal,
         &effective_group_ids,
@@ -241,10 +221,6 @@ fn authorize_one(snapshot: &AuthzSnapshot) -> KernelResult<AuthzDecision> {
     ))
 }
 
-/// Combines static group ids with computed groups that evaluate to true.
-///
-/// Invalid computed conditions are diagnostics and do not add the group to the
-/// effective set.
 fn effective_group_ids(
     principal: &SnapshotPrincipal,
     static_group_ids: &[String],
@@ -293,11 +269,9 @@ fn effective_group_ids(
     Ok((effective_group_ids, diagnostics))
 }
 
-/// Evaluates candidate grants for one action.
-///
 /// A grant can allow only after owner, exact action, resource pattern, and CEL
-/// condition all match. Any invalid persisted pattern/condition is skipped with
-/// diagnostics, preserving default deny.
+/// condition all match. Any invalid persisted pattern or condition is skipped
+/// with diagnostics, and the default is deny.
 fn grants_allow(
     principal: &SnapshotPrincipal,
     effective_group_ids: &[String],
@@ -356,7 +330,6 @@ fn grants_allow(
     Ok((false, diagnostics))
 }
 
-/// Checks the grant owner against the Principal UID or effective group set.
 fn grant_owned_by_subject(
     grant: &SnapshotGrant,
     principal_uid: &str,
@@ -369,7 +342,6 @@ fn grant_owned_by_subject(
     }
 }
 
-/// Converts the Principal snapshot into the CEL-visible object.
 fn principal_to_json(principal: &SnapshotPrincipal) -> JSONValue {
     serde_json::json!({
         "uid": principal.uid,
@@ -380,7 +352,6 @@ fn principal_to_json(principal: &SnapshotPrincipal) -> JSONValue {
     })
 }
 
-/// Namespaces caller context under `context.request` for CEL expressions.
 fn normalized_context(request_context: &JSONValue) -> JSONValue {
     serde_json::json!({
         "request": request_context

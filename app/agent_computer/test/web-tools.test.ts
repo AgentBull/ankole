@@ -2,9 +2,9 @@ import { describe, expect, it } from 'bun:test'
 import { createWebTools, renderedFallbackFetch } from '../src/tools/web/web-tools'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
 import type { RPCRequester } from '../src/lanes/rpc_lane'
-import type { JobTurnRef } from '../src/lanes/actor_lane'
+import type { JobTurnRef } from '../src/lanes/session_lane'
 
-const turn: JobTurnRef = { actor: { session_id: 'job:1000' }, job_id: 1000, attempt: 1, actor_event_id: 'input-1' }
+const turn: JobTurnRef = { session: { session_id: 'job:1000' }, job_id: 1000, attempt: 1, signal_id: 'input-1' }
 const unusedRPC = (async () => {
   throw new Error('unexpected RPC')
 }) as unknown as RPCRequester

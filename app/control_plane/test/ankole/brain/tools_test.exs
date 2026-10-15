@@ -13,7 +13,7 @@ defmodule Ankole.Brain.ToolsTest do
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Tools
   alias Ankole.AIAgent.Library
-  alias Ankole.SignalsGateway.BrainContext
+  alias Ankole.Brain.RequestContext
 
   setup do
     {:ok, _result} = SchemaPacks.install_packs([])
@@ -50,7 +50,7 @@ defmodule Ankole.Brain.ToolsTest do
 
     {:ok, _alias} = Ankole.Brain.Links.add_alias(object.slug, "Wire Format")
 
-    {:ok, context} = BrainContext.build(agent.uid, nil)
+    {:ok, context} = RequestContext.build(agent.uid, nil)
 
     %{agent: agent, object: object, context: context}
   end
@@ -391,7 +391,7 @@ defmodule Ankole.Brain.ToolsTest do
     test "a DM derives the asker's scope when scope is omitted", context do
       %{principal: asker} = human_fixture()
       channel = insert_channel!(:im_dm, nil)
-      event = insert_actor_event!(context.agent.uid, asker.uid, channel.id)
+      event = insert_signal!(context.agent.uid, asker.uid, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
       assert {:ok, result} =
@@ -406,7 +406,7 @@ defmodule Ankole.Brain.ToolsTest do
                )
 
       assert result["audience_scope"] == "principal:" <> asker.uid
-      assert result["signal_gateway_channel_id"] == channel.id
+      assert result["conversation_id"] == channel.id
     end
 
     test "a group derives its member Group scope when the model omits scope", context do
@@ -420,7 +420,7 @@ defmodule Ankole.Brain.ToolsTest do
 
       {:ok, _membership} = Ankole.AuthZ.add_principal_to_group(context.agent.uid, group.id)
       channel = insert_channel!(:im_group, group.id)
-      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      event = insert_signal!(context.agent.uid, nil, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
       assert {:ok, result} =
@@ -440,7 +440,7 @@ defmodule Ankole.Brain.ToolsTest do
     test "an explicit world scope is preserved in a DM", context do
       %{principal: asker} = human_fixture()
       channel = insert_channel!(:im_dm, nil)
-      event = insert_actor_event!(context.agent.uid, asker.uid, channel.id)
+      event = insert_signal!(context.agent.uid, asker.uid, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
       assert {:ok, result} =
@@ -480,7 +480,7 @@ defmodule Ankole.Brain.ToolsTest do
       end
 
       channel = insert_channel!(:im_group, conversation_group.id)
-      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      event = insert_signal!(context.agent.uid, nil, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
       assert {:ok, result} =
@@ -522,7 +522,7 @@ defmodule Ankole.Brain.ToolsTest do
 
     test "a group without a member Group rejects an omitted scope", context do
       channel = insert_channel!(:im_group, nil)
-      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      event = insert_signal!(context.agent.uid, nil, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
       assert {:error, :im_group_without_member_group} =
@@ -539,7 +539,7 @@ defmodule Ankole.Brain.ToolsTest do
 
     test "a write after its input closes does not land", context do
       channel = insert_channel!(:im_dm, nil)
-      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      event = insert_signal!(context.agent.uid, nil, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
       event
@@ -562,21 +562,21 @@ defmodule Ankole.Brain.ToolsTest do
     test "an actor event that belongs to another Agent is refused", context do
       %{principal: other} = agent_fixture()
       channel = insert_channel!(:im_dm, nil)
-      event = insert_actor_event!(other.uid, nil, channel.id)
+      event = insert_signal!(other.uid, nil, channel.id)
 
-      assert {:error, :actor_event_not_owned} =
-               BrainContext.build(context.agent.uid, %{"actor_event_id" => event.id})
+      assert {:error, :signal_not_owned} =
+               RequestContext.build(context.agent.uid, %{"signal_id" => event.id})
 
-      assert {:error, :actor_event_not_found} =
-               BrainContext.build(context.agent.uid, %{
-                 "actor_event_id" => Ankole.Ecto.UUIDv7.autogenerate()
+      assert {:error, :signal_not_found} =
+               RequestContext.build(context.agent.uid, %{
+                 "signal_id" => Ankole.Ecto.UUIDv7.autogenerate()
                })
     end
 
     test "a subject without an event runs as itself", _context do
       %{principal: human} = human_fixture()
 
-      assert {:ok, human_context} = BrainContext.build(human.uid, %{})
+      assert {:ok, human_context} = RequestContext.build(human.uid, %{})
       assert human_context.querier_uid == human.uid
       assert human_context.default_write_scope == {:ok, "principal:" <> human.uid}
       assert human_context.parent_fallback == {:page, "people/" <> human.uid}
@@ -633,7 +633,7 @@ defmodule Ankole.Brain.ToolsTest do
     end
 
     test "strict group chat holds back what a present member does not satisfy", context do
-      event = insert_actor_event!(context.agent.uid, context.asker.uid, context.group_channel.id)
+      event = insert_signal!(context.agent.uid, context.asker.uid, context.group_channel.id)
       refute recalled?(context, turn_context!(context.agent.uid, event))
     end
 
@@ -643,12 +643,12 @@ defmodule Ankole.Brain.ToolsTest do
           group_memory_disclosure_mode: :relaxed
         })
 
-      event = insert_actor_event!(context.agent.uid, context.asker.uid, context.group_channel.id)
+      event = insert_signal!(context.agent.uid, context.asker.uid, context.group_channel.id)
       assert recalled?(context, turn_context!(context.agent.uid, event))
     end
 
     test "a private chat behaves the same under the strict default", context do
-      event = insert_actor_event!(context.agent.uid, context.asker.uid, context.dm_channel.id)
+      event = insert_signal!(context.agent.uid, context.asker.uid, context.dm_channel.id)
       assert recalled?(context, turn_context!(context.agent.uid, event))
     end
 
@@ -657,13 +657,13 @@ defmodule Ankole.Brain.ToolsTest do
     # the Turn would speak whatever the Agent itself can reach.
     test "a scheduled private chat protects the reader it delivers to", context do
       insert_entry!(context.dm_channel.id, context.bystander.uid)
-      event = insert_actor_event!(context.agent.uid, nil, context.dm_channel.id)
+      event = insert_signal!(context.agent.uid, nil, context.dm_channel.id)
       refute recalled?(context, turn_context!(context.agent.uid, event))
     end
 
     test "a scheduled private chat still serves its own reader", context do
       insert_entry!(context.dm_channel.id, context.asker.uid)
-      event = insert_actor_event!(context.agent.uid, nil, context.dm_channel.id)
+      event = insert_signal!(context.agent.uid, nil, context.dm_channel.id)
       assert recalled?(context, turn_context!(context.agent.uid, event))
     end
 
@@ -673,20 +673,20 @@ defmodule Ankole.Brain.ToolsTest do
           group_memory_disclosure_mode: :relaxed
         })
 
-      event = insert_actor_event!(context.agent.uid, nil, context.group_channel.id)
+      event = insert_signal!(context.agent.uid, nil, context.group_channel.id)
       refute recalled?(context, turn_context!(context.agent.uid, event))
     end
 
     test "a scheduled group chat discloses nothing when its member group is unavailable",
          context do
       unresolved_channel = insert_channel!(:im_group, nil)
-      event = insert_actor_event!(context.agent.uid, nil, unresolved_channel.id)
+      event = insert_signal!(context.agent.uid, nil, unresolved_channel.id)
       refute recalled?(context, turn_context!(context.agent.uid, event))
     end
 
     test "a strict group chat does not degrade to asker-only disclosure", context do
       unresolved_channel = insert_channel!(:im_group, nil)
-      event = insert_actor_event!(context.agent.uid, context.asker.uid, unresolved_channel.id)
+      event = insert_signal!(context.agent.uid, context.asker.uid, unresolved_channel.id)
       refute recalled?(context, turn_context!(context.agent.uid, event))
     end
 
@@ -697,20 +697,40 @@ defmodule Ankole.Brain.ToolsTest do
         "targets" => [
           %{
             "binding_name" => "test-binding",
-            "signal_channel_id" => context.dm_channel.id
+            "conversation_id" => context.dm_channel.id
           },
           %{
             "binding_name" => "second-binding",
-            "signal_channel_id" => context.group_channel.id
+            "conversation_id" => context.group_channel.id
           }
         ]
       }
 
       event =
-        insert_actor_event!(context.agent.uid, nil, context.dm_channel.id, %{
+        insert_signal!(context.agent.uid, nil, context.dm_channel.id, %{
           type: "cron.fire",
-          payload: %{"data" => %{"wake_payload" => %{"delivery" => delivery}}}
+          data: %{"wake_payload" => %{"delivery" => delivery}}
         })
+
+      now = DateTime.utc_now(:microsecond)
+
+      Repo.insert!(
+        Ankole.Schedule.Schemas.ScheduledEvent.changeset(
+          %Ankole.Schedule.Schemas.ScheduledEvent{},
+          %{
+            kind: "cron_fire",
+            status: "fired",
+            agent_uid: event.agent_uid,
+            session_id: event.session_id,
+            signal_id: event.id,
+            due_at: now,
+            fired_at: now,
+            requested_at: now,
+            timezone: "UTC",
+            idempotency_key: "disclosure:#{event.id}"
+          }
+        )
+      )
 
       refute recalled?(context, turn_context!(context.agent.uid, event))
     end
@@ -733,7 +753,7 @@ defmodule Ankole.Brain.ToolsTest do
     %{principal: speaker} = human_fixture()
     speaker_slug = "people/" <> speaker.uid
     channel = insert_channel!(:im_dm, nil)
-    event = insert_actor_event!(context.agent.uid, speaker.uid, channel.id)
+    event = insert_signal!(context.agent.uid, speaker.uid, channel.id)
     turn_context = turn_context!(context.agent.uid, event)
 
     # A claim whose named entity does not resolve is filed on the channel,
@@ -741,7 +761,7 @@ defmodule Ankole.Brain.ToolsTest do
     {:ok, %{claim: _channel_claim}} =
       Claims.write_fact(
         %{
-          signal_gateway_channel_id: channel.id,
+          conversation_id: channel.id,
           claim: "Prefers a written summary before any call",
           kind: "preference",
           holder: speaker_slug,
@@ -763,7 +783,7 @@ defmodule Ankole.Brain.ToolsTest do
   test "a minimal remember in a turn reaches the next context pack", context do
     %{principal: speaker} = human_fixture()
     channel = insert_channel!(:im_dm, nil)
-    event = insert_actor_event!(context.agent.uid, speaker.uid, channel.id)
+    event = insert_signal!(context.agent.uid, speaker.uid, channel.id)
     turn_context = turn_context!(context.agent.uid, event)
 
     assert {:ok, %{"claim_id" => _claim_id}} =
@@ -819,7 +839,7 @@ defmodule Ankole.Brain.ToolsTest do
     test "a DM turn defaults to the asker's principal scope", context do
       %{principal: asker} = human_fixture()
       dm = insert_channel!(:im_dm, nil)
-      event = insert_actor_event!(context.agent.uid, asker.uid, dm.id)
+      event = insert_signal!(context.agent.uid, asker.uid, dm.id)
       turn_context = turn_context!(context.agent.uid, event)
 
       url = "https://example.com/dm-#{System.unique_integer([:positive])}"
@@ -839,7 +859,7 @@ defmodule Ankole.Brain.ToolsTest do
 
       {:ok, _membership} = Ankole.AuthZ.add_principal_to_group(context.agent.uid, group.id)
       channel = insert_channel!(:im_group, group.id)
-      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      event = insert_signal!(context.agent.uid, nil, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
       url = "https://example.com/group-#{System.unique_integer([:positive])}"
@@ -850,7 +870,7 @@ defmodule Ankole.Brain.ToolsTest do
 
     test "a group without a member group names the blocker instead of guessing", context do
       channel = insert_channel!(:im_group, nil)
-      event = insert_actor_event!(context.agent.uid, nil, channel.id)
+      event = insert_signal!(context.agent.uid, nil, channel.id)
       turn_context = turn_context!(context.agent.uid, event)
 
       url = "https://example.com/orphan-#{System.unique_integer([:positive])}"
@@ -877,7 +897,7 @@ defmodule Ankole.Brain.ToolsTest do
   end
 
   defp turn_context!(agent_uid, event) do
-    {:ok, context} = BrainContext.build(agent_uid, %{"actor_event_id" => event.id})
+    {:ok, context} = RequestContext.build(agent_uid, %{"signal_id" => event.id})
     context
   end
 
@@ -885,13 +905,15 @@ defmodule Ankole.Brain.ToolsTest do
     now = DateTime.utc_now(:microsecond)
 
     Repo.insert!(
-      Ankole.SignalsGateway.Channel.changeset(%Ankole.SignalsGateway.Channel{}, %{
-        id: "test:tools-#{System.unique_integer([:positive])}",
-        kind: kind,
+      Ankole.Conversations.Conversation.changeset(%Ankole.Conversations.Conversation{}, %{
+        id: Ecto.UUID.generate(),
+        provider_conversation_id: "test:tools-#{System.unique_integer([:positive])}",
+        title: "Conversation",
+        kind: :external,
+        external_kind: kind,
         reply_mode: :entry,
         principal_group_id: principal_group_id,
-        metadata: %{},
-        raw_payload: %{},
+        last_activity_at: now,
         first_seen_at: now,
         last_seen_at: now
       })
@@ -900,41 +922,54 @@ defmodule Ankole.Brain.ToolsTest do
 
   # Recall touches a retrieved page; this is the state a page reaches after
   # it has been read recently and carries weight.
-  defp insert_entry!(channel_id, author_uid) do
+  defp insert_entry!(conversation_id, author_uid) do
     now = DateTime.utc_now(:microsecond)
-    unique = System.unique_integer([:positive])
 
-    Repo.insert!(
-      Ankole.SignalsGateway.Entry.changeset(%Ankole.SignalsGateway.Entry{}, %{
-        signal_channel_id: channel_id,
-        source_entry_id: "entry-#{unique}",
-        document_id: "signal-gateway-entry:test-#{unique}",
-        text: "hello",
-        author: %{"principal_uid" => author_uid},
-        first_seen_at: now,
-        last_seen_at: now
-      })
-    )
+    {:ok, %{message: message}} =
+      Repo.transact(
+        &Ankole.Conversations.External.observe_in_tx(
+          &1,
+          conversation_id,
+          %{
+            provider_message_id: "entry-#{System.unique_integer([:positive])}",
+            text: "hello",
+            author: %{"principal_uid" => author_uid},
+            provider_time: now
+          },
+          now
+        )
+      )
+
+    message
   end
 
-  defp insert_actor_event!(agent_uid, sender_uid, channel_id, overrides \\ %{}) do
+  defp insert_signal!(agent_uid, sender_uid, channel_id, overrides \\ %{}) do
     attrs =
       Map.merge(
         %{
+          producer: :kernel,
           agent_uid: agent_uid,
-          binding_name: "test-binding",
+          source: "test:tools",
+          reply_binding_name: "test-binding",
+          occurred_at: DateTime.utc_now(:microsecond),
           session_id: "session-#{System.unique_integer([:positive])}",
           source_event_id: "event-#{System.unique_integer([:positive])}",
-          signal_channel_id: channel_id,
+          conversation_id: channel_id,
           type: "signal",
           available_at: DateTime.utc_now(:microsecond),
           queue_sequence: System.unique_integer([:positive]),
           sender_key: sender_uid,
-          payload: %{}
+          data: %{}
         },
         overrides
       )
 
-    Repo.insert!(struct!(Ankole.SignalsGateway.ActorEvent, attrs))
+    attrs =
+      Ankole.Principals.WorkAccess.merge(
+        attrs,
+        Ankole.Principals.WorkAccess.from_sender(Repo, sender_uid)
+      )
+
+    Repo.insert!(struct!(Ankole.Signals.Signal, attrs))
   end
 end

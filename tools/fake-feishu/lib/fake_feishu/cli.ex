@@ -72,8 +72,6 @@ defmodule FakeFeishu.CLI do
   defp take_url(["--url=" <> url | rest], _url, acc), do: take_url(rest, url, acc)
   defp take_url([arg | rest], url, acc), do: take_url(rest, url, [arg | acc])
 
-  # -- serve ---------------------------------------------------------------------
-
   defp serve(args) do
     {opts, _rest, _invalid} =
       OptionParser.parse(args,
@@ -142,8 +140,6 @@ defmodule FakeFeishu.CLI do
       _invalid -> abort("--app expects APP_ID:SECRET[:BOT_OPEN_ID], got #{spec}")
     end
   end
-
-  # -- read commands ----------------------------------------------------------------
 
   defp status(url) do
     with {:ok, status} <- HTTP.get(url, "/sim/v1/status") do
@@ -215,8 +211,6 @@ defmodule FakeFeishu.CLI do
     end
     |> or_abort()
   end
-
-  # -- user actions -----------------------------------------------------------------
 
   defp send_message(url, args) do
     {opts, rest, _invalid} =
@@ -368,8 +362,6 @@ defmodule FakeFeishu.CLI do
     end
     |> or_abort()
   end
-
-  # -- tail and repl -------------------------------------------------------------------
 
   defp tail(url, args) do
     {opts, _rest, _invalid} = OptionParser.parse(args, strict: [all: :boolean])
@@ -612,8 +604,6 @@ defmodule FakeFeishu.CLI do
 
     state
   end
-
-  # -- shared helpers ------------------------------------------------------------
 
   # Without --chat: a single chat wins, then the seeded general room; anything
   # else needs an explicit choice.

@@ -3,8 +3,11 @@ defmodule Ankole.IdentityProviders.DirectoryAccess do
   Durable provider events and reviewed directory removal evidence.
   """
   import Ecto.Query
-  alias Ankole.IdentityProviders.{DirectoryEvent, DirectoryState, Jobs.ProcessDirectoryEvent}
-  alias Ankole.Principals.{ExternalIdentity, HumanAccess}
+  alias Ankole.IdentityProviders.DirectoryEvent
+  alias Ankole.IdentityProviders.DirectoryState
+  alias Ankole.IdentityProviders.Jobs.ProcessDirectoryEvent
+  alias Ankole.Principals.ExternalIdentity
+  alias Ankole.Principals.HumanAccess
   alias Ankole.Repo
 
   def state(provider_id), do: Repo.get_by(DirectoryState, provider_id: provider_id)

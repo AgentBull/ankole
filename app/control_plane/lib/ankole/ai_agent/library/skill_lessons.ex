@@ -2,7 +2,8 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   @moduledoc false
 
   import Ecto.Query
-  alias Ankole.AIAgent.Library.Schemas.{AgentSkill, AgentSkillLesson}
+  alias Ankole.AIAgent.Library.Schemas.AgentSkill
+  alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.Brain.Config, as: BrainConfig
   alias Ankole.Brain.Sanitize

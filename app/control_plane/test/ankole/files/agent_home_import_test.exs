@@ -9,7 +9,6 @@ defmodule Ankole.Files.AgentHomeImportTest do
   alias Ankole.AutomationJobs.Schemas.Job
   alias Ankole.Files
   alias Ankole.Files.AgentHomeImport
-  alias Ankole.SignalsGateway
 
   setup do
     root = Path.join(System.tmp_dir!(), "agent-home-import-#{System.unique_integer([:positive])}")
@@ -25,13 +24,13 @@ defmodule Ankole.Files.AgentHomeImportTest do
   } do
     write!(home, "user-files/reports/result.txt", "pre-upgrade result")
 
-    assert {:ok, outbox} =
-             Ankole.SignalsGateway.Outbox.commit_outbox(%{
+    assert {:ok, intent} =
+             Ankole.Conversations.Delivery.commit(%{
                agent_uid: uid,
                binding_name: "test",
                outbound_key: "legacy-attachment",
                operation: :post,
-               status: :unknown_after_send,
+               status: :unknown,
                attempt_count: 2,
                payload: %{
                  "attachments" => [
@@ -49,20 +48,20 @@ defmodule Ankole.Files.AgentHomeImportTest do
     assert {:ok, %{attachments: 1, skipped: []}} = AgentHomeImport.run(root)
 
     migrated =
-      Repo.get_by!(Ankole.SignalsGateway.OutboxEntry,
+      Repo.get_by!(Ankole.Conversations.Delivery.Intent,
         agent_uid: uid,
-        outbound_key: outbox.outbound_key,
+        outbound_key: intent.outbound_key,
         binding_name: "test"
       )
 
-    assert migrated.status == :unknown_after_send
+    assert migrated.status == :unknown
     assert migrated.attempt_count == 2
     [attachment] = migrated.payload["attachments"]
     assert attachment["provider_key"] == "already-uploaded"
     refute Map.has_key?(attachment, "agent_computer_path")
 
     assert {:ok, "pre-upgrade result"} =
-             Ankole.SignalsGateway.Outbox.attachment_content(attachment)
+             Ankole.Conversations.Delivery.attachment_content(attachment)
 
     assert {:ok, _file, "pre-upgrade result"} = Files.read(uid, attachment["path"])
     assert {:ok, %{attachments: 0}} = AgentHomeImport.run(root)
@@ -84,8 +83,8 @@ defmodule Ankole.Files.AgentHomeImportTest do
         }
       end)
 
-    assert {:ok, _outbox} =
-             Ankole.SignalsGateway.Outbox.commit_outbox(%{
+    assert {:ok, _intent} =
+             Ankole.Conversations.Delivery.commit(%{
                agent_uid: uid,
                binding_name: "test",
                outbound_key: "repeated-legacy",
@@ -96,7 +95,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
     assert {:ok, %{attachments: 2, skipped: []}} = AgentHomeImport.run(root)
 
     migrated =
-      Repo.get_by!(Ankole.SignalsGateway.OutboxEntry,
+      Repo.get_by!(Ankole.Conversations.Delivery.Intent,
         agent_uid: uid,
         binding_name: "test",
         outbound_key: "repeated-legacy"
@@ -105,7 +104,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
     [first, second] = migrated.payload["attachments"]
     assert Enum.map([first, second], & &1["provider_key"]) == ["first", "second"]
     assert first["blob_ref"] == second["blob_ref"]
-    assert {:ok, "same bytes"} = Ankole.SignalsGateway.Outbox.attachment_content(second)
+    assert {:ok, "same bytes"} = Ankole.Conversations.Delivery.attachment_content(second)
   end
 
   test "an unavailable legacy attachment is reported without dropping its intent", %{
@@ -119,8 +118,8 @@ defmodule Ankole.Files.AgentHomeImportTest do
       "attachments" => [%{"user_files_relative_path" => "missing.txt", "name" => "missing.txt"}]
     }
 
-    assert {:ok, _outbox} =
-             Ankole.SignalsGateway.Outbox.commit_outbox(%{
+    assert {:ok, _intent} =
+             Ankole.Conversations.Delivery.commit(%{
                agent_uid: uid,
                binding_name: "test",
                outbound_key: "missing-legacy",
@@ -130,7 +129,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
 
     assert {:ok, %{attachments: 0, skipped: [_]}} = AgentHomeImport.run(root)
 
-    assert Repo.get_by!(Ankole.SignalsGateway.OutboxEntry,
+    assert Repo.get_by!(Ankole.Conversations.Delivery.Intent,
              agent_uid: uid,
              binding_name: "test",
              outbound_key: "missing-legacy"
@@ -144,8 +143,8 @@ defmodule Ankole.Files.AgentHomeImportTest do
   } do
     write!(home, "user-files/queued.txt", "queued bytes")
 
-    assert {:ok, _outbox} =
-             Ankole.SignalsGateway.Outbox.commit_outbox(%{
+    assert {:ok, _intent} =
+             Ankole.Conversations.Delivery.commit(%{
                agent_uid: uid,
                binding_name: "test",
                outbound_key: "waiting-legacy",
@@ -157,28 +156,28 @@ defmodule Ankole.Files.AgentHomeImportTest do
                }
              })
 
-    adapter = %Ankole.SignalsGateway.OutboxAdapter{
+    adapter = %Ankole.Conversations.Delivery.Adapter{
       capabilities: MapSet.new([:post_entry]),
       reconcile_fun: nil,
-      send_fun: fn _outbox -> flunk("legacy bytes must not reach a provider") end
+      deliver_fun: fn _intent -> flunk("legacy bytes must not reach a provider") end
     }
 
     assert {:error, :attachment_migration_required} =
-             Ankole.SignalsGateway.Outbox.dispatch_outbox(uid, "test", "waiting-legacy", adapter)
+             Ankole.Conversations.Delivery.dispatch(uid, "test", "waiting-legacy", adapter)
 
     waiting =
-      Repo.get_by!(Ankole.SignalsGateway.OutboxEntry,
+      Repo.get_by!(Ankole.Conversations.Delivery.Intent,
         agent_uid: uid,
         binding_name: "test",
         outbound_key: "waiting-legacy"
       )
 
-    assert waiting.status == :created
+    assert waiting.status == :pending
     assert waiting.attempt_count == 0
     assert {:ok, %{attachments: 1}} = AgentHomeImport.run(root)
 
     assert_enqueued(
-      worker: Ankole.SignalsGateway.Jobs.OutboxDispatch,
+      worker: Ankole.Conversations.Delivery.Jobs.Dispatch,
       args: %{agent_uid: uid, binding_name: "test", outbound_key: "waiting-legacy"}
     )
   end
@@ -215,8 +214,8 @@ defmodule Ankole.Files.AgentHomeImportTest do
       write!(home, "user-files/result.txt", "attachment:#{uid}")
 
       Repo.with_tenant(tenant.id, fn ->
-        assert {:ok, _outbox} =
-                 Ankole.SignalsGateway.Outbox.commit_outbox(%{
+        assert {:ok, _intent} =
+                 Ankole.Conversations.Delivery.commit(%{
                    agent_uid: uid,
                    binding_name: "test",
                    outbound_key: "tenant-attachment",
@@ -240,7 +239,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
       end)
 
     assert output =~ "Imported 3 files for 2 Agents and 2 Automation Job scripts."
-    assert output =~ "Migrated 2 pending outbox attachments."
+    assert output =~ "Migrated 2 pending intent attachments."
     assert Repo.tenant_id!() == first.id
 
     for {tenant, uid, other_uid, job, skill, script} <- [
@@ -257,14 +256,14 @@ defmodule Ankole.Files.AgentHomeImportTest do
         assert {:error, :not_found} = Files.fetch(other_uid, skill_path)
         assert Repo.get!(Job, job.id).legacy_directory_path == nil
 
-        outbox =
-          Repo.get_by!(Ankole.SignalsGateway.OutboxEntry,
+        intent =
+          Repo.get_by!(Ankole.Conversations.Delivery.Intent,
             agent_uid: uid,
             binding_name: "test",
             outbound_key: "tenant-attachment"
           )
 
-        [attachment] = outbox.payload["attachments"]
+        [attachment] = intent.payload["attachments"]
         assert {:ok, file, bytes} = Files.read(uid, attachment["path"])
         assert file.tenant_id == tenant.id
         assert bytes == "attachment:#{uid}"
@@ -281,7 +280,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
       end)
 
     assert output =~ "Imported 0 files for 2 Agents and 0 Automation Job scripts."
-    assert output =~ "Migrated 0 pending outbox attachments."
+    assert output =~ "Migrated 0 pending intent attachments."
     assert Repo.tenant_id!() == first.id
   end
 
@@ -449,19 +448,8 @@ defmodule Ankole.Files.AgentHomeImportTest do
   defp legacy_job!(agent_uid, legacy_directory_path) do
     unique = System.unique_integer([:positive])
 
-    {:ok, source} =
-      SignalsGateway.append_actor_event(%{
-        agent_uid: agent_uid,
-        binding_name: "lark",
-        session_id: "import-session-#{unique}",
-        source_event_id: "import-source-#{unique}",
-        signal_channel_id: "lark:chat:#{unique}",
-        source_entry_id: "message-#{unique}",
-        type: "im.message.addressed",
-        available_at: DateTime.utc_now(),
-        sender_key: agent_uid,
-        payload: %{"text" => "register"}
-      })
+    source =
+      Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid, binding_name: "lark")
 
     scaffold = "automation/scaffold-#{unique}"
     drive_file_fixture(agent_uid, scaffold <> "/main.ts")
@@ -470,10 +458,10 @@ defmodule Ankole.Files.AgentHomeImportTest do
       AutomationJobs.create_job(%{
         agent_uid: agent_uid,
         owner_session_id: source.session_id,
-        source_actor_event_id: source.id,
-        source_entry_id: source.source_entry_id,
+        source_signal_id: source.id,
+        provider_message_id: source.provider_message_id,
         source_provenance: %{"kind" => "test"},
-        reply_route: %{"binding_name" => source.binding_name},
+        reply_route: %{"binding_name" => source.reply_binding_name},
         drive_prefix: scaffold,
         label: "Legacy job #{unique}",
         wake_on_failure: false

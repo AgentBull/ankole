@@ -19,9 +19,9 @@ defmodule Ankole.WorkerFiles do
   """
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
+  alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.WorkerRoute
   alias Ankole.WorkerFiles.Relay
   alias Ankole.WorkerFiles.RelayError
 

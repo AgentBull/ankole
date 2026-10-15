@@ -73,46 +73,46 @@ end
 
 defmodule Ankole.Plugins.DiscordAdapterTest do
   use Ankole.DataCase, async: false
+  import Ankole.ExternalConversationsFixtures
 
   import Ankole.Eventually, only: [eventually: 1]
   import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
 
   alias Ankole.Plugins.DiscordAdapter
 
-  alias Ankole.Plugins.DiscordAdapter.{
-    Client,
-    Config,
-    ConnectionOwner,
-    ConnectionReconciler,
-    Dispatcher,
-    Emoji,
-    ErrorPolicy,
-    Gateway,
-    Inbound,
-    Outbox,
-    Presentation,
-    ReplyPreview
-  }
+  alias Ankole.Plugins.DiscordAdapter.Client
+  alias Ankole.Plugins.DiscordAdapter.Config
+  alias Ankole.Plugins.DiscordAdapter.ConnectionOwner
+  alias Ankole.Plugins.DiscordAdapter.ConnectionReconciler
+  alias Ankole.Plugins.DiscordAdapter.Dispatcher
+  alias Ankole.Plugins.DiscordAdapter.Emoji
+  alias Ankole.Plugins.DiscordAdapter.ErrorPolicy
+  alias Ankole.Plugins.DiscordAdapter.Gateway
+  alias Ankole.Plugins.DiscordAdapter.Inbound
+  alias Ankole.Plugins.DiscordAdapter.Delivery
+  alias Ankole.Plugins.DiscordAdapter.Presentation
+  alias Ankole.Plugins.DiscordAdapter.ReplyPreview
 
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ReplyActionToken
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
-  alias Ankole.SignalsGateway.{
-    ActorEvent,
-    Actors,
-    AdapterContext,
-    Entry,
-    InboundBatch,
-    OutboxEntry,
-    ReplyInteractionState,
-    ReplyPresentation
-  }
+  alias Ankole.Conversations.Delivery.ActionToken
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
+
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Message
+
+  import Ankole.Conversations.Assertions,
+    only: [message_snapshot: 1, message_snapshot!: 1, observation_snapshot: 1]
+
+  alias Ankole.Conversations.InboundBatch
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.InteractionState
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @bot %{id: "77", username: "AnkoleBot"}
   @dm_channel "discord:77:channel:501"
@@ -141,27 +141,27 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   describe "plugin and catalog contract" do
     test "keeps two Agents' same-name bindings on distinct config keys" do
       key = Config.binding_config_key("agent-a", "main")
-      assert key =~ ~r/\Asignals_gateway\.discord\.bindings\.[a-f0-9]{64}\z/
+      assert key =~ ~r/\Asignals\.discord\.bindings\.[a-f0-9]{64}\z/
       refute key == Config.binding_config_key("agent-b", "main")
 
       %{principal: first} = agent_fixture()
       %{principal: second} = agent_fixture()
 
       assert {:ok, %{binding: first_binding}} =
-               SignalsGateway.put_binding(first.uid, "discord", "main", %{
+               Ankole.Signals.Bindings.put_binding(first.uid, "discord", "main", %{
                  "config" => %{"botToken" => "bot.first-secret"}
                })
 
       assert {:ok, %{binding: second_binding}} =
-               SignalsGateway.put_binding(second.uid, "discord", "main", %{
+               Ankole.Signals.Bindings.put_binding(second.uid, "discord", "main", %{
                  "config" => %{"botToken" => "bot.second-secret"}
                })
 
       assert {:ok, %{"botToken" => "bot.first-secret"}} =
-               SignalsGateway.Bindings.stored_binding_config(first_binding)
+               Ankole.Signals.Bindings.stored_binding_config(first_binding)
 
       assert {:ok, %{"botToken" => "bot.second-secret"}} =
-               SignalsGateway.Bindings.stored_binding_config(second_binding)
+               Ankole.Signals.Bindings.stored_binding_config(second_binding)
     end
 
     test "declares one consumer IM adapter with the complete gateway capability set" do
@@ -415,7 +415,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-session", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-session", %{
                  "config" => %{"botToken" => "bot.session-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -493,7 +493,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                      5_000
 
       assert eventually(fn ->
-               Repo.get_by(Entry, signal_channel_id: @dm_channel, source_entry_id: accepted["id"]) !=
+               message_snapshot(conversation_id: @dm_channel, provider_message_id: accepted["id"]) !=
                  nil
              end)
 
@@ -506,7 +506,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-bound", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-bound", %{
                  "config" => %{"botToken" => "bot.bound-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -584,9 +584,9 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                ConnectionOwner.status(owner)
 
       assert eventually(fn ->
-               Repo.get_by(Entry,
-                 signal_channel_id: @dm_channel,
-                 source_entry_id: List.last(backlog)["d"]["id"]
+               message_snapshot(
+                 conversation_id: @dm_channel,
+                 provider_message_id: List.last(backlog)["d"]["id"]
                ) != nil
              end)
     end
@@ -596,7 +596,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-fast-ack", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-fast-ack", %{
                  "config" => %{"botToken" => "bot.fast-ack-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -678,7 +678,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                )
 
       assert dm.explicit
-      assert dm.signal_channel_id == @dm_channel
+      assert dm.provider_conversation_id == @dm_channel
       assert dm.provider_thread_id == @dm_channel
       assert dm.channel.kind == :im_dm
       assert dm.author["provider"] == "discord"
@@ -696,7 +696,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert addressed.text == "deploy now"
       assert addressed.channel.kind == :im_group
       assert [%{"targets_current_agent" => true}] = addressed.mentions
-      assert addressed.signal_channel_id == "discord:77:channel:900"
+      assert addressed.provider_conversation_id == "discord:77:channel:900"
 
       replied =
         guild_message("102", "sounds good")
@@ -705,7 +705,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       assert {:ok, reply} = Inbound.normalize_message_create(message_event(replied), consumer)
       assert reply.explicit
-      assert reply.reply_to_source_entry_id == "800"
+      assert reply.reply_to_provider_message_id == "800"
 
       overheard = guild_message("103", "unrelated chatter")
 
@@ -807,7 +807,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-media", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-media", %{
                  "config" => %{"botToken" => "bot.media-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -829,11 +829,18 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                  consumer(agent.uid, "discord-media", %{"botToken" => "bot.media-secret"})
                ])
 
-      assert %Entry{attachments: [attachment]} = result.signal_entry
+      assert %{attachments: [attachment]} = observation_snapshot(result.message_observation)
       assert_received {:discord_request, "/attachments/1/2/report.txt"}
       assert is_integer(attachment["attachment_id"])
       assert attachment["materialization_state"] == "complete"
-      assert_stored_attachment!(agent.uid, @dm_channel, attachment, "attachment", "report.txt")
+
+      assert_stored_attachment!(
+        agent.uid,
+        external_conversation_id(@dm_channel),
+        attachment,
+        "attachment",
+        "report.txt"
+      )
     end
 
     test "anchors the batch window at the attachment observation, not at the download" do
@@ -842,7 +849,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       stub_client_opts()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-media", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-media", %{
                  "config" => %{"botToken" => "bot.media-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -851,7 +858,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
         Repo.get_by!(InboundBatch,
           agent_uid: agent.uid,
           binding_name: "discord-media",
-          signal_channel_id: @dm_channel,
+          conversation_id: external_conversation_id(external_conversation_id(@dm_channel)),
           batch_state: "open"
         )
       end
@@ -873,7 +880,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           }
         ])
 
-      assert {:ok, [%{signal_entry: %Entry{} = entry}]} =
+      assert {:ok, [%{message_observation: %{message: %Message{}, external_ref: ref}}]} =
                Inbound.handle_message_receive("MESSAGE_CREATE", message_event(message), [
                  consumer(agent.uid, "discord-media", %{"botToken" => "bot.media-secret"})
                ])
@@ -887,7 +894,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       {:ok, observed_at, 0} = DateTime.from_iso8601(observed_at_text)
       assert pending_batch.available_at == DateTime.add(observed_at, 4_000, :millisecond)
 
-      assert entry.metadata["attachment_materialization"] == %{
+      assert ref.metadata["attachment_materialization"] == %{
                "state" => "failed",
                "observed_at" => observed_at_text
              }
@@ -900,7 +907,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-replay", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-replay", %{
                  "config" => %{"botToken" => "bot.replay-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -914,14 +921,14 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert {:ok, [_replayed]} =
                Inbound.handle_message_receive("MESSAGE_CREATE", event, [discord_consumer])
 
-      assert Repo.aggregate(Entry, :count) == 1
+      assert Repo.aggregate(Message, :count) == 1
     end
 
     test "folds Discord reactions into the mirrored entry and keys custom emoji by id" do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-reactions", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-reactions", %{
                  "config" => %{"botToken" => "bot.reaction-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -937,31 +944,31 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       added =
         reaction_event(message["id"], "9001", %{"id" => nil, "name" => "👍"}, 1)
 
-      assert {:ok, [%{status: :mirrored}]} =
+      assert {:ok, [%{status: :recorded}]} =
                Inbound.handle_reaction_created("MESSAGE_REACTION_ADD", added, [discord_consumer])
 
-      entry = Repo.get_by!(Entry, signal_channel_id: @dm_channel, source_entry_id: message["id"])
+      entry = message_snapshot!(conversation_id: @dm_channel, provider_message_id: message["id"])
       assert entry.reactions == %{"👍" => ["9001"]}
       assert entry.raw_reaction_keys == %{"👍" => "👍"}
 
-      assert {:ok, [%{status: :mirrored}]} =
+      assert {:ok, [%{status: :recorded}]} =
                Inbound.handle_reaction_deleted(
                  "MESSAGE_REACTION_REMOVE",
                  reaction_event(message["id"], "9001", %{"id" => nil, "name" => "👍"}, 2),
                  [discord_consumer]
                )
 
-      assert Repo.get_by!(Entry, signal_channel_id: @dm_channel, source_entry_id: message["id"]).reactions ==
+      assert message_snapshot!(conversation_id: @dm_channel, provider_message_id: message["id"]).reactions ==
                %{}
 
-      assert {:ok, [%{status: :mirrored}]} =
+      assert {:ok, [%{status: :recorded}]} =
                Inbound.handle_reaction_created(
                  "MESSAGE_REACTION_ADD",
                  reaction_event(message["id"], "9001", %{"id" => nil, "name" => "👍"}, 3),
                  [discord_consumer]
                )
 
-      assert Repo.get_by!(Entry, signal_channel_id: @dm_channel, source_entry_id: message["id"]).reactions ==
+      assert message_snapshot!(conversation_id: @dm_channel, provider_message_id: message["id"]).reactions ==
                %{"👍" => ["9001"]}
 
       assert Emoji.reaction_key(%{"id" => "555", "name" => "partyparrot"}) ==
@@ -986,7 +993,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       %{principal: human} = human_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-review", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-review", %{
                  "config" => %{"botToken" => "bot.review-secret"},
                  "unmatched_sender_policy" => "manual_review"
                })
@@ -998,7 +1005,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                Inbound.handle_message_receive("MESSAGE_CREATE", held, [discord_consumer])
 
       refute status == :accepted
-      assert Repo.aggregate(Entry, :count) == 0
+      assert Repo.aggregate(Message, :count) == 0
 
       assert {:ok, _identity} =
                MappingRequests.bind_subject(human.uid, %{
@@ -1024,16 +1031,33 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       attrs = %{"config" => %{"botToken" => "bot.exclusive-secret"}}
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(first_agent.uid, "discord", "discord-one", attrs)
+               Ankole.Signals.Bindings.put_binding(
+                 first_agent.uid,
+                 "discord",
+                 "discord-one",
+                 attrs
+               )
 
       assert {:error, {:discord_bot_token_already_bound, first_uid, "discord-one"}} =
-               SignalsGateway.put_binding(second_agent.uid, "discord", "discord-two", attrs)
+               Ankole.Signals.Bindings.put_binding(
+                 second_agent.uid,
+                 "discord",
+                 "discord-two",
+                 attrs
+               )
 
       assert first_uid == first_agent.uid
-      assert {:ok, _disabled} = SignalsGateway.disable_binding(first_agent.uid, "discord-one")
+
+      assert {:ok, _disabled} =
+               Ankole.Signals.Bindings.disable_binding(first_agent.uid, "discord-one")
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(second_agent.uid, "discord", "discord-two", attrs)
+               Ankole.Signals.Bindings.put_binding(
+                 second_agent.uid,
+                 "discord",
+                 "discord-two",
+                 attrs
+               )
     end
 
     test "the reconciler stops the owner after its binding is disabled" do
@@ -1044,7 +1068,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       stub_client_opts()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-disabled", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-disabled", %{
                  "config" => config
                })
 
@@ -1054,7 +1078,10 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                ])
 
       assert eventually(fn -> ConnectionOwner.status(owner).bot_id == "77" end)
-      assert {:ok, _binding} = SignalsGateway.disable_binding(agent.uid, "discord-disabled")
+
+      assert {:ok, _binding} =
+               Ankole.Signals.Bindings.disable_binding(agent.uid, "discord-disabled")
+
       assert %{stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
     end
@@ -1093,15 +1120,15 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-preview", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-preview", %{
                  "config" => %{"botToken" => "bot.preview-secret"}
                })
 
-      %{actor_event: %ActorEvent{} = event} =
-        emit_addressed_actor_event(agent.uid, "discord-preview", %{
+      %{signal: %Signal{} = event} =
+        emit_addressed_signal(agent.uid, "discord-preview", %{
           source_event_id: "preview-event",
-          signal_channel_id: @dm_channel,
-          source_entry_id: "50",
+          provider_conversation_id: @dm_channel,
+          provider_message_id: "50",
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "hello",
           explicit: true,
@@ -1114,7 +1141,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
         |> ReplyPresentation.replace_answer("draft")
 
       request = %Request{
-        actor_event: event,
+        signal: event,
         presentation: presentation,
         checkpoint: nil,
         subject_uid: human_uid,
@@ -1123,13 +1150,15 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       }
 
       assert {:ok, first} = preview_update(request)
-      assert first.created_source_entry_id == "900"
+      assert first.created_provider_message_id == "900"
 
       assert first.reply_preview_checkpoint["messages"] == [
                %{"index" => 0, "message_id" => "900"}
              ]
 
-      assert first.reply_preview_checkpoint["adapter"] == "discord"
+      assert first.reply_preview_checkpoint["adapter"] ==
+               "discord"
+
       assert_received {:discord_request, "POST", "/api/v10/channels/501/messages", post_body}
 
       assert post_body["allowed_mentions"] == %{
@@ -1146,7 +1175,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                    checkpoint: first.reply_preview_checkpoint
                })
 
-      assert second.created_source_entry_id == "900"
+      assert second.created_provider_message_id == "900"
 
       assert_received {:discord_request, "PATCH", "/api/v10/channels/501/messages/900",
                        patch_body}
@@ -1161,15 +1190,20 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       stub_client_opts()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-preview-partial", %{
-                 "config" => %{"botToken" => "bot.preview-partial-secret"}
-               })
+               Ankole.Signals.Bindings.put_binding(
+                 agent.uid,
+                 "discord",
+                 "discord-preview-partial",
+                 %{
+                   "config" => %{"botToken" => "bot.preview-partial-secret"}
+                 }
+               )
 
-      %{actor_event: %ActorEvent{} = event} =
-        emit_addressed_actor_event(agent.uid, "discord-preview-partial", %{
+      %{signal: %Signal{} = event} =
+        emit_addressed_signal(agent.uid, "discord-preview-partial", %{
           source_event_id: "preview-partial-event",
-          signal_channel_id: @dm_channel,
-          source_entry_id: "51",
+          provider_conversation_id: @dm_channel,
+          provider_message_id: "51",
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "hello",
           explicit: true,
@@ -1179,14 +1213,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       stub_data_api(fn conn ->
         event
-        |> Ecto.Changeset.change(reply_preview_source_entry_id: "different-provider-message")
-        |> Repo.update!()
+        |> Ankole.PreviewFixtures.update!(%{provider_message_id: "different-provider-message"})
 
         Req.Test.json(conn, %{"id" => "901"})
       end)
 
       request = %Request{
-        actor_event: event,
+        signal: event,
         presentation:
           ReplyPresentation.new(state: "working")
           |> ReplyPresentation.replace_answer("draft"),
@@ -1207,15 +1240,20 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       stub_client_opts()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-preview-chunks", %{
-                 "config" => %{"botToken" => "bot.preview-chunks-secret"}
-               })
+               Ankole.Signals.Bindings.put_binding(
+                 agent.uid,
+                 "discord",
+                 "discord-preview-chunks",
+                 %{
+                   "config" => %{"botToken" => "bot.preview-chunks-secret"}
+                 }
+               )
 
-      %{actor_event: %ActorEvent{} = event} =
-        emit_addressed_actor_event(agent.uid, "discord-preview-chunks", %{
+      %{signal: %Signal{} = event} =
+        emit_addressed_signal(agent.uid, "discord-preview-chunks", %{
           source_event_id: "preview-chunks-event",
-          signal_channel_id: @dm_channel,
-          source_entry_id: "52",
+          provider_conversation_id: @dm_channel,
+          provider_message_id: "52",
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "hello",
           explicit: true,
@@ -1238,7 +1276,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       end)
 
       request = %Request{
-        actor_event: event,
+        signal: event,
         presentation:
           ReplyPresentation.new(state: "working")
           |> ReplyPresentation.replace_answer(String.duplicate("x", 2_500)),
@@ -1269,11 +1307,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
         Req.Test.json(conn, %{})
       end)
 
-      %{actor_event: %ActorEvent{} = event} =
-        emit_addressed_actor_event(agent.uid, "discord-action", %{
+      %{signal: %Signal{} = event} =
+        emit_addressed_signal(agent.uid, "discord-action", %{
           source_event_id: "event-1",
-          signal_channel_id: @dm_channel,
-          source_entry_id: "50",
+          provider_conversation_id: @dm_channel,
+          provider_message_id: "50",
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "hello",
           explicit: true,
@@ -1291,7 +1329,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
               "id" => "approve",
               "label" => "Approve",
               "interaction_id" => "interaction-1",
-              "source_actor_event_id" => event.id,
+              "source_signal_id" => event.id,
               "control_id" => "approve",
               "selected_option_id" => "yes",
               "option_value" => "approved",
@@ -1302,12 +1340,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       checkpoint =
         %{"message_id" => "900", "messages" => [%{"index" => 0, "message_id" => "900"}]}
-        |> ReplyInteractionState.initialize(presentation, base_time())
+        |> InteractionState.initialize(presentation, base_time())
 
-      assert {:ok, _event} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+      assert {:ok, _event} =
+               Ankole.Conversations.Delivery.PreviewState.put_checkpoint(event.id, checkpoint)
 
       assert {:ok, token} =
-               ReplyActionToken.encode(event.id, 0, hd(presentation["actions"]),
+               ActionToken.encode(event.id, 0, hd(presentation["actions"]),
                  prefix: "dc1",
                  max_bytes: 100,
                  too_long_error: :custom_id_too_long
@@ -1316,16 +1355,16 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert byte_size(token) <= 100
 
       assert {:ok, value} =
-               ReplyActionToken.resolve(token, agent.uid, "discord-action", "900", prefix: "dc1")
+               ActionToken.resolve(token, agent.uid, "discord-action", "900", prefix: "dc1")
 
       assert value["version"] == "ankole.interactive_output.action.v1"
-      assert value["sourceActorEventId"] == event.id
+      assert value["sourceSignalId"] == event.id
       assert value["optionValue"] == "approved"
 
       # A forged event id must fail as an invalid token, not raise in the
       # event lookup.
       assert {:error, :invalid_callback_token} =
-               ReplyActionToken.resolve(
+               ActionToken.resolve(
                  "dc1:not-a-uuid:0:AAAAAAAAAAA",
                  agent.uid,
                  "discord-action",
@@ -1340,13 +1379,17 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
           "changed-after-render"
         )
 
-      assert {:ok, _event} = Actors.put_reply_preview_checkpoint(event.id, changed)
+      assert {:ok, _event} =
+               Ankole.Conversations.Delivery.PreviewState.put_checkpoint(event.id, changed)
 
       assert {:error, :invalid_callback_action} =
-               ReplyActionToken.resolve(token, agent.uid, "discord-action", "900", prefix: "dc1")
+               ActionToken.resolve(token, agent.uid, "discord-action", "900", prefix: "dc1")
 
-      assert {:ok, _event} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
-      assert {:ok, [%{"components" => components}]} = Presentation.render(presentation, event.id)
+      assert {:ok, _event} =
+               Ankole.Conversations.Delivery.PreviewState.put_checkpoint(event.id, checkpoint)
+
+      assert {:ok, [%{"components" => components}]} =
+               Presentation.render(presentation, event.id)
 
       assert get_in(components, [Access.at(0), "components", Access.at(0)]) == %{
                "type" => 2,
@@ -1372,7 +1415,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                  test_client("bot.action-secret")
                )
 
-      assert {:ok, [%{status: :accepted, actor_event: action_event}]} =
+      assert {:ok, [%{status: :accepted, signal: action_event}]} =
                Inbound.handle_card_action("INTERACTION_CREATE", event, [
                  consumer(agent.uid, "discord-action", %{"botToken" => "bot.action-secret"})
                ])
@@ -1384,12 +1427,12 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
     end
 
     test "builds every declared outbound operation against the original adapter channel" do
-      base = %OutboxEntry{
+      base = %Intent{
         agent_uid: "agent-a",
         binding_name: "discord-main",
         outbound_key: "out-1",
         operation: :post,
-        signal_channel_id: @dm_channel,
+        conversation_id: external_conversation_id(@dm_channel),
         payload: %{},
         fallback_visible_text: "hello"
       }
@@ -1404,11 +1447,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
             :divider,
             :card
           ] do
-        outbox =
+        intent =
           %{base | operation: operation}
-          |> Map.put(:reply_to_source_entry_id, if(operation == :reply, do: "42"))
+          |> Map.put(:reply_to_provider_message_id, if(operation == :reply, do: "42"))
           |> Map.put(
-            :target_source_entry_id,
+            :target_provider_message_id,
             if(operation in [:edit, :delete, :reaction_add, :reaction_remove], do: "42")
           )
           |> Map.put(
@@ -1419,11 +1462,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
             )
           )
 
-        assert {:ok, [_request | _rest]} = Outbox.requests_for_outbox(outbox)
+        assert {:ok, [_request | _rest]} = Delivery.requests_for_intent(intent)
       end
 
       assert {:ok, [%{method: :post, path: "/channels/501/messages", body: body}]} =
-               Outbox.requests_for_outbox(base)
+               Delivery.requests_for_intent(base)
 
       assert body == %{
                "content" => "hello",
@@ -1431,20 +1474,20 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
              }
 
       assert {:ok, [%{method: :put, path: reaction_path}]} =
-               Outbox.requests_for_outbox(%{
+               Delivery.requests_for_intent(%{
                  base
                  | operation: :reaction_add,
-                   target_source_entry_id: "42",
+                   target_provider_message_id: "42",
                    payload: %{"reaction_key" => "thumbsup"}
                })
 
       assert reaction_path == "/channels/501/messages/42/reactions/%F0%9F%91%8D/@me"
 
       assert {:ok, [%{path: custom_reaction_path}]} =
-               Outbox.requests_for_outbox(%{
+               Delivery.requests_for_intent(%{
                  base
                  | operation: :reaction_add,
-                   target_source_entry_id: "42",
+                   target_provider_message_id: "42",
                    payload: %{
                      "reaction_key" => "discord_custom:555",
                      "raw_reaction_key" => "partyparrot:555"
@@ -1455,19 +1498,22 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                "/channels/501/messages/42/reactions/partyparrot:555/@me"
 
       assert {:error, :invalid_discord_channel_id} =
-               Outbox.requests_for_outbox(%{base | signal_channel_id: "telegram:77:chat:501"})
+               Delivery.requests_for_intent(%{
+                 base
+                 | conversation_id: external_conversation_id("telegram:77:chat:501")
+               })
     end
 
     test "sends a reply attachment as one message and never as a placeholder text" do
       {:ok, %{sha256: blob_ref}} = Ankole.Files.store("report bytes")
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: "agent-a",
         binding_name: "discord-main",
         outbound_key: "attachment-1",
         operation: :reply,
-        signal_channel_id: @dm_channel,
-        reply_to_source_entry_id: "42",
+        conversation_id: external_conversation_id(@dm_channel),
+        reply_to_provider_message_id: "42",
         payload: %{
           "attachments" => [
             %{
@@ -1481,7 +1527,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
         fallback_visible_text: ""
       }
 
-      assert {:ok, [request]} = Outbox.requests_for_outbox(outbox)
+      assert {:ok, [request]} = Delivery.requests_for_intent(intent)
       assert request.path == "/channels/501/messages"
 
       assert request.files == [
@@ -1505,11 +1551,11 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
              }
 
       assert {:ok, [%{body: %{"content" => "here it is"}, files: [_file]}]} =
-               Outbox.requests_for_outbox(%{outbox | fallback_visible_text: "here it is"})
+               Delivery.requests_for_intent(%{intent | fallback_visible_text: "here it is"})
 
       assert {:error, :attachment_file_missing} =
-               Outbox.requests_for_outbox(%{
-                 outbox
+               Delivery.requests_for_intent(%{
+                 intent
                  | payload: %{"attachments" => [%{"name" => "report.pdf"}]}
                })
     end
@@ -1521,17 +1567,17 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       stub_data_api(fn conn -> Req.Test.transport_error(conn, :timeout) end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-unknown", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-unknown", %{
                  "config" => %{"botToken" => "bot.uncertain-secret"}
                })
 
       assert :unknown =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: "discord-unknown",
                  outbound_key: "unknown-1",
                  operation: :post,
-                 signal_channel_id: @dm_channel,
+                 conversation_id: external_conversation_id(@dm_channel),
                  payload: %{},
                  fallback_visible_text: "hello"
                })
@@ -1543,17 +1589,17 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       stub_data_api(fn conn -> Req.Test.json(conn, %{}) end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-missing-id", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-missing-id", %{
                  "config" => %{"botToken" => "bot.missing-id-secret"}
                })
 
       assert :unknown =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: "discord-missing-id",
                  outbound_key: "missing-id-1",
                  operation: :post,
-                 signal_channel_id: @dm_channel,
+                 conversation_id: external_conversation_id(@dm_channel),
                  payload: %{},
                  fallback_visible_text: "hello"
                })
@@ -1565,18 +1611,18 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       stub_data_api(fn conn -> Req.Test.transport_error(conn, :timeout) end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-edit-retry", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-edit-retry", %{
                  "config" => %{"botToken" => "bot.edit-secret"}
                })
 
       assert {:error, {:reply_delivery, :retryable, %{"code" => "discord_api_error"}}} =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: "discord-edit-retry",
                  outbound_key: "edit-retry-1",
                  operation: :edit,
-                 target_source_entry_id: "900",
-                 signal_channel_id: @dm_channel,
+                 target_provider_message_id: "900",
+                 conversation_id: external_conversation_id(@dm_channel),
                  payload: %{},
                  fallback_visible_text: "safe retry"
                })
@@ -1595,17 +1641,17 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-partial", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-partial", %{
                  "config" => %{"botToken" => "bot.partial-secret"}
                })
 
       assert :unknown =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: "discord-partial",
                  outbound_key: "partial-1",
                  operation: :post,
-                 signal_channel_id: @dm_channel,
+                 conversation_id: external_conversation_id(@dm_channel),
                  payload: %{},
                  fallback_visible_text: String.duplicate("x", 2_001)
                })
@@ -1613,7 +1659,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert Agent.get(attempts, & &1) == 2
     end
 
-    test "treats a message another operator already deleted as the outcome the outbox asked for" do
+    test "treats a message another operator already deleted as the outcome the intent asked for" do
       parent = self()
       %{principal: agent} = agent_fixture()
       stub_client_opts()
@@ -1627,18 +1673,18 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "discord", "discord-delete", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "discord", "discord-delete", %{
                  "config" => %{"botToken" => "bot.delete-secret"}
                })
 
       assert {:ok, _result} =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: "discord-delete",
                  outbound_key: "delete-1",
                  operation: :delete,
-                 target_source_entry_id: "900",
-                 signal_channel_id: @dm_channel,
+                 target_provider_message_id: "900",
+                 conversation_id: external_conversation_id(@dm_channel),
                  payload: %{},
                  fallback_visible_text: ""
                })
@@ -1646,13 +1692,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert_received {:discord_request, "DELETE", "/api/v10/channels/501/messages/900"}
 
       assert {:ok, _result} =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: "discord-delete",
                  outbound_key: "edit-missing-1",
                  operation: :edit,
-                 target_source_entry_id: "900",
-                 signal_channel_id: @dm_channel,
+                 target_provider_message_id: "900",
+                 conversation_id: external_conversation_id(@dm_channel),
                  payload: %{},
                  fallback_visible_text: String.duplicate("x", 2_001)
                })
@@ -1820,7 +1866,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   end
 
   defp preview_update(request) do
-    {:ok, adapter} = ReplyPreviewAdapter.from_module(ReplyPreview)
-    ReplyPreviewAdapter.update(adapter, request)
+    {:ok, adapter} = PreviewAdapter.from_module(ReplyPreview)
+    PreviewAdapter.update(adapter, request)
   end
 end

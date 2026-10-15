@@ -21,6 +21,10 @@ windows, and the run-local page cache. Agent Computer owns the rendered
 It identifies each session with an opaque route ID. It does not understand
 Agents, Jobs, Principals, or control-plane records.
 
+Execution preparation binds rendered fetch to the resolved Worker environment
+before it removes browser source variables from command environments. Each fetch
+uses a temporary route, separate from a Codex Job's persistent browser route.
+
 The control plane uses the Rust kernel to classify provider-fetch URLs.
 `ankole-browser` checks rendered-fetch URLs in its browser runtime.
 

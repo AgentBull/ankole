@@ -4,7 +4,9 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
   use GenServer
 
   alias Ankole.Logging
-  alias Ankole.Plugins.TelegramAdapter.{Client, Config, Dispatcher}
+  alias Ankole.Plugins.TelegramAdapter.Client
+  alias Ankole.Plugins.TelegramAdapter.Config
+  alias Ankole.Plugins.TelegramAdapter.Dispatcher
 
   @registry Ankole.Plugins.TelegramAdapter.ConnectionRegistry
   @task_supervisor Ankole.Plugins.TelegramAdapter.PollTaskSupervisor

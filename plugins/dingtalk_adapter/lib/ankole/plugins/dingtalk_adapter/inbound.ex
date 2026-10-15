@@ -1,6 +1,6 @@
 defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   @moduledoc """
-  DingTalk inbound normalization into SignalsGateway adapter APIs.
+  DingTalk inbound normalization into Conversations.Observe APIs.
 
   The robot message CALLBACK (`/v1.0/im/bot/messages/get`) becomes an
   `emit_entry`; the card CALLBACK (`/v1.0/card/instances/callback`) becomes an
@@ -15,9 +15,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
 
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.Ingress
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Observe
   alias DingTalkOpenAPI.Event
   alias DingTalkOpenAPI.Robot
 
@@ -26,7 +26,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
 
   @managed_action_protocol ReplyPresentation.action_protocol()
 
-  @doc "Builds the dispatcher consumer record for one SignalsGateway chat binding."
+  @doc "Builds the dispatcher consumer record for one Signal binding."
   @spec chat_consumer(AdapterContext.t(), map()) :: map()
   def chat_consumer(%AdapterContext{} = context, config) when is_map(config) do
     %{
@@ -56,7 +56,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
         config: config
       })
       when is_map(payload) do
-    with {:ok, source_entry_id} <- required_text(payload, "msgId"),
+    with {:ok, provider_message_id} <- required_text(payload, "msgId"),
          {:ok, conversation_id} <- required_text(payload, "conversationId"),
          {:ok, author} <- author(payload, config),
          raw_text <- message_text(payload),
@@ -69,10 +69,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
          provider_time <- provider_time(payload) do
       {:ok,
        %{
-         source_event_id: source_entry_id,
-         source_entry_id: source_entry_id,
-         signal_channel_id: signal_channel_id(conversation_id),
-         reply_to_source_entry_id: nil,
+         source_event_id: provider_message_id,
+         provider_message_id: provider_message_id,
+         provider_conversation_id: provider_conversation_id(conversation_id),
+         reply_to_provider_message_id: nil,
          provider_thread_id: nil,
          channel: %{
            kind: channel_kind,
@@ -116,7 +116,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     case normalize_message_receive(event, consumer) do
       {:ok, input} ->
         with {:ok, input} <- maybe_materialize_attachments(input, consumer) do
-          Ingress.emit_entry(context.agent_uid, context.binding_name, input)
+          Observe.emit_entry(context.agent_uid, context.binding_name, input)
         end
 
       {:ignore, reason} ->
@@ -143,10 +143,10 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
        %{
          source_event_id: action_id,
          action_id: action_id,
-         signal_channel_id: signal_channel_id(conversation_id),
-         source_entry_id: out_track_id,
+         provider_conversation_id: provider_conversation_id(conversation_id),
+         provider_message_id: out_track_id,
          provider_thread_id: nil,
-         actor_event_type: "signal.action.invoked",
+         signal_type: "signal.action.invoked",
          action:
            compact_map(%{
              "name" => card_action_name(payload, value),
@@ -174,7 +174,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
               &Map.put(&1, "operator_principal_uid", operator_principal_uid)
             )
 
-          Ingress.emit_action(context.agent_uid, context.binding_name, input)
+          Observe.emit_action(context.agent_uid, context.binding_name, input)
         end
 
       {:error, :missing_operator_id} ->
@@ -194,7 +194,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   # semantic identity — the same control on the same interaction version is one
   # logical answer no matter how often the platform redelivers it. Non-managed
   # callbacks fall back to a content hash so two *different* presses on one card
-  # are never conflated into a single actor event.
+  # are never conflated into a single Signal.
   defp card_action_id(payload, out_track_id, value) do
     case optional_text(payload, "cardActionId") do
       action_id when is_binary(action_id) ->
@@ -239,8 +239,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     |> collect_results()
   end
 
-  # author / platform subject
-
   defp author(payload, config) do
     case optional_text(payload, "senderStaffId") do
       staff_id when is_binary(staff_id) ->
@@ -274,8 +272,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
       {:error, _reason} = error -> error
     end
   end
-
-  # text
 
   # Inbound text stays the user's own words. A voice message has no typed text —
   # its platform ASR transcript rides the attachment descriptor (`recognition`)
@@ -350,8 +346,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp formatted_content(nil), do: %{}
   defp formatted_content(text), do: %{"format" => "markdown", "body" => text}
 
-  # attachments
-
   defp attachments(payload) do
     case optional_text(payload, "msgtype") do
       type when type in ["picture", "image"] -> [resource_attachment("image", payload)]
@@ -404,7 +398,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     robot_code = Config.effective_robot_code(config)
 
     attachments =
-      Ingress.materialize_attachments(
+      Observe.materialize_attachments(
         input.attachments,
         "dingtalk",
         fn attachment ->
@@ -433,8 +427,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp download_attachment(_attachment, _client, _robot_code),
     do: {:error, :attachment_reference_missing}
 
-  # channel / helpers
-
   defp channel_kind(payload) do
     case optional_text(payload, "conversationType") do
       "1" -> :im_dm
@@ -450,8 +442,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp truthy?(_value), do: false
 
   @doc false
-  @spec signal_channel_id(String.t()) :: String.t()
-  def signal_channel_id(conversation_id), do: "dingtalk:#{encode_id(conversation_id)}"
+  @spec provider_conversation_id(String.t()) :: String.t()
+  def provider_conversation_id(conversation_id), do: "dingtalk:#{encode_id(conversation_id)}"
 
   defp encode_id(id), do: URI.encode(id, &URI.char_unreserved?/1)
 

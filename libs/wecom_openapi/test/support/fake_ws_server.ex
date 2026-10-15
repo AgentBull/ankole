@@ -67,8 +67,6 @@ defmodule WeComOpenAPI.FakeWsServer do
     end
   end
 
-  # --- handshake -----------------------------------------------------------
-
   defp validate_header_case(request, opts) do
     if Keyword.get(opts, :require_wecom_header_case, false) do
       required_names = ["Upgrade", "Connection", "Sec-WebSocket-Version", "Sec-WebSocket-Key"]
@@ -134,8 +132,6 @@ defmodule WeComOpenAPI.FakeWsServer do
     ]
   end
 
-  # --- frames --------------------------------------------------------------
-
   defp server_text_frame(payload) when byte_size(payload) < 126 do
     <<0x81, byte_size(payload)>> <> payload
   end
@@ -144,8 +140,6 @@ defmodule WeComOpenAPI.FakeWsServer do
     <<0x81, 126, byte_size(payload)::16>> <> payload
   end
 
-  # Parse complete masked client frames from the buffer; ignore non-text
-  # opcodes (close/ping) and return text payloads.
   defp parse_frames(buffer, acc) do
     case parse_frame(buffer) do
       {:ok, opcode, payload, rest} ->

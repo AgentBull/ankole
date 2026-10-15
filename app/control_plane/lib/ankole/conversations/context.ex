@@ -1,251 +1,222 @@
 defmodule Ankole.Conversations.Context do
-  @moduledoc """
-  Resolves the current Agent and conversation facts from their domain owners.
-
-  The driver and Codex Job admission use the same documents, capability
-  catalog, and conversation origin. A Job uses its parent conversation.
-  Transcript history stays in AIGateway.
-  """
-
-  alias Ankole.AIAgent.Library
-  alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.Providers
-  alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
-  alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.BackgroundAgentJobs
-  alias Ankole.BackgroundAgentJobs.RuntimeProjection
-  alias Ankole.Conversations.Prompt
-  alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.Principals.Agent, as: PrincipalAgent
-  alias Ankole.Principals.Principal
+  @moduledoc "Renders public Messages for conversation history and ambient observation."
+  import Ecto.Query
+  alias Ankole.Conversations.{Message, ExternalMessageRef}
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.AIGatewayLink
-  alias Ankole.SignalsGateway.ConversationChannel
-  alias Ankole.SystemConfig
 
-  @spec resolve(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def resolve(agent_uid, session_id) do
-    with {:ok, conversation} <- resolve_conversation(agent_uid, session_id),
-         {:ok, agent} <- agent_profile(agent_uid),
-         {:ok, documents} <- Library.list_agent_documents(agent_uid),
-         {:ok, %{"skills" => skills, "agent_plugins" => agent_plugins}} <-
-           Library.runtime_catalog_for_agent(agent_uid) do
-      {:ok,
-       %{
-         agent: agent,
-         conversation: conversation_info(conversation),
-         documents: documents,
-         skills: skills,
-         agent_plugins: agent_plugins
-       }}
-    end
+  @ambient_rows 80
+  @backdrop_rows 10
+  @history_rows 200
+  @history_tokens 8_000
+
+  defp observations(conversation_id) do
+    from message in Message,
+      left_join: ref in ExternalMessageRef,
+      on: ref.message_id == message.id and ref.tenant_id == message.tenant_id,
+      where: message.conversation_id == ^conversation_id,
+      select: %{message: message, external_ref: ref}
   end
 
-  @doc "Selects the Job's Skills from its claimed execution projection."
-  def job(context, %Job{} = job) do
-    with %{} = projection <- job.runtime_projection do
-      skills =
-        RuntimeProjection.selected_skills(projection, context.skills, context.agent_plugins)
-
-      {:ok,
-       %{context | skills: skills}
-       |> Map.put(:skills_prompt, Prompt.skills_catalog(skills, :background_job))}
-    else
-      {:error, _} = error -> error
-      _invalid -> {:error, :background_agent_job_runtime_projection_invalid}
-    end
+  def ambient_scene_fingerprint(repo, conversation_id) do
+    observations(conversation_id)
+    |> order_by([message], desc: message.seq)
+    |> limit(@ambient_rows)
+    |> repo.all()
+    |> Enum.reverse()
+    |> Enum.map(fn row ->
+      {row.message.id, row.message.seq, row.message.text,
+       if(row.external_ref, do: row.external_ref.content_hash)}
+    end)
+    |> Ankole.Attrs.digest()
   end
 
-  defp resolve_conversation(agent_uid, session_id) do
-    case BackgroundAgentJobs.parse_job_session_id(session_id) do
-      {:ok, job_id} -> resolve_job_conversation(agent_uid, job_id)
-      :error -> resolve_root_conversation(agent_uid, session_id)
-    end
+  def history_page(conversation_id, opts) do
+    cursor =
+      case Integer.parse(Keyword.get(opts, :cursor) || "0") do
+        {seq, ""} when seq >= 0 -> seq
+        _ -> 0
+      end
+
+    query =
+      observations(conversation_id)
+      |> where([message], message.seq > ^cursor)
+      |> order_by([message], asc: message.seq)
+      |> limit(@history_rows + 1)
+
+    query =
+      Enum.reduce(opts, query, fn
+        {:since, %DateTime{} = at}, query ->
+          where(query, [message], message.created_at >= ^at)
+
+        {:until, %DateTime{} = at}, query ->
+          where(query, [message], message.created_at <= ^at)
+
+        {:query, text}, query when is_binary(text) ->
+          where(
+            query,
+            [message],
+            fragment("strpos(lower(COALESCE(?, '')), lower(?)) > 0", message.text, ^text)
+          )
+
+        _, query ->
+          query
+      end)
+
+    rows = Repo.all(query)
+
+    accepted =
+      Enum.reduce_while(Enum.take(rows, @history_rows), {[], 0}, fn row, {accepted, tokens} ->
+        visible = observed_message(row)
+        count = Ankole.Kernel.estimate_o200k_base_tokens(visible["text"] || "")
+
+        if accepted == [] or tokens + count <= @history_tokens,
+          do: {:cont, {[{row, visible} | accepted], tokens + count}},
+          else: {:halt, {accepted, tokens}}
+      end)
+      |> elem(0)
+      |> Enum.reverse()
+
+    next =
+      if length(rows) > length(accepted) and accepted != [],
+        do: accepted |> List.last() |> elem(0) |> then(&to_string(&1.message.seq))
+
+    %{messages: Enum.map(accepted, &elem(&1, 1)), next_cursor: next}
   end
 
-  defp resolve_job_conversation(agent_uid, job_id) do
-    with %Job{} = job <- Repo.get_by(Job, id: job_id, agent_uid: agent_uid),
-         conversation_id when is_binary(conversation_id) <-
-           Map.get(job.metadata || %{}, "owner_conversation_id"),
-         %Conversation{} = conversation <-
-           Repo.get_by(Conversation, id: conversation_id, subject_uid: agent_uid) do
-      {:ok, conversation}
-    else
-      _missing -> {:error, :owner_conversation_not_found}
-    end
+  def ambient_delta_messages(%{conversation_id: id} = attrs, entries, judged_until)
+      when is_binary(id) do
+    query =
+      observations(id)
+      |> after_time(judged_until)
+      |> order_by([message], desc: message.seq)
+      |> limit(@ambient_rows)
+
+    Repo.all(query)
+    |> Enum.reverse()
+    |> Enum.map(&observed_message(&1, attrs.provider_thread_id))
+    |> Kernel.++(batch_observed_messages(entries))
+    |> dedupe()
+    |> Enum.sort_by(&sort_key/1)
+    |> Enum.take(-@ambient_rows)
   end
 
-  defp resolve_root_conversation(agent_uid, session_id) do
-    case AIGatewayLink.active_conversation(agent_uid, session_id) do
-      %Conversation{} = conversation -> {:ok, conversation}
-      nil -> {:error, :conversation_not_found}
-    end
+  def ambient_delta_messages(_attrs, entries, _cursor), do: batch_observed_messages(entries)
+
+  def ambient_backdrop_messages(%{conversation_id: id} = attrs, %DateTime{} = until)
+      when is_binary(id) do
+    observations(id)
+    |> where([message], message.created_at <= ^until)
+    |> order_by([message], desc: message.seq)
+    |> limit(@backdrop_rows)
+    |> Repo.all()
+    |> Enum.reverse()
+    |> Enum.map(&observed_message(&1, attrs.provider_thread_id))
   end
 
-  defp conversation_info(conversation) do
+  def ambient_backdrop_messages(_attrs, _cursor), do: []
+
+  def batch_observed_messages(entries) do
+    Enum.flat_map(entries, fn entry ->
+      text = value(entry, :text)
+      time = value(entry, :sent_at) || value(entry, :time)
+
+      if is_binary(text) and is_binary(time) do
+        author = value(entry, :author) || %{}
+        id = value(entry, :message_id) || value(entry, :id)
+
+        [
+          %{
+            "id" => id,
+            "message_id" => id,
+            "source" => "conversation",
+            "kind" => "normal",
+            "role" => if(value(author, :agent_uid), do: "agent", else: "human"),
+            "speaker" => speaker_name(author),
+            "sent_at" => time,
+            "text" => text,
+            "conversation_id" => value(entry, :conversation_id),
+            "provider_message_id" => value(entry, :provider_message_id),
+            "provider_thread_id" => value(entry, :provider_thread_id)
+          }
+        ]
+      else
+        []
+      end
+    end)
+  end
+
+  def unreplied_messages(%{conversation_id: id} = attrs, entries) when is_binary(id) do
+    current_ids = Enum.map(entries, &value(&1, :message_id)) |> Enum.filter(&is_binary/1)
+
+    rows =
+      observations(id)
+      |> where([message], message.id not in ^current_ids)
+      |> order_by([message], desc: message.seq)
+      |> limit(@ambient_rows)
+      |> Repo.all()
+      |> Enum.reverse()
+
+    cutoff = rows |> Enum.filter(&(&1.message.author_type == :agent)) |> List.last()
+
+    Enum.filter(rows, fn row ->
+      row.message.author_type != :agent and
+        (is_nil(cutoff) or row.message.seq > cutoff.message.seq)
+    end)
+    |> Enum.map(&observed_message(&1, attrs.provider_thread_id))
+  end
+
+  def unreplied_messages(_attrs, _entries), do: []
+
+  def observed_message(%{message: message, external_ref: ref}, thread \\ nil) do
+    author = if ref, do: ref.author, else: %{"principal_uid" => message.author_uid}
+
     %{
-      id: conversation.id,
-      key: conversation.conversation_key,
-      started_at: datetime(conversation.inserted_at) || "",
-      timezone: installation_timezone(),
-      origin_channel: ConversationChannel.origin(conversation)
+      "id" => message.id,
+      "message_id" => message.id,
+      "seq" => message.seq,
+      "source" => "conversation",
+      "role" => message_role(message),
+      "kind" => "normal",
+      "speaker" => speaker_name(author),
+      "sent_at" => DateTime.to_iso8601(message.created_at),
+      "text" => message.text || "",
+      "attachments" => message.attachments,
+      "conversation_id" => message.conversation_id,
+      "provider_message_id" => if(ref, do: ref.provider_message_id),
+      "provider_thread_id" => if(ref, do: ref.provider_thread_id) || thread
     }
   end
 
-  defp agent_profile(agent_uid) do
-    case Repo.get(Principal, agent_uid) do
-      %Principal{} = principal ->
-        agent = Repo.get(PrincipalAgent, principal.uid)
+  def message_role(%Message{author_type: :agent}), do: "agent"
+  def message_role(_message), do: "human"
+  def speaker_name(author), do: author_name(author) || "unknown speaker"
 
-        {:ok,
-         %{
-           display_name: principal.display_name || principal.uid,
-           role: agent_role(agent)
-         }}
+  def author_name(author) when is_map(author),
+    do:
+      Enum.find_value(
+        ~w(display_name fullName userName name principal_uid agent_uid),
+        &value(author, &1)
+      )
 
-      nil ->
-        {:error, :agent_profile_not_found}
+  def author_name(_author), do: nil
+
+  defp after_time(query, nil), do: query
+  defp after_time(query, %DateTime{} = at), do: where(query, [message], message.created_at > ^at)
+
+  defp dedupe(messages),
+    do:
+      messages
+      |> Enum.reverse()
+      |> Enum.uniq_by(&(&1["message_id"] || {&1["conversation_id"], &1["provider_message_id"]}))
+      |> Enum.reverse()
+
+  defp sort_key(message) do
+    case DateTime.from_iso8601(message["sent_at"] || "") do
+      {:ok, at, _} -> {DateTime.to_unix(at, :microsecond), message["seq"] || 0}
+      _ -> {0, 0}
     end
   end
 
-  defp agent_role(%PrincipalAgent{role: role}) when is_binary(role), do: role
-  defp agent_role(_agent), do: ""
-
-  defp installation_timezone do
-    case SystemConfig.timezone() do
-      {:ok, timezone} -> timezone
-      {:error, _reason} -> SystemConfig.default_timezone()
-    end
-  end
-
-  defp datetime(%DateTime{} = value), do: DateTime.to_iso8601(value)
-  defp datetime(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
-  defp datetime(_value), do: nil
-
-  @spec runtime(map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def runtime(actor_key, opts \\ []) when is_map(actor_key) do
-    with {:ok, turn_basis} <- turn_basis(actor_key.agent_uid, opts),
-         {:ok, custom_model_profiles} <-
-           ModelProfiles.list_custom_model_profiles(actor_key.agent_uid) do
-      model_ref = turn_basis.model_ref
-
-      {:ok,
-       %{
-         model_ref: model_ref,
-         request_context:
-           request_context(
-             turn_basis.runtime_policy,
-             Keyword.get(opts, :request_context, %{})
-             |> Map.put("custom_model_profiles", custom_model_profiles)
-           )
-       }
-       |> Ankole.Attrs.maybe_put(:hosted_tools, turn_basis.hosted_tools)}
-    end
-  end
-
-  defp turn_basis(agent_uid, opts) do
-    case Keyword.fetch(opts, :turn_start_overrides) do
-      {:ok, {:ok, overrides}} -> frozen_turn_basis(overrides)
-      {:ok, {:error, _reason} = error} -> error
-      {:ok, other} -> {:error, {:invalid_turn_start_overrides, other}}
-      :error -> resolved_turn_basis(agent_uid, opts)
-    end
-  end
-
-  defp resolved_turn_basis(agent_uid, opts) do
-    with {:ok, model_ref} <-
-           turn_model_ref(agent_uid, Keyword.get(opts, :profile, "primary")),
-         {:ok, runtime_policy} <-
-           AgentConfig.runtime_policy(agent_uid,
-             max_completion_tokens: model_ref["max_completion_tokens"]
-           ),
-         {:ok, hosted_capabilities} <- ModelProfiles.provider_hosted_capabilities(agent_uid) do
-      {:ok,
-       %{
-         model_ref: model_ref,
-         runtime_policy:
-           Map.put(runtime_policy, "provider_hosted", %{
-             "web_search" => ModelProfiles.provider_hosted?(hosted_capabilities, "web_search"),
-             "image_generate" =>
-               ModelProfiles.provider_hosted?(hosted_capabilities, "image_generate")
-           }),
-         hosted_tools: hosted_tools(agent_uid, model_ref, hosted_capabilities)
-       }}
-    end
-  end
-
-  defp frozen_turn_basis(
-         %{
-           model_ref: %{} = model_ref,
-           request_context: %{"ai_agent" => %{} = runtime_policy}
-         } = overrides
-       ) do
-    {:ok,
-     %{
-       model_ref: model_ref,
-       runtime_policy: runtime_policy,
-       hosted_tools: Map.get(overrides, :hosted_tools)
-     }}
-  end
-
-  defp frozen_turn_basis(_overrides), do: {:error, :invalid_turn_start_overrides}
-
-  defp request_context(runtime_policy, extra_context) when is_map(extra_context) do
-    Map.put(extra_context, "ai_agent", runtime_policy)
-  end
-
-  defp request_context(runtime_policy, _extra_context) do
-    request_context(runtime_policy, %{})
-  end
-
-  defp turn_model_ref(agent_uid, profile) do
-    case ModelProfiles.resolve_runtime_model_ref(agent_uid, profile) do
-      {:ok, model_ref} -> {:ok, model_ref}
-      {:error, reason} -> {:error, {:model_profile_unavailable, profile, reason}}
-    end
-  end
-
-  # A capability the Agent leaves to its Provider is declared to the Provider and
-  # has no Ankole tool this turn. A Provider that cannot run it means the Agent
-  # simply has no such capability: falling back to a configured profile would
-  # silently change who executes the work and what the result looks like.
-  defp hosted_tools(agent_uid, model_ref, hosted_capabilities) do
-    case image_generation_hosted_tools(agent_uid, model_ref, hosted_capabilities) ++
-           web_search_hosted_tools(model_ref, hosted_capabilities) ++ brain_hosted_tools() do
-      [] -> nil
-      tools -> tools
-    end
-  end
-
-  # Memory is an installation capability that AIGateway executes on every
-  # provider, so its declaration follows `brain.enabled` alone. The driver
-  # decides the operation subset and the injection per Turn kind.
-  defp brain_hosted_tools do
-    if Ankole.Brain.Config.enabled?(), do: [%{"type" => "brain"}], else: []
-  end
-
-  defp image_generation_hosted_tools(agent_uid, model_ref, hosted_capabilities) do
-    if ModelProfiles.provider_hosted?(hosted_capabilities, "image_generate") do
-      if Providers.supports_native_image_generation?(model_ref),
-        do: [%{"type" => "image_generation"}],
-        else: []
-    else
-      case ModelProfiles.resolve_runtime_profile(agent_uid, "image_generate") do
-        {:ok, _runtime_profile} -> [%{"type" => "image_generation"}]
-        {:error, _reason} -> []
-      end
-    end
-  end
-
-  # Unlike image generation, an Ankole-executed web search is a control-plane tool
-  # rather than a gateway-composed hosted tool, so the Agent's own choice needs
-  # no declaration here.
-  defp web_search_hosted_tools(model_ref, hosted_capabilities) do
-    if ModelProfiles.provider_hosted?(hosted_capabilities, "web_search") and
-         Providers.supports_native_web_search?(model_ref) do
-      [%{"type" => "web_search"}]
-    else
-      []
-    end
-  end
+  defp value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, to_string(key)))
+  defp value(_map, _key), do: nil
 end

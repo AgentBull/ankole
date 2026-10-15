@@ -27,7 +27,7 @@ defmodule Ankole.Brain.SkillLessons do
   alias Ankole.Brain.ModelCalls
   alias Ankole.Logging
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.Binding
+  alias Ankole.Signals.Binding
   alias Ankole.Version
 
   @terminal_statuses ~w(succeeded failed stopped)
@@ -130,8 +130,6 @@ defmodule Ankole.Brain.SkillLessons do
     end
   end
 
-  # Per-agent round
-
   defp run_agent(agent_uid, current_release, now) do
     %{
       trigger: evaluate_trigger(agent_uid, now),
@@ -148,8 +146,6 @@ defmodule Ankole.Brain.SkillLessons do
     |> Repo.all()
     |> Enum.sort()
   end
-
-  # Production trigger
 
   defp evaluate_trigger(agent_uid, now) do
     watermark = reflection_watermark(agent_uid)
@@ -209,7 +205,7 @@ defmodule Ankole.Brain.SkillLessons do
          {:ok, active} <- Library.active_skill_lessons(agent_uid),
          {:ok, revoked} <- Library.revoked_skill_lessons(agent_uid),
          task = reflection_task(skills, active, revoked, bundle_sections(bundle)),
-         {:ok, %{job: job, dispatch_event: dispatch_event}} <-
+         {:ok, %{job: job}} <-
            BackgroundAgentJobs.create_with_dispatch(%{
              "agent_uid" => agent_uid,
              "owner_session_id" => owner_session_id,
@@ -227,7 +223,6 @@ defmodule Ankole.Brain.SkillLessons do
                "human_input_job_ids" => human_input_ids
              }
            }) do
-      Ankole.Conversations.deliver_events([dispatch_event])
       %{status: :reflection_created, job_id: job.id, signal_jobs: length(candidates)}
     else
       {:error, reason} -> %{status: :reflection_failed, error: inspect(reason)}
@@ -247,8 +242,6 @@ defmodule Ankole.Brain.SkillLessons do
       name -> {:ok, name}
     end
   end
-
-  # Evidence bundle
 
   defp bundle_sections(bundle) do
     bundle
@@ -299,8 +292,6 @@ defmodule Ankole.Brain.SkillLessons do
     |> Enum.map(&("- " <> &1.skill_name <> ": \"" <> String.trim(&1.content) <> "\""))
     |> Enum.join("\n")
   end
-
-  # Reflection completion
 
   defp do_apply_reflection_output(job) do
     output = job.result["output_text"] || ""
@@ -353,8 +344,6 @@ defmodule Ankole.Brain.SkillLessons do
     {:ok, _job} = job |> Job.changeset(%{metadata: metadata}) |> Repo.update()
     :ok
   end
-
-  # Review
 
   defp run_review(agent_uid, current_release, now) do
     horizon = DateTime.add(now, @docket_horizon_hours, :hour)
@@ -500,8 +489,6 @@ defmodule Ankole.Brain.SkillLessons do
       "- #{job.id} | " <> head(job.title, 60) <> " | #{job.status}"
     end)
   end
-
-  # Text helpers
 
   defp head(nil, _limit), do: ""
   defp head(text, limit) when is_binary(text), do: String.slice(text, 0, limit)

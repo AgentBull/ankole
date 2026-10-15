@@ -27,7 +27,7 @@ The current surface is:
   in a `deno_core` isolate.
 - `brain_markdoc/` - analysis of Brain bodies over CommonMark.
 - `model_image/` - model image validation and conversion.
-- `signals_gateway/` - CEL routing-policy evaluation over a supplied context.
+- `signals/` - CEL routing-policy evaluation over a supplied context.
 
 ## Identifier Generation
 

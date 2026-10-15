@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { internalAPIGet } from '../common/internal-api-client'
+import { clearDataTenant } from '../common/browser-session'
 import { ThemeToggle } from '../common/theme-toggle'
 
 export function SessionScreen({ invalid }: { invalid: boolean }) {
@@ -80,7 +81,16 @@ export function SessionScreen({ invalid }: { invalid: boolean }) {
                   className="flex flex-wrap gap-3"
                   onSubmit={event => {
                     if (submitting) event.preventDefault()
-                    else setSubmitting(true)
+                    else {
+                      const submitter = (event.nativeEvent as SubmitEvent).submitter
+                      if (
+                        submitter?.getAttribute('name') === 'action' &&
+                        submitter.getAttribute('value') === 'confirm'
+                      ) {
+                        clearDataTenant()
+                      }
+                      setSubmitting(true)
+                    }
                   }}
                   aria-busy={submitting}>
                   <input type="hidden" name="_csrf_token" value={csrf} />

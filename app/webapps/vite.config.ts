@@ -15,16 +15,13 @@ let phoenixShutdownGuardInstalled = false
 const entries = {
   auth: path.resolve(dirname, 'entrypoints/auth.tsx'),
   console: path.resolve(dirname, 'entrypoints/console.tsx'),
-  setup: path.resolve(dirname, 'entrypoints/setup.tsx')
+  setup: path.resolve(dirname, 'entrypoints/setup.tsx'),
+  workplace: path.resolve(dirname, 'entrypoints/workplace.tsx')
 }
 
-// The Markdown rendering pipeline behind `console/markdown-renderer.tsx`.
-// These packages have no consumer outside that dynamic import, so grouping
-// them cannot pull the chunk into an eager entry. The list is hand-frozen:
-// after a react-markdown upgrade, rebuild it from the dependency closure
-// (`bun pm ls --all` under the react-markdown subtree) — a package that
-// falls off the list only lands in `vendor-utilities`, so the failure mode
-// is bundle-size drift, not breakage.
+// No consumer outside the dynamic import in `common/markdown-renderer.tsx`, so
+// this group stays out of eager entries. A package missing from the list only
+// lands in `vendor-utilities`.
 const markdownPipelinePrefixes = [
   'character-entities',
   'hast-util-',

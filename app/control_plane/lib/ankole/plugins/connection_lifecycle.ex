@@ -27,8 +27,8 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   alias Ankole.Repo
   alias Ankole.IdentityProviders
   alias Ankole.Logging
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.Binding
+
+  alias Ankole.Signals.Binding
 
   @call_timeout 30_000
   @connection_specs_key {__MODULE__, :connection_specs}
@@ -162,7 +162,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         Repo.with_tenant(tenant.id, fn ->
           try do
             config.adapter
-            |> SignalsGateway.list_enabled_bindings(Keyword.take(opts, [:repo]))
+            |> Ankole.Signals.Bindings.list_enabled_bindings(Keyword.take(opts, [:repo]))
             |> Enum.reduce(acc, &add_binding(module, config, &1, &2, opts))
             |> add_identity_providers(module, config)
           rescue

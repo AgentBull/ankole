@@ -1,5 +1,4 @@
 import type { Slots } from './lifecycle_messages'
-import { fromProto } from '../core/rendered-fetch-runtime-config'
 import { create } from '@bufbuild/protobuf'
 import { isRecord, type JsonObject } from '@agentbull/active-support'
 import type { BrowserRuntime } from '../browser-runtime'
@@ -13,6 +12,7 @@ import { Drive } from '../drive/drive'
 import {
   createEnvelope,
   envelopeHeader,
+  fetchRuntimeConfigFromProto,
   jsonBytes,
   ToolProgressSchema,
   ToolResultSchema,
@@ -30,13 +30,12 @@ import type {
   WorkspaceClose
 } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { WorkspaceReady_Reason } from '../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
-import { runRefFromProto } from '../lanes/actor_lane'
+import { runRefFromProto } from '../lanes/session_lane'
 import type { RuntimeRPCClient } from '../lanes/rpc_lane'
 import { materializeSkills } from '../skills/drive_skills'
 import { createComputerTools } from '../tools/computer'
 import { loadEnabledSkillMCPServers } from '../tools/mcp'
 import { renderedFallbackFetch } from '../tools/web/web-tools'
-import { renderedFetchBrowserSettings, type RenderedFetchRuntimeConfig } from '../core/rendered-fetch-runtime-config'
 import { errorMessage } from '../common/errors'
 import type { WorkerConfig } from './config'
 import type { WorkerDrainState } from './drain'
@@ -64,8 +63,6 @@ type Workspace = {
   closeBridge?: () => void
   closed: Promise<void>
   finish: () => void
-  fetchConfig: RenderedFetchRuntimeConfig
-  fetchEnv: Record<string, string>
 }
 
 /** Owns disposable workspaces and call receipts until close or idle expiry. */
@@ -89,12 +86,12 @@ export class Workspaces {
 
   open(input: WorkspaceOpen): void {
     const run = runRefFromProto(input.run)
-    const key = run.actor.session_id
+    const key = run.session.session_id
     const old = this.spaces.get(key)
     if (old) {
       if (old.closing) {
         this.drain.track(old.closed.then(() => this.open(input)))
-      } else if (old.run.actorEventId !== run.actor_event_id) {
+      } else if (old.run.signalId !== run.signal_id) {
         this.drain.track(
           this.close({ run: old.run } as WorkspaceClose)
             .then(() => this.open(input))
@@ -131,9 +128,7 @@ export class Workspaces {
       touchedAt: Date.now(),
       closing: false,
       closed,
-      finish,
-      fetchConfig: { ssrfFilter: true },
-      fetchEnv: {}
+      finish
     }
     this.spaces.set(key, space)
     space.ready = this.prepare(input, space)
@@ -153,8 +148,8 @@ export class Workspaces {
 
   call(input: ToolCall): void {
     const run = runRefFromProto(input.run)
-    const space = this.spaces.get(run.actor.session_id)
-    if (!space || space.closing || space.run.actorEventId !== run.actor_event_id) {
+    const space = this.spaces.get(run.session.session_id)
+    if (!space || space.closing || space.run.signalId !== run.signal_id) {
       void this.status(input, 'unknown')
       return
     }
@@ -204,16 +199,16 @@ export class Workspaces {
 
   cancel(input: ToolCancel): void {
     const run = runRefFromProto(input.run)
-    const space = this.spaces.get(run.actor.session_id)
-    if (space?.run.actorEventId === run.actor_event_id) {
+    const space = this.spaces.get(run.session.session_id)
+    if (space?.run.signalId === run.signal_id) {
       space.calls.get(callKey(input))?.abort.abort(new Error('Tool execution was canceled.'))
     }
   }
 
   async close(input: WorkspaceClose): Promise<void> {
     const run = runRefFromProto(input.run)
-    const space = this.spaces.get(run.actor.session_id)
-    if (!space || space.run.actorEventId !== run.actor_event_id || space.closing) return
+    const space = this.spaces.get(run.session.session_id)
+    if (!space || space.run.signalId !== run.signal_id || space.closing) return
     space.closing = true
     if (space.timer) clearTimeout(space.timer)
     for (const call of space.calls.values()) if (!call.result) call.abort.abort(new Error('Workspace closed.'))
@@ -223,7 +218,7 @@ export class Workspaces {
       space.closeBridge?.()
       await space.materials?.cleanup()
     } finally {
-      this.spaces.delete(run.actor.session_id)
+      this.spaces.delete(run.session.session_id)
       this.slots.release()
       space.finish()
       await this.slots.publish()
@@ -252,7 +247,7 @@ export class Workspaces {
       },
       runtime: 'main'
     })
-    space.fetchConfig = fromProto(input.fetchRuntimeConfig, 'workspace_open.fetch_runtime_config')
+    const fetchConfig = fetchRuntimeConfigFromProto(input.fetchRuntimeConfig, 'workspace_open.fetch_runtime_config')
     const cliBridges = startRunCLIBridges({ drive, rpc, turn: run, workspaceRoot: workspace })
     space.closeBridge = cliBridges.close
     space.materials = await prepareExecutionMaterials({
@@ -261,9 +256,7 @@ export class Workspaces {
       bindingName: input.bindingName,
       runtimeEnv: { ...input.runtimeEnv, ...cliBridges.env },
       mcpServers,
-      consumeMaterialSourceEnv: async env => {
-        space.fetchEnv = env
-      }
+      renderedFetch: { config: fetchConfig, browserRuntime: this.browser }
     })
     space.tools = createComputerTools({
       agentHome: paths.home,
@@ -273,8 +266,8 @@ export class Workspaces {
       runtimeEnv: space.materials.runtimeEnv
     })
     workerLogger.info('worker.workspace_prepared', 'Workspace preparation completed', {
-      session_id: run.actor.session_id,
-      actor_event_id: run.actor_event_id,
+      session_id: run.session.session_id,
+      signal_id: run.signal_id,
       duration_ms: Math.round(performance.now() - started)
     })
   }
@@ -290,11 +283,8 @@ export class Workspaces {
       if (!isRecord(args) || !Array.isArray(args.urls) || !args.urls.every(url => typeof url === 'string')) {
         return invalidArguments('urls must be a list of URLs.')
       }
-      const value = await renderedFallbackFetch(
-        args.urls as string[],
-        this.browser.renderedWebFetchFallback(renderedFetchBrowserSettings(space.fetchConfig, space.fetchEnv)),
-        signal
-      )
+      // Preparation binds rendered fetch. Close waits for calls before material cleanup.
+      const value = await renderedFallbackFetch(args.urls as string[], space.materials!.renderedFetch!, signal)
       return { content: [{ type: 'text', text: JSON.stringify(value) }], details: value }
     }
     const tool = space.tools.find(

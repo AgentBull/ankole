@@ -6,13 +6,13 @@ import { join } from 'node:path'
 import type { BrowserRuntime } from '../../../src/browser-runtime'
 import { createEnvelope, envelopeHeader, RPCResponseSchema, type Envelope } from '../../../src/fabric/envelope_proto'
 import {
-  ActorEventEnvelopeSchema,
+  SignalEnvelopeSchema,
   TurnControlSchema,
   TurnStartSchema
 } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { ActorTurnAbortResponseSchema } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { RuntimeFabricTransportError, type EnvelopeSender } from '../../../src/fabric/fabric'
-import { jobTurnRefToProto } from '../../../src/lanes/actor_lane'
+import { jobTurnRefToProto } from '../../../src/lanes/session_lane'
 import { RuntimeRPCClient } from '../../../src/lanes/rpc_lane'
 import { ActiveTurns } from '../../../src/worker/active_turns'
 import type { WorkerConfig } from '../../../src/worker/config'
@@ -20,10 +20,10 @@ import { WorkerDrainState } from '../../../src/worker/drain'
 import { Slots } from '../../../src/worker/lifecycle_messages'
 
 const turn = {
-  actor: { agent_uid: 'agent-1', session_id: 'job:1000' },
+  session: { agent_uid: 'agent-1', session_id: 'job:1000' },
   job_id: 1000,
   attempt: 1,
-  actor_event_id: '00000000-0000-0000-0000-000000000101'
+  signal_id: '00000000-0000-0000-0000-000000000101'
 }
 
 function fixture(plans: Array<Error | undefined>) {
@@ -49,7 +49,7 @@ function fixture(plans: Array<Error | undefined>) {
       const error = plans.shift()
       if (error) throw error
     }
-    if (envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'actor_turn.abort') {
+    if (envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'session_turn.abort') {
       const request = envelope.body.value
       queueMicrotask(() =>
         rpc.resolve(
@@ -83,8 +83,8 @@ function fixture(plans: Array<Error | undefined>) {
         mode: 'start',
         fetchRuntimeConfig: { ssrfFilter: true },
         turn: jobTurnRefToProto(turn),
-        actorEvent: create(ActorEventEnvelopeSchema, {
-          actorEventId: turn.actor_event_id,
+        signal: create(SignalEnvelopeSchema, {
+          signalId: turn.signal_id,
           type: 'im.message.addressed'
         })
       })
@@ -196,7 +196,7 @@ describe('Turn acceptance before execution', () => {
       expect(f.slots.used()).toBe(0)
       expect(
         f.sent.filter(
-          envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'actor_turn.abort'
+          envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'session_turn.abort'
         )
       ).toHaveLength(0)
     } finally {
@@ -235,7 +235,7 @@ describe('Turn acceptance before execution', () => {
       expect(f.executionCount()).toBe(0)
       expect(
         f.sent.filter(
-          envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'actor_turn.abort'
+          envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'session_turn.abort'
         )
       ).toHaveLength(1)
       expect(f.slots.used()).toBe(0)

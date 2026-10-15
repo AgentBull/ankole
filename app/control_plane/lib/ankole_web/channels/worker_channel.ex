@@ -31,10 +31,10 @@ defmodule AnkoleWeb.WorkerChannel do
   alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.InboundDispatcher
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAdmission
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerTracker
+  alias Ankole.AgentWorkers.InboundDispatcher
+  alias Ankole.AgentWorkers.WorkerAdmission
+  alias Ankole.AgentWorkers.WorkerRoute
+  alias Ankole.AgentWorkers.WorkerTracker
 
   @streams [:control, :durable, :telemetry]
   @stream_enums %{
@@ -109,16 +109,14 @@ defmodule AnkoleWeb.WorkerChannel do
         {:error, reason} ->
           {:error,
            %{
-             "reason" =>
-               Ankole.SignalsGateway.ActorRuntime.RPCWire.error_message(reason, :tuple_inspect)
+             "reason" => Ankole.AgentWorkers.RPCWire.error_message(reason, :tuple_inspect)
            }}
       end
     else
       {:error, reason} ->
         {:error,
          %{
-           "reason" =>
-             Ankole.SignalsGateway.ActorRuntime.RPCWire.error_message(reason, :tuple_inspect)
+           "reason" => Ankole.AgentWorkers.RPCWire.error_message(reason, :tuple_inspect)
          }}
     end
   end
@@ -325,8 +323,6 @@ defmodule AnkoleWeb.WorkerChannel do
     :ok
   end
 
-  # -- inbound sequence and credit ----------------------------------------------
-
   defp new_stream do
     %{next_seq: 1, acked_seq: 0, completed: MapSet.new(), count: 0, bytes: 0}
   end
@@ -405,7 +401,7 @@ defmodule AnkoleWeb.WorkerChannel do
        Map.put(
          credits,
          "reason",
-         Ankole.SignalsGateway.ActorRuntime.RPCWire.error_message(reason, :tuple_inspect)
+         Ankole.AgentWorkers.RPCWire.error_message(reason, :tuple_inspect)
        )}
 
   defp wire_result(_other, credits), do: {:ok, credits}
@@ -425,8 +421,6 @@ defmodule AnkoleWeb.WorkerChannel do
 
   defp rpc_task_credit(socket, :control),
     do: elem(Map.fetch!(socket.assigns.limits.inflight, :control), 0)
-
-  # -- outbound sequence ---------------------------------------------------------
 
   # Commands and replies share one sequence so the Worker's cumulative
   # acknowledgement covers everything it took in order.

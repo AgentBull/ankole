@@ -27,7 +27,7 @@ Automation Job 不是工作流语言或步骤图。它是 Agent 云盘某个文�
 
 | 消费者 | 适用情况 | 触发结果 |
 |---|---|---|
-| **Agent session** | 每次 delivery 都需要判断、记忆、运行时选择工具或面向用户回复 | 触发器写入 ActorEvent 并唤醒会话 |
+| **Agent session** | 每次 delivery 都需要判断、记忆、运行时选择工具或面向用户回复 | 触发器写入 Signal 并唤醒会话 |
 | **Automation job** | 处理只是确定性的获取、比较、解析或预定动作 | 触发器创建持久脚本 run；脚本可以静默结束，也可以向归属 session 发出事件 |
 
 处理方式还不清楚时，先直接唤醒 Agent。只有已经证明是机械工作的部分才移入 automation job。这样脚本保持小巧，模型也不会进入空转轮询。
@@ -50,7 +50,7 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules
     "idempotency_key": "daily-digest-1",
     "schedule": { "kind": "cron", "expression": "0 9 * * *" },
     "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
+    "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
     "payload": { "task": "产出今天 mission 里那些话题的摘要。" }
   }'
 ```

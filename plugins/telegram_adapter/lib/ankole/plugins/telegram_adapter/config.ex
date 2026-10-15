@@ -16,14 +16,14 @@ defmodule Ankole.Plugins.TelegramAdapter.Config do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.Signals.Bindings
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.TelegramAdapter.Client
-  alias Ankole.SignalsGateway.Binding
+  alias Ankole.Signals.Binding
 
-  @key_pattern ~r/\Asignals_gateway\.telegram\.bindings\.[A-Za-z0-9_.:-]+\z/
+  @key_pattern ~r/\Asignals\.telegram\.bindings\.[A-Za-z0-9_.:-]+\z/
 
   @type t :: %{required(String.t()) => String.t()}
 
@@ -40,7 +40,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Config do
   def app_config_patterns do
     [
       AppConfigure.define_pattern(
-        id: "signals_gateway.telegram.bindings.*",
+        id: "signals.telegram.bindings.*",
         console_writable: false,
         key_pattern: @key_pattern,
         encrypted: true,
@@ -66,7 +66,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Config do
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
 
-    "signals_gateway.telegram.bindings.#{id}"
+    "signals.telegram.bindings.#{id}"
   end
 
   @spec validate_binding_config(term()) :: {:ok, t()} | {:error, term()}

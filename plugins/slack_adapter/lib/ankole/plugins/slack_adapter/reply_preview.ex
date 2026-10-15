@@ -7,23 +7,26 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
   provider mutations and checkpoint writes.
   """
 
-  @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+  @behaviour Ankole.Conversations.Delivery.PreviewAdapter
   @behaviour Ankole.Plugins.ChunkedMessagePreview
 
   alias Ankole.I18n
   alias Ankole.Plugins.ChunkedMessagePreview
-  alias Ankole.Plugins.SlackAdapter.{BlockKit, Config, ErrorPolicy, Mrkdwn}
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Plugins.SlackAdapter.BlockKit
+  alias Ankole.Plugins.SlackAdapter.Config
+  alias Ankole.Plugins.SlackAdapter.ErrorPolicy
+  alias Ankole.Plugins.SlackAdapter.Mrkdwn
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias SlackOpenAPI.Error
 
   @fallback_chars 3_000
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def update(%Request{} = request), do: deliver(request)
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def finalize(%Request{} = request) do
     case ChunkedMessagePreview.reconcile(%{request | mode: :terminal}, __MODULE__, "slack") do
       {:error, :slack_partial_delivery} -> :unknown
@@ -31,13 +34,13 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
     end
   end
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def refresh(%Request{} = request), do: deliver(request)
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def surface_ids(checkpoint), do: ChunkedMessagePreview.surface_ids(checkpoint)
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def surface_open?(checkpoint), do: ChunkedMessagePreview.surface_open?(checkpoint)
 
   defp deliver(request) do
@@ -65,7 +68,7 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
       )
       when is_binary(message_id) do
     body = %{
-      "channel" => channel_id(event.signal_channel_id),
+      "channel" => channel_id(event.conversation_id),
       "ts" => message_id,
       "text" => fallback_text(presentation, index),
       "blocks" => blocks
@@ -88,7 +91,7 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
 
   @impl Ankole.Plugins.ChunkedMessagePreview
   def delete_message({client, _presentation}, event, %{"message_id" => message_id}) do
-    body = %{"channel" => channel_id(event.signal_channel_id), "ts" => message_id}
+    body = %{"channel" => channel_id(event.conversation_id), "ts" => message_id}
 
     case SlackOpenAPI.post(client, "chat.delete", body: body) do
       {:ok, _response} -> :ok
@@ -107,15 +110,15 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
 
   defp post_message(client, event, blocks, presentation, index) do
     body = %{
-      "channel" => channel_id(event.signal_channel_id),
+      "channel" => channel_id(event.conversation_id),
       "text" => fallback_text(presentation, index),
       "blocks" => blocks
     }
 
     body =
-      case ActorEvent.reply_anchor_source_entry_id(event) do
-        source_entry_id when is_binary(source_entry_id) ->
-          Map.put(body, "thread_ts", source_entry_id)
+      case Signal.reply_anchor_provider_message_id(event) do
+        provider_message_id when is_binary(provider_message_id) ->
+          Map.put(body, "thread_ts", provider_message_id)
 
         _no_anchor ->
           body
@@ -147,7 +150,7 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
   defp response_thread_id(event, response) do
     case get_in(response, ["message", "thread_ts"]) do
       thread_ts when is_binary(thread_ts) ->
-        "#{event.signal_channel_id}:#{URI.encode(thread_ts)}"
+        "#{Ankole.Conversations.External.provider_conversation_id!(event.conversation_id)}:#{URI.encode(thread_ts)}"
 
       _missing ->
         nil
@@ -159,7 +162,7 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
   defp normalized_chunks(blocks) do
     case BlockKit.split_blocks(blocks) do
       [] ->
-        text = I18n.t("signals_gateway.reply.no_content")
+        text = I18n.t("conversations.delivery.reply.no_content")
         [[%{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => text}}]]
 
       chunks ->
@@ -173,6 +176,8 @@ defmodule Ankole.Plugins.SlackAdapter.ReplyPreview do
     String.slice(text, 0, @fallback_chars)
   end
 
-  defp channel_id("slack:" <> encoded), do: URI.decode(encoded)
-  defp channel_id(channel), do: channel
+  defp channel_id(conversation_id) do
+    "slack:" <> encoded = Ankole.Conversations.External.provider_conversation_id!(conversation_id)
+    URI.decode(encoded)
+  end
 end

@@ -12,9 +12,9 @@ depth one. A task can create BackgroundAgentJobs and hibernate until they
 finish, which lets one `agent()` call own hours of delegated work behind a
 bounded schema result.
 
-Every Workflow participant follows the shared async-work actor contract in
-[SignalsGateway](SignalsGateway.md#async-work-units): the session id is the
-address, the owner session is the parent, mail wakes a hibernating actor, and
+Every Workflow participant follows the shared async-work Session contract in
+[Sessions](Sessions.md#execute-tools-and-asynchronous-work): the session id is the
+address, the owner session is the parent, mail wakes a hibernating unit, and
 lifecycle signals travel one level up.
 
 ## What the Main Agent Can Do
@@ -77,7 +77,7 @@ tells the owner what it waits for through `show_workflow`.
 
 Every sleep schedules one durable deadline event (`workflow.task.wakeup`) at
 `now + wake_after_ms`, bounded between one minute and 48 hours. Any ready
-ActorEvent on the task session wakes the task earlier: an owner
+Signal on the task session wakes the task earlier: an owner
 `workflow.task.message`, or a lifecycle event from a BackgroundAgentJob the
 task created. The wake claim reuses the ordinary dispatch gates, so a full
 Agent re-defers the wake. The wake turn continues the same AIGateway
@@ -177,9 +177,9 @@ The Elixir control plane:
 - authorizes create, read, list, cancel, and task-result requests
 - stores each run and call in PostgreSQL
 - limits task admission for one run and one Agent
-- runs each task through a conversation Driver on the control plane
+- runs each task through a Session Driver on the control plane
 - gives tasks Web and read-only Brain tools, Job delegation, sleep, and submit_result
-- keeps the same conversation and committed tool history on retries
+- keeps the same AIGateway conversation and committed tool history on retries
 - starts deterministic replay and commits each replay result
 - runs each task at most three times
 - sends the terminal event to the owner Session
@@ -210,7 +210,7 @@ Future task wakeups use EnsureDriver. Reconciler repairs a missed delivery.
 ## Human Work Authorization
 
 Each run stores `authorization_kind`, `human_uid`, and `human_access_version`
-from the source ActorEvent under [Human Offboarding](HumanOffboarding.md).
+from the source Signal under [Human Offboarding](HumanOffboarding.md).
 Task dispatch and delegated Jobs retain that fact. A replay, new task, wake,
 or retry must pass the current Human check before admission.
 
@@ -238,7 +238,7 @@ result envelope, and error. The unique `(run_id, call_seq)` key prevents replay
 from creating the same task twice. A Job delegated by a task needs no link
 column: the Job's `owner_session_id` is the task session.
 
-The task Actor session is `wf_task:<call_id>`. The dispatch ActorEvent source ID
+The task Session is `wf_task:<call_id>`. The dispatch Signal source ID
 is `workflow:call:<call_id>:dispatch`. These identities make task dispatch
 idempotent.
 

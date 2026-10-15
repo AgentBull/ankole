@@ -17,26 +17,16 @@ export type ZonedDateTimeParts = {
 
 /** An instant and the timezone it was rendered in, which always agree. */
 export type LabeledZonedDateTime = {
-  /** `YYYY-MM-DD HH:MM`. */
   text: string
   timezone: string
 }
 
-/**
- * Formats an instant to minute precision as `YYYY-MM-DD HH:MM`.
- */
 export function formatZonedDateTime(value: Date | string, timezone: string): string | undefined {
   const parts = zonedDateTimeParts(value, timezone)
   return parts ? `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}` : undefined
 }
 
-/**
- * Renders an instant together with the timezone it was rendered in.
- *
- * A caller that prints the timezone beside the clock must print this timezone,
- * not the stored one: an absent or unusable timezone degrades the clock and
- * the label together to UTC, so the label always matches the clock.
- */
+/** A caller that prints the timezone must print this one, not a stored timezone. */
 export function labeledZonedDateTime(
   value: Date | string,
   timezone: string | null | undefined
@@ -49,12 +39,7 @@ export function labeledZonedDateTime(
   return utc ? { text: utc, timezone: 'UTC' } : undefined
 }
 
-/**
- * Splits an instant into zoned calendar fields.
- *
- * An unparsable value or a timezone Intl rejects yields undefined; each caller
- * owns the fallback text its surface needs.
- */
+/** Each caller owns the fallback text when this returns undefined. */
 export function zonedDateTimeParts(value: Date | string, timezone: string): ZonedDateTimeParts | undefined {
   const at = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(at.getTime())) return undefined

@@ -15,7 +15,6 @@ import { PrincipalEditorModel } from '../state/principal-editor-model'
 import { useEditorDraft } from '../use-editor-draft'
 import { principalDraftErrorText, principalRequestError } from './principal-create'
 
-/** Edits the display name and email of one human user. */
 export function PrincipalEditPage() {
   useSignals()
   const { t } = useTranslation()

@@ -12,12 +12,12 @@ model request.
 
 Caller `metadata` is a local Response fact. The native request boundary removes
 it after it merges provider options, before any provider resolver receives the
-request. The Conversation Driver passes `model_profile` through the local
+request. The Session Driver passes `model_profile` through the local
 `response_metadata` option; it does not add this field to the request body.
 
-AIGateway does not run the Agent model loop and does not complete Actor work.
-Conversations.Driver runs ordinary and Workflow loops on the control plane.
-Codex runs Job turns on the Worker. SignalsGateway completes input and sends
+AIGateway does not run the Agent model loop and does not complete Agent work.
+Sessions.Driver runs ordinary and Workflow loops on the control plane.
+Codex runs Job turns on the Worker. Sessions completes input and Conversations.Delivery sends
 the final reply to the external platform.
 
 ## What Runs in Each Process
@@ -32,7 +32,9 @@ provider credentials, ChatGPT refresh tokens, or a generated Codex
 authentication file.
 
 Every stored AIGateway record belongs to one Principal through `subject_uid`.
-AIGateway stores ActorEvent metadata without interpreting it.
+AIGateway stores caller metadata without interpreting it. A subject-scoped history lookup can use
+`include_ended: true` to read retained model state after a conversation ends.
+Stateful request admission still requires an active conversation.
 
 A completed Response means that one model request ended. It does not mean that
 the Agent turn ended.
@@ -460,8 +462,8 @@ OpenAI-family provider and every transport, because a WebSocket upgrade carries
 these as ordinary headers too. Provider-owned values, such as the ChatGPT
 Subscription session and account identity, still overwrite them.
 
-Agent Computer sends the current Actor Session as `Session-Id` on every
-AIGateway model request. Different Actor Sessions keep different values even
+Agent Computer sends the current execution Session as `Session-Id` on every
+AIGateway model request. Different execution Sessions keep different values even
 when they use the same Agent, channel, instructions, tools, or prompt cache
 route. A retry or WebSocket reconnect for one model call keeps the same value.
 `prompt_cache_key` remains an independent cache-routing and credential-affinity
@@ -744,7 +746,7 @@ Only one active row can use the same `(subject_uid, conversation_key)`.
 A caller can create a new active row under the same key after the conversation ends.
 
 An active Conversation is an AIGateway storage state. It does not identify an
-Actor session. A caller that uses a Conversation for a finite internal trace
+execution Session. A caller that uses a Conversation for a finite internal trace
 ends that Conversation when its work ends.
 
 `ai_gateway_messages` stores each Response run, tool-result journal, or compaction checkpoint.
@@ -770,7 +772,7 @@ interpreting it.
 AIGateway also keeps request and provider details in the metadata object. That
 object must not contain a second Response item list.
 
-The Conversation Driver sends its frozen model profile in the local
+The Session Driver sends its frozen model profile in the local
 `response_metadata` option. AIGateway records `model_profile` beside `request_model` in
 Response metadata, outside `request_metadata`. Console shows that value beside
 the provider model, with the request model as a fallback. The profile identifies the requested tier or
@@ -779,7 +781,7 @@ does not infer a profile for an older message or a direct model selector.
 Background Agent Jobs retain their profile on the Job record and show it in
 the Jobs Console.
 
-Conversations owns durable loop progress in `conversation_round_states`.
+Sessions owns durable loop progress in `session_round_states`.
 A model request or tool journal commits its typed progress in the same database
 transaction. AIGateway does not interpret or store loop state in caller metadata.
 
@@ -824,7 +826,7 @@ A stateful model round follows this sequence:
 The Worker opens at most one active Response stream on each WebSocket.
 The socket rejects a second command while that stream is active.
 
-The control plane publishes Response events for each conversation. SignalsGateway
+The control plane publishes Response events for each conversation. Conversations.Delivery
 can subscribe and use its own metadata to select relevant events.
 
 ## Run Tool Search and Program Calls
@@ -985,17 +987,17 @@ or `failed`, and the JSON `output` the model receives as a
 public pair as function items, and the pair takes the built-in tool budget as a
 gateway effect.
 
-The request subject is the querier and the writer. An Agent request that
-carries `metadata.actor_event_id` runs with its Turn's conversation:
-`Ankole.SignalsGateway.BrainContext` checks that the event belongs to that
-Agent and derives the disclosure recipients, the default write scope, the
-channel parent, and the write fence. The fence requires that the event is still
-open input of that Agent. A request without an actor
-event, such as an OIDC Human, runs as the subject alone: disclosure is open to
-the subject's own knowledge boundary, the default write scope is the subject's
-principal scope, and the parent fallback is the subject's canonical page. A
-codex Job composes its own requests, so its model binding carries the
-declaration and the actor event.
+The request subject is the querier and the writer. AIGateway uses a typed
+Brain execution context supplied by the authenticated runtime edge, or builds
+the subject's own generic Brain context when none is supplied. Public request
+metadata is opaque: `metadata.signal_id` does not select a Signal or grant its
+authority. `Ankole.Brain.RequestContext` belongs to the runtime side; it derives
+disclosure recipients, write scope, conversation parent, and a live-input write
+fence before invoking AIGateway. Codex Jobs convey that context through their
+verified runtime binding. Generic OIDC Human requests keep the subject's own
+knowledge and write boundary. Stateful continuation, provider replay recovery,
+and standalone compaction propagate the typed context through their call
+options rather than interpreting caller metadata.
 
 `inject: true` adds memory when AIGateway builds a stateful provider replay.
 The stored request input stays unchanged. The request keeps its opening pack
@@ -1098,7 +1100,7 @@ the old generating request immediately. A late stream terminal commit uses
 that Response ID and cannot replace its error state.
 
 A failure update affects only the named generating Response. AIGateway never
-uses metadata to select an ActorEvent.
+uses metadata to select a Signal.
 
 Callers can retract or delete a selected end section of visible history. The
 selected rows must exactly match the current complete chain.
@@ -1132,9 +1134,12 @@ that history and the caller sends only its current turn; its reply carries the
 checkpoint id, so the next turn continues from it. A stateless caller compacts
 the input it sent, because only that caller holds its history. Stateful
 compaction requires `store=true` when it uses a conversation or Response
-anchor. The Main Agent `/compress` command uses the same local checkpoint
-rebuild path. It is the manual recovery path when automatic replay recovery
-does not match a Provider failure.
+anchor. An explicit `previous_response_id` selects the predecessor chain to
+compact and the anchor of the new checkpoint. It must belong to the subject and
+the specified conversation. Without an explicit anchor, compaction uses the
+current visible leaf. The Main Agent `/compress` command uses the same local
+checkpoint rebuild path. It is the manual recovery path when automatic replay
+recovery does not match a Provider failure.
 
 When a caller sends no trigger, the history's token total decides. AIGateway
 owns that total and compacts on its own threshold, so no caller has to watch
@@ -1393,10 +1398,10 @@ provider body and metadata stay private.
 Agent Computer logs the resolved AIGateway scheme and host at the start of a
 turn. It does not infer network topology from the host. It logs the resolved
 tool names once. It also logs each main model attempt, retry decision, tool
-execution, and tool-result record operation with the ActorEvent ID and elapsed
+execution, and tool-result record operation with the runtime-provided Signal trace identity and elapsed
 time.
 
-AIGateway logs an active WebSocket interruption with the ActorEvent ID, model,
+AIGateway logs an active WebSocket interruption with the runtime-provided Signal trace identity, model,
 and elapsed time. It logs every failed synchronous provider request with the
 capability, provider, model, resolver, upstream host, duration, safe provider
 status, and retry classification. The image-generation path logs all eligible
@@ -1444,10 +1449,10 @@ is enabled and its OTLP destination. The control plane removes standard trace
 exporter environment variables before OpenTelemetry starts and again before it
 configures the exporter, so they cannot enable export or replace AppConfigure
 values. An exporter initialization, network, or receiver failure never changes
-a model request result. Traces are best effort and have no database outbox or
+a model request result. Traces are best effort and have no database intent or
 delivery retry owner.
 
-One `turn {actor_event.type}` root span covers a Driver execution attempt. The
+One `turn {signal.type}` root span covers a Driver execution attempt. The
 control-plane Driver starts it after admission and keeps the span handle in its
 state. It ends the span on finalization, retry, or process termination. A rebuilt
 Driver starts a new span for its attempt. The root records the bounded and
@@ -1514,7 +1519,7 @@ call runs in the same response stream. Its provider round is the
 or under the Turn root for a traced Agent request. A provider terminal
 ends the generation before image persistence, stateful commit, or public
 projection settles the request, so provider completion is not confused with
-durable Response completion or ActorEvent delivery. The generation output is
+durable Response completion or external delivery. The generation output is
 the round's own output items, identity, status, usage, and error; when a
 streamed terminal envelope carries an empty `output`, the items already admitted
 through `response.output_item.done` in that round are the output. The request
@@ -1531,7 +1536,7 @@ raw provider error messages or response bodies.
 An enabled trace contains the public request, the prepared request for each
 provider round, normalized provider output, model and Provider labels, token
 usage with cache-read, cache-write, and reasoning detail buckets, Principal,
-and available conversation and ActorEvent identifiers. User attribution does
+and available conversation and runtime-provided Signal trace identities. User attribution does
 not change the session identity. The session identity is the stateful
 conversation when one exists; otherwise it is
 `RequestContext.session_key/2`, which accepts explicit client session, thread,
@@ -1848,7 +1853,7 @@ and does not use this rule.
 - One Responses item registry owns call/output pairing and safe history cuts.
 - A program child call runs only when its frozen tool contract permits it.
 - Exhausting `max_tool_calls` never invents an incomplete terminal Response.
-- A completed Response does not complete an ActorEvent.
+- A completed Response does not complete a Signal.
 - A compaction plan cannot change history before the run starts.
 - Unmatched tool results never enter provider history.
 - An orphaned generating row becomes a retryable error.

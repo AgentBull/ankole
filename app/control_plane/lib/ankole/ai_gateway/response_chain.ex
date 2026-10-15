@@ -2,8 +2,9 @@ defmodule Ankole.AIGateway.ResponseChain do
   @moduledoc "Tenant-scoped Response chain queries, checkpoints and visible suffix changes."
   import Ecto.Query
   alias Ecto.Adapters.SQL
-  alias Ankole.AIGateway.{CompactionArtifacts, ResponseItems}
-  alias Ankole.AIGateway.Schemas.{Conversation, Message}
+  alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.{Principals, Repo}
   @history_chain_max_depth 10_000
   @public_chain_max_depth 500
@@ -25,7 +26,6 @@ defmodule Ankole.AIGateway.ResponseChain do
     with {:ok, conversation_id} <- cast_uuid(conversation_id),
          {:ok, anchor_id} <- history_anchor(conversation_id, opts) do
       if anchor_id do
-        # Walk the chain backward from the anchor, collecting complete rows.
         walk_message_chain(
           conversation_id,
           anchor_id,
@@ -36,6 +36,13 @@ defmodule Ankole.AIGateway.ResponseChain do
       end
     else
       {:error, _reason} -> []
+    end
+  end
+
+  @doc "Reads the visible complete chain of one owned conversation."
+  def visible_response_chain(subject_uid, conversation_id, opts \\ []) do
+    with {:ok, conversation} <- get_conversation_for_subject(subject_uid, conversation_id) do
+      {:ok, expand_history(conversation.id, opts)}
     end
   end
 
@@ -97,51 +104,6 @@ defmodule Ankole.AIGateway.ResponseChain do
     else
       {:error, _reason} -> nil
     end
-  end
-
-  @doc """
-  Reads a caller's visible run suffix.
-
-  Tool-result journals and compaction checkpoints do not end the suffix.
-  The caller metadata remains opaque; only its run identity is compared.
-  """
-  def conversation_tail(%Conversation{} = conversation, actor_event_id) do
-    leaf = latest_visible_leaf(conversation.id)
-    history = if leaf, do: run_message_chain(conversation.id, leaf, actor_event_id), else: []
-
-    rows =
-      history
-      |> Enum.reverse()
-      |> Enum.reduce_while([], fn row, rows ->
-        cond do
-          row.type == "checkpoint" -> {:cont, rows}
-          response_metadata(row)["actor_event_id"] == actor_event_id -> {:cont, [row | rows]}
-          row.metadata["tool_result_journal"] == true -> {:cont, rows}
-          true -> {:halt, rows}
-        end
-      end)
-
-    responses = Enum.reject(rows, &(&1.metadata["tool_result_journal"] == true))
-    latest = List.last(responses)
-
-    recorded_call_ids =
-      rows
-      |> Enum.filter(fn row ->
-        latest && row.metadata["tool_result_journal"] == true &&
-          row.previous_message_id == latest.id
-      end)
-      |> Enum.flat_map(& &1.content)
-      |> Enum.filter(&ResponseItems.output_item?/1)
-      |> Enum.map(fn item -> item[ResponseItems.pair_identity_field(item)] end)
-      |> MapSet.new()
-
-    {:ok,
-     %{
-       rows: rows,
-       responses: responses,
-       recorded_call_ids: recorded_call_ids,
-       leaf: leaf
-     }}
   end
 
   @doc """
@@ -519,14 +481,16 @@ defmodule Ankole.AIGateway.ResponseChain do
   end
 
   @doc """
-  Loads an active conversation by id and owning subject.
+  Loads a conversation by id and owning subject.
 
   This is used at stateful request boundaries so a caller cannot attach a new
   response run to another subject's conversation or expand another subject's history.
   """
   @spec get_conversation_for_subject(String.t(), String.t()) ::
           {:ok, Conversation.t()} | {:error, :invalid_conversation}
-  def get_conversation_for_subject(subject_uid, conversation_id) do
+  def get_conversation_for_subject(subject_uid, conversation_id, opts \\ []) do
+    include_ended? = Keyword.get(opts, :include_ended, false) == true
+
     with {:ok, normalized_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, conversation_id} <- cast_uuid(conversation_id),
          %Conversation{} = conversation <-
@@ -535,7 +499,7 @@ defmodule Ankole.AIGateway.ResponseChain do
                where:
                  c.id == ^conversation_id and
                    c.subject_uid == ^normalized_uid and
-                   is_nil(c.ended_at)
+                   (is_nil(c.ended_at) or ^include_ended?)
              )
            ) do
       {:ok, conversation}
@@ -558,8 +522,6 @@ defmodule Ankole.AIGateway.ResponseChain do
       {:error, _reason} -> {:error, :invalid_anchor}
     end
   end
-
-  # Internal helpers
 
   # Decodes a "resp_#{uuid}" string to the raw UUID. Internal DB-facing helpers
   # may pass raw UUIDs; HTTP/WS/API boundaries enforce prefixed ids before this
@@ -694,32 +656,6 @@ defmodule Ankole.AIGateway.ResponseChain do
       nil -> {:error, :invalid_anchor}
       _id -> :ok
     end
-  end
-
-  defp run_message_chain(conversation_id, anchor_id, actor_event_id) do
-    result =
-      SQL.query!(
-        Repo,
-        """
-        WITH RECURSIVE chain AS (
-          SELECT id, previous_message_id, ARRAY[id] AS path, 1 AS depth
-          FROM ai_gateway_messages
-          WHERE tenant_id = $5::text::uuid AND id = $1::text::uuid AND conversation_id = $2::text::uuid
-            AND (metadata #>> '{request_metadata,actor_event_id}' = $3 OR type = 'checkpoint' OR metadata->>'tool_result_journal' = 'true')
-          UNION ALL
-          SELECT parent.id, parent.previous_message_id, chain.path || parent.id, chain.depth + 1
-          FROM ai_gateway_messages AS parent JOIN chain ON parent.id = chain.previous_message_id
-          WHERE parent.tenant_id = $5::text::uuid AND parent.conversation_id = $2::text::uuid AND NOT parent.id = ANY(chain.path) AND chain.depth < $4
-            AND (parent.metadata #>> '{request_metadata,actor_event_id}' = $3 OR parent.type = 'checkpoint' OR parent.metadata->>'tool_result_journal' = 'true')
-        )
-        SELECT message.* FROM chain JOIN ai_gateway_messages AS message ON message.id = chain.id
-        WHERE message.tenant_id = $5::text::uuid AND message.status = 'complete'
-        ORDER BY chain.depth DESC
-        """,
-        [anchor_id, conversation_id, actor_event_id, @history_chain_max_depth, Repo.tenant_id!()]
-      )
-
-    Enum.map(result.rows, &Repo.load(Message, {result.columns, &1}))
   end
 
   defp walk_message_chain(conversation_id, anchor_id, stop_at_checkpoint?) do

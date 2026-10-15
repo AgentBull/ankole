@@ -7,8 +7,10 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.TelegramAdapter.Client
   alias Ankole.Plugins.UTF16Text
-  alias Ankole.SignalsGateway.{AdapterContext, Entry, Ingress}
-  alias Ankole.SignalsGateway.ReplyActionToken
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.{Conversation, ExternalMessageRef}
+  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.Delivery.ActionToken
 
   @download_limit_bytes 20 * 1024 * 1024
   @supported_chat_types ["private", "group", "supergroup"]
@@ -87,8 +89,8 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
          true <- material_message?(text, attachments, message) || {:ignore, :empty_message} do
       channel_kind = if chat["type"] == "private", do: :im_dm, else: :im_group
 
-      signal_channel_id =
-        signal_channel_id(bot.id, chat_id, Map.get(message, "message_thread_id"))
+      conversation_id =
+        provider_conversation_id(bot.id, chat_id, Map.get(message, "message_thread_id"))
 
       entity_projection = project_entities(text, entities, bot, consumer)
       text = visible_text(text, entity_projection, message)
@@ -99,11 +101,11 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
       {:ok,
        %{
          source_event_id: Integer.to_string(update_id),
-         signal_channel_id: signal_channel_id,
-         source_entry_id: Integer.to_string(message_id),
-         reply_to_source_entry_id:
+         provider_conversation_id: conversation_id,
+         provider_message_id: Integer.to_string(message_id),
+         reply_to_provider_message_id:
            nested_integer_text(message, ["reply_to_message", "message_id"]),
-         provider_thread_id: signal_channel_id,
+         provider_thread_id: conversation_id,
          channel: %{
            kind: channel_kind,
            reply_mode: :entry,
@@ -157,11 +159,11 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   defp emit_with_materialization(input, consumer) do
     client = Ankole.Plugins.TelegramAdapter.Config.client(consumer.config)
 
-    Ingress.emit_entry_with_attachments(
+    Observe.emit_entry_with_attachments(
       consumer.context.agent_uid,
       consumer.context.binding_name,
       input,
-      &Ingress.materialize_attachments(
+      &Observe.materialize_attachments(
         &1,
         "telegram",
         fn attachment ->
@@ -200,10 +202,10 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
       |> Enum.map(fn item ->
         {reaction_key, raw_key} = reaction_key(item)
 
-        Ingress.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
+        Observe.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
           source_event_id: "#{update_id}:#{action}:#{reaction_key}:#{user_id}",
-          signal_channel_id: channel_id,
-          source_entry_id: Integer.to_string(message_id),
+          provider_conversation_id: channel_id,
+          provider_message_id: Integer.to_string(message_id),
           reaction_key: reaction_key,
           raw_reaction_key: raw_key,
           actor_key: Integer.to_string(user_id),
@@ -233,9 +235,9 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
          user_id when is_integer(user_id) <- from["id"],
          {:ok, principal} <-
            Principals.resolve_platform_subject("telegram", Integer.to_string(user_id)),
-         channel_id <- signal_channel_id(bot.id, chat_id, message["message_thread_id"]),
+         channel_id <- provider_conversation_id(bot.id, chat_id, message["message_thread_id"]),
          {:ok, value} <-
-           ReplyActionToken.resolve(
+           ActionToken.resolve(
              token,
              consumer.context.agent_uid,
              consumer.context.binding_name,
@@ -243,19 +245,19 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
              prefix: "tg1"
            ),
          {:ok, _action_result} = result <-
-           Ingress.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+           Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
              source_event_id: Integer.to_string(update_id),
              action_id: callback_id,
-             signal_channel_id: channel_id,
-             source_entry_id: Integer.to_string(message_id),
+             provider_conversation_id: channel_id,
+             provider_message_id: Integer.to_string(message_id),
              provider_thread_id: channel_id,
-             actor_event_type: "signal.action.invoked",
+             signal_type: "signal.action.invoked",
              action: %{
                "name" => "telegram_callback",
                "value" => value,
                "operator_id" => Integer.to_string(user_id),
                "operator_principal_uid" => principal.uid,
-               "source_entry_id" => Integer.to_string(message_id)
+               "provider_message_id" => Integer.to_string(message_id)
              },
              raw_payload: %{"update_id" => update_id, "callback_query_id" => callback_id}
            }) do
@@ -594,22 +596,20 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   # message entry recorded. The chat match is exact or `:topic:`-delimited: a
   # bare prefix would also match another chat whose id extends this one, for
   # example `-1001234` behind `-100123`.
-  defp reaction_channel_id(context, bot_id, chat_id, source_entry_id) do
-    base = signal_channel_id(bot_id, chat_id, nil)
+  defp reaction_channel_id(context, bot_id, chat_id, provider_message_id) do
+    base = provider_conversation_id(bot_id, chat_id, nil)
 
-    Entry
-    |> where(
-      [entry],
-      entry.source_entry_id == ^source_entry_id and
-        (entry.signal_channel_id == ^base or
-           like(entry.signal_channel_id, ^"#{base}:topic:%"))
-    )
-    |> limit(1)
-    |> Repo.one()
-    |> case do
-      %Entry{signal_channel_id: channel_id} -> channel_id
-      nil -> base
-    end
+    Repo.one(
+      from ref in ExternalMessageRef,
+        join: conversation in Conversation,
+        on: conversation.id == ref.conversation_id,
+        where:
+          ref.provider_message_id == ^provider_message_id and
+            (conversation.provider_conversation_id == ^base or
+               like(conversation.provider_conversation_id, ^"#{base}:topic:%")),
+        limit: 1,
+        select: conversation.provider_conversation_id
+    ) || base
   rescue
     exception ->
       Logging.warning(
@@ -618,12 +618,12 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
         %{binding: context.binding_name, reason: Exception.message(exception)}
       )
 
-      signal_channel_id(bot_id, chat_id, nil)
+      provider_conversation_id(bot_id, chat_id, nil)
   end
 
   @doc false
-  @spec signal_channel_id(String.t(), integer(), integer() | nil) :: String.t()
-  def signal_channel_id(bot_id, chat_id, topic_id) do
+  @spec provider_conversation_id(String.t(), integer(), integer() | nil) :: String.t()
+  def provider_conversation_id(bot_id, chat_id, topic_id) do
     base = "telegram:#{bot_id}:chat:#{chat_id}"
     if is_integer(topic_id), do: "#{base}:topic:#{topic_id}", else: base
   end

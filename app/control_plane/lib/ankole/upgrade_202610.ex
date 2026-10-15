@@ -14,9 +14,14 @@ defmodule Ankole.Upgrade202610 do
   import Ecto.Query
 
   alias Ankole.AppConfigure
-  alias Ankole.AppConfigure.{AppConfig, SiteConfig, Cache, Crypto, Registry}
+  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.SiteConfig
+  alias Ankole.AppConfigure.Cache
+  alias Ankole.AppConfigure.Crypto
+  alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.{Binding, Bindings}
+  alias Ankole.Signals.Binding
+  alias Ankole.Signals.Bindings
   alias Ankole.Tenants.Tenant
 
   @tenant_schema_version 20_261_009_120_000
@@ -229,7 +234,7 @@ defmodule Ankole.Upgrade202610 do
       declaration =
         Enum.find(
           declarations,
-          &(&1[:contract_id] == "signals_gateway.adapter" and &1[:id] == binding.adapter)
+          &(&1[:contract_id] == "signals.adapter" and &1[:id] == binding.adapter)
         )
 
       if declaration do

@@ -214,8 +214,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
     }
   end
 
-  # Cursor
-
   defp decode_cursor(nil), do: {:ok, nil}
   defp decode_cursor(""), do: {:ok, nil}
 
@@ -281,8 +279,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
       %TurnItem{item: item} -> match?({[_ | _], _}, TurnItemProjection.project(item))
     end
   end
-
-  # Walk
 
   # Rows arrive through a windowed query in walk order and project in memory,
   # so a page never loads the whole scope. `boundary` is the last row the
@@ -436,8 +432,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
     )
   end
 
-  # Units
-
   defp project_unit(%TurnItem{} = row, %{walk: %{unit: :summary}}) do
     {messages, _truncated} = TurnItemProjection.project(row.item)
 
@@ -482,8 +476,6 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
       content_truncated: is_map(metadata) and metadata["content_truncated"] == true
     }
   end
-
-  # Page selection and the truncation ladder
 
   defp select_page_groups(groups, limit, bytes) do
     groups

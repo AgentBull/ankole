@@ -5,18 +5,19 @@ defmodule Ankole.E2E.SlackLifecycleTest do
   alias Ankole.AuthZ.Membership
   alias Ankole.E2E.FakeSlack.Server
 
-  alias Ankole.Plugins.SlackAdapter.{
-    Channels,
-    Config,
-    ConnectionReconciler,
-    IdentityProvider,
-    Inbound
-  }
+  alias Ankole.Plugins.SlackAdapter.Channels
+  alias Ankole.Plugins.SlackAdapter.Config
+  alias Ankole.Plugins.SlackAdapter.ConnectionReconciler
+  alias Ankole.Plugins.SlackAdapter.IdentityProvider
+  alias Ankole.Plugins.SlackAdapter.Inbound
 
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.{AdapterContext, BindingMembership, Channel}
+
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.BindingMembership
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.External
   alias SlackOpenAPI.Event
 
   import Ankole.E2E.Harness, only: [put_slack_test_client_opts!: 1]
@@ -105,7 +106,7 @@ defmodule Ankole.E2E.SlackLifecycleTest do
     on_exit(fn -> ConnectionReconciler.stop(Config.connection_key(config)) end)
 
     assert {:ok, _binding} =
-             SignalsGateway.Bindings.put_binding(agent.uid, "slack", binding_name, %{
+             Ankole.Signals.Bindings.put_binding(agent.uid, "slack", binding_name, %{
                "config" => config,
                "unmatched_sender_policy" => "create_standalone"
              })
@@ -113,7 +114,9 @@ defmodule Ankole.E2E.SlackLifecycleTest do
     assert {:ok, %{synced_channels: 1, marked_left: 0}} =
              Channels.sync_binding(agent.uid, binding_name)
 
-    assert %Channel{principal_group_id: group_id} = Repo.get_by(Channel, id: "slack:C1")
+    assert %Conversation{principal_group_id: group_id} =
+             External.get_conversation(Repo, "slack:C1")
+
     assert {:ok, group} = AuthZ.get_principal_group(group_id)
     assert BindingMembership.joined?(group.metadata, agent.uid, binding_name)
     assert {:ok, u1_uid} = Principals.resolve_platform_subject_uid("slack-main", "U1")

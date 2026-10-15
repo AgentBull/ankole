@@ -10,7 +10,7 @@ defmodule Ankole.AIGateway.ChatGPTProtocolTest do
       "model" => "gpt-5.6-sol",
       "generate" => true,
       "max_output_tokens" => 8_192,
-      "metadata" => %{"actor_event_id" => "event-1"},
+      "metadata" => %{"signal_id" => "event-1"},
       "prompt_cache_retention" => "24h",
       "safety_identifier" => "unsafe-upstream-field",
       "stream_options" => %{"include_usage" => true},

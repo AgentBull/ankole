@@ -60,7 +60,6 @@ export function PageHeader({
   )
 }
 
-/** Refetches every active page query and reports progress on the initiating control. */
 export function RefreshButton() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()

@@ -32,7 +32,7 @@ import {
   ankoleWebTenantControllerUpdateMutation
 } from '../api/generated/@tanstack/react-query.gen'
 import type { Tenant } from '../api/generated/types.gen'
-import { clearDataTenant, selectDataTenant } from '../api/data-context'
+import { clearDataTenant, selectDataTenant } from '../../common/browser-session'
 import {
   ConfirmDeleteButton,
   EditorNotFound,

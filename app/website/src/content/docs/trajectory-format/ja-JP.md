@@ -9,6 +9,8 @@ Ankole は agent がしたことを 2 つの場所に、2 種類の作業につ�
 
 決定的な性質を先に述べます: モデルは生の保存行を決して見ません。両方の形状は、プロトコルのアイデンティティを取り除き、ターンローカルな呼び出しエイリアスに置き換えたモデル可視形式にプロジェクションされます。モデルは内部 UUID やワイヤープロトコルフィールドではなく「ツール呼び出し 1 → ツール結果 1」を見ます。保存形式は永続性と監査のためであり、プロジェクション形式はモデルのためのものです。
 
+ここで AIGateway conversation は Session のモデル履歴を指します。`Ankole.Conversations` が保存する共有の Conversation と Message とは別です。公開履歴は現在の背景情報を提供できますが、保存したモデルチェーンとツールの記録を置き換えません。
+
 ## AIGateway 会話メッセージ
 
 AIGateway はライブ会話トランスクリプトを所有します。各メッセージは `ai_gateway_messages` の 1 行です:
@@ -26,7 +28,7 @@ AIGateway はライブ会話トランスクリプトを所有します。各メ�
 
 `previous_message_id` は継続アンカーです。各メッセージは先行メッセージを指し、連結されたチェーンを生成します。API では `previous_response_id` として描画されるため、呼び出し側や圧縮は任意のアンカーから再開できます。`metadata` フィールドは AIGateway が所有する事実（使用されたモデルと provider、token 使用量、provider の生応答 id）を、不透明な呼び出し側メタデータと並べて運びます。2 つ目のアイテムリストを運んではいけません。
 
-圧縮（[Context compression](../context-compression-and-caching/) を参照）は古いメッセージを、新しいアンカーになる要約メッセージに置き換えます。古いメッセージはモデルの可視コンテキストから消え、要約が新しい出発点になります。
+圧縮（[Context compression](../context-compression-and-caching/) を参照）は要約 checkpoint を新しい可視アンカーとして保存します。以前の行は復旧と監査のために残ります。モデルへの投影は要約から始まり、それ以前のメッセージを再生しません。
 
 ## Background Agent Job の軌跡
 
@@ -48,7 +50,7 @@ Background Agent Jobはターンごとの実行を `background_agent_job_turn_it
 
 ## モデル可視プロジェクション
 
-control plane は `Ankole.Conversations.Tools.Jobs.visible_trajectory/1` で保存済み Job item を投影します。モデル可視の投影には次を含みます。
+control plane は `Ankole.Sessions.Tools.Jobs.visible_trajectory/1` で保存済み Job item を投影します。モデル可視の投影には次を含みます。
 
 - **保存されたプロトコルのアイデンティティを取り除く** — 内部メッセージ id、ワイヤープロトコルフィールド、モデルが作用すべきでないもの。
 - **ツール呼び出し id をターンローカルなエイリアスに置き換える** — `call_1`、`call_2` など。モデルはどのツール結果がどのツール呼び出しに属するか（唯一有用な関係）を見ます。それらを配線する内部 UUID は見ません。
@@ -64,7 +66,7 @@ control plane は `Ankole.Conversations.Tools.Jobs.visible_trajectory/1` で保�
 | 所有者 | AIGateway | Background Agent Jobs |
 | 正規形式 | AIGateway のメッセージスキーマ | セマンティックアイテムを ChatML にプロジェクション |
 | モデルが見る経路 | ステートフル Responses API | `visible_trajectory/1` プロジェクション |
-| 圧縮 | AIGateway の圧縮が古いメッセージを置き換える | 圧縮されない（Job は再試行予算で境界付けられる）|
+| 圧縮 | AIGateway が新しい可視 checkpoint を保存し、以前の行を残す | 圧縮されない（Job は再試行予算で境界付けられる）|
 
 この 2 つは混ざりません。会話のメッセージは AIGateway のものであり、Job の軌跡は Job のものです。Job は起床イベント（[Background Agent Jobs](../background-agent-jobs/) を参照）を通じて結果を所有会話に報告します。会話のメッセージストアに書き込むわけではありません。
 
@@ -76,5 +78,5 @@ ChatML 仕様ではありません。正規の ChatML 形式は標準であり�
 
 - 会話メッセージストアについては、[AIGateway](../ai-gateway/) を読んでください。
 - Job 軌跡ストアについては、[Background Agent Jobs](../background-agent-jobs/) を読んでください。
-- 圧縮（古いメッセージを置き換える）については、[Context compression](../context-compression-and-caching/) を読んでください。
+- 圧縮と可視 checkpointについては、[Context compression](../context-compression-and-caching/) を読んでください。
 - これらを読み取る Console ルートについては、[Console API reference](../console-api/) を読んでください。

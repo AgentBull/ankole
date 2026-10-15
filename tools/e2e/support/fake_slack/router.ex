@@ -3,7 +3,8 @@ defmodule Ankole.E2E.FakeSlack.Router do
 
   use Plug.Router
 
-  alias Ankole.E2E.FakeSlack.{State, WebSocketHandler}
+  alias Ankole.E2E.FakeSlack.State
+alias Ankole.E2E.FakeSlack.WebSocketHandler
 
   plug :match
 

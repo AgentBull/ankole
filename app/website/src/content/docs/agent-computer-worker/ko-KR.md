@@ -9,7 +9,7 @@ Agent Computer Worker는 한 Agent 자신의 컴퓨터입니다. Agent 생성 �
 
 ## 실행과 소유권
 
-Bun Worker는 명령, 파일과 브라우저 도구, Skills, MCP 호출, automation script, Codex Job을 실행합니다. control plane의 `Ankole.Conversations`는 주 Agent loop, 입력 완료와 도구 결과 커밋, 최종 응답을 소유합니다. AIGateway는 영구 Response 체인과 hosted 도구를 소유합니다.
+Bun Worker는 명령, 파일과 브라우저 도구, Skills, MCP 호출, automation script, Codex Job을 실행합니다. control plane의 `Ankole.Sessions`는 주 Agent loop, 입력 완료와 도구 결과 커밋, 최종 응답을 소유합니다. AIGateway는 영구 Response 체인과 hosted 도구를 소유합니다.
 
 control plane은 `WORKER_ID`, RuntimeFabric URL, generation 자격 증명과 저장 설정을 제공합니다. Worker는 자신의 Agent만 처리하고 자식 프로세스 환경에서 자격 증명을 제거하며 데이터베이스에 연결하지 않습니다. 컨테이너가 Agent의 격리 경계입니다. 명령은 sudo 없이 uid 1000으로 실행됩니다.
 
@@ -60,4 +60,4 @@ Driver는 주 loop 스트리밍과 도구 표시를 소유합니다. Worker는 R
 
 heartbeat는 active workspace, Codex turn과 빈 slot을 보고합니다. control plane은 provider YAML `idleReleaseAfter`로 idle instance를 회수합니다. `never`는 실행을 유지합니다. 재연결은 프로세스 incarnation과 진행 중인 작업을 보존합니다.
 
-writer와 작업 펜스는 [Actor Runtime](../actor-runtime/), Responses는 [AIGateway](../ai-gateway/), Skills는 [Agent Library](../agent-library/), provider 상태는 [Workers](../worker-management/)를 참조하세요.
+writer와 작업 펜스는 [Sessions](../sessions/), Responses는 [AIGateway](../ai-gateway/), Skills는 [Agent Library](../agent-library/), provider 상태는 [Workers](../worker-management/)를 참조하세요.

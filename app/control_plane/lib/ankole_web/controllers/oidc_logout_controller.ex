@@ -1,7 +1,8 @@
 defmodule AnkoleWeb.OIDCLogoutController do
   @moduledoc false
   use AnkoleWeb, :controller
-  alias Ankole.OIDC.{Logout, RPLogout}
+  alias Ankole.OIDC.Logout
+  alias Ankole.OIDC.RPLogout
   alias AnkoleWeb.Session, as: WebSession
 
   @request_fields ~w(id_token_hint client_id post_logout_redirect_uri state)

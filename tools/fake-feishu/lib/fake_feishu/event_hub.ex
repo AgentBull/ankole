@@ -98,8 +98,6 @@ defmodule FakeFeishu.EventHub do
     |> Enum.reverse()
   end
 
-  # -- State notifications -> JSON-friendly events -----------------------------
-
   defp serialize(event, _state_pid) when elem(event, 0) in @dropped_events, do: nil
 
   defp serialize({:bot_message, message}, _state_pid) do

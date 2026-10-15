@@ -12,10 +12,10 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
 
   import Ankole.E2E.Harness
 
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.E2E.WaitHelpers
-  alias Ankole.Plugins.LarkAdapter.Outbox, as: LarkOutbox
-  alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.Plugins.LarkAdapter.Delivery, as: LarkDelivery
+  alias Ankole.Conversations.Delivery.Intent
 
   @moduletag timeout: 60_000
   @moduletag plugin_transport: true
@@ -41,13 +41,12 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
                mentions: [lark_bot_mention()]
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_transport_dm_1")
-    assert input.type == "im.message.addressed"
+    input = signal_by_provider_message_id!(agent.uid, "om_transport_dm_1")
+    assert input.type == "conversation.message.addressed"
 
-    entry = wait_for_signal_entry!("lark:oc_transport_dm", "om_transport_dm_1")
-    assert entry.text =~ "transport smoke line"
+    entry = wait_for_message_observation!("lark:oc_transport_dm", "om_transport_dm_1")
+    assert entry.message.text =~ "transport smoke line"
 
-    # The client must ack the delivered event frame with a success code.
     assert wait_for_event_ack!(fake_feishu, "evt_transport_dm_1") == 200
 
     # PingInterval is 1s in the fake ClientConfig, so an application-level
@@ -74,8 +73,8 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
                fragments: 3
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_transport_frag_1")
-    assert get_in(input.payload, ["data", "entry", "text"]) =~ "fragmented payload"
+    input = signal_by_provider_message_id!(agent.uid, "om_transport_frag_1")
+    assert get_in(input.data, ["entry", "text"]) =~ "fragmented payload"
   end
 
   test "out-of-order fragments still reassemble", %{fake_feishu: fake_feishu, agent: agent} do
@@ -91,8 +90,8 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
                fragment_order: :reversed
              )
 
-    assert %ActorEvent{} =
-             actor_event_by_source_entry_id!(agent.uid, "om_transport_frag_ooo_1")
+    assert %Signal{} =
+             signal_by_provider_message_id!(agent.uid, "om_transport_frag_ooo_1")
   end
 
   test "truncated frames are rejected without killing the connection", %{
@@ -122,10 +121,10 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
                mentions: [lark_bot_mention()]
              )
 
-    assert %ActorEvent{} =
-             actor_event_by_source_entry_id!(agent.uid, "om_transport_after_bad_1")
+    assert %Signal{} =
+             signal_by_provider_message_id!(agent.uid, "om_transport_after_bad_1")
 
-    refute pending_actor_event(agent.uid, "om_transport_bad_frame_1")
+    refute pending_signal(agent.uid, "om_transport_bad_frame_1")
     refute FakeFeishu.State.ack_code(fake_feishu.state, "evt_transport_bad_frame_1")
   end
 
@@ -157,34 +156,34 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
                mentions: [lark_bot_mention()]
              )
 
-    assert %ActorEvent{} =
-             actor_event_by_source_entry_id!(agent.uid, "om_transport_reconnect_1")
+    assert %Signal{} =
+             signal_by_provider_message_id!(agent.uid, "om_transport_reconnect_1")
   end
 
   test "outbound post authenticates, is idempotent under injected 429, and refreshes stale tokens",
        %{fake_feishu: fake_feishu, agent: agent, binding: binding} do
     # First send: cold token cache, so the adapter must fetch a tenant token.
-    outbox = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_POST_ONE")
-    assert {:ok, %{created_source_entry_id: first_id}} = LarkOutbox.send(outbox)
+    intent = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_POST_ONE")
+    assert {:ok, %{created_provider_message_id: first_id}} = LarkDelivery.deliver(intent)
     assert_received {:fake_feishu, {:token_issued, _token}}
 
     first = platform_message!(fake_feishu, first_id)
     assert first.text =~ "TRANSPORT_POST_ONE"
     assert first.chat_id == "oc_transport_out"
-    assert first.uuid == outbox.idempotency_key
+    assert first.uuid == intent.idempotency_key
 
     # Injected rate limit: the SDK retries once and the uuid idempotency key
-    # keeps the platform at exactly one message for this outbox.
+    # keeps the platform at exactly one message for this intent.
     FakeFeishu.State.fail_next(fake_feishu.state, :post_message, :rate_limited)
-    outbox = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_POST_RATE_LIMITED")
-    assert {:ok, %{created_source_entry_id: second_id}} = LarkOutbox.send(outbox)
+    intent = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_POST_RATE_LIMITED")
+    assert {:ok, %{created_provider_message_id: second_id}} = LarkDelivery.deliver(intent)
     assert platform_message!(fake_feishu, second_id).text =~ "TRANSPORT_POST_RATE_LIMITED"
 
     # Expired tenant token: the business call returns a token-invalid code, the
     # SDK drops its cached token, re-authenticates, and retries once.
     FakeFeishu.State.expire_tokens(fake_feishu.state)
-    outbox = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_POST_REFRESH")
-    assert {:ok, %{created_source_entry_id: third_id}} = LarkOutbox.send(outbox)
+    intent = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_POST_REFRESH")
+    assert {:ok, %{created_provider_message_id: third_id}} = LarkDelivery.deliver(intent)
     assert_received {:fake_feishu, {:token_issued, _refreshed}}
     assert platform_message!(fake_feishu, third_id).text =~ "TRANSPORT_POST_REFRESH"
 
@@ -197,12 +196,12 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     agent: agent,
     binding: binding
   } do
-    outbox =
+    intent =
       agent.uid
-      |> transport_outbox(binding.name, :reply, "TRANSPORT_REPLY_FALLBACK")
-      |> Map.put(:reply_to_source_entry_id, "om_never_existed_1")
+      |> transport_intent(binding.name, :reply, "TRANSPORT_REPLY_FALLBACK")
+      |> Map.put(:reply_to_provider_message_id, "om_never_existed_1")
 
-    assert {:ok, %{created_source_entry_id: created_id}} = LarkOutbox.send(outbox)
+    assert {:ok, %{created_provider_message_id: created_id}} = LarkDelivery.deliver(intent)
 
     message = platform_message!(fake_feishu, created_id)
     assert message.text =~ "TRANSPORT_REPLY_FALLBACK"
@@ -216,21 +215,21 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     agent: agent,
     binding: binding
   } do
-    parent = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_PARENT")
-    assert {:ok, %{created_source_entry_id: parent_id}} = LarkOutbox.send(parent)
+    parent = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_PARENT")
+    assert {:ok, %{created_provider_message_id: parent_id}} = LarkDelivery.deliver(parent)
 
     reply =
       agent.uid
-      |> transport_outbox(binding.name, :reply, "TRANSPORT_REPLY")
-      |> Map.put(:reply_to_source_entry_id, parent_id)
+      |> transport_intent(binding.name, :reply, "TRANSPORT_REPLY")
+      |> Map.put(:reply_to_provider_message_id, parent_id)
       |> Map.put(:idempotency_key, "transport-reply-one")
 
     assert {:ok,
             %{
-              created_source_entry_id: reply_id,
+              created_provider_message_id: reply_id,
               provider_thread_id: ^parent_id,
               raw_payload: %{"data" => %{"message_id" => raw_reply_id}}
-            }} = LarkOutbox.send(reply)
+            }} = LarkDelivery.deliver(reply)
 
     assert raw_reply_id == reply_id
 
@@ -244,15 +243,15 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
 
     file_reply =
       agent.uid
-      |> transport_outbox(binding.name, :reply, "TRANSPORT_FILE_REPLY")
-      |> Map.put(:reply_to_source_entry_id, parent_id)
+      |> transport_intent(binding.name, :reply, "TRANSPORT_FILE_REPLY")
+      |> Map.put(:reply_to_provider_message_id, parent_id)
       |> Map.put(:payload, %{
         "attachments" => [
           %{"provider_file_key" => "file_uploaded_1", "name" => "report.txt"}
         ]
       })
 
-    assert {:ok, %{created_source_entry_id: file_id}} = LarkOutbox.send(file_reply)
+    assert {:ok, %{created_provider_message_id: file_id}} = LarkDelivery.deliver(file_reply)
     file_message = platform_message!(fake_feishu, file_id)
     assert file_message.msg_type == "file"
     assert file_message.chat_id == "oc_transport_out"
@@ -268,10 +267,10 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
   } do
     divider =
       agent.uid
-      |> transport_outbox(binding.name, :divider, "New Session")
+      |> transport_intent(binding.name, :divider, "New Session")
       |> Map.put(:payload, %{"i18n" => %{"zh_CN" => "新会话"}})
 
-    assert {:ok, %{created_source_entry_id: divider_id}} = LarkOutbox.send(divider)
+    assert {:ok, %{created_provider_message_id: divider_id}} = LarkDelivery.deliver(divider)
     divider_message = platform_message!(fake_feishu, divider_id)
     assert divider_message.msg_type == "system"
     assert divider_message.chat_id == "oc_transport_out"
@@ -289,12 +288,12 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
   } do
     control_card =
       agent.uid
-      |> transport_outbox(binding.name, :card, "Started a new conversation.")
+      |> transport_intent(binding.name, :card, "Started a new conversation.")
       |> Map.put(:payload, %{
         "control_notice" => %{"text" => "Started a new conversation."}
       })
 
-    assert {:ok, %{created_source_entry_id: control_id}} = LarkOutbox.send(control_card)
+    assert {:ok, %{created_provider_message_id: control_id}} = LarkDelivery.deliver(control_card)
     control_message = platform_message!(fake_feishu, control_id)
     assert control_message.msg_type == "interactive"
     assert control_message.chat_id == "oc_transport_out"
@@ -306,7 +305,7 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
 
     progress_card =
       agent.uid
-      |> transport_outbox(binding.name, :card, "以上历史对话记录已被压缩")
+      |> transport_intent(binding.name, :card, "以上历史对话记录已被压缩")
       |> Map.put(:payload, %{
         "progress_notice" => %{
           "text" => "以上历史对话记录已被压缩",
@@ -314,7 +313,7 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
         }
       })
 
-    assert {:ok, %{created_source_entry_id: progress_id}} = LarkOutbox.send(progress_card)
+    assert {:ok, %{created_provider_message_id: progress_id}} = LarkDelivery.deliver(progress_card)
     progress_message = platform_message!(fake_feishu, progress_id)
     assert progress_message.msg_type == "interactive"
     assert progress_message.chat_id == "oc_transport_out"
@@ -331,23 +330,23 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     agent: agent,
     binding: binding
   } do
-    original = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_MUTATION_TARGET")
-    assert {:ok, %{created_source_entry_id: target_id}} = LarkOutbox.send(original)
+    original = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_MUTATION_TARGET")
+    assert {:ok, %{created_provider_message_id: target_id}} = LarkDelivery.deliver(original)
 
     edit =
       agent.uid
-      |> transport_outbox(binding.name, :edit, "TRANSPORT_EDITED")
-      |> Map.put(:target_source_entry_id, target_id)
+      |> transport_intent(binding.name, :edit, "TRANSPORT_EDITED")
+      |> Map.put(:target_provider_message_id, target_id)
 
-    assert {:ok, %{created_source_entry_id: ^target_id}} = LarkOutbox.send(edit)
+    assert {:ok, %{created_provider_message_id: ^target_id}} = LarkDelivery.deliver(edit)
     assert platform_message!(fake_feishu, target_id).text == "TRANSPORT_EDITED"
 
     delete =
       agent.uid
-      |> transport_outbox(binding.name, :delete, "")
-      |> Map.put(:target_source_entry_id, target_id)
+      |> transport_intent(binding.name, :delete, "")
+      |> Map.put(:target_provider_message_id, target_id)
 
-    assert {:ok, %{raw_payload: %{"data" => %{}}}} = LarkOutbox.send(delete)
+    assert {:ok, %{raw_payload: %{"data" => %{}}}} = LarkDelivery.deliver(delete)
     assert FakeFeishu.State.message(fake_feishu.state, target_id).deleted
 
     refute Enum.any?(
@@ -361,30 +360,30 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     agent: agent,
     binding: binding
   } do
-    original = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_REACTION_TARGET")
-    assert {:ok, %{created_source_entry_id: target_id}} = LarkOutbox.send(original)
+    original = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_REACTION_TARGET")
+    assert {:ok, %{created_provider_message_id: target_id}} = LarkDelivery.deliver(original)
 
     reaction_add =
       agent.uid
-      |> transport_outbox(binding.name, :reaction_add, "")
-      |> Map.put(:target_source_entry_id, target_id)
+      |> transport_intent(binding.name, :reaction_add, "")
+      |> Map.put(:target_provider_message_id, target_id)
       |> Map.put(:payload, %{"reaction_key" => "thumbs_up"})
 
     assert {:ok, %{raw_payload: %{"data" => %{"reaction_id" => reaction_id}}}} =
-             LarkOutbox.send(reaction_add)
+             LarkDelivery.deliver(reaction_add)
 
     assert [%{id: ^reaction_id, key: "THUMBSUP"}] =
              platform_message!(fake_feishu, target_id).reactions
 
     # The adapter resolves its own reaction instance id through the provider
-    # list endpoint; the outbox payload carries the emoji key, never the id.
+    # list endpoint; the intent payload carries the emoji key, never the id.
     reaction_remove =
       agent.uid
-      |> transport_outbox(binding.name, :reaction_remove, "")
-      |> Map.put(:target_source_entry_id, target_id)
+      |> transport_intent(binding.name, :reaction_remove, "")
+      |> Map.put(:target_provider_message_id, target_id)
       |> Map.put(:payload, %{"reaction_key" => "thumbs_up"})
 
-    assert {:ok, %{raw_payload: %{"data" => %{}}}} = LarkOutbox.send(reaction_remove)
+    assert {:ok, %{raw_payload: %{"data" => %{}}}} = LarkDelivery.deliver(reaction_remove)
     assert platform_message!(fake_feishu, target_id).reactions == []
   end
 
@@ -393,22 +392,22 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     agent: agent,
     binding: binding
   } do
-    parent = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_SPLIT_PARENT")
-    assert {:ok, %{created_source_entry_id: parent_id}} = LarkOutbox.send(parent)
+    parent = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_SPLIT_PARENT")
+    assert {:ok, %{created_provider_message_id: parent_id}} = LarkDelivery.deliver(parent)
     long_text = String.duplicate("你", 4_001)
 
     reply =
       agent.uid
-      |> transport_outbox(binding.name, :reply, long_text)
-      |> Map.put(:reply_to_source_entry_id, parent_id)
+      |> transport_intent(binding.name, :reply, long_text)
+      |> Map.put(:reply_to_provider_message_id, parent_id)
       |> Map.put(:idempotency_key, "reply-long-1")
 
     assert {:ok,
             %{
-              created_source_entry_id: first_reply_id,
+              created_provider_message_id: first_reply_id,
               provider_thread_id: ^parent_id,
               raw_payload: %{"split" => true, "chunks" => [_, _]}
-            }} = LarkOutbox.send(reply)
+            }} = LarkDelivery.deliver(reply)
 
     [first_reply, second_reply] =
       fake_feishu.state
@@ -431,20 +430,20 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     binding: binding
   } do
     long_text = String.duplicate("你", 4_001)
-    edit_target = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_EDIT_TARGET")
-    assert {:ok, %{created_source_entry_id: edit_target_id}} = LarkOutbox.send(edit_target)
+    edit_target = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_EDIT_TARGET")
+    assert {:ok, %{created_provider_message_id: edit_target_id}} = LarkDelivery.deliver(edit_target)
 
     edit =
       agent.uid
-      |> transport_outbox(binding.name, :edit, long_text)
-      |> Map.put(:target_source_entry_id, edit_target_id)
+      |> transport_intent(binding.name, :edit, long_text)
+      |> Map.put(:target_provider_message_id, edit_target_id)
       |> Map.put(:idempotency_key, "edit-long-1")
 
     assert {:ok,
             %{
-              created_source_entry_id: ^edit_target_id,
+              created_provider_message_id: ^edit_target_id,
               raw_payload: %{"split" => true, "chunks" => [_, _]}
-            }} = LarkOutbox.send(edit)
+            }} = LarkDelivery.deliver(edit)
 
     edited = platform_message!(fake_feishu, edit_target_id)
 
@@ -465,8 +464,8 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     agent: agent,
     binding: binding
   } do
-    parent = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_CARD_PARENT")
-    assert {:ok, %{created_source_entry_id: parent_id}} = LarkOutbox.send(parent)
+    parent = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_CARD_PARENT")
+    assert {:ok, %{created_provider_message_id: parent_id}} = LarkDelivery.deliver(parent)
 
     card = %{
       "schema" => "2.0",
@@ -480,19 +479,19 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
       }
     }
 
-    outbox =
+    intent =
       agent.uid
-      |> transport_outbox(binding.name, :card, "card fallback")
-      |> Map.put(:reply_to_source_entry_id, parent_id)
+      |> transport_intent(binding.name, :card, "card fallback")
+      |> Map.put(:reply_to_provider_message_id, parent_id)
       |> Map.put(:payload, %{"card" => card})
       |> Map.put(:idempotency_key, "card-table-1")
 
     assert {:ok,
             %{
-              created_source_entry_id: first_card_id,
+              created_provider_message_id: first_card_id,
               provider_thread_id: ^parent_id,
               raw_payload: %{"split" => true, "chunks" => [_, _]}
-            }} = LarkOutbox.send(outbox)
+            }} = LarkDelivery.deliver(intent)
 
     [first_message, second_message] =
       fake_feishu.state
@@ -517,18 +516,16 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     agent: agent,
     binding: binding
   } do
-    outbox = transport_outbox(agent.uid, binding.name, :post, "TRANSPORT_RECONCILE")
-    assert {:ok, %{created_source_entry_id: created_id}} = LarkOutbox.send(outbox)
+    intent = transport_intent(agent.uid, binding.name, :post, "TRANSPORT_RECONCILE")
+    assert {:ok, %{created_provider_message_id: created_id}} = LarkDelivery.deliver(intent)
     assert platform_message!(fake_feishu, created_id)
 
-    assert {:ok, %{created_source_entry_id: ^created_id, recovery_state: %{"exists" => true}}} =
-             LarkOutbox.reconcile(%{outbox | created_source_entry_id: created_id})
+    assert {:ok, %{created_provider_message_id: ^created_id, recovery_state: %{"exists" => true}}} =
+             LarkDelivery.reconcile(%{intent | created_provider_message_id: created_id})
 
     assert :unknown =
-             LarkOutbox.reconcile(%{outbox | created_source_entry_id: "om_gone_9999"})
+             LarkDelivery.reconcile(%{intent | created_provider_message_id: "om_gone_9999"})
   end
-
-  # -- suite-local helpers ------------------------------------------------------
 
   # Transport tests need an agent and one enabled binding, but no LLM provider,
   # model profiles, or skills.
@@ -552,14 +549,15 @@ defmodule Ankole.E2E.LarkTransportE2ETest do
     %{agent: agent, binding: binding}
   end
 
-  defp transport_outbox(agent_uid, binding_name, operation, text) do
-    %OutboxEntry{
+  defp transport_intent(agent_uid, binding_name, operation, text) do
+    %Intent{
       agent_uid: agent_uid,
       binding_name: binding_name,
       outbound_key: "transport-#{System.unique_integer([:positive])}",
       operation: operation,
-      status: :created,
-      signal_channel_id: "lark:oc_transport_out",
+      status: :pending,
+      conversation_id:
+        observe_external_conversation!(agent_uid, binding_name, "lark:oc_transport_out").id,
       payload: %{"text" => text},
       fallback_visible_text: text,
       idempotency_key: "transport-idem-#{System.unique_integer([:positive])}"

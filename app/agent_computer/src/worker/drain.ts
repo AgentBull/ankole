@@ -2,7 +2,6 @@
 export type WorkerLoad = {
   /** Tracked Turn, Job, and control-plane RPC tasks that are still running. */
   activeTasks: number
-  /** Milliseconds since the last task ended; zero while a task runs. */
   idleForMs: number
 }
 
@@ -46,11 +45,6 @@ export class WorkerDrainState {
     return true
   }
 
-  /**
-   * Adds a task to drain accounting without consuming its result.
-   * The detached chain suppresses only its own rejection; callers keep the
-   * original Promise.
-   */
   track<T>(task: Promise<T>): Promise<T> {
     this.activeTasks.add(task)
     void task

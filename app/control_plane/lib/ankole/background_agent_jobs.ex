@@ -7,10 +7,10 @@ defmodule Ankole.BackgroundAgentJobs do
   control actions, queries, and turn persistence as separate responsibilities.
   """
 
-  @behaviour Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
+  @behaviour Ankole.Sessions.AsyncWorkUnit
 
   alias Ankole.I18n
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.BackgroundAgentJobs.Control
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Dispatch
@@ -18,17 +18,15 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.TurnEvidence
   alias Ankole.BackgroundAgentJobs.Turns
-  alias Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier
+  alias Ankole.Sessions.TurnErrorClassifier
 
-  @job_session_prefix "job:"
-  @job_session_prefix_size byte_size(@job_session_prefix)
   @minimum_job_id 1000
   @maximum_job_id 9_007_199_254_740_991
   @doc """
-  Builds the durable actor-session id for one BackgroundAgentJob.
+  Builds the durable Session id for one BackgroundAgentJob.
 
-  The `"job:" <> Integer.to_string(job_id)` format is a frozen public contract: it is persisted in
-  `actor_events.session_id` and AIGateway
+  The `job:<id>` format is a frozen public contract: it is persisted in
+  `signals.session_id` and AIGateway
   `conversations.conversation_key`; documented in the Console API session
   schema; and typed by operators in the Console session picker. See
   `docs/design-docs/BackgroundAgentJob.md`. Changing it means a data migration
@@ -37,13 +35,7 @@ defmodule Ankole.BackgroundAgentJobs do
   @spec job_session_id(pos_integer()) :: String.t()
   def job_session_id(job_id)
       when is_integer(job_id) and job_id >= @minimum_job_id and job_id <= @maximum_job_id,
-      do: @job_session_prefix <> Integer.to_string(job_id)
-
-  @doc "True when the value is a BackgroundAgentJob session id. Usable in guards."
-  defguard is_job_session_id(session_id)
-           when is_binary(session_id) and
-                  byte_size(session_id) > @job_session_prefix_size and
-                  binary_part(session_id, 0, @job_session_prefix_size) == @job_session_prefix
+      do: Ankole.Sessions.Key.job(job_id)
 
   @doc "Parses a canonical model-safe Job id from its RuntimeFabric decimal string."
   @spec parse_job_id(term()) :: {:ok, pos_integer()} | :error
@@ -66,13 +58,16 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc "Extracts the integer Job id from a Job session id; `:error` for any other term."
   @spec parse_job_session_id(term()) :: {:ok, pos_integer()} | :error
-  def parse_job_session_id(@job_session_prefix <> job_id), do: parse_job_id(job_id)
-
-  def parse_job_session_id(_other), do: :error
+  def parse_job_session_id(key) do
+    case Ankole.Sessions.Key.parse(key) do
+      {:job, id} -> parse_job_id(id)
+      _ -> :error
+    end
+  end
 
   @doc "The raw prefix, only for storage-boundary prefix matching (SQL `LIKE`, key filters)."
   @spec job_session_prefix() :: String.t()
-  def job_session_prefix, do: @job_session_prefix
+  def job_session_prefix, do: Ankole.Sessions.Key.job("")
 
   @doc false
   @spec turn_error_retry_at(map(), pos_integer(), DateTime.t()) :: DateTime.t()
@@ -97,10 +92,10 @@ defmodule Ankole.BackgroundAgentJobs do
   }
 
   @doc false
-  @impl Ankole.SignalsGateway.ActorRuntime.AsyncWorkUnit
-  def dead_letter_notice_text(%ActorEvent{type: type} = event)
+  @impl Ankole.Sessions.AsyncWorkUnit
+  def dead_letter_notice_text(%Signal{type: type} = event)
       when is_map_key(@background_job_wakeup_notice_keys, type) do
-    data = get_in(event.payload || %{}, ["data"]) || %{}
+    data = event.data
 
     detail =
       [
@@ -112,7 +107,7 @@ defmodule Ankole.BackgroundAgentJobs do
       |> Enum.join("\n")
 
     I18n.t(
-      "signals_gateway.reply.#{Map.fetch!(@background_job_wakeup_notice_keys, type)}",
+      "conversations.delivery.reply.#{Map.fetch!(@background_job_wakeup_notice_keys, type)}",
       %{
         "job_id" => data["job_id"] || 0,
         "title" => text_value(data["title"]) || "",
@@ -121,7 +116,7 @@ defmodule Ankole.BackgroundAgentJobs do
     )
   end
 
-  def dead_letter_notice_text(%ActorEvent{}), do: nil
+  def dead_letter_notice_text(%Signal{}), do: nil
 
   @doc "Creates one durable work item and its isolated dispatch event atomically."
   defdelegate create_with_dispatch(attrs), to: Dispatch
@@ -133,11 +128,11 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid),
     to: Lifecycle
 
-  @doc "Delays one still-open job actor event without consuming it."
-  defdelegate defer_actor_event(actor_event, available_at), to: Dispatch
+  @doc "Delays one still-open job Signal without consuming it."
+  defdelegate defer_signal(signal, available_at), to: Dispatch
 
-  @doc "Completes a job actor event that no longer needs execution."
-  defdelegate complete_actor_event(actor_event), to: Dispatch
+  @doc "Completes a job Signal that no longer needs execution."
+  defdelegate complete_signal(signal), to: Dispatch
 
   @doc "Commits one lifecycle transition and its parent wakeup atomically."
   def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ []),
@@ -178,7 +173,7 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   def compensate_turn_error_in_tx(
         repo,
-        %ActorEvent{
+        %Signal{
           agent_uid: agent_uid,
           session_id: session_id,
           input_state: "open"
@@ -196,7 +191,7 @@ defmodule Ankole.BackgroundAgentJobs do
 
   def compensate_turn_error_in_tx(
         repo,
-        %ActorEvent{agent_uid: agent_uid, session_id: session_id},
+        %Signal{agent_uid: agent_uid, session_id: session_id},
         %{"details_json" => %{"error_code" => "background_agent_job_turn_persistence_rejected"}},
         %DateTime{} = now
       ) do
@@ -208,7 +203,7 @@ defmodule Ankole.BackgroundAgentJobs do
 
   def compensate_turn_error_in_tx(
         repo,
-        %ActorEvent{
+        %Signal{
           agent_uid: agent_uid,
           session_id: session_id,
           input_state: "dead_letter"
@@ -248,11 +243,11 @@ defmodule Ankole.BackgroundAgentJobs do
 
   # A retryable attempt failure returns the Job to `queued` so `running` always
   # means an active runtime Turn. The Job stops holding an Agent slot while its
-  # actor event waits on the retry ladder; the next delivery claims a fresh
+  # Signal waits on the retry ladder; the next delivery claims a fresh
   # attempt through the ordinary capacity checks.
   def compensate_turn_error_in_tx(
         repo,
-        %ActorEvent{
+        %Signal{
           agent_uid: agent_uid,
           session_id: session_id,
           input_state: "open"
@@ -267,7 +262,7 @@ defmodule Ankole.BackgroundAgentJobs do
     end
   end
 
-  def compensate_turn_error_in_tx(_repo, %ActorEvent{}, _reason, %DateTime{}),
+  def compensate_turn_error_in_tx(_repo, %Signal{}, _reason, %DateTime{}),
     do: {:ok, nil}
 
   @doc "Returns a terminal Job error when the Agent quota is exhausted."
@@ -334,7 +329,7 @@ defmodule Ankole.BackgroundAgentJobs do
   defp text_value(_value), do: nil
 
   defp artifacts_notice_line(%{"paths" => paths}) when is_list(paths) and paths != [] do
-    I18n.t("signals_gateway.reply.background_agent_job_dead_letter_artifacts", %{
+    I18n.t("conversations.delivery.reply.background_agent_job_dead_letter_artifacts", %{
       "paths" => Enum.join(paths, ", ")
     })
   end
@@ -342,7 +337,7 @@ defmodule Ankole.BackgroundAgentJobs do
   defp artifacts_notice_line(_artifacts), do: nil
 
   defp successor_notice_line(successor_job_id) when is_integer(successor_job_id) do
-    I18n.t("signals_gateway.reply.background_agent_job_dead_letter_successor", %{
+    I18n.t("conversations.delivery.reply.background_agent_job_dead_letter_successor", %{
       "successor_job_id" => successor_job_id
     })
   end

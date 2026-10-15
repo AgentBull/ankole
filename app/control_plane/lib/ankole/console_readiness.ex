@@ -9,8 +9,8 @@ defmodule Ankole.ConsoleReadiness do
 
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Principals
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+
+  alias Ankole.AgentWorkers
 
   @required_profiles ~w(primary light heavy)
   @total_core_steps 5
@@ -27,7 +27,7 @@ defmodule Ankole.ConsoleReadiness do
     missing_profiles = missing_profiles(target, ready_provider_ids)
     agent_complete = valid_agent?(target)
     profiles_complete = agent_complete and missing_profiles == []
-    ready_worker_count = Enum.count(SignalsGateway.list_workers(), &(&1.state == "ready"))
+    ready_worker_count = Enum.count(Ankole.AgentWorkers.list(), &(&1.state == "ready"))
     # A Worker runs only while its Agent needs one, so the step checks that
     # the default provider accepts requests.
     worker_provider_ready = AgentWorkers.provider_status() == :ok
@@ -123,7 +123,7 @@ defmodule Ankole.ConsoleReadiness do
 
   defp signal_route_complete?(active_agents) do
     active_agent_uids = MapSet.new(active_agents, & &1.principal.uid)
-    {:ok, bindings} = SignalsGateway.list_bindings()
+    {:ok, bindings} = Ankole.Signals.Bindings.list_bindings()
 
     Enum.any?(bindings, fn binding ->
       binding.enabled and is_nil(binding.unavailable_reason) and

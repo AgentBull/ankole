@@ -86,8 +86,6 @@ defmodule Ankole.Brain.Recall do
     end
   end
 
-  # Claim arm
-
   defp claim_arm(access, visibility, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
 
@@ -178,8 +176,6 @@ defmodule Ankole.Brain.Recall do
 
     Map.get(forgetting, key, 365)
   end
-
-  # Chunk arm
 
   defp chunk_arm(access, visibility, query, query_vector, limit, neighborhood) do
     candidate_limit = min(limit * 2, 100)
@@ -448,8 +444,6 @@ defmodule Ankole.Brain.Recall do
     end
   end
 
-  # Assembly
-
   # Claims take the budget first; chunks fill the remainder with at most two
   # chunks per page.
   defp assemble(claims, chunks, budget) do
@@ -474,7 +468,7 @@ defmodule Ankole.Brain.Recall do
             since_date: claim.since_date,
             until_date: claim.until_date,
             object_slug: claim.object_slug,
-            signal_gateway_channel_id: claim.signal_gateway_channel_id,
+            conversation_id: claim.conversation_id,
             provenance: claim.provenance,
             audience_scope: claim.audience_scope
           }
@@ -536,8 +530,6 @@ defmodule Ankole.Brain.Recall do
 
     :ok
   end
-
-  # Entity narrowing and query embedding
 
   # Resolving an entity narrows both arms to the entity's parent container
   # and one-hop link neighborhood. An entity that does not resolve is an

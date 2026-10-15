@@ -2,7 +2,8 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
   use AnkoleWeb.ConnCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.{AuthZ, Principals, Repo}
-  alias Ankole.Principals.{HumanAccess, WorkAccess}
+  alias Ankole.Principals.HumanAccess
+  alias Ankole.Principals.WorkAccess
 
   setup do
     allow_cache_database_access()
@@ -146,22 +147,20 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, event} =
-      Ankole.SignalsGateway.append_actor_event(%{
-        agent_uid: agent.uid,
-        binding_name: "test",
-        session_id: "test",
-        source_event_id: "review",
-        available_at: DateTime.utc_now(),
+      Ankole.Signals.accept(%{
+        source: "test://work-review",
+        id: "review",
+        target: %{agent_uid: agent.uid, session_id: "test"},
         type: "test.work",
-        payload: %{}
+        data: %{}
       })
 
     assert event.authorization_kind == "review_required"
     response = conn |> recycle_api() |> get(~p"/api/v1/work-access-reviews") |> json_response(200)
-    assert [%{"id" => id, "kind" => "actor_event"}] = response["work"]
+    assert [%{"id" => id, "kind" => "signal"}] = response["work"]
 
     body = %{
-      kind: "actor_event",
+      kind: "signal",
       id: id,
       authorization_kind: "human",
       reason: "Known independent job"
@@ -180,7 +179,7 @@ defmodule AnkoleWeb.HumanAccessControllerTest do
 
     Repo.put_tenant_id(tenant.id)
 
-    assert WorkAccess.fields(Repo.get!(Ankole.SignalsGateway.ActorEvent, event.id)) ==
+    assert WorkAccess.fields(Repo.get!(Ankole.Signals.Signal, event.id)) ==
              WorkAccess.service()
 
     assert conn

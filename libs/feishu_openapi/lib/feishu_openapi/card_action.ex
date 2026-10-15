@@ -135,8 +135,6 @@ defmodule FeishuOpenAPI.CardAction do
   def challenge(%{"challenge" => challenge}) when is_binary(challenge), do: challenge
   def challenge(_), do: nil
 
-  # --- verification helpers ----------------------------------------------
-
   defp normalize_config(%_{} = struct), do: normalize_config(Map.from_struct(struct))
 
   defp normalize_config(map) when is_map(map) do

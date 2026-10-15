@@ -1,7 +1,8 @@
 defmodule Ankole.E2E.WeComTransportTest do
   use ExUnit.Case, async: false
 
-  alias Ankole.E2E.FakeWeCom.{Server, State}
+  alias Ankole.E2E.FakeWeCom.Server
+  alias Ankole.E2E.FakeWeCom.State
   alias WeComOpenAPI.Bot
   alias WeComOpenAPI.Bot.Client, as: BotClient
   alias WeComOpenAPI.Bot.Dispatcher
@@ -39,11 +40,9 @@ defmodule Ankole.E2E.WeComTransportTest do
 
     socket = connect(fake, dispatcher)
 
-    # The subscribe frame carried the credentials.
     assert [auth] = State.frames(fake.state, "aibot_subscribe")
     assert auth["body"] == %{"bot_id" => "bot_fake", "secret" => "secret_fake"}
 
-    # A message callback reaches the dispatcher with its reply anchor.
     :ok =
       State.push_message(fake.state, "req-in-1", %{
         "msgid" => "m-1",

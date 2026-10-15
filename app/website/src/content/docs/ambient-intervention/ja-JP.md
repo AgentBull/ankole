@@ -11,7 +11,7 @@ order: 17
 
 ## 各メッセージは一度だけ判断される
 
-Agent は channel ごとに判断カーソルを保持します。各チェックは、前回のチェック後に届いたメッセージだけを判断します。古いメッセージは背景としてのみ表示され、再評価されることはありません。そのままにすると判断したメッセージが、数ラウンド後に突然回答されることはありません。
+各 Agent は Conversation ごとに独立した判断進度を保持します。同じ外部 Conversation の Agent はメッセージと standing orders を共有しますが、判断進度は共有しません。各チェックは、前回のチェック後に届いたメッセージだけを判断します。古いメッセージは背景としてのみ表示され、再評価されることはありません。そのままにすると判断したメッセージが、数ラウンド後に突然回答されることはありません。
 
 すべての判断は、action、authorization source、理由とともに記録されます。background handoff では正確な対象も記録されます。Agent が静かすぎる、または積極的すぎる場合、オペレーターは選択された経路を確認できます。
 
@@ -20,7 +20,7 @@ Agent は channel ごとに判断カーソルを保持します。各チェッ�
 - **何もしない（`NOOP`）** は Agent を沈黙させます。雑談、確認、重複する回答、または人がすでに引き受けた作業では通常この経路を使います。
 - **前景返信（`FOREGROUND_REPLY`）** は、回答、明確化、調整、status 報告、または小さな限定的調査のために、短い可視 turn を 1 つ開始します。この経路は background job を作成または再開できません。
 - **新しい作業（`NEW_WORK`）** は、独立した実質的な task を識別します。人からの直接の依頼または一致する standing order がある場合だけ通常の owner turn に進みます。どちらもない場合、Agent は作業を引き受けるか確認するだけです。この確認 turn には tool がなく、job を開始できません。
-- **引き継ぎ（`HANDOFF`）** は、新しいメッセージを、同じ Agent、owner session、channel、binding に属する、明確に一致した 1 つの live background job に静かに送ります。候補が不完全または曖昧な場合は引き継ぎません。
+- **引き継ぎ（`HANDOFF`）** は、新しいメッセージを、同じ Agent、owner Session、Conversation、binding に属する、明確に一致した 1 つの live background job に静かに送ります。候補が不完全または曖昧な場合は引き継ぎません。
 
 recognizer 自体は background job を作成しません。処理経路と authorization source だけを選び、通常の owner turn が既存の承認規則と background-work 規則を適用します。
 
@@ -31,11 +31,11 @@ Agent が発言を決定すると、2 つのケースを分離します。
 - **誰かが Agent に尋ねている場合** — 新しいメッセージの 1 つが、@ メンションなしでも実際に Agent に質問または宛てています。その返信はそのメッセージにアンカーされます。サポートする channel では、引用返信またはスレッド返信として表示されるため、部屋の人は誰に答えているかを見られます。
 - **自発的** — 誰も宛てていませんが、Agent は情報を追加することが今役立つと判断します（または standing order が一致します）。返信は通常のグループメッセージとして出ます。
 
-帰属は検証されます。特定された質問は、判断されたバッチ内に存在し、人間から来て、その著者がまだ最新の発言者である必要があります。Agent は、部屋が先に進んだ後で古い質問を掘り起こしません。その場合、通常の自発的な返信に低下します。
+帰属は検証されます。特定された質問は、判断されたバッチ内に存在し、人間から来て、その著者がまだ最新の発言者である必要があります。Agent は、部屋が先に進んだ後で古い質問を掘り起こしません。その場合、通常の自発的な返信に低下します。受け入れた質問をプラットフォームが後で削除すると、保存した帰属は degraded となり、メッセージのアンカーを解除します。判断記録と進度は残ります。
 
 ## channel standing orders
 
-standing orders は、channel に付随する 1 つの永続的なポリシーテキストです。その部屋でいつ自発的に発言すべきかを Agent に伝えます。例:
+standing orders は Conversation に保存した 1 つの永続的なポリシーテキストで、参加する Agent が共有します。その部屋でいつ自発的に発言すべきかを Agent に伝えます。例:
 
 - "CI が赤になったとき、またはデプロイが失敗したときだけ発言してください。"
 - "18:00 以降、誰かが日報を投稿したら要約してください。それ以外は静かにしてください。"
@@ -50,7 +50,7 @@ standing orders は 2 つの場所に届きます。経路判断はそれを cha
 - **May intervene モードでのみ有効になります。** 他の binding モードでは、テキストは保存されますが完全に不活性であり、Agent は保存後に非アクティブであることを伝えます。binding を May intervene に切り替えると、追加の手順なしで有効になります。
 - 1 つの orders テキストは最大 4000 文字です。
 
-Console も standing orders を読み書きできます。[Console API reference](../console-api/) の `/signal-channels/:channel_id/standing-orders` エンドポイントを参照してください。
+Console も standing orders を読み書きできます。[Console API reference](../console-api/) の `/conversations/:conversation_id/standing-orders` エンドポイントを参照してください。
 
 ## それでも発言しすぎる、または少なすぎる場合
 
@@ -61,4 +61,4 @@ Console も standing orders を読み書きできます。[Console API reference
 ## 次のステップ
 
 - グループメッセージモードと binding 構成: [シグナルルーティングルール](../signal-bindings/) を参照してください。
-- メッセージが Agent の作業項目になる方法: [SignalsGateway](../signals-gateway/) を参照してください。
+- メッセージが Agent の作業項目になる方法: [Signals](../signals/) を参照してください。

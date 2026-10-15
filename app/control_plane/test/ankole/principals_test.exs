@@ -3,8 +3,8 @@ defmodule Ankole.PrincipalsTest do
 
   alias Ankole.Principals
   alias Ankole.Principals.ExternalIdentity
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ReconcileJob
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers.ReconcileJob
+  alias Ankole.AgentWorkers.AgentWorker
 
   import Ankole.PrincipalsFixtures
 

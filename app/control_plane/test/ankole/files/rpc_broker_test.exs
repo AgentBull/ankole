@@ -7,14 +7,14 @@ defmodule Ankole.Files.RPCBrokerTest do
   alias Ankole.Files
   alias Ankole.Files.RPCBroker
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntimeCase
+  alias Ankole.SessionsCase
   alias Ankole.WorkerFiles
   alias Ankole.WorkerFilesFake
 
   setup do
     %{principal: agent} = agent_fixture()
     route = "files-broker-test-#{System.unique_integer([:positive])}"
-    {:ok, _worker} = ActorRuntimeCase.admit_worker(route, %{worker_id: agent.uid})
+    {:ok, _worker} = SessionsCase.admit_worker(route, %{worker_id: agent.uid})
 
     %{
       agent_uid: agent.uid,
@@ -52,10 +52,20 @@ defmodule Ankole.Files.RPCBrokerTest do
     assert last.path == "docs/c.txt"
   end
 
-  test "returns the projected channel and entry in file listings", %{
+  test "returns public conversation and message IDs in file listings", %{
     agent_uid: agent_uid,
     ctx: ctx
   } do
+    %{message: message} =
+      Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid)
+      |> then(fn signal ->
+        Ankole.Conversations.External.get_message(
+          Ankole.Repo,
+          signal.conversation_id,
+          signal.provider_message_id
+        )
+      end)
+
     {:ok, %{sha256: sha256}} = Files.store("origin")
 
     assert {:ok, _} =
@@ -64,8 +74,8 @@ defmodule Ankole.Files.RPCBrokerTest do
                  path: "inbox/origin.txt",
                  sha256: sha256,
                  source: "inbound",
-                 signal_channel_id: "source-channel",
-                 source_entry_id: "source-entry"
+                 conversation_id: message.conversation_id,
+                 message_id: message.id
                }
              ])
 
@@ -76,8 +86,8 @@ defmodule Ankole.Files.RPCBrokerTest do
                ctx
              )
 
-    assert file.signal_channel_id == "source-channel"
-    assert file.source_entry_id == "source-entry"
+    assert file.conversation_id == message.conversation_id
+    assert file.message_id == message.id
   end
 
   test "writes a drive file into the Agent Home of the calling Worker", %{

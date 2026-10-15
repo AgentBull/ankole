@@ -1,11 +1,11 @@
 defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   @moduledoc """
-  Lark IM group synchronization for SignalsGateway chat bindings.
+  Lark IM group synchronization for Signal Bindings for external conversations.
   """
 
   import Ecto.Query, warn: false
 
-  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.Signals.Bindings
   alias Ankole.AuthZ.Store, as: AuthZStore
   alias Ankole.Logging
   alias Ankole.Plugins.ChannelSync
@@ -16,12 +16,12 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.Binding
-  alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.IMGroupMembers
-  alias Ankole.SignalsGateway.IMGroupProjection
+
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.Binding
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.IMGroupMembers
+  alias Ankole.Conversations.IMGroupProjection
   alias FeishuOpenAPI.Event
   alias FeishuOpenAPI.Pagination
 
@@ -90,16 +90,19 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   @spec maybe_enqueue_missing_channel_refresh(map(), map()) :: :ok
   def maybe_enqueue_missing_channel_refresh(
         %{context: %AdapterContext{} = context, config: config},
-        %{channel: %{kind: :im_group}, signal_channel_id: signal_channel_id}
+        %{channel: %{kind: :im_group}, provider_conversation_id: provider_conversation_id}
       )
-      when is_binary(signal_channel_id) and is_map(config) do
-    case Repo.get_by(Channel, id: signal_channel_id) do
-      %Channel{principal_group_id: group_id} when is_binary(group_id) ->
+      when is_binary(provider_conversation_id) and is_map(config) do
+    case Ankole.Conversations.External.get_conversation(
+           Repo,
+           provider_conversation_id
+         ) do
+      %Conversation{principal_group_id: group_id} when is_binary(group_id) ->
         :ok
 
-      %Channel{} ->
+      %Conversation{} ->
         chat_id =
-          signal_channel_id
+          provider_conversation_id
           |> lark_channel_chat_id()
           |> Kernel.||(get_in(config, ["chat_id"]))
 
@@ -116,7 +119,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def sync_binding(agent_uid, binding_name)
       when is_binary(agent_uid) and is_binary(binding_name) do
-    with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          {:ok, chats} <- list_joined_chats(config),
          context <- binding_context(binding, config),
@@ -150,7 +153,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   @spec refresh_chat(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def refresh_chat(agent_uid, binding_name, chat_id)
       when is_binary(agent_uid) and is_binary(binding_name) and is_binary(chat_id) do
-    with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, chat} <- fetch_chat_info(config, chat_id),
@@ -452,7 +455,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
       channel: %{
         on_conflict: :keep_existing,
         fact: %{
-          signal_channel_id: Inbound.signal_channel_id(chat_id),
+          provider_conversation_id: Inbound.provider_conversation_id(chat_id),
           channel_kind: :im_group,
           reply_mode: :entry,
           channel_name: optional_text(attrs, "name"),

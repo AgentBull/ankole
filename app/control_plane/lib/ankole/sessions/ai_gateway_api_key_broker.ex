@@ -1,0 +1,80 @@
+defmodule Ankole.Sessions.AIGatewayAPIKeyBroker do
+  @moduledoc """
+  RuntimeFabric broker for agent-scoped AIGateway API keys.
+
+  The key is scoped to the Agent of the calling Worker's connection. The
+  Worker receives no provider credentials through this RPC.
+  """
+
+  alias Ankole.Principals
+  alias Ankole.RuntimeFabric.V1, as: FabricProto
+  alias Ankole.AgentWorkers.RPCWire
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AIGateway.Tokens
+  alias AnkoleWeb.Endpoint
+
+  @doc """
+  Handles `ai_gateway.api_key_for.create_or_find_by_agent`.
+  """
+  @spec handle_request(String.t(), FabricProto.AIGatewayAPIKeyRequest.t(), map()) ::
+          {:ok, FabricProto.AIGatewayAPIKeyResponse.t()} | {:error, map()}
+  def handle_request(agent_uid, %FabricProto.AIGatewayAPIKeyRequest{}, ctx) do
+    result =
+      with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
+           :active <- principal.status,
+           {:ok, endpoints} <- Providers.connection_endpoints(agent_uid),
+           {:ok, token} <- Tokens.mint_for_agent(principal.uid) do
+        {:ok, response(token, endpoints)}
+      end
+
+    case result do
+      {:ok, response} -> {:ok, response}
+      {:error, reason} -> {:error, error_payload(ctx.request_id, agent_uid, reason)}
+      :disabled -> {:error, error_payload(ctx.request_id, agent_uid, :agent_disabled)}
+    end
+  end
+
+  defp response(token, endpoints) do
+    %FabricProto.AIGatewayAPIKeyResponse{
+      api_key: token.api_key,
+      token_type: token.token_type,
+      expires_at: token.expires_at,
+      expires_in: token.expires_in,
+      scope: token.scope,
+      base_url: String.trim_trailing(endpoints["aiGatewayUrl"] || base_url(), "/")
+    }
+  end
+
+  defp base_url do
+    configured =
+      :ankole
+      |> Application.get_env(__MODULE__, [])
+      |> Keyword.get(:base_url)
+
+    case configured do
+      nil ->
+        Endpoint.url() <> "/api/v1/ai-gateway"
+
+      value when is_binary(value) ->
+        value = String.trim(value)
+
+        if value == "" do
+          Endpoint.url() <> "/api/v1/ai-gateway"
+        else
+          String.trim_trailing(value, "/")
+        end
+
+      value ->
+        raise ArgumentError,
+              "expected :base_url for #{inspect(__MODULE__)} to be a string, got: #{inspect(value)}"
+    end
+  end
+
+  defp error_payload(request_id, agent_uid, reason) do
+    RPCWire.error_payload(request_id, reason,
+      fallback_code: "ai_gateway_api_key_request_failed",
+      message_style: :inspect_tuple_reason,
+      details_json: %{"agent_uid" => agent_uid}
+    )
+  end
+end

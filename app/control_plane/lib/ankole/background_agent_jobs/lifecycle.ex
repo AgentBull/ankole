@@ -5,11 +5,10 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   alias Ecto.Adapters.SQL
 
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.Conversations.JobTurnRef
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.Signals.Signal
+  alias Ankole.Sessions.JobTurnRef
+  alias Ankole.AgentWorkers.WorkerRouteAuth
+  alias Ankole.AgentWorkers
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.BackgroundAgentJobs.Attrs
@@ -178,7 +177,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   end
 
   @spec commit_status_with_wakeup(pos_integer(), String.t(), map(), keyword()) ::
-          {:ok, %{job: Job.t(), wakeup_event: ActorEvent.t() | nil}}
+          {:ok, %{job: Job.t(), wakeup_event: Signal.t() | nil}}
           | {:error, term()}
   def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ [])
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(attrs) and
@@ -199,20 +198,15 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
             turn_ref,
             Keyword.get(opts, :worker_id),
             Keyword.get(opts, :turn_interruption),
-            Keyword.take(opts, [:external_completion, :applied_actor_event_ids])
+            Keyword.take(opts, [:external_completion, :applied_signal_ids])
           )
         end)
       end
 
     if not Repo.in_transaction?() do
       case result do
-        {:ok, %{job: job} = value} ->
-          Ankole.Conversations.job_turn(job)
-
-          Ankole.Conversations.deliver_events([
-            value.wakeup_event,
-            Map.get(value, :dispatch_event)
-          ])
+        {:ok, %{job: job}} ->
+          Ankole.Sessions.job_turn(job)
 
         _error ->
           :ok
@@ -229,11 +223,11 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           String.t(),
           map(),
           DateTime.t(),
-          Ankole.Conversations.JobTurnRef.t() | nil,
+          Ankole.Sessions.JobTurnRef.t() | nil,
           String.t() | nil,
           map() | nil
         ) ::
-          {:ok, %{job: Job.t(), wakeup_event: ActorEvent.t() | nil}}
+          {:ok, %{job: Job.t(), wakeup_event: Signal.t() | nil}}
           | {:error, term()}
   def commit_status_with_wakeup_in_tx(
         repo,
@@ -271,10 +265,10 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           String.t(),
           map(),
           DateTime.t(),
-          Ankole.Conversations.JobTurnRef.t() | nil,
+          Ankole.Sessions.JobTurnRef.t() | nil,
           map() | nil
         ) ::
-          {:ok, %{job: Job.t(), wakeup_event: ActorEvent.t() | nil}}
+          {:ok, %{job: Job.t(), wakeup_event: Signal.t() | nil}}
           | {:error, term()}
   def commit_status_after_runtime_prefix_in_tx(
         repo,
@@ -384,19 +378,19 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   defp complete_applied_in_tx(repo, job, %JobTurnRef{} = ref, opts, now)
        when job.status in ["waiting_on_user", "succeeded", "failed", "stopped"] do
-    ids = Enum.uniq([ref.actor_event_id | Keyword.get(opts, :applied_actor_event_ids, [])])
+    ids = Enum.uniq([ref.signal_id | Keyword.get(opts, :applied_signal_ids, [])])
 
     Enum.reduce_while(ids, :ok, fn id, :ok ->
-      case Ankole.SignalsGateway.Actors.lock_actor_event_in_tx(repo, id) do
-        %ActorEvent{agent_uid: uid, session_id: session} = event
+      case Ankole.Signals.lock_signal_in_tx(repo, id) do
+        %Signal{agent_uid: uid, session_id: session} = event
         when uid == ref.agent_uid and session == ref.session_id ->
-          case Ankole.SignalsGateway.Actors.mark_event_completed_in_tx(repo, event, now) do
+          case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now) do
             {:ok, _} -> {:cont, :ok}
             error -> {:halt, error}
           end
 
         _ ->
-          {:halt, {:error, :invalid_applied_actor_event_id}}
+          {:halt, {:error, :invalid_applied_signal_id}}
       end
     end)
   end
@@ -407,7 +401,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   defp complete_steer_events_in_tx(repo, steers, now) do
     Enum.reduce_while(steers, :ok, fn steer, :ok ->
-      case SignalsGateway.mark_actor_event_completed_in_tx(repo, steer, now) do
+      case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, steer, now) do
         {:ok, _event} -> {:cont, :ok}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -660,22 +654,25 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         source_event_id = wakeup_source_event_id(job)
         reply_route = job.reply_route || %{}
 
-        with binding_name when is_binary(binding_name) <- Attrs.text(reply_route, "binding_name") do
-          SignalsGateway.append_actor_event_in_tx(repo, %{
-            source_work: job,
-            agent_uid: job.agent_uid,
-            binding_name: binding_name,
-            session_id: job.owner_session_id,
-            source_event_id: source_event_id,
-            signal_channel_id: Map.get(reply_route, "signal_channel_id"),
-            provider_thread_id: Map.get(reply_route, "provider_thread_id"),
-            source_entry_id: Map.get(reply_route, "source_entry_id"),
+        payload = wakeup_payload(job, source_event_id, event_type, now, steer_outcome)
+
+        with true <-
+               (is_binary(reply_route["binding_name"]) or
+                  match?({:ok, _}, Ecto.UUID.cast(reply_route["conversation_id"]))) ||
+                 {:error, :background_agent_job_reply_route_binding_missing} do
+          Ankole.Signals.accept_in_tx(repo, %{
+            producer: :kernel,
+            source: payload["source"],
+            id: source_event_id,
             type: event_type,
-            available_at: now,
-            payload: wakeup_payload(job, source_event_id, event_type, now, steer_outcome)
+            subject: payload["subject"],
+            time: now,
+            data: payload["data"],
+            target: %{agent_uid: job.agent_uid, session_id: job.owner_session_id},
+            sender: nil,
+            authorization: Ankole.Principals.WorkAccess.fields(job),
+            reply_route: reply_route
           })
-        else
-          nil -> {:error, :background_agent_job_reply_route_binding_missing}
         end
     end
   end

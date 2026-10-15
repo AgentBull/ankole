@@ -21,7 +21,7 @@ to exactly one tenant. The same person in two tenants has two Principal rows.
 It does not store:
 
 - AuthZ groups, grants, or decisions
-- SignalsGateway messages, deliveries, or outbox rows
+- Conversation Messages, external references, Signals, or Delivery intents
 - conversations, model profiles, or schedules
 - AppConfigure values or Plugin settings
 - startup variables, setup sessions, or web sessions
@@ -120,7 +120,7 @@ It stores these fields:
   identity-provider `provider_id`; a chat binding writes the `provider_id` of
   the identity provider it references, or adopts the single configured
   provider of its adapter, so one person resolves to one Principal from both
-  paths (see `Ankole.SignalsGateway.SubjectNamespace`). A binding without a
+  paths (see `Ankole.Signals.SubjectNamespace`). A binding without a
   provider, or one that chose the standalone value, writes the adapter
   default, such as `lark-main`. The `email` namespace holds mailbox
   addresses: a row there says that the Principal owns that address, and the
@@ -143,7 +143,7 @@ Provider IDs, external subjects and contact matches are tenant-local. When no
 binding exists, Ankole matches attested contact data only within that tenant.
 A UID is opaque and is never evidence that two subjects are the same person.
 
-There is one identity shape. Login, directory sync, SignalsGateway admission,
+There is one identity shape. Login, directory sync, Signals identity admission,
 and manual console mappings all write this same row.
 
 ### `identity_mapping_requests`
@@ -204,7 +204,7 @@ stores the remaining identity data.
 binding for any provider-specific candidate ID wins. Otherwise, the optional
 email and mobile values match. An equal Principal UID never matches. The
 function returns the matched active human Principal or `{:error, :not_found}`.
-It never creates or re-points anything. SignalsGateway identity admission uses
+It never creates or re-points anything. Signals identity admission uses
 it to decide whether a sender is known before the binding's unmatched-sender
 policy applies.
 

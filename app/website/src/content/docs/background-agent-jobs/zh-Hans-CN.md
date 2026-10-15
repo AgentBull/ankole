@@ -1,19 +1,19 @@
 ---
 title: Background Agent Jobs
-description: 跨越 worker 故障的持久、可恢复工作——job 状态机、等待输入、唤醒 owner，以及与 Actor Runtime 的边界。
+description: 跨越 worker 故障的持久、可恢复工作——job 状态机、等待输入、唤醒 owner，以及与 Sessions 的边界。
 section: Developer guide
 order: 105
 ---
 
 一个后台 Agent 任务是一项注定要比单个 worker 活得更久的工作。agent 派出一个任务去做那些太长、步骤太多，或者隔离要求太高、没法在自己回合里就地跑的事——然后这个任务按自己的节奏运行、暂停等输入、失败或完成，而发起它的 agent 仍然有空跟它的 owner 说话。本页对照 `Ankole.BackgroundAgentJobs` 里的真实代码，画出这条生命周期。
 
-先说明最关键的一点：一个任务是持久工作，不是子进程。它的状态在 PostgreSQL 里，每一次状态迁移都有隔离栏和审计，当任务进入 owner 应当知晓的状态时，它会向 owner 的 session 追加一条唤醒事件——走的是和普通信号同一个 actor 事件队列。
+先说明最关键的一点：一个任务是持久工作，不是子进程。它的状态在 PostgreSQL 里，每一次状态迁移都有隔离栏和审计，当任务进入 owner 应当知晓的状态时，它会向 owner 的 session 追加一条唤醒事件——走的是和普通信号同一个 Signal队列。
 
-## 与 Actor Runtime 的边界
+## 与 Sessions 的边界
 
-一次 session 回合和一个后台任务，是两种不同形态的工作，运行时把它们分开。Actor Runtime 拥有的是实时的、带隔离栏的回合——唤醒 session、跑一个模型循环、提交。一个后台 Agent 任务拥有的，是被某个回合委派出去的持久、可恢复工作。交接是显式的：一个任务带着 `owner_session_id`、`source_actor_event_id` 和 `source_tool_call_id`，所以从发起回合到任务、再回来的链路，始终可以重建。
+一次 session 回合和一个后台任务，是两种不同形态的工作，运行时把它们分开。Sessions 拥有的是实时的、带隔离栏的回合——唤醒 session、跑一个模型循环、提交。一个后台 Agent 任务拥有的，是被某个回合委派出去的持久、可恢复工作。交接是显式的：一个任务带着 `owner_session_id`、`source_signal_id` 和 `source_tool_call_id`，所以从发起回合到任务、再回来的链路，始终可以重建。
 
-实际意味着什么：一个任务既不是第二个 session，也不是对 agent 的一个争夺式占用。它是 owner session 请求的工作，有自己的状态机、自己的重试预算、自己的回报方式。
+任务在同一 Agent 的独立 `job:<id>` Session 中执行，并向 `owner_session_id` 回报。它有自己的状态机、重试预算和回报规则。
 
 ## 任务状态机
 
@@ -40,7 +40,7 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 | `failed` | `background_agent_job.failed` |
 | `waiting_on_user` | `background_agent_job.waiting` |
 
-这条唤醒是一条普通的 actor 事件——同样的队列、同样的隔离栏、同样的 session 控制器，和任何别的信号一样——发往 `owner_session_id`，并按任务的 `reply_route`（它的绑定、channel、thread）路由。owner session 不做轮询；只有在真有事情要报告时，它才被唤醒。进入 `queued` 或 `running` 的迁移不产生唤醒，因为这两件事 owner 不必采取行动。
+这条唤醒是一条普通的 Signal——同样的队列、同样的隔离栏、同样的 session 控制器，和任何别的信号一样——发往 `owner_session_id`，并按任务的 `reply_route`（它的绑定、channel、thread）路由。owner session 不做轮询；只有在真有事情要报告时，它才被唤醒。进入 `queued` 或 `running` 的迁移不产生唤醒，因为这两件事 owner 不必采取行动。
 
 唤醒事件的 source id 编码了任务、状态和尝试序号，所以一个被恢复的任务后续的唤醒，不会和早先那一次混淆。
 
@@ -67,7 +67,7 @@ AIGateway 配额耗尽且池有已知的未来恢复时间时，生命周期会�
 
 ## 派发与 agent 的插件
 
-一个任务保留一个可选的工作空间模板。第一次实际 execution admission 会在同一事务中记录 Provider 和模型绑定，以及 Agent Plugin 和 Skill 选择。重试和续接使用这份固定选择，并与 Agent 当前的有效集合取交集：停用已选能力会把它移除，重新启用会恢复它，但 admission 时未选择的能力之后不能加入。凭据和可变 Skill 内容仍从当前 owner 读取。派发路径（`BackgroundAgentJobDispatch.process`）从 actor 事件解析出任务，交给回合运行时，并把 steer 事件单独处理，以免一次发往 session 的实时交付被误当成对任务的 steer。每个模型回合都通过 AIGateway，并使用已记录的绑定。若该 Provider 有多个凭据，选择、亲和、刷新和重试都由 AIGateway 管理；任务没有账号字段或账号并发槽。
+一个任务保留一个可选的工作空间模板。第一次实际 execution admission 会在同一事务中记录 Provider 和模型绑定，以及 Agent Plugin 和 Skill 选择。重试和续接使用这份固定选择，并与 Agent 当前的有效集合取交集：停用已选能力会把它移除，重新启用会恢复它，但 admission 时未选择的能力之后不能加入。凭据和可变 Skill 内容仍从当前 owner 读取。`Sessions.CodexJob` 从内核 Signal 准入任务尝试，并把 steer 事件单独处理，以免一次发往 session 的实时交付被误当成对任务的 steer。每个模型回合都通过 AIGateway，并使用已记录的绑定。若该 Provider 有多个凭据，选择、亲和、刷新和重试都由 AIGateway 管理；任务没有账号字段或账号并发槽。
 
 后台 Agent Job 与主 Agent 使用同一个 Ankole `skill_view` loader。普通的兼容 Skill 会进入 Job 的 Skill 目录；声明 `brain-recall-only: true` 的 Skill 不进入该目录，而是通过 Brain 发现，`get_page` 命中对应发现记录时会转交给 `skill_view`。每次读取 `SKILL.md` 或参考文件之前，loader 都会向控制面复核当前的 Agent Plugin 与 Skill 有效状态。因此，运行中的 Job 也不能在 Skill 被关闭后继续读取它。这条路径不依赖 Codex 原生 Skill 发现、`.agents/skills` 或 `skills/list`。
 
@@ -87,10 +87,10 @@ AIGateway 配额耗尽且池有已知的未来恢复时间时，生命周期会�
 
 ## Background Agent Jobs 不是什么
 
-一个任务不是一个自由形态的后台进程。它是一个带有固定迁移表、有界重试预算、以及单一回报 owner session 的状态机。它不是在权限边界之外跑工作的途径——任务作为它的 agent 运行，受同样的插件和技能约束。它也不是 Actor Runtime 的替代品；两者共享 actor 事件队列和隔离机制，但任务拥有可恢复工作，运行时拥有实时回合。这条边界是刻意的，越过它要走一次文档化的迁移，而不是直接触碰另一层的内部。
+一个任务不是一个自由形态的后台进程。它是一个带有固定迁移表、有界重试预算、以及单一回报 owner session 的状态机。它不是在权限边界之外跑工作的途径——任务作为它的 agent 运行，受同样的插件和技能约束。它也不是 Sessions 的替代品；两者共享 Signal队列和隔离机制，但任务拥有可恢复工作，运行时拥有实时回合。这条边界是刻意的，越过它要走一次文档化的迁移，而不是直接触碰另一层的内部。
 
 ## 下一步
 
-- 任务从中派生、并向其回报的实时回合，读 [Actor Runtime](../actor-runtime/)。
+- 任务从中派生、并向其回报的实时回合，读 [Sessions](../sessions/)。
 - 任务执行跑的模型回合，读 [AIGateway API](../ai-gateway/)。
-- 任务的唤醒如何作为一条普通信号到达 owner，读 [SignalsGateway](../signals-gateway/)。
+- 任务的唤醒如何作为一条普通信号到达 owner，读 [Signals](../signals/)。

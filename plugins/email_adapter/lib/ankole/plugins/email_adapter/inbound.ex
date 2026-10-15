@@ -4,9 +4,15 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
   import Ecto.Query, warn: false
 
   alias Ankole.{Logging, Repo}
-  alias Ankole.Plugins.EmailAdapter.{Address, Authentication, Config, Message, ReplyText}
+  alias Ankole.Plugins.EmailAdapter.Address
+  alias Ankole.Plugins.EmailAdapter.Authentication
+  alias Ankole.Plugins.EmailAdapter.Config
+  alias Ankole.Plugins.EmailAdapter.Message
+  alias Ankole.Plugins.EmailAdapter.ReplyText
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.{AdapterContext, Entry, Ingress}
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.{Conversation, ExternalMessageRef}
+  alias Ankole.Conversations.Observe
 
   @references_limit 40
 
@@ -28,8 +34,9 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
 
   The root ID is the message ID of the first message Ankole saw in the thread.
   """
-  @spec signal_channel_id(String.t(), String.t()) :: String.t()
-  def signal_channel_id(address, root_message_id), do: channel_prefix(address) <> root_message_id
+  @spec provider_conversation_id(String.t(), String.t()) :: String.t()
+  def provider_conversation_id(address, root_message_id),
+    do: channel_prefix(address) <> root_message_id
 
   @spec channel_prefix(String.t()) :: String.t()
   def channel_prefix(address), do: "email:#{address}:thread:"
@@ -46,21 +53,21 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
 
     with {:ok, message} <- decode(raw, headers_only?),
          :ok <- supported_sender(message, config) do
-      source_entry_id = message.message_id || "uid:#{uidvalidity}:#{uid}"
-      {channel_id, new_thread?} = resolve_channel(config.address, message, source_entry_id)
+      provider_message_id = message.message_id || "uid:#{uidvalidity}:#{uid}"
+      {channel_id, new_thread?} = resolve_channel(config.address, message, provider_message_id)
       participants = participants(message, config.address)
       explicit? = explicit?(message, config.address)
       {text, quoted_removed?} = visible_text(message, headers_only?, new_thread?, event["size"])
-      attachments = pending_attachments(message, source_entry_id)
+      attachments = pending_attachments(message, provider_message_id)
 
       if is_nil(text) and attachments == [] do
         {:ignore, :empty_message}
       else
         input = %{
-          source_event_id: source_entry_id,
-          signal_channel_id: channel_id,
-          source_entry_id: source_entry_id,
-          reply_to_source_entry_id: List.first(message.in_reply_to),
+          source_event_id: provider_message_id,
+          provider_conversation_id: channel_id,
+          provider_message_id: provider_message_id,
+          reply_to_provider_message_id: List.first(message.in_reply_to),
           provider_thread_id: channel_id,
           channel: %{
             kind: if(participants == [message.from.address], do: :im_dm, else: :im_group),
@@ -97,7 +104,7 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
           provider_time: message.date
         }
 
-        {:ok, input, attachment_bytes(message, source_entry_id)}
+        {:ok, input, attachment_bytes(message, provider_message_id)}
       end
     end
   end
@@ -129,11 +136,11 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
   end
 
   defp emit_with_materialization(input, bytes, consumer) do
-    Ingress.emit_entry_with_attachments(
+    Observe.emit_entry_with_attachments(
       consumer.context.agent_uid,
       consumer.context.binding_name,
       input,
-      &Ingress.materialize_attachments(&1, "email", fn attachment ->
+      &Observe.materialize_attachments(&1, "email", fn attachment ->
         download_attachment(attachment, bytes)
       end)
     )
@@ -176,11 +183,11 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
 
   # An existing thread wins over the message's own ID, so a reply to any
   # mirrored message, including one Ankole sent, joins that thread.
-  defp resolve_channel(address, message, source_entry_id) do
+  defp resolve_channel(address, message, provider_message_id) do
     references = Enum.uniq(message.in_reply_to ++ message.references)
 
     case existing_channel(address, references) do
-      nil -> {signal_channel_id(address, source_entry_id), true}
+      nil -> {provider_conversation_id(address, provider_message_id), true}
       channel_id -> {channel_id, false}
     end
   end
@@ -190,16 +197,17 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
   defp existing_channel(address, references) do
     prefix = channel_prefix(address)
 
-    Entry
-    |> where(
-      [entry],
-      entry.source_entry_id in ^references and
-        fragment("starts_with(?, ?)", entry.signal_channel_id, ^prefix)
+    Repo.one(
+      from ref in ExternalMessageRef,
+        join: conversation in Conversation,
+        on: conversation.id == ref.conversation_id,
+        where:
+          ref.provider_message_id in ^references and
+            fragment("starts_with(?, ?)", conversation.provider_conversation_id, ^prefix),
+        order_by: [asc: ref.first_seen_at],
+        limit: 1,
+        select: conversation.provider_conversation_id
     )
-    |> order_by([entry], asc: entry.first_seen_at)
-    |> limit(1)
-    |> select([entry], entry.signal_channel_id)
-    |> Repo.one()
   end
 
   defp participants(%Message{} = message, address) do
@@ -241,12 +249,12 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
     end
   end
 
-  defp pending_attachments(%Message{attachments: attachments}, source_entry_id) do
+  defp pending_attachments(%Message{attachments: attachments}, provider_message_id) do
     Enum.map(attachments, fn attachment ->
       %{
         "provider" => "email",
-        "provider_ref" => attachment_ref(source_entry_id, attachment.index),
-        "source_message_id" => source_entry_id,
+        "provider_ref" => attachment_ref(provider_message_id, attachment.index),
+        "source_message_id" => provider_message_id,
         "kind" => "file",
         "name" => attachment.name,
         "mimetype" => attachment.mime_type,
@@ -255,11 +263,12 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
     end)
   end
 
-  defp attachment_bytes(%Message{attachments: attachments}, source_entry_id) do
-    Map.new(attachments, &{attachment_ref(source_entry_id, &1.index), &1.body})
+  defp attachment_bytes(%Message{attachments: attachments}, provider_message_id) do
+    Map.new(attachments, &{attachment_ref(provider_message_id, &1.index), &1.body})
   end
 
-  defp attachment_ref(source_entry_id, index), do: "email:#{source_entry_id}:part:#{index}"
+  defp attachment_ref(provider_message_id, index),
+    do: "email:#{provider_message_id}:part:#{index}"
 
   defp download_attachment(%{"provider_ref" => ref}, bytes) do
     with body when is_binary(body) <- Map.get(bytes, ref, {:error, :attachment_bytes_missing}) do

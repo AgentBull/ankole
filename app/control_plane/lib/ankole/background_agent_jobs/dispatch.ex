@@ -7,14 +7,13 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.Workflow
 
   @supported_create_fields ~w(
@@ -24,7 +23,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     model_profile
     owner_session_id
     reply_route
-    source_actor_event_id
+    source_signal_id
     source_tool_call_id
     task
     title
@@ -37,12 +36,12 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     metadata
     owner_session_id
     reply_route
-    source_actor_event_id
+    source_signal_id
     source_tool_call_id
   )
 
   @spec create_with_dispatch(map()) ::
-          {:ok, %{job: Job.t(), dispatch_event: ActorEvent.t()}} | {:error, term()}
+          {:ok, %{job: Job.t(), dispatch_event: Signal.t()}} | {:error, term()}
   def create_with_dispatch(attrs) when is_map(attrs) do
     now = now()
 
@@ -59,7 +58,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   end
 
   @spec respawn_with_dispatch(pos_integer(), map()) ::
-          {:ok, %{job: Job.t(), dispatch_event: ActorEvent.t()}} | {:error, term()}
+          {:ok, %{job: Job.t(), dispatch_event: Signal.t()}} | {:error, term()}
   def respawn_with_dispatch(source_job_id, attrs)
       when is_integer(source_job_id) and source_job_id > 0 and is_map(attrs) do
     now = now()
@@ -274,7 +273,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   defp existing_job_result(repo, %Job{} = job) do
     case find_dispatch_event(repo, job) do
-      %ActorEvent{} = dispatch_event ->
+      %Signal{} = dispatch_event ->
         {:ok, %{job: job, dispatch_event: dispatch_event}}
 
       nil ->
@@ -282,38 +281,38 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
-  @spec defer_actor_event(ActorEvent.t(), DateTime.t()) ::
-          {:ok, ActorEvent.t()} | {:error, term()}
-  def defer_actor_event(%ActorEvent{} = actor_event, %DateTime{} = available_at) do
+  @spec defer_signal(Signal.t(), DateTime.t()) ::
+          {:ok, Signal.t()} | {:error, term()}
+  def defer_signal(%Signal{} = signal, %DateTime{} = available_at) do
     Repo.transact(fn repo ->
-      with %ActorEvent{} = actor_event <- lock_open_actor_event(repo, actor_event.id),
-           {:ok, actor_event} <-
-             actor_event
-             |> ActorEvent.changeset(%{available_at: available_at})
+      with %Signal{} = signal <- lock_open_signal(repo, signal.id),
+           {:ok, signal} <-
+             signal
+             |> Signal.changeset(%{available_at: available_at})
              |> repo.update(),
            :ok <-
-             Ankole.Conversations.Jobs.EnsureDriver.enqueue_in_tx(
+             Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
                repo,
-               %{agent_uid: actor_event.agent_uid, session_id: actor_event.session_id},
+               %{agent_uid: signal.agent_uid, session_id: signal.session_id},
                available_at
              ) do
-        {:ok, actor_event}
+        {:ok, signal}
       else
-        nil -> {:ok, actor_event}
+        nil -> {:ok, signal}
         {:error, _reason} = error -> error
       end
     end)
   end
 
-  @spec complete_actor_event(ActorEvent.t()) :: {:ok, ActorEvent.t()} | {:error, term()}
-  def complete_actor_event(%ActorEvent{} = actor_event) do
+  @spec complete_signal(Signal.t()) :: {:ok, Signal.t()} | {:error, term()}
+  def complete_signal(%Signal{} = signal) do
     Repo.transact(fn repo ->
-      case lock_open_actor_event(repo, actor_event.id) do
-        %ActorEvent{} = event ->
-          SignalsGateway.mark_actor_event_completed_in_tx(repo, event, now())
+      case lock_open_signal(repo, signal.id) do
+        %Signal{} = event ->
+          Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now())
 
         nil ->
-          {:ok, actor_event}
+          {:ok, signal}
       end
     end)
   end
@@ -330,9 +329,9 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   end
 
   @doc false
-  @spec open_steer_events_in_tx(module(), pos_integer(), String.t()) :: [ActorEvent.t()]
+  @spec open_steer_events_in_tx(module(), pos_integer(), String.t()) :: [Signal.t()]
   def open_steer_events_in_tx(repo, job_id, agent_uid) do
-    ActorEvent
+    Signal
     |> where([event], event.agent_uid == ^agent_uid)
     |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job_id))
     |> where([event], event.type == "command.steer")
@@ -348,8 +347,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   # the steer texts joined as its task, so the one-successor-per-source unique
   # index also makes commit replays idempotent.
   @doc false
-  @spec seed_steer_successor_in_tx(module(), Job.t(), [ActorEvent.t()], DateTime.t()) ::
-          {:ok, %{job: Job.t(), dispatch_event: ActorEvent.t()}} | {:error, term()}
+  @spec seed_steer_successor_in_tx(module(), Job.t(), [Signal.t()], DateTime.t()) ::
+          {:ok, %{job: Job.t(), dispatch_event: Signal.t()}} | {:error, term()}
   def seed_steer_successor_in_tx(repo, %Job{} = source_job, [first | _rest] = steers, now) do
     task = steers |> Enum.map(&steer_text/1) |> Enum.reject(&is_nil/1) |> Enum.join("\n\n")
 
@@ -365,7 +364,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
            %{
              "agent_uid" => source_job.agent_uid,
              "owner_session_id" => source_job.owner_session_id,
-             "source_actor_event_id" => first.id,
+             "source_signal_id" => first.id,
              "source_tool_call_id" => "steer-successor:#{first.id}",
              "reply_route" => source_job.reply_route || %{},
              "message" => task,
@@ -384,15 +383,15 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp ensure_seedable_task(""), do: {:error, :background_agent_job_steer_text_missing}
   defp ensure_seedable_task(task) when is_binary(task), do: :ok
 
-  defp steer_text(%ActorEvent{payload: payload}) do
-    case get_in(payload || %{}, ["data", "command", "argsText"]) do
+  defp steer_text(%Signal{data: data}) do
+    case get_in(data, ["command", "argsText"]) do
       text when is_binary(text) and text != "" -> text
       _missing -> nil
     end
   end
 
   defp complete_open_events_in_tx(repo, job_id, agent_uid, types, completed_at) do
-    ActorEvent
+    Signal
     |> where([event], event.agent_uid == ^agent_uid)
     |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job_id))
     |> where([event], event.type in ^types)
@@ -400,16 +399,16 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     |> lock("FOR UPDATE")
     |> repo.all()
     |> Enum.reduce_while({:ok, :ok}, fn event, {:ok, :ok} ->
-      case SignalsGateway.mark_actor_event_completed_in_tx(repo, event, completed_at) do
-        {:ok, %ActorEvent{}} -> {:cont, {:ok, :ok}}
+      case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, completed_at) do
+        {:ok, %Signal{}} -> {:cont, {:ok, :ok}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp lock_open_actor_event(repo, actor_event_id) do
-    ActorEvent
-    |> where([event], event.id == ^actor_event_id)
+  defp lock_open_signal(repo, signal_id) do
+    Signal
+    |> where([event], event.id == ^signal_id)
     |> where([event], is_nil(event.completed_at))
     |> lock("FOR UPDATE")
     |> repo.one()
@@ -458,43 +457,40 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     source_event_id = dispatch_source_event_id(job)
     reply_route = job.reply_route || %{}
 
-    SignalsGateway.append_actor_event_in_tx(repo, %{
-      source_work: job,
-      agent_uid: job.agent_uid,
-      binding_name: Map.fetch!(reply_route, "binding_name"),
-      session_id: BackgroundAgentJobs.job_session_id(job.id),
-      source_event_id: source_event_id,
-      signal_channel_id: Map.get(reply_route, "signal_channel_id"),
-      provider_thread_id: Map.get(reply_route, "provider_thread_id"),
+    Ankole.Signals.accept_in_tx(repo, %{
+      producer: :kernel,
+      source: "control-plane://background-agent-job",
+      id: source_event_id,
       type: "background_agent_job.dispatch",
+      subject: "background-agent-job:#{job.id}",
+      time: DateTime.to_iso8601(now),
       available_at: now,
-      payload: %{
-        "specversion" => "1.0",
-        "id" => source_event_id,
-        "source" => "control-plane://background-agent-job",
-        "subject" => "background-agent-job:#{job.id}",
-        "time" => DateTime.to_iso8601(now),
-        "type" => "background_agent_job.dispatch",
-        "data" =>
-          Attrs.reject_nil_values(%{
-            "job_id" => job.id,
-            "continued_from_job_id" => job.continued_from_job_id,
-            "owner_session_id" => job.owner_session_id,
-            "workspace_owner_job_id" => job.workspace_owner_job_id,
-            "workspace_template_id" => job.workspace_template_id,
-            "model_profile" => job.model_profile,
-            "attempts" => job.attempts
-          })
-      }
+      target: %{agent_uid: job.agent_uid, session_id: BackgroundAgentJobs.job_session_id(job.id)},
+      sender: nil,
+      authorization: Ankole.Principals.WorkAccess.fields(job),
+      reply_route: %{
+        binding_name: Map.get(reply_route, "binding_name"),
+        conversation_id: Map.get(reply_route, "conversation_id"),
+        provider_thread_id: Map.get(reply_route, "provider_thread_id"),
+        provider_message_id: nil
+      },
+      data:
+        Attrs.reject_nil_values(%{
+          "job_id" => job.id,
+          "continued_from_job_id" => job.continued_from_job_id,
+          "owner_session_id" => job.owner_session_id,
+          "workspace_owner_job_id" => job.workspace_owner_job_id,
+          "workspace_template_id" => job.workspace_template_id,
+          "model_profile" => job.model_profile,
+          "attempts" => job.attempts
+        })
     })
   end
 
   defp find_dispatch_event(repo, %Job{} = job) do
-    reply_route = job.reply_route || %{}
-
-    ActorEvent
+    Signal
     |> where([event], event.agent_uid == ^job.agent_uid)
-    |> where([event], event.binding_name == ^Map.fetch!(reply_route, "binding_name"))
+    |> where([event], event.source == "control-plane://background-agent-job")
     |> where([event], event.source_event_id == ^dispatch_source_event_id(job))
     |> repo.one()
   end
@@ -512,7 +508,10 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
             {:ok, Map.put(route, "binding_name", binding_name)}
 
           nil ->
-            {:error, :background_agent_job_reply_route_binding_missing}
+            case Ecto.UUID.cast(Map.get(route, "conversation_id")) do
+              {:ok, id} -> {:ok, Map.put(route, "conversation_id", id)}
+              :error -> {:error, :background_agent_job_reply_route_binding_missing}
+            end
         end
 
       _value ->
@@ -576,8 +575,10 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     case Attrs.text(attrs, "owner_session_id") do
       session_id when is_binary(session_id) ->
         with {:ok, conversation} <-
-               Conversations.ensure_conversation(Attrs.text(attrs, "agent_uid"), session_id,
-                 repo: repo
+               AIGateway.ensure_conversation_in_tx(
+                 repo,
+                 Attrs.text(attrs, "agent_uid"),
+                 session_id
                ) do
           metadata = Map.get(attrs, "metadata", %{})
 

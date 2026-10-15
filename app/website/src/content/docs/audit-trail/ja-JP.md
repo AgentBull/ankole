@@ -28,9 +28,9 @@ control plane は安定した形状の構造化ログを出力します。イベ
 
 ログ設定は [Environment variables](../environment-variables/)、診断方法は [Ankole のログを読む](../log-reading/) を参照してください。
 
-## actor-event と delivery の行
+## Signal と delivery の行
 
-すべての actor event（セッションを駆動する永続的な inbox）と、すべての delivery 試行は PostgreSQL の行です。これらは通常、監査のために読まれるものではありません——運用状態です——しかし、システムが何をするよう求められたか、配信されたかどうかの記録を形成します。Console の `/background-agent-jobs/:id` ルートは job の `attempts` と `error` を表示し、`/ai-gateway/conversations` ルートは Turn が行った model 呼び出しを表示します。
+すべての Signal（セッションを駆動する永続的な inbox）と、すべての delivery 試行は PostgreSQL の行です。これらは通常、監査のために読まれるものではありません——運用状態です——しかし、システムが何をするよう求められたか、配信されたかどうかの記録を形成します。Console の `/background-agent-jobs/:id` ルートは job の `attempts` と `error` を表示し、`/ai-gateway/conversations` ルートは Turn が行った model 呼び出しを表示します。
 
 ## 組み合わせて使う
 

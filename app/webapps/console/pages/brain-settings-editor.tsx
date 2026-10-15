@@ -42,7 +42,7 @@ import {
   brainStringDraft,
   type BrainModelDraft
 } from '../state/brain-setting-editor'
-import { settingDescription } from '../state/setting-description'
+import { settingDescription } from '../state/setting-groups'
 import { SettingGroupField } from './setting-group-field'
 
 function cronEditorLabels(t: TFunction): CronEditorLabels {

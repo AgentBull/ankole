@@ -77,8 +77,8 @@ defmodule Ankole.Plugins.Registry do
   @doc """
   Returns adapter declarations from active plugins for one contract id.
 
-  Subsystems (SignalsGateway, Principals identity, ...) call this with their own
-  contract id to find which plugins plug into them, e.g. "signals_gateway.adapter".
+  Subsystems (Signals, Principals identity, ...) call this with their own
+  contract id to find which plugins plug into them, e.g. "signals.adapter".
   """
   @spec adapter_declarations(String.t(), GenServer.server()) :: [map()]
   def adapter_declarations(contract_id, server \\ __MODULE__) when is_binary(contract_id) do
@@ -272,11 +272,11 @@ defmodule Ankole.Plugins.Registry do
 
     result =
       case contract_id do
-        "signals_gateway.adapter" ->
-          Ankole.SignalsGateway.Adapters.validate_declaration(declaration)
+        "signals.adapter" ->
+          Ankole.Signals.Adapters.validate_declaration(declaration)
 
-        "signals_gateway.webhook_handler" ->
-          Ankole.SignalsGateway.WebhookHandlers.validate_declaration(declaration)
+        "signals.webhook_handler" ->
+          Ankole.Signals.WebhookHandlers.validate_declaration(declaration)
 
         "principals.identity_provider" ->
           Ankole.IdentityProviders.validate_adapter_declaration(declaration)

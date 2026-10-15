@@ -3,18 +3,12 @@ use hashcrew::xxhash::xxh3_128;
 use crate::common::KernelResult;
 use crate::common::crypto::parse_hex_32;
 
-/// Computes the non-cryptographic XXH3 128-bit observation fingerprint.
-///
-/// This is for change detection and file observations. It is intentionally not
-/// a security digest or provenance checksum.
+/// Change detection only. This is not a security digest or provenance checksum.
 pub fn xxh3_128_hex(input: &[u8]) -> String {
     format!("{:032x}", xxh3_128(input))
 }
 
-/// Hashes data with BLAKE3 and returns the digest as lowercase hexadecimal text.
-///
-/// A supplied salt is a keyed-hash key and must be a 64-character hex string.
-/// That keeps the JS and Elixir APIs aligned on one exact key representation.
+/// A salt is a 64-character hex keyed-hash key, so the JS and Elixir APIs share one key form.
 pub fn generic_hash(data: &[u8], salt: Option<&str>) -> KernelResult<String> {
     match salt {
         Some(salt) => {

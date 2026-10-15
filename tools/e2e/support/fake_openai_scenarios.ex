@@ -269,7 +269,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
           | :slow_stop_stream
           | {:delayed_completion, String.t(), pos_integer()}
           | {:tool_call, map()}
-          | {:delayed_tool_call, map(), pos_integer()}
+          | {:waiting_tool_call, map()}
           | {:completion, String.t(), keyword()}
   def action_for(kind, count, request \\ %{}) do
     cond do
@@ -295,8 +295,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
          }}
 
       kind == :compose_upgrade_read ->
-        {:completion,
-         Ankole.JSON.encode!(%{"outcome" => "reply", "reply" => "COMPOSE_UPGRADE_OK"}), []}
+        {:tool_call, scheduled_finish_call(kind, count, "reply", "COMPOSE_UPGRADE_OK")}
 
       kind in [:job_create, :job_reply, :job_work, :job_finish, :job_notice, :job_reconnect] ->
         FakeOpenAIJobScenarios.action_for(kind, count, request)
@@ -326,7 +325,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
 
       # Keep the control-plane task request live when the test kills its Worker.
       kind == :workflow_kill_task ->
-        {:delayed_tool_call, tool_call_for(:workflow_kill_task_submit), 1_500}
+        {:waiting_tool_call, tool_call_for(:workflow_kill_task_submit)}
 
       tool_call = tool_call_for(kind, count, request) ->
         {:tool_call, tool_call}
@@ -334,22 +333,36 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       kind == :ambient_noop_decision ->
         {:completion, reply_for(kind), [split_text?: false]}
 
+      kind == :cron_invalid_result and count == 2 ->
+        {:tool_call, scheduled_finish_call(kind, count, "reply", "")}
+
       kind == :cron_invalid_result ->
-        {:completion, "<sাইলent_success/>", []}
+        {:completion, "", []}
 
       kind == :cron_wakeup and
           String.contains?(
             inspect(request, limit: :infinity),
             "schedule_silent_success_allowed: true"
           ) ->
-        {:completion, ~s({"outcome":"silent_success","reply":null}), []}
+        {:tool_call, scheduled_finish_call(kind, count, "silent_success", nil)}
 
       kind == :cron_wakeup and count == 1 ->
-        {:completion, "<sাইলent_success/>", []}
+        {:tool_call, scheduled_finish_call(kind, count, "silent_success", nil)}
+
+      kind in [:cron_wakeup, :checkback_wakeup] ->
+        {:tool_call, scheduled_finish_call(kind, count, "reply", reply_for(kind))}
 
       true ->
         {:completion, reply_for(kind), []}
     end
+  end
+
+  defp scheduled_finish_call(kind, count, outcome, reply) do
+    %{
+      id: "call_#{kind}_finish_#{count}",
+      name: "finish_scheduled",
+      arguments: %{"outcome" => outcome, "reply" => reply}
+    }
   end
 
   defp latest_chaos_marker_text(%{"messages" => messages}) when is_list(messages) do
@@ -467,14 +480,12 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
   defp reply_for(:ambient_reply), do: "CHAOS_AMBIENT_OK"
   defp reply_for(:checkback_tool), do: "CHAOS_CHECKBACK_OK"
 
-  defp reply_for(:checkback_wakeup),
-    do: ~s({"outcome":"reply","reply":"CHAOS_CHECKBACK_WAKE_OK"})
+  defp reply_for(:checkback_wakeup), do: "CHAOS_CHECKBACK_WAKE_OK"
 
   defp reply_for(:compaction_summary), do: "## Active Task\n(none)"
   defp reply_for(:cron_tool), do: "CHAOS_CRON_OK"
 
-  defp reply_for(:cron_wakeup),
-    do: ~s({"outcome":"reply","reply":"CHAOS_CRON_WAKE_OK"})
+  defp reply_for(:cron_wakeup), do: "CHAOS_CRON_WAKE_OK"
 
   defp reply_for(:direct), do: "CHAOS_DIRECT_OK"
   defp reply_for(:dm_isolation_seed), do: "CHAOS_DM_ISOLATION_SEED_OK"
@@ -631,7 +642,8 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       name: "command",
       arguments: %{
         "command" =>
-          "mkdir -p reports && printf 'CHAOS_REPLY_ATTACHMENT_FILE' > reports/chaos-report.txt",
+          "mkdir -p reports && printf 'CHAOS_REPLY_ATTACHMENT_FILE' > reports/chaos-report.txt && " <>
+            "ankole-files put reports/chaos-report.txt reports/chaos-report.txt",
         "timeout" => 5
       }
     }
@@ -642,7 +654,7 @@ defmodule Ankole.E2E.FakeOpenAIScenarios do
       id: "call_lark_chaos_reply_attachment",
       name: "reply_attachment",
       arguments: %{
-        "path" => "reports/chaos-report.txt",
+        "drive_path" => "reports/chaos-report.txt",
         "name" => "chaos-report.txt",
         "mimeType" => "text/plain"
       }

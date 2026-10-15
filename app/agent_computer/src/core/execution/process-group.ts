@@ -1,11 +1,6 @@
 import { AGENT_GID, AGENT_UID, isRootWorker } from '../../common/agent-user'
 
-/**
- * Ends a process that was started with `detached: true`, together with every
- * process that it started. Such a process leads its own process group, so the
- * negative PID reaches the whole group. A group that has already exited is not
- * an error.
- */
+/** Callers start the process with `detached: true`, so this PID leads the group. */
 export function killProcessGroup(pid: number | undefined, signal: NodeJS.Signals = 'SIGKILL'): void {
   if (!pid) return
 

@@ -1,5 +1,5 @@
 import { HostedTool } from '../../../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
-import type { TurnStart } from '../../../lanes/actor_lane'
+import type { TurnStart } from '../../../lanes/session_lane'
 import { type BackgroundAgentJobResponse, type RuntimeSkillSummary } from '../../../lanes/rpc_lane'
 import { materializeCodexConfig } from '../runtime/agent-home-config'
 import { resolveCodexRuntimeConfig } from '../runtime-config'
@@ -7,7 +7,8 @@ import { codexAppServerSpec, codexJobThreadEnv } from '../runtime/app-server-spe
 import {} from '../../ai_gateway_transport'
 import { materializeAgentLibraryDocuments } from './agent-library-documents'
 import { agentHomePaths } from '../../agent-home-paths'
-import { createTurnWebTools } from '../../web-tools'
+import { createWebTools } from '../../../tools/web/web-tools'
+import { webSearchIsProviderHosted } from '../../runtime-policy'
 import { createSkillTools } from '../../../tools/library/skill-tools'
 import { prepareExecutionMaterials } from '../../execution/execution-materials'
 import type { CodexJobOptions } from '../options'
@@ -144,7 +145,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   })
   opts.abortSignal?.throwIfAborted()
   // The hosted tool declaration decides whether Codex asks the Provider to run
-  // web search; createTurnWebTools decides whether the Worker exposes the local tool.
+  // web search. The Agent policy decides whether the Worker exposes the local tool.
   const hostedWebSearch = (turnStart.hosted_tools ?? []).includes(HostedTool.WEB_SEARCH)
   materializeCodexJobProjectConfig({
     projectRoot: jobProject.root,
@@ -154,8 +155,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   opts.abortSignal?.throwIfAborted()
   const renderedFetchRuntimeConfig = turnStart.fetch_runtime_config
   opts.abortSignal?.throwIfAborted()
-  const bindingName = turnStart.actor_event.binding_name
-  let webTools: Awaited<ReturnType<typeof createTurnWebTools>> | undefined
+  const bindingName = turnStart.signal.binding_name
   const materials = await prepareExecutionMaterials({
     agentHome: opts.agentHome,
     rpc: opts.rpc,
@@ -164,17 +164,9 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     mcpServers: skillMCPServers,
     mcporterDirectory: join(jobProject.root, 'temp'),
     projectEnv: workerEnv => projectWorkerEnv(runtimeProjection, workerEnv),
-    consumeMaterialSourceEnv: async workerEnv => {
-      webTools = await createTurnWebTools({
-        turnStart,
-        rpc: opts.rpc,
-        renderedFetchRuntimeConfig,
-        workerEnv,
-        browserRuntime: opts.browserRuntime
-      })
-    },
     ...(opts.browserRuntime
       ? {
+          renderedFetch: { config: renderedFetchRuntimeConfig, browserRuntime: opts.browserRuntime },
           browser: {
             runtime: opts.browserRuntime,
             scopeRoot: jobProject.root,
@@ -187,8 +179,14 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
   })
 
   try {
-    if (!webTools) throw new Error('Codex Job execution materials did not prepare web tools')
     opts.abortSignal?.throwIfAborted()
+    const webTools = (
+      await createWebTools({
+        rpc: opts.rpc,
+        turn: turnStart.turn,
+        renderedFallback: materials.renderedFetch
+      })
+    ).filter(tool => tool.name !== 'web_search' || !webSearchIsProviderHosted(turnStart))
     const skillTools = createSkillTools({
       turn: turnStart.turn,
       enabledSkills: loadableSkills,

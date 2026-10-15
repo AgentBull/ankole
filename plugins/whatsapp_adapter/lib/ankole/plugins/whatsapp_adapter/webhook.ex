@@ -16,11 +16,13 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
   message id is the source event id.
   """
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.{Logging, SignalsGateway}
+  alias Ankole.Signals.Bindings
+  alias Ankole.{Logging}
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.WhatsAppAdapter.{Config, Inbound, Signature}
-  alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.Plugins.WhatsAppAdapter.Config
+  alias Ankole.Plugins.WhatsAppAdapter.Inbound
+  alias Ankole.Plugins.WhatsAppAdapter.Signature
+  alias Ankole.Conversations.AdapterContext
 
   @spec handle_webhook(map()) :: {:ok, map()} | {:error, term()}
   def handle_webhook(%{kind: "events", method: "GET", instance_id: app_id} = request) do
@@ -157,7 +159,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Webhook do
   defp consumers_for_app(app_id) do
     Ankole.Repo.across_tenants(fn ->
       "whatsapp"
-      |> SignalsGateway.list_enabled_bindings()
+      |> Ankole.Signals.Bindings.list_enabled_bindings()
       |> Enum.flat_map(&binding_consumer(&1, app_id))
     end)
   end

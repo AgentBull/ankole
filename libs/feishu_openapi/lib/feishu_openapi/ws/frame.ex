@@ -44,13 +44,11 @@ defmodule FeishuOpenAPI.WS.Frame do
             payload: "",
             log_id_new: ""
 
-  # Wire types
   @varint 0
   @fixed64 1
   @bytes 2
   @fixed32 5
 
-  @doc "Encode a `%Frame{}` into its wire binary form."
   @spec encode(t()) :: binary()
   def encode(%__MODULE__{} = f) do
     # Feishu's pbbp2 schema is proto2: SeqID, LogID, service, and method are all
@@ -71,13 +69,8 @@ defmodule FeishuOpenAPI.WS.Frame do
     |> IO.iodata_to_binary()
   end
 
-  @doc "Decode a binary frame. Returns `{:ok, %Frame{}}` or `{:error, reason}`."
   @spec decode(binary()) :: {:ok, t()} | {:error, term()}
   def decode(bin) when is_binary(bin) do
-    # Frames arrive off an untrusted socket, so malformed wire data is expected,
-    # not a bug. `rescue`/`catch` turn binary-match failures and the explicit
-    # `{:decode_error, _}` throws (truncated varints/bytes, unknown wire types)
-    # into a tagged error tuple instead of crashing the WS GenServer.
     try do
       frame = decode_fields(bin, %__MODULE__{})
       # Headers were prepended during the single forward pass, so restore
@@ -90,9 +83,6 @@ defmodule FeishuOpenAPI.WS.Frame do
     end
   end
 
-  @doc """
-  Look up a header value by key. Matches the first occurrence.
-  """
   @spec get_header(t(), String.t()) :: String.t() | nil
   def get_header(%__MODULE__{headers: hs}, key) when is_binary(key) do
     Enum.find_value(hs, fn {k, v} -> if k == key, do: v end)
@@ -102,17 +92,12 @@ defmodule FeishuOpenAPI.WS.Frame do
   @spec type(t()) :: String.t() | nil
   def type(frame), do: get_header(frame, "type")
 
-  @doc "Convenience: the `message_id` header for fragmentation support."
   @spec message_id(t()) :: String.t() | nil
   def message_id(frame), do: get_header(frame, "message_id")
 
   @doc """
-  Convenience: fragmentation count (headers `sum` and `seq`).
-
-  Large payloads are split by the provider into `sum` frames sharing one
-  `message_id`, each tagged with its 0-based `seq`. Returns `nil` when the
-  headers are missing or non-numeric, which the client treats as "not
-  fragmented" (a single self-contained frame).
+  Large payloads are `sum` frames that share one `message_id`, each with a
+  0-based `seq`. The client treats a missing count as one frame.
   """
   @spec fragmentation(t()) :: {integer(), integer()} | nil
   def fragmentation(frame) do
@@ -125,8 +110,6 @@ defmodule FeishuOpenAPI.WS.Frame do
       _ -> nil
     end
   end
-
-  # --- decode internals ---------------------------------------------------
 
   defp decode_fields(<<>>, frame), do: frame
 
@@ -155,8 +138,6 @@ defmodule FeishuOpenAPI.WS.Frame do
   defp apply_field(f, 7, {:bytes, data}), do: %{f | payload_type: data}
   defp apply_field(f, 8, {:bytes, data}), do: %{f | payload: data}
   defp apply_field(f, 9, {:bytes, data}), do: %{f | log_id_new: data}
-  # Forward-compat: silently drop fields this client doesn't model so a newer
-  # provider schema can't break decoding.
   defp apply_field(f, _num, _value), do: f
 
   defp decode_header_message(bin), do: decode_header_fields(bin, "", "")
@@ -179,8 +160,6 @@ defmodule FeishuOpenAPI.WS.Frame do
   defp read_value(@varint, bin), do: {varint_tagged(bin), elem(read_varint(bin), 1)}
 
   defp read_value(@bytes, bin) do
-    # Length-delimited field: a varint length prefix followed by exactly that
-    # many bytes. A short buffer means the frame was cut off mid-field.
     {len, rest} = read_varint(bin)
 
     case rest do
@@ -191,8 +170,6 @@ defmodule FeishuOpenAPI.WS.Frame do
 
   defp read_value(@fixed64, <<v::little-64, rest::binary>>), do: {{:fixed64, v}, rest}
   defp read_value(@fixed32, <<v::little-32, rest::binary>>), do: {{:fixed32, v}, rest}
-  # Wire type we don't recognize: we can't know the field length, so we can't
-  # safely skip it — abort the whole decode rather than misalign the byte stream.
   defp read_value(wt, _), do: throw({:decode_error, {:unknown_wire_type, wt}})
 
   defp varint_tagged(bin) do
@@ -202,8 +179,6 @@ defmodule FeishuOpenAPI.WS.Frame do
 
   defp read_varint(bin), do: read_varint(bin, 0, 0)
 
-  # Protobuf varints store 7 bits per byte, little-endian. The high (continuation)
-  # bit means "more bytes follow"; clear means this is the last byte.
   defp read_varint(<<1::1, chunk::7, rest::binary>>, shift, acc) do
     read_varint(rest, shift + 7, acc ||| chunk <<< shift)
   end
@@ -212,10 +187,7 @@ defmodule FeishuOpenAPI.WS.Frame do
     {acc ||| chunk <<< shift, rest}
   end
 
-  # Ran out of bytes mid-varint — the frame was truncated on the wire.
   defp read_varint(<<>>, _shift, _acc), do: throw({:decode_error, :truncated_varint})
-
-  # --- encode internals ---------------------------------------------------
 
   defp varint_field(field_num, value) do
     [encode_varint(field_num <<< 3 ||| @varint), encode_varint(value)]
@@ -248,8 +220,6 @@ defmodule FeishuOpenAPI.WS.Frame do
     <<1::1, v &&& 0x7F::7>> <> encode_varint(v >>> 7)
   end
 
-  # Wire varints are unsigned; reinterpret values with the top 32-bit set as a
-  # negative two's-complement int32 (matches protobuf int32 semantics).
   defp to_int32(v) when v >= 0x80000000, do: v - 0x100000000
   defp to_int32(v), do: v
 end

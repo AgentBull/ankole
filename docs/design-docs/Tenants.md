@@ -71,6 +71,8 @@ The Console defaults to `/site-admin-console`. The startup setting
 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` can change it; invalid or occupied paths fail
 startup. `/console` returns 404. The configured path is sent only with an
 authenticated administrator response, rather than bundled into public assets.
+Sign-in without a return path opens the Workplace at `/workplace`. The Workplace
+has no Console link and does not receive the Console path.
 
 Console data APIs accept `x-ankole-tenant`; without it they use the operator's
 tenant. `/api/v1/site` APIs manage site resources and ignore that header. An
@@ -78,7 +80,10 @@ unknown or deleting selected tenant returns `data_tenant_unavailable`. The
 Console clears an obsolete selection and reloads. Switching tenants reloads the
 Console so drafts and cached results cannot move to another tenant. The URL
 hands the selection to the new document, which commits it to sessionStorage.
-A cancelled beforeunload leaves the old document and its selection unchanged.
+A cancelled tenant-switch navigation leaves the old document and its selection
+unchanged.
+The Console and Workplace clear this selection when they request sign-out.
+Confirming OIDC sign-out also clears it; cancelling OIDC sign-out keeps it.
 
 Creation installs the existing tenant scaffold and chosen Brain schema packs in
 one transaction. Privilege transfer requires an active target Human, moves the
@@ -106,7 +111,8 @@ IDs, without decrypting other tenants' credentials or contacting their platforms
 Mix and Release also resolve legacy configurations before startup. A failure
 includes the tenant and configuration key and aborts the upgrade; repair and
 rerun the same migration. Completed rows remain idempotent.
-See [SignalsGateway](SignalsGateway.md).
+See [Signals](Signals.md) for event routing and [Conversations](Conversations.md)
+for shared history and provider Delivery.
 
 ## Suspension, deletion and recovery
 

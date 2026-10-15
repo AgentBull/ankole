@@ -156,7 +156,7 @@ config :ankole, AnkoleWeb.Endpoint,
 
 case Ankole.Config.Bootstrap.env_string("ANKOLE_AI_GATEWAY_BASE_URL") do
   base_url when is_binary(base_url) ->
-    config :ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker, base_url: base_url
+    config :ankole, Ankole.Sessions.AIGatewayAPIKeyBroker, base_url: base_url
 
   nil ->
     :ok
@@ -200,7 +200,7 @@ if config_env() != :test do
          Ankole.Config.Bootstrap.env_string("ANKOLE_WORKER_PROVIDERS_FILE")
 
   if config_env() == :prod or Ankole.Config.Bootstrap.env_string("ANKOLE_AGENT_COMPUTER_IMAGE") do
-    config :ankole, Ankole.SignalsGateway.ActorRuntime.AgentWorkers,
+    config :ankole, Ankole.AgentWorkers,
       image: Ankole.Config.Bootstrap.env!("ANKOLE_AGENT_COMPUTER_IMAGE"),
       runtime_fabric_endpoint:
         Ankole.Config.Bootstrap.env!("ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT"),

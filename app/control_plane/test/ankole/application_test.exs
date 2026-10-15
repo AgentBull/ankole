@@ -7,51 +7,53 @@ defmodule Ankole.ApplicationTest do
   alias Ankole.I18n
   alias Ankole.Plugins.Registry, as: PluginRegistry
 
-  test "loads CardKit translations before SignalsGateway can recover durable replies" do
+  test "loads CardKit translations before Delivery and Sessions can recover durable replies" do
     reverse_start_order =
       Ankole.Supervisor
       |> Supervisor.which_children()
       |> Enum.map(&elem(&1, 0))
 
-    signals_gateway_index =
-      Enum.find_index(reverse_start_order, &(&1 == Ankole.SignalsGateway.Supervisor))
+    delivery_index =
+      Enum.find_index(reverse_start_order, &(&1 == Ankole.Conversations.Delivery.Supervisor))
 
     i18n_catalog_index =
       Enum.find_index(reverse_start_order, &(&1 == Ankole.I18n.Catalog))
 
-    assert signals_gateway_index < i18n_catalog_index
+    assert delivery_index < i18n_catalog_index
 
     assert {:ok, "Refining the answer…"} =
-             I18n.translate("signals_gateway.cardkit.refining", %{}, locale: "en-US")
+             I18n.translate("conversations.delivery.cardkit.refining", %{}, locale: "en-US")
 
     assert {:ok, "正在深思熟虑…"} =
-             I18n.translate("signals_gateway.cardkit.refining", %{}, locale: "zh-Hans-CN")
+             I18n.translate("conversations.delivery.cardkit.refining", %{}, locale: "zh-Hans-CN")
   end
 
-  test "starts SignalsGateway before Workflow and Oban before plugin enqueue" do
+  test "starts Delivery and Sessions before Workflow and Oban before plugin enqueue" do
     reverse_start_order =
       Ankole.Supervisor
       |> Supervisor.which_children()
       |> Enum.map(&elem(&1, 0))
 
-    signals_gateway_index =
-      Enum.find_index(reverse_start_order, &(&1 == Ankole.SignalsGateway.Supervisor))
+    delivery_index =
+      Enum.find_index(reverse_start_order, &(&1 == Ankole.Conversations.Delivery.Supervisor))
 
     workflow_index =
       Enum.find_index(reverse_start_order, &(&1 == Ankole.Workflow.Supervisor))
 
-    assert workflow_index < signals_gateway_index
+    assert workflow_index < delivery_index
 
     oban_index = Enum.find_index(reverse_start_order, &(&1 == Oban))
     plugins_index = Enum.find_index(reverse_start_order, &(&1 == Ankole.Plugins.Cohort))
     assert plugins_index < oban_index
 
     runtime_children =
-      Ankole.SignalsGateway.ActorRuntime.Supervisor
+      Ankole.AgentWorkers.Supervisor
       |> Supervisor.which_children()
       |> Enum.map(&elem(&1, 0))
 
-    assert Ankole.Conversations.Supervisor in runtime_children
+    assert Ankole.Sessions.Supervisor in reverse_start_order
+    assert Ankole.AgentWorkers.Supervisor in reverse_start_order
+    refute Ankole.Sessions.Supervisor in runtime_children
   end
 
   test "AppConfigure registry rebuilds core and active Plugin declarations without restarting consumers" do

@@ -5,13 +5,13 @@ section: Developer guide
 order: 120
 ---
 
-控制面拥有主 Agent 的模型循环与工具分发。`Ankole.Conversations.Driver` 调用 AIGateway，执行模型请求的工具，记录结果，然后继续回合。Agent Computer 执行环境操作与 Codex Job。参见 [Agent 循环](../agent-loop/) 和 [Agent Computer Worker](../agent-computer-worker/)。
+控制面拥有主 Agent 的模型循环与工具分发。`Ankole.Sessions.Driver` 调用 AIGateway，执行模型请求的工具，记录结果，然后继续回合。Agent Computer 执行环境操作与 Codex Job。参见 [Agent 循环](../agent-loop/) 和 [Agent Computer Worker](../agent-computer-worker/)。
 
 ## 构建当前工具集
 
-`Ankole.Conversations.ToolCatalog.for_run/1` 把当前领域声明与 `worker_tools.json` 导出的 Worker 声明合并。结果取决于回合类型、模型能力、选定的 Skill 和插件，以及主动介入权限。工具集按本次运行构建，不作为 Agent 的全局工具集保存。
+`Ankole.Sessions.ToolCatalog.for_run/1` 把当前领域声明与 `worker_tools.json` 导出的 Worker 声明合并。结果取决于回合类型、模型能力、选定的 Skill 和插件，以及主动介入权限。工具集按本次运行构建，不作为 Agent 的全局工具集保存。
 
-`Ankole.Conversations.Tool` 保存模型可见 schema、执行方、执行顺序、允许的调用方，以及只读、破坏性和重试元数据。`Ankole.Conversations.Tools.prepare/2` 先检查调用方、解析参数，再由工具 owner 规范化参数并校验 JSON Schema。
+`Ankole.Sessions.Tool` 保存模型可见 schema、执行方、执行顺序、允许的调用方，以及只读、破坏性和重试元数据。`Ankole.Sessions.Tools.prepare/2` 先检查调用方、解析参数，再由工具 owner 规范化参数并校验 JSON Schema。
 
 ## 在 owner 执行
 
@@ -20,7 +20,7 @@ order: 120
 - MCP-backed Skill 在 Worker 上通过 computer command 工具与 mcporter 执行。
 - Provider 托管工具经 AIGateway 执行。工具目录遵守所选模型声明的能力。
 
-Driver 按声明调度并行或顺序调用。持久副作用经 `Ankole.Conversations.Receipts` 执行，使领域变更与结果在同一事务中提交。AIGateway 保存工具输出，供下一次模型迭代读取。Worker 断连后，Driver 按工具声明的重试契约处理结果不确定的环境操作。
+Driver 按声明调度并行或顺序调用。持久副作用经 `Ankole.Sessions.Receipts` 执行，使领域变更与结果在同一事务中提交。AIGateway 保存工具输出，供下一次模型迭代读取。Worker 断连后，Driver 按工具声明的重试契约处理结果不确定的环境操作。
 
 ## Workflow 任务工具
 

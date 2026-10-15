@@ -3,7 +3,7 @@ import { isRecord } from '@agentbull/active-support'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { defineWorkerTool, type ActivityDescription, type WorkerAgentTool } from '../../core'
 import { readTool } from '../../core/read-tools'
-import type { JobTurnRef } from '../../lanes/actor_lane'
+import type { JobTurnRef } from '../../lanes/session_lane'
 import type { RPCRequester } from '../../lanes/rpc_lane'
 import { errorMessage } from '../../common/errors'
 
@@ -160,7 +160,6 @@ function normalizeRenderedFetchResult(url: string, value: unknown): JSONObject {
   return result
 }
 
-/** Builds a parameter-only label before web_fetch returns page metadata. */
 function webFetchActivity(urls: string[]): ActivityDescription {
   const domain = fetchedPageHost(urls[0])
   const target = domain || undefined
@@ -213,7 +212,6 @@ function activityExcerpt(value: string, maxCharacters: number): string {
     : `${characters.slice(0, Math.max(0, maxCharacters - 1)).join('')}…`
 }
 
-/** Hides renderer implementation details from model-visible fallback errors. */
 function renderedFallbackErrorMessage(error: unknown): string {
   const message = errorMessage(error)
   if (/ankole-browser|browser daemon|playwright|chromium|\bCDP\b|browser session/i.test(message)) {
@@ -228,9 +226,6 @@ function renderedFallbackErrorMessage(error: unknown): string {
     .replace(/browser_[a-z0-9_]+/gi, 'rendered-fetch operation')
 }
 
-/**
- * Accepts HTTPS URLs for web_fetch.
- */
 function isHTTPSURL(value: string): boolean {
   try {
     return new URL(value).protocol === 'https:'

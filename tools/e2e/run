@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CONTROL_PLANE_DIR="$ROOT_DIR/app/control_plane"
 WORKER_IMAGE=""
 POSTGRES_PORT="${POSTGRES_PORT:-5433}"
+E2E_CALLER_DATABASE_URL="${DATABASE_URL:-}"
 
 load_dotenv_file() {
   local file="$1"
@@ -29,6 +30,9 @@ load_e2e_dotenv() {
 }
 
 load_e2e_dotenv
+if [[ -n "$E2E_CALLER_DATABASE_URL" ]]; then
+  export DATABASE_URL="$E2E_CALLER_DATABASE_URL"
+fi
 
 usage() {
   cat <<'EOF'

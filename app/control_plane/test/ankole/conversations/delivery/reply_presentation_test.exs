@@ -1,0 +1,530 @@
+defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
+  use Ankole.DataCase, async: false
+
+  alias Ankole.I18n
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+
+  test "merges live answer and reasoning while excluding reasoning from recovery and terminal truth" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("reasoning.delta", %{
+        "operation_id" => "reasoning-1",
+        "revision" => 1,
+        "text" => "先检查来源"
+      })
+      |> ReplyPresentation.append_answer("## 结论\n\n")
+      |> ReplyPresentation.append_answer("保留 **Markdown**。")
+
+    assert presentation["thought"] == "先检查来源"
+    assert presentation["answer"] == "## 结论\n\n保留 **Markdown**。"
+
+    checkpoint = ReplyPresentation.checkpoint(presentation)
+    refute Map.has_key?(checkpoint, "thought")
+
+    terminal = ReplyPresentation.terminal(presentation, "completed", presentation["answer"])
+    refute Map.has_key?(terminal, "thought")
+    assert terminal["state"] == "completed"
+    assert terminal["answer"] == presentation["answer"]
+  end
+
+  test "removes a live phase label from every non-working state" do
+    working =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("turn.phase", %{
+        "revision" => 1,
+        "state" => "working",
+        "label" => "正在理解请求"
+      })
+
+    assert get_in(working, ["meta", "status"]) == "正在理解请求"
+    assert get_in(ReplyPresentation.checkpoint(working), ["meta", "status"]) == "正在理解请求"
+
+    for state <- ~w(awaiting_input completed failed stopped scheduled) do
+      terminal = ReplyPresentation.terminal(working, state, "Done")
+      refute get_in(terminal, ["meta", "status"])
+
+      persisted = put_in(terminal, ["meta", "status"], "stale")
+      refute get_in(ReplyPresentation.normalize(persisted), ["meta", "status"])
+    end
+
+    awaiting_input =
+      ReplyPresentation.apply_event(working, "interaction.request", %{
+        "revision" => 2,
+        "prompt" => "请选择范围",
+        "controls" => [%{"id" => "all", "type" => "button", "label" => "全部"}]
+      })
+
+    assert awaiting_input["state"] == "awaiting_input"
+    refute get_in(awaiting_input, ["meta", "status"])
+  end
+
+  test "preserves an answer larger than the old single-message ceiling without truncation" do
+    answer =
+      "# Long answer\n\n" <>
+        String.duplicate("Ankole 保留完整 Markdown 内容。\n\n", 8_000)
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer(answer)
+
+    assert byte_size(presentation["answer"]) > 120_000
+    assert presentation["answer"] == answer
+    assert ReplyPresentation.checkpoint(presentation)["answer"] == answer
+
+    terminal = ReplyPresentation.terminal(presentation, "completed", answer)
+    assert terminal["answer"] == answer
+  end
+
+  test "revisioned plan snapshots replace older state instead of appending logs" do
+    first =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "operation_id" => "todo",
+        "revision" => 2,
+        "items" => [
+          %{"id" => "a", "content" => "调研", "status" => "completed"},
+          %{"id" => "b", "content" => "实现", "status" => "in_progress"}
+        ]
+      })
+
+    stale =
+      ReplyPresentation.apply_event(first, "plan.snapshot", %{
+        "operation_id" => "todo",
+        "revision" => 1,
+        "items" => [%{"id" => "old", "content" => "过期", "status" => "pending"}]
+      })
+
+    assert stale == first
+    assert get_in(first, ["plan", "revision"]) == 2
+    assert Enum.map(first["plan"]["items"], & &1["id"]) == ["a", "b"]
+  end
+
+  test "semantic tool activity and confirmed receipts retain safe projections only" do
+    allow_cache_database_access()
+    {:ok, _} = I18n.put_default_locale("zh-Hans-CN")
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "call-1",
+        "revision" => 1,
+        "phase" => "running",
+        "label_key" => "conversations.delivery.reply.activity.file_read_target",
+        "label_bindings" => %{"path" => "core/agent-loop.ts"},
+        "arguments" => %{
+          "path" => "/agents/agent-1/sessions/session-1/src/core/agent-loop.ts",
+          "token" => "must-not-survive"
+        },
+        "raw_tool_name" => "internal_secret_tool"
+      })
+      |> ReplyPresentation.apply_event("effect.receipt", %{
+        "operation_id" => "call-2",
+        "revision" => 2,
+        "phase" => "confirmed",
+        "summary" => "已确认变更",
+        "scope" => "当前任务"
+      })
+
+    assert get_in(presentation, ["activities", "call-1", "label"]) ==
+             "读取文件：core/agent-loop.ts"
+
+    refute get_in(presentation, ["activities", "call-1"]) |> Map.has_key?("arguments")
+    refute get_in(presentation, ["activities", "call-1"]) |> Map.has_key?("raw_tool_name")
+
+    assert [%{"summary" => "已确认变更", "scope" => "当前任务"}] =
+             presentation["receipts"]
+
+    terminal = ReplyPresentation.terminal(presentation, "completed", "完成。")
+
+    assert get_in(terminal, ["activities", "call-1", "label"]) ==
+             "读取文件：core/agent-loop.ts"
+
+    assert get_in(terminal, ["activities", "call-1", "phase"]) == "completed"
+
+    failed = ReplyPresentation.terminal(presentation, "failed", "失败。")
+    assert get_in(failed, ["activities", "call-1", "phase"]) == "failed"
+  end
+
+  test "continued freezes one visible fragment without completing its live plan" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("已完成的部分")
+      |> ReplyPresentation.apply_event("reasoning.delta", %{
+        "revision" => 1,
+        "text" => "瞬时思考"
+      })
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "revision" => 2,
+        "items" => [
+          %{"id" => "done", "content" => "已完成", "status" => "completed"},
+          %{"id" => "next", "content" => "继续处理", "status" => "in_progress"}
+        ]
+      })
+      |> ReplyPresentation.apply_event("tool.activity", %{
+        "operation_id" => "lookup",
+        "revision" => 3,
+        "phase" => "running",
+        "label" => "查询资料"
+      })
+
+    continued = ReplyPresentation.continued(presentation)
+
+    assert continued["state"] == "continued"
+    assert continued["answer"] == "已完成的部分"
+    assert get_in(continued, ["plan", "items", Access.at(1), "status"]) == "in_progress"
+    assert get_in(continued, ["activities", "lookup", "phase"]) == "running"
+    refute Map.has_key?(continued, "thought")
+    assert ReplyPresentation.terminal_state?(continued)
+  end
+
+  test "accepts bounded typed result and interaction projections without provider JSON" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("result.table", %{
+        "operation_id" => "table-1",
+        "revision" => 1,
+        "title" => "比较",
+        "columns" => [
+          %{"key" => "name", "label" => "名称"},
+          %{"key" => "value", "label" => "数值"}
+        ],
+        "rows" => [%{"name" => "A", "value" => 42}],
+        "card_json" => %{"tag" => "button"}
+      })
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "operation_id" => "question-1",
+        "revision" => 2,
+        "prompt" => "请选择范围",
+        "controls" => [
+          %{
+            "id" => "all",
+            "type" => "button",
+            "label" => "全部",
+            "description" => "包含所有当前记录。",
+            "command" => "choose"
+          }
+        ]
+      })
+
+    assert presentation["state"] == "awaiting_input"
+    assert presentation["interaction_status"] == "pending"
+    refute Map.has_key?(presentation, "thought")
+    assert [%{"kind" => "table"} = table] = presentation["results"]
+    refute Map.has_key?(table, "card_json")
+
+    assert [%{"type" => "button", "label" => "全部", "description" => "包含所有当前记录。"}] =
+             presentation["actions"]
+  end
+
+  test "a terminal interaction result locks the controls and projects its display answer" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "请选择或补充范围",
+        "controls" => [
+          %{
+            "id" => "all",
+            "type" => "button",
+            "label" => "全部",
+            "interaction_id" => "clarify:1",
+            "selected_option_id" => "all"
+          },
+          %{
+            "id" => "custom",
+            "type" => "form",
+            "label" => "自定义",
+            "interaction_id" => "clarify:1",
+            "fields" => [
+              %{"id" => "answer", "type" => "input", "label" => "你的回答"}
+            ]
+          }
+        ]
+      })
+
+    resolved =
+      ReplyPresentation.resolve_interaction(presentation, "answered", %{
+        "kind" => "choice",
+        "interaction_id" => "clarify:1",
+        "option_id" => "all",
+        "value" => "all-records"
+      })
+
+    assert resolved["interaction_status"] == "answered"
+
+    assert resolved["interaction_answer"] == "全部"
+
+    assert Enum.all?(resolved["actions"], &(&1["disabled"] == true))
+    assert Enum.find(resolved["actions"], &(&1["id"] == "all"))["selected"] == true
+  end
+
+  test "a free-text answer keeps its accepted text and supersession removes it" do
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "revision" => 1,
+        "prompt" => "请补充范围",
+        "controls" => [
+          %{
+            "id" => "custom",
+            "type" => "form",
+            "label" => "自定义",
+            "interaction_id" => "clarify:free-text",
+            "fields" => [
+              %{"id" => "answer", "type" => "input", "label" => "你的回答"}
+            ]
+          }
+        ]
+      })
+
+    answered =
+      ReplyPresentation.resolve_interaction(presentation, "answered", %{
+        "kind" => "free_text",
+        "interaction_id" => "clarify:free-text",
+        "value" => "第一行\n**保持原样**"
+      })
+
+    assert answered["interaction_answer"] == "第一行\n**保持原样**"
+
+    superseded = ReplyPresentation.resolve_interaction(presentation, "superseded")
+    assert superseded["interaction_status"] == "superseded"
+    refute Map.has_key?(superseded, "interaction_answer")
+  end
+
+  test "text fallback preserves a pending question and its numbered choices in the tenant locale" do
+    allow_cache_database_access()
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("Which shipping method?")
+      |> ReplyPresentation.interaction_request(Ecto.UUID.generate(), %{
+        "body" => "Which shipping method?",
+        "interaction_id" => "clarify-shipping",
+        "control_id" => "shipping",
+        "version" => 1,
+        "choices" => [
+          %{"id" => "ground", "label" => "Ground", "description" => "5 days, $20"},
+          %{"id" => "air", "label" => "Air", "description" => "1 day, $80"}
+        ],
+        "free_input" => true
+      })
+
+    for {locale, hint} <- [
+          {"en-US", "Choose an option or enter a custom answer"},
+          {"zh-Hans-CN", "请选择一个选项，或填写自定义答案"}
+        ] do
+      assert {:ok, _} = I18n.put_default_locale(locale)
+
+      assert ReplyPresentation.fallback_text(presentation) ==
+               "Which shipping method?\n\n1. Ground — 5 days, $20\n2. Air — 1 day, $80\n\n" <>
+                 hint
+    end
+
+    for status <- ["answered", "superseded"] do
+      resolved = ReplyPresentation.resolve_interaction(presentation, status)
+      assert ReplyPresentation.fallback_text(resolved) == "Which shipping method?"
+    end
+
+    completed = ReplyPresentation.terminal(presentation, "completed", "Ground is selected.")
+    assert ReplyPresentation.fallback_text(completed) == "Ground is selected."
+  end
+
+  test "text fallback distinguishes free input from a numbered choice without offering disabled actions" do
+    allow_cache_database_access()
+    assert {:ok, _} = I18n.put_default_locale("en-US")
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.interaction_request(Ecto.UUID.generate(), %{
+        "body" => "Where should it go?",
+        "interaction_id" => "clarify-destination",
+        "version" => 1,
+        "choices" => [],
+        "free_input" => true
+      })
+
+    assert ReplyPresentation.fallback_text(presentation) ==
+             "Where should it go?\n\nEnter your answer"
+
+    choice_only =
+      ReplyPresentation.new()
+      |> ReplyPresentation.apply_event("interaction.request", %{
+        "prompt" => "Choose a destination",
+        "controls" => [
+          %{"id" => "old", "type" => "button", "label" => "Closed depot", "disabled" => true},
+          %{"id" => "west", "type" => "button", "label" => "West depot"},
+          %{"id" => "east", "type" => "button", "label" => "East depot"}
+        ]
+      })
+
+    assert ReplyPresentation.fallback_text(choice_only) ==
+             "Choose a destination\n\n1. West depot\n2. East depot\n\nChoose"
+  end
+
+  test "normalization preserves explicit false values from string and atom keys" do
+    presentation =
+      ReplyPresentation.normalize(%{
+        "actions" => [
+          %{
+            "id" => "string-keys",
+            "type" => "button",
+            "label" => "String keys",
+            "disabled" => false,
+            "selected" => false
+          },
+          %{
+            id: "atom-keys",
+            type: "button",
+            label: "Atom keys",
+            disabled: false,
+            selected: false
+          }
+        ]
+      })
+
+    assert Enum.map(presentation["actions"], &Map.take(&1, ["id", "disabled", "selected"])) == [
+             %{"id" => "string-keys", "disabled" => false, "selected" => false},
+             %{"id" => "atom-keys", "disabled" => false, "selected" => false}
+           ]
+  end
+
+  test "projects a failed BackgroundAgentJob trigger without mixing it into the model answer" do
+    long_summary = "返回 JSON Schema 少声明了必填字段。\n" <> String.duplicate("详情 ", 400)
+
+    presentation =
+      ReplyPresentation.new()
+      |> ReplyPresentation.project_trigger("background_agent_job.failed", %{
+        "data" => %{
+          "title" => "第二版\n deep research",
+          "result_summary" => long_summary,
+          "error" => %{"stack" => "must-not-survive"}
+        }
+      })
+      |> ReplyPresentation.append_answer("我已修正配置并重新提交任务。")
+
+    assert presentation["answer"] == "我已修正配置并重新提交任务。"
+
+    assert %{
+             "kind" => "background_agent_job_failure",
+             "title" => "第二版 deep research",
+             "summary" => summary
+           } = presentation["trigger_context"]
+
+    assert String.length(summary) == 800
+    assert String.ends_with?(summary, "…")
+    refute presentation["trigger_context"]["error"]
+
+    assert ReplyPresentation.checkpoint(presentation)["trigger_context"] ==
+             presentation["trigger_context"]
+
+    terminal = ReplyPresentation.terminal(presentation, "completed", presentation["answer"])
+    assert terminal["trigger_context"] == presentation["trigger_context"]
+
+    ordinary =
+      ReplyPresentation.project_trigger(presentation, "conversation.message.addressed", %{
+        "data" => %{}
+      })
+
+    assert ordinary["trigger_context"] == presentation["trigger_context"]
+  end
+
+  test "projects only automatic cron wakes as scheduled task context" do
+    automatic =
+      ReplyPresentation.project_trigger(ReplyPresentation.new(), "cron.fire", %{
+        "data" => %{"wake_payload" => %{"trigger" => "scheduled"}}
+      })
+
+    assert automatic["trigger_context"] == %{"kind" => "scheduled_task"}
+
+    assert ReplyPresentation.checkpoint(automatic)["trigger_context"] ==
+             automatic["trigger_context"]
+
+    terminal = ReplyPresentation.terminal(automatic, "completed", "今日摘要已生成。")
+    assert terminal["trigger_context"] == automatic["trigger_context"]
+
+    manual =
+      ReplyPresentation.project_trigger(ReplyPresentation.new(), "cron.fire", %{
+        "data" => %{"wake_payload" => %{"trigger" => "manual"}}
+      })
+
+    refute Map.has_key?(manual, "trigger_context")
+  end
+
+  test "owns clarification controls, callback values, and callback matching" do
+    event_id = Ecto.UUID.generate()
+
+    presentation =
+      ReplyPresentation.new(state: "working")
+      |> ReplyPresentation.interaction_request(event_id, %{
+        "body" => "请选择范围",
+        "interaction_id" => "clarify-1",
+        "control_id" => "scope",
+        "version" => 3,
+        "choices" => [
+          %{"id" => "all", "label" => "全部", "value" => "all-records"}
+        ],
+        "free_input" => true,
+        "free_input_hint" => "输入范围"
+      })
+
+    assert presentation["state"] == "awaiting_input"
+    assert presentation["prompt"] == "请选择范围"
+    assert Enum.map(presentation["actions"], & &1["type"]) == ["button", "form"]
+
+    [choice, form] = presentation["actions"]
+
+    assert {:ok, value} = ReplyPresentation.callback_value(event_id, choice)
+
+    assert value == %{
+             "version" => ReplyPresentation.action_protocol(),
+             "answerKind" => "choice",
+             "interactionId" => "clarify-1",
+             "interactionVersion" => 3,
+             "controlId" => "scope",
+             "selectedOptionId" => "all",
+             "optionValue" => "all-records",
+             "sourceSignalId" => event_id
+           }
+
+    callback = %{
+      kind: "choice",
+      interaction_id: "clarify-1",
+      interaction_version: 3,
+      control_id: "scope",
+      selected_option_id: "all",
+      option_value: "all-records",
+      source_signal_id: event_id
+    }
+
+    assert ReplyPresentation.matches?(presentation, callback)
+    refute ReplyPresentation.matches?(presentation, %{callback | interaction_version: 4})
+
+    assert {:ok, form_value} = ReplyPresentation.callback_value(event_id, form)
+    assert form_value["answerKind"] == "free_text"
+    assert form_value["inputName"] == "clarify-answer"
+  end
+
+  test "terminal clarification can preserve the committed interaction fields" do
+    original =
+      ReplyPresentation.new()
+      |> ReplyPresentation.interaction_request(Ecto.UUID.generate(), %{
+        "body" => "需要选择",
+        "interaction_id" => "clarify-1",
+        "control_id" => "scope",
+        "version" => 1,
+        "choices" => [%{"id" => "all", "label" => "全部", "value" => "all"}]
+      })
+
+    latest = ReplyPresentation.new(state: "working")
+
+    terminal =
+      ReplyPresentation.terminal(latest, "awaiting_input", "需要选择",
+        preserve_interaction_from: original
+      )
+
+    assert terminal["prompt"] == original["prompt"]
+    assert terminal["actions"] == original["actions"]
+    assert terminal["interaction_status"] == "pending"
+    assert ReplyPresentation.checkpoint(terminal)["prompt"] == "需要选择"
+  end
+end

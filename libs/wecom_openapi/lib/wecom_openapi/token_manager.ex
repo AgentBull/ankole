@@ -35,8 +35,6 @@ defmodule WeComOpenAPI.TokenManager do
 
   @type key :: {:corp, Client.cache_namespace()}
 
-  # Public API
-
   @doc false
   @spec start_link(Client.t()) :: GenServer.on_start()
   def start_link(%Client{} = client) do
@@ -70,8 +68,6 @@ defmodule WeComOpenAPI.TokenManager do
     :ets.delete(TokenStore.table(), corp_token_key(client))
     :ok
   end
-
-  # GenServer callbacks
 
   @impl true
   def init(%Client{} = client) do

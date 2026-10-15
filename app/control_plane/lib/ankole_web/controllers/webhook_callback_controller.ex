@@ -5,7 +5,7 @@ defmodule AnkoleWeb.WebhookCallbackController do
 
   use AnkoleWeb, :controller
 
-  alias Ankole.SignalsGateway.Webhooks
+  alias Ankole.Signals.Webhooks
   alias AnkoleWeb.Plugs.WebhookCallbackBodyReader
 
   @spec handle(Plug.Conn.t(), map()) :: Plug.Conn.t()

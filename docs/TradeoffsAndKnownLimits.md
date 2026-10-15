@@ -93,14 +93,14 @@ API and does not add another set of environment variables.
 
 ## Only the Control Plane Commits Business Data
 
-Workers never write AIGateway messages, ActorEvent rows, or provider outbox rows
+Workers never write AIGateway messages, Signal rows, or provider outbox rows
 directly.
 
 AIGateway stores one Response and publishes model events. It does not complete
-an ActorEvent or mark a provider delivery as complete.
+an Signal or mark a provider delivery as complete.
 
 The control-plane Driver runs the main model loop. Its final transaction
-checks the persisted Driver fence, completes the ActorEvents, and records the
+checks the persisted Driver fence, completes the Signals, and records the
 final replies. A terminal Response alone does not complete a conversation.
 Recovery reads the persisted input and Response tape after a Driver restart.
 
@@ -109,36 +109,39 @@ before it commits the Worker's terminal report.
 
 ## Provider Delivery Can Repeat
 
-SignalsGateway receives provider events, applies binding rules, starts Agent
-work, shows live previews, and sends replies.
+Conversations observes provider messages and owns external Delivery. Signals
+applies event subscriptions and accepts authorized stimuli. Sessions executes
+the Agent work and projects its visible result.
 
 A provider acknowledgement confirms only that Ankole received the provider
 event. It does not confirm that an Agent replied.
 
-Live previews are temporary. A crash can leave old preview content at the
-provider. A terminal model Response does not stop that preview.
+Live provider previews are temporary. A crash can leave old preview content
+at the provider. A terminal model Response does not stop that preview.
 
 Turn completion, an empty result, dead-letter handling, or an explicit stop ends
-the preview. The final reply always comes from a stored outbox row.
+the preview. A final external reply comes from a stored Delivery intent.
+Native replies commit directly as public Agent Messages.
 
 Ankole can send a provider operation more than once. Adapters use provider
 idempotency or reconciliation when available. A visible final reply with an
-unknown result retries only inside its attempt budget and carries a
-possible-duplicate notice. Other uncertain operations remain
-`unknown_after_send`. Every automatic delivery stops at its stored retry limit.
+unknown result stops as `unknown`. An operator can explicitly requeue a visible
+durable reply for one more call; that reply carries a possible-duplicate notice.
+Other uncertain operations stay stopped. Every automatic delivery stops at
+its stored retry limit, and expired intents do not call the provider.
 
 ## A Steered Turn Splits Its Record Across Two Events
 
-A `/steer` that reaches the Driver while a conversation runs becomes a separate
-ActorEvent. At Turn completion the latest applied steer owns the final reply and
+A `/steer` that reaches the Driver while a Session runs becomes a separate
+Signal. At Turn completion the latest applied steer owns the final reply and
 its outbox, so the answer lands under the message the user sent last instead of
 the one that opened the Turn.
 
 The AI message stays recorded against the event that opened the Turn, because
 that Turn produced it. One Turn therefore writes its record under two
-ActorEvents. Neither event alone answers "what did this Turn reply". The
+Signals. Neither event alone answers "what did this Turn reply". The
 `ai_message_id` on the outbox row is the link, so a reader starts from the
-outbox and follows it to the message. A reader that starts from an ActorEvent
+outbox and follows it to the message. A reader that starts from an Signal
 and expects both parts under it finds only one of them.
 
 This split is the cost of anchoring the reply where the user is looking. Ankole
@@ -146,8 +149,10 @@ accepts it instead of posting the answer under an older message.
 
 ## Message Edits and Files Have Provider Limits
 
-SignalsGateway has no common contract for an inbound message edit. An adapter
-can report removal only when the provider sends a real removal event.
+Conversations tracks changes to observed message facts and reports revisions
+to Sessions. An adapter can report a removal only when the provider sends a
+real removal event. It cannot infer a platform edit that the provider did not
+deliver.
 
 Removing an older message does not rewrite the complete Response history.
 A later turn can receive the removal as a new message event.
@@ -201,12 +206,12 @@ Authentication identifies the Principal. Every conversation, message, artifact,
 and compaction query also filters by that Principal.
 
 AIGateway stores metadata without interpreting it. It does not inspect
-`actor_event_id` or check whether an ActorEvent remains active.
+`signal_id` or check whether an Signal remains active.
 
 One WebSocket generates one Response at a time. AIGateway rejects
-`background=true`. The conversation Driver orders Session model requests.
+`background=true`. The Session Driver orders Session model requests.
 
-`max_tool_calls` limits hosted tools inside one Response. The conversation Driver
+`max_tool_calls` limits hosted tools inside one Response. The Session Driver
 iteration limit controls model calls during one run. The two limits
 serve different purposes.
 
@@ -353,7 +358,7 @@ Ankole currently does not provide:
 - public admission for untrusted workers
 - a durable worker message queue
 - automatic discovery of business data from worker files
-- user-defined SignalsGateway routing rules
+- user-defined Signal routing rules
 - nested Workflows, script changes after a run starts, or a batch-wide Workflow
   token budget
 - a public OpenAI Conversations object API

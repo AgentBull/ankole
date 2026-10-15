@@ -119,10 +119,10 @@ defmodule Ankole.PluginFixtures.MissingRemovedCallbackPlugin do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "missing-removed-callback",
         adapter_category: "enterprise_im",
-        ingress_module: __MODULE__,
+        observe_module: __MODULE__,
         inbound_capabilities: ["entry_removed"]
       }
     ]
@@ -143,10 +143,10 @@ defmodule Ankole.PluginFixtures.UnknownSignalsInboundCapabilityPlugin do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "unknown-signals-inbound-capability",
         adapter_category: "enterprise_im",
-        ingress_module: __MODULE__,
+        observe_module: __MODULE__,
         inbound_capabilities: ["entry_receive", "made_up"]
       }
     ]
@@ -168,62 +168,62 @@ defmodule Ankole.PluginFixtures.UnknownSignalsOutboundCapabilityPlugin do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "unknown-signals-outbound-capability",
         adapter_category: "enterprise_im",
-        outbox_module: __MODULE__,
+        deliver_module: __MODULE__,
         outbound_capabilities: ["post_entry", "made_up"]
       }
     ]
   end
 
-  def send(_outbox), do: {:ok, %{}}
+  def deliver(_intent), do: {:ok, %{}}
 end
 
-defmodule Ankole.PluginFixtures.MissingSignalsOutboxSendPlugin do
+defmodule Ankole.PluginFixtures.MissingSignalsDeliverySendPlugin do
   @moduledoc false
 
   @behaviour Ankole.Plugins.Plugin
 
   @impl true
-  def plugin_id, do: "missing-signals-outbox-send"
+  def plugin_id, do: "missing-signals-intent-send"
 
   @impl true
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
-        id: "missing-signals-outbox-send",
+        contract_id: "signals.adapter",
+        id: "missing-signals-intent-send",
         adapter_category: "enterprise_im",
-        outbox_module: __MODULE__,
+        deliver_module: __MODULE__,
         outbound_capabilities: ["post_entry"]
       }
     ]
   end
 end
 
-defmodule Ankole.PluginFixtures.MissingSignalsOutboxReconcilePlugin do
+defmodule Ankole.PluginFixtures.MissingSignalsDeliveryReconcilePlugin do
   @moduledoc false
 
   @behaviour Ankole.Plugins.Plugin
 
   @impl true
-  def plugin_id, do: "missing-signals-outbox-reconcile"
+  def plugin_id, do: "missing-signals-intent-reconcile"
 
   @impl true
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
-        id: "missing-signals-outbox-reconcile",
+        contract_id: "signals.adapter",
+        id: "missing-signals-intent-reconcile",
         adapter_category: "enterprise_im",
-        outbox_module: __MODULE__,
+        deliver_module: __MODULE__,
         outbound_capabilities: ["post_entry", "outbound_reconciliation"]
       }
     ]
   end
 
-  def send(_outbox), do: {:ok, %{}}
+  def deliver(_intent), do: {:ok, %{}}
 end
 
 defmodule Ankole.PluginFixtures.UnknownIdentityCapabilityPlugin do

@@ -1,10 +1,8 @@
 use super::*;
 use crate::common::{base64_url_safe_decode, base64_url_safe_encode};
 
-/// Upstream identity that an AIGateway reasoning envelope is bound to.
-///
 /// Two provider rows of the same type share an envelope when they use the same
-/// model ID; a provider-row ID is deliberately not part of the scope.
+/// model ID. A provider-row ID is not part of the scope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ReasoningSource {
     provider_type: String,
@@ -30,9 +28,6 @@ impl ReasoningSource {
     }
 }
 
-/// Encodes one provider's private reasoning state as a reversible AIGateway
-/// transport value bound to the upstream that produced it.
-///
 /// The value rides in a Responses `reasoning` item's `encrypted_content`, so a
 /// provider's private state needs no new public item type.
 pub(super) fn encode(
@@ -51,8 +46,6 @@ pub(super) fn encode(
     ))
 }
 
-/// Returns the payload of an envelope that this request may replay.
-///
 /// A missing, corrupt, old, or mismatched envelope returns `None`. Dropping only
 /// the private reasoning state keeps the visible assistant message and tool
 /// history, and never sends one upstream's reasoning to another.

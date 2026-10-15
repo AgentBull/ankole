@@ -17,9 +17,6 @@ import { AutomationJobCLICommand } from './automation-job-cli-protocol'
 /** Keeps the drive folder name, with its random suffix, inside one 255-byte path segment. */
 const maxFolderNameCodePoints = 48
 
-/**
- * Starts the turn-local bridge for automation job management CLIs.
- */
 export function startAutomationJobCLIBridge(opts: {
   drive: Drive
   requestAutomationJobRPC: AutomationJobRPCRequester

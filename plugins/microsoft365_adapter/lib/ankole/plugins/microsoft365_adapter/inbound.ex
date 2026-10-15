@@ -5,14 +5,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   alias Ankole.Plugins.MapHelpers
 
-  alias Ankole.Plugins.Microsoft365Adapter.{
-    AdaptiveCard,
-    Config,
-    Conversations,
-    Emoji
-  }
+  alias Ankole.Plugins.Microsoft365Adapter.AdaptiveCard
+  alias Ankole.Plugins.Microsoft365Adapter.Config
+  alias Ankole.Plugins.Microsoft365Adapter.Conversations
+  alias Ankole.Plugins.Microsoft365Adapter.Emoji
 
-  alias Ankole.SignalsGateway.{AdapterContext, Ingress}
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Observe
   alias MicrosoftOpenAPI.BotConnector
 
   @file_download_content_type "application/vnd.microsoft.teams.file.download.info"
@@ -74,7 +73,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     config = consumer.config
 
     with {:ok, activity_id} <- required_text(activity, "id"),
-         {:ok, conversation_id} <- conversation_id(activity),
+         {:ok, conversation_id} <- provider_conversation_id(activity),
          {:ok, attachments} <- attachment_maps(activity, activity_id),
          mentions <- mentions(activity, consumer),
          text <- visible_text(MapHelpers.optional_text(activity, "text"), mentions),
@@ -102,9 +101,9 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
       {:ok,
        %{
          source_event_id: activity_id,
-         source_entry_id: activity_id,
-         signal_channel_id: Conversations.signal_channel_id(base_conversation_id),
-         reply_to_source_entry_id: reply_target_id(activity, thread_root, activity_id),
+         provider_message_id: activity_id,
+         provider_conversation_id: Conversations.conversation_id(base_conversation_id),
+         reply_to_provider_message_id: reply_target_id(activity, thread_root, activity_id),
          provider_thread_id: Conversations.provider_thread_id(base_conversation_id, thread_root),
          channel: %{
            kind: channel_kind(conversation_type),
@@ -148,7 +147,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   defp emit_message(consumer, activity) do
     case normalize_message_receive(activity, consumer) do
       {:ok, input} ->
-        Ingress.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
+        Observe.emit_entry(consumer.context.agent_uid, consumer.context.binding_name, input)
 
       {:ignore, reason} ->
         {:ok, %{status: :"ignored_#{reason}", reason: reason}}
@@ -173,14 +172,14 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   defp emit_removed(consumer, activity) do
     with {:ok, activity_id} <- required_text(activity, "id"),
-         {:ok, conversation_id} <- conversation_id(activity) do
+         {:ok, conversation_id} <- provider_conversation_id(activity) do
       base_conversation_id = Conversations.base_conversation_id(conversation_id)
       thread_root = Conversations.thread_root(conversation_id)
 
       input = %{
         source_event_id: "deleted:" <> activity_id,
-        source_entry_id: activity_id,
-        signal_channel_id: Conversations.signal_channel_id(base_conversation_id),
+        provider_message_id: activity_id,
+        provider_conversation_id: Conversations.conversation_id(base_conversation_id),
         provider_thread_id: Conversations.provider_thread_id(base_conversation_id, thread_root),
         channel: %{
           kind: channel_kind(conversation_type(activity)),
@@ -195,7 +194,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
         provider_time: provider_time(activity)
       }
 
-      Ingress.emit_entry_removed(consumer.context.agent_uid, consumer.context.binding_name, input,
+      Observe.emit_entry_removed(consumer.context.agent_uid, consumer.context.binding_name, input,
         provider_lifecycle_kind: :deleted
       )
     end
@@ -206,7 +205,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     reactions = MapHelpers.fetch_list(activity, key)
 
     with {:ok, target_id} <- reaction_target(activity),
-         {:ok, conversation_id} <- conversation_id(activity) do
+         {:ok, conversation_id} <- provider_conversation_id(activity) do
       base_conversation_id = Conversations.base_conversation_id(conversation_id)
       actor = author_external_id(MapHelpers.fetch_map(activity, "from", %{}))
 
@@ -214,10 +213,10 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
       |> Enum.map(fn reaction ->
         raw = MapHelpers.optional_text(reaction, "type") || "unknown"
 
-        Ingress.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
+        Observe.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
           source_event_id: reaction_event_id(activity, action, target_id, raw, actor),
-          signal_channel_id: Conversations.signal_channel_id(base_conversation_id),
-          source_entry_id: target_id,
+          provider_conversation_id: Conversations.conversation_id(base_conversation_id),
+          provider_message_id: target_id,
           reaction_key: Emoji.normalize(raw),
           raw_reaction_key: raw,
           actor_key: actor,
@@ -242,24 +241,24 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     operator = author_external_id(from)
 
     with {:ok, activity_id} <- required_text(activity, "id"),
-         {:ok, conversation_id} <- conversation_id(activity),
+         {:ok, conversation_id} <- provider_conversation_id(activity),
          true <- is_binary(operator) || :missing_operator do
       base_conversation_id = Conversations.base_conversation_id(conversation_id)
       reply_to = MapHelpers.optional_text(activity, "replyToId")
       thread_root = Conversations.thread_root(conversation_id) || reply_to || activity_id
 
-      Ingress.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+      Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
         source_event_id: activity_id,
         action_id: activity_id,
-        signal_channel_id: Conversations.signal_channel_id(base_conversation_id),
-        source_entry_id: reply_to,
+        provider_conversation_id: Conversations.conversation_id(base_conversation_id),
+        provider_message_id: reply_to,
         provider_thread_id: Conversations.provider_thread_id(base_conversation_id, thread_root),
-        actor_event_type: "signal.action.invoked",
+        signal_type: "signal.action.invoked",
         action: %{
           "name" => MapHelpers.optional_text(value, "action") || "submit",
           "value" => decode_action_value(value),
           "operator_id" => operator,
-          "source_entry_id" => reply_to
+          "provider_message_id" => reply_to
         },
         raw_payload: activity
       })
@@ -456,7 +455,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   defp maybe_materialize_attachments(attachments, _activity, %{config: config}) do
     materialized =
-      Ingress.materialize_attachments(attachments, "microsoft365", fn attachment ->
+      Observe.materialize_attachments(attachments, "microsoft365", fn attachment ->
         with {:ok, download} <- download_attachment(attachment, config) do
           {:ok, %{body: download.body, filename: download.filename, content_type: nil, put: %{}}}
         end
@@ -495,7 +494,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
       "reaction:#{action}:#{target_id}:#{raw}:#{actor}"
   end
 
-  defp conversation_id(activity) do
+  defp provider_conversation_id(activity) do
     case activity
          |> MapHelpers.fetch_map("conversation", %{})
          |> MapHelpers.optional_text("id") do

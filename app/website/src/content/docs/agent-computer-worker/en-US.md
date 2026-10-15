@@ -9,7 +9,7 @@ An Agent Computer Worker is one Agent's computer. Agent creation saves the provi
 
 ## Execution and ownership
 
-The Bun Worker executes commands, file and browser tools, Skills, MCP calls, automation scripts, and Codex Jobs. `Ankole.Conversations` in the control plane runs the main Agent loop, commits input consumption and tool results, and owns final replies. AIGateway owns the stored Response chain and hosted tools.
+The Bun Worker executes commands, file and browser tools, Skills, MCP calls, automation scripts, and Codex Jobs. `Ankole.Sessions` in the control plane runs the main Agent loop, commits input consumption and tool results, and owns final replies. AIGateway owns the stored Response chain and hosted tools.
 
 The control plane supplies `WORKER_ID`, the RuntimeFabric endpoint, generation credentials, and storage settings. The Worker serves its own Agent, removes credentials from child environments, and has no database connection. The container is the Agent's isolation boundary; commands run as uid 1000 without sudo.
 
@@ -60,4 +60,4 @@ The Driver owns main-loop streaming and tool presentation. The Worker reports en
 
 Heartbeats report active workspaces, Codex turns, and free slots. The control plane manages idle release through provider YAML `idleReleaseAfter`; `never` retains an idle Worker. Reconnection keeps the process incarnation and in-flight work.
 
-See [Actor Runtime](../actor-runtime/) for writer and operation fences, [AIGateway](../ai-gateway/) for Responses, [Agent Library](../agent-library/) for Skills, and [Workers](../worker-management/) for provider states.
+See [Sessions](../sessions/) for writer and operation fences, [AIGateway](../ai-gateway/) for Responses, [Agent Library](../agent-library/) for Skills, and [Workers](../worker-management/) for provider states.

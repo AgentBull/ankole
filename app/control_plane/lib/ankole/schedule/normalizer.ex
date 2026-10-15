@@ -38,9 +38,9 @@ defmodule Ankole.Schedule.Normalizer do
            :timezone,
            :automation_job_id,
            :binding_name,
-           :signal_channel_id,
+           :conversation_id,
            :provider_thread_id,
-           :source_entry_id
+           :provider_message_id
          ])
          |> Map.put(:last_fire_error, %{})}
       end
@@ -57,7 +57,7 @@ defmodule Ankole.Schedule.Normalizer do
          {:ok, idempotency_key} <- Attrs.required_text(attrs, "idempotency_key"),
          {:ok, agent_uid} <- Attrs.required_text(attrs, "agent_uid"),
          {:ok, session_id} <- Attrs.required_text(attrs, "session_id"),
-         {:ok, binding_name} <- Attrs.required_text(attrs, "binding_name"),
+         binding_name = Attrs.map_text(attrs, "binding_name"),
          {:ok, automation_job_id} <- optional_positive_integer(attrs, "automation_job_id") do
       reply_route = Attrs.map_value(attrs, "reply_route") || %{}
 
@@ -75,12 +75,12 @@ defmodule Ankole.Schedule.Normalizer do
          idempotency_key: idempotency_key,
          tool_call_id: tool_call_id,
          # Source tables: origin_ai_message_id is ai_gateway_messages.id;
-         # source_actor_event_id is actor_events.id from the turn that scheduled it.
+         # source_signal_id is signals.id from the turn that scheduled it.
          origin_ai_message_id: Attrs.map_text(attrs, "origin_ai_message_id"),
-         source_actor_event_id: Attrs.map_text(attrs, "source_actor_event_id"),
-         signal_channel_id: Attrs.map_text(reply_route, "signal_channel_id"),
+         source_signal_id: Attrs.map_text(attrs, "source_signal_id"),
+         conversation_id: Attrs.map_text(reply_route, "conversation_id"),
          provider_thread_id: Attrs.map_text(reply_route, "provider_thread_id"),
-         source_entry_id: Attrs.map_text(reply_route, "source_entry_id"),
+         provider_message_id: Attrs.map_text(reply_route, "provider_message_id"),
          source_provenance: Attrs.map_value(attrs, "source_provenance") || %{},
          wake_payload: %{
            "reason" => reason,
@@ -139,7 +139,7 @@ defmodule Ankole.Schedule.Normalizer do
     with {:ok, agent_uid} <- Attrs.required_text(attrs, "agent_uid"),
          {:ok, owner_session_id} <- Attrs.required_text(attrs, "owner_session_id"),
          :ok <- reject_reserved_owner_session(owner_session_id),
-         {:ok, binding_name} <- Attrs.required_text(attrs, "binding_name"),
+         binding_name = Attrs.map_text(attrs, "binding_name"),
          {:ok, name} <- Attrs.required_text(attrs, "name"),
          {:ok, idempotency_key} <- Attrs.required_text(attrs, "idempotency_key"),
          {:ok, schedule, timezone} <-
@@ -157,7 +157,7 @@ defmodule Ankole.Schedule.Normalizer do
          status: status,
          agent_uid: agent_uid,
          owner_session_id: owner_session_id,
-         binding_name: binding_name,
+         binding_name: hd(delivery["targets"])["binding_name"],
          name: name,
          schedule: schedule,
          timezone: timezone,
@@ -198,10 +198,17 @@ defmodule Ankole.Schedule.Normalizer do
         |> maybe_put_updated_schedule(attrs, schedule, timezone)
         |> Attrs.maybe_put(:payload, payload)
         |> Attrs.maybe_put(:delivery, delivery)
+        |> maybe_put_primary_binding(delivery)
         |> maybe_put_automation_job_id(attrs, automation_job_id)
 
       {:ok, changes}
     end
+  end
+
+  defp maybe_put_primary_binding(changes, nil), do: changes
+
+  defp maybe_put_primary_binding(changes, delivery) do
+    Map.put(changes, :binding_name, hd(delivery["targets"])["binding_name"])
   end
 
   defp next_fire_at_for_status("active", %DateTime{} = next_fire_at), do: next_fire_at
@@ -286,8 +293,24 @@ defmodule Ankole.Schedule.Normalizer do
 
   defp normalize_updated_delivery(existing, attrs) do
     case Map.fetch(attrs, "delivery") do
-      {:ok, delivery} -> Delivery.merge_update(existing.delivery, delivery, existing.binding_name)
-      :error -> {:ok, nil}
+      {:ok, %{} = delivery} ->
+        primary_binding =
+          case delivery["targets"] do
+            [%{"binding_name" => binding} | _] -> binding
+            _ -> nil
+          end
+
+        Delivery.merge_update(
+          existing.delivery,
+          delivery,
+          existing.binding_name || primary_binding
+        )
+
+      {:ok, invalid} ->
+        Delivery.merge_update(existing.delivery, invalid, existing.binding_name)
+
+      :error ->
+        {:ok, nil}
     end
   end
 

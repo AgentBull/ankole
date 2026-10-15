@@ -6,7 +6,7 @@ defmodule Ankole.Plugins.TelegramAdapter do
   alias Ankole.Plugins.TelegramAdapter.Config
   alias Ankole.Plugins.TelegramAdapter.ConnectionReconciler
   alias Ankole.Plugins.TelegramAdapter.Inbound
-  alias Ankole.Plugins.TelegramAdapter.Outbox
+  alias Ankole.Plugins.TelegramAdapter.Delivery
   alias Ankole.Plugins.TelegramAdapter.ReplyPreview
 
   @impl true
@@ -31,12 +31,12 @@ defmodule Ankole.Plugins.TelegramAdapter do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "telegram",
         adapter_category: "consumer_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Telegram"},
-        config_key_pattern: "signals_gateway.telegram.bindings.<id>",
+        config_key_pattern: "signals.telegram.bindings.<id>",
         config_module: Config,
         fields: [
           %{
@@ -53,9 +53,9 @@ defmodule Ankole.Plugins.TelegramAdapter do
           }
         ],
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
-        reply_preview_module: ReplyPreview,
+        observe_module: Inbound,
+        deliver_module: Delivery,
+        preview_module: ReplyPreview,
         inbound_capabilities: [
           "entry_receive",
           "reaction_add",

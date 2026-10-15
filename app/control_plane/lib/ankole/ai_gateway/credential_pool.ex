@@ -10,7 +10,8 @@ defmodule Ankole.AIGateway.CredentialPool do
 
   use GenServer
 
-  alias Ankole.AIGateway.{FailureDiagnostics, ProviderConfigs}
+  alias Ankole.AIGateway.FailureDiagnostics
+  alias Ankole.AIGateway.ProviderConfigs
 
   @strategies ~w(fill_first round_robin least_used random)
   @affinity_limit 10_000

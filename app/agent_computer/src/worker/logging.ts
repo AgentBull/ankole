@@ -32,7 +32,6 @@ type WorkerLoggerContext = {
   labels: Record<string, string>
 }
 
-/** Maps Pino labels and aliases to canonical Worker severities. */
 const pinoLevelToSeverity: Record<string, LogSeverity> = {
   trace: 'DEBUG',
   debug: 'DEBUG',
@@ -47,7 +46,6 @@ const pinoLevelToSeverity: Record<string, LogSeverity> = {
   emergency: 'EMERGENCY'
 }
 
-/** Selects the Pino method for each canonical Worker severity. */
 const severityToPinoLevel: Record<LogSeverity, WorkerPinoLevel> = {
   DEBUG: 'debug',
   INFO: 'info',
@@ -59,7 +57,7 @@ const severityToPinoLevel: Record<LogSeverity, WorkerPinoLevel> = {
   EMERGENCY: 'emergency'
 }
 
-/** Accepted ANKOLE_LOG_LEVEL spellings; unknown values use the fallback. */
+/** Unknown values use the fallback severity. */
 const severityAliases: Record<string, LogSeverity> = {
   trace: 'DEBUG',
   debug: 'DEBUG',
@@ -200,7 +198,6 @@ function labelField(value: unknown): Record<string, string> {
   return compactLabels(value as Record<string, string | number | boolean | undefined>)
 }
 
-/** Removes reserved fields so call sites cannot replace log envelope metadata. */
 function normalizeFields(fields: WorkerLogFields): WorkerLogFields {
   const normalized: WorkerLogFields = {}
   for (const [key, value] of Object.entries(fields)) {

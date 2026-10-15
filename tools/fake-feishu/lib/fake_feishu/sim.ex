@@ -240,8 +240,6 @@ defmodule FakeFeishu.Sim do
     }
   end
 
-  # -- resolution helpers -------------------------------------------------------
-
   defp fetch_chat(state, chat_id) do
     case State.chat(state, chat_id) do
       nil -> {:error, :chat_not_found}
@@ -284,8 +282,6 @@ defmodule FakeFeishu.Sim do
         resolve_sender(chat, key)
     end
   end
-
-  # -- envelope builders ---------------------------------------------------------
 
   defp put_body(attrs, state, _chat, %{"file" => %{"name" => name, "base64" => base64}}) do
     file_key = "file_sim_#{System.unique_integer([:positive])}"

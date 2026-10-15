@@ -1,4 +1,4 @@
-import type { TurnStart } from '../lanes/actor_lane'
+import type { TurnStart } from '../lanes/session_lane'
 import { isRecord } from '@agentbull/active-support'
 
 /**

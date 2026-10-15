@@ -5,7 +5,7 @@ import {
 } from '../core/execution/turn_runtime_env'
 import type { SocketLineBridge } from '../core/socket-line-bridge'
 import type { Drive } from '../drive/drive'
-import type { JobTurnRef, RunRef } from '../lanes/actor_lane'
+import type { JobTurnRef, RunRef } from '../lanes/session_lane'
 import { automationJobRPCRequester, webhookRPCRequester, type RPCRequester } from '../lanes/rpc_lane'
 import { startAutomationJobCLIBridge } from './automation-jobs/automation-job-cli-bridge'
 import { startDriveCLIBridge } from './drive/drive-cli-bridge'

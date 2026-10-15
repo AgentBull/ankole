@@ -14,7 +14,6 @@ type AppContainer = HTMLElement & {
   __ankoleRoot?: Root
 }
 
-/** Mounts a React tree into the Phoenix-provided `#ankole-app` container. */
 export async function mountApp(children: ReactNode | AppFactory, mutationCache?: MutationCache) {
   const container = document.getElementById('ankole-app') as AppContainer | null
   // A missing container means the route did not come from the Phoenix shell.

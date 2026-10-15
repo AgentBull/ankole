@@ -15,7 +15,7 @@ defmodule Ankole.Brain.Schemas.Claim do
     field :author, Ankole.Ecto.ActorRef
     field :claim_type, :string
     field :object_slug, :string
-    field :signal_gateway_channel_id, :string
+    field :conversation_id, Ankole.Ecto.UUIDv7
     field :claim, :string
     field :kind, :string
     field :holder, :string
@@ -49,7 +49,6 @@ defmodule Ankole.Brain.Schemas.Claim do
     field :resolution_provenance, :string
     field :resolved_by, :string
 
-    # Shared fields.
     field :superseded_by, Ankole.Ecto.UUIDv7
     field :provenance, :string
     field :embedding, Pgvector.Ecto.Vector

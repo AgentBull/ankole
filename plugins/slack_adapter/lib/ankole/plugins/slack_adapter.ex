@@ -3,8 +3,12 @@ defmodule Ankole.Plugins.SlackAdapter do
 
   @behaviour Ankole.Plugins.Plugin
 
-  alias Ankole.Plugins.SlackAdapter.{Channels, Config, ConnectionReconciler}
-  alias Ankole.Plugins.SlackAdapter.{IdentityProvider, Inbound, Outbox}
+  alias Ankole.Plugins.SlackAdapter.Channels
+  alias Ankole.Plugins.SlackAdapter.Config
+  alias Ankole.Plugins.SlackAdapter.ConnectionReconciler
+  alias Ankole.Plugins.SlackAdapter.IdentityProvider
+  alias Ankole.Plugins.SlackAdapter.Inbound
+  alias Ankole.Plugins.SlackAdapter.Delivery
   alias Ankole.Plugins.SlackAdapter.ReplyPreview
 
   @zh_fields %{
@@ -46,7 +50,7 @@ defmodule Ankole.Plugins.SlackAdapter do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "slack",
         adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
@@ -54,9 +58,9 @@ defmodule Ankole.Plugins.SlackAdapter do
         config_module: Config,
         fields: chat_fields(),
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
-        reply_preview_module: ReplyPreview,
+        observe_module: Inbound,
+        deliver_module: Delivery,
+        preview_module: ReplyPreview,
         binding_saved_module: Channels,
         inbound_capabilities: [
           "entry_receive",

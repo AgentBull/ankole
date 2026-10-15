@@ -12,7 +12,7 @@ defmodule Ankole.Plugins.ReplyPreviewSurfaceTest do
   alias Ankole.Plugins.SlackAdapter.ReplyPreview, as: SlackPreview
   alias Ankole.Plugins.TelegramAdapter.ReplyPreview, as: TelegramPreview
   alias Ankole.Plugins.WeComAdapter.AIStream
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter
 
   describe "message ledgers (slack, discord, telegram)" do
     for module <- [SlackPreview, DiscordPreview, TelegramPreview] do
@@ -103,13 +103,13 @@ defmodule Ankole.Plugins.ReplyPreviewSurfaceTest do
   end
 
   test "the host derives entries and presence from the adapter answer" do
-    {:ok, adapter} = ReplyPreviewAdapter.from_module(CardKit)
+    {:ok, adapter} = PreviewAdapter.from_module(CardKit)
     chain = %{"card_id" => "card-a", "message_id" => "om_a"}
 
-    assert ReplyPreviewAdapter.surface_entry_ids(adapter, chain) == ["om_a"]
-    assert ReplyPreviewAdapter.surface?(adapter, chain)
-    refute ReplyPreviewAdapter.surface?(adapter, %{})
-    assert ReplyPreviewAdapter.surface_entry_ids(nil, chain) == []
-    refute ReplyPreviewAdapter.surface_open?(nil, chain)
+    assert PreviewAdapter.surface_entry_ids(adapter, chain) == ["om_a"]
+    assert PreviewAdapter.surface?(adapter, chain)
+    refute PreviewAdapter.surface?(adapter, %{})
+    assert PreviewAdapter.surface_entry_ids(nil, chain) == []
+    refute PreviewAdapter.surface_open?(nil, chain)
   end
 end

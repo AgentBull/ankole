@@ -56,7 +56,6 @@ export class SnapshotStore {
     const frames = page.frames()
     for (let frameIndex = 0; frameIndex < frames.length && withinBudget(); frameIndex += 1) {
       const frame = frames[frameIndex]!
-      // Formats one node, registers its ref, and reports whether traversal may continue.
       const emit = (node: SnapshotNode): boolean => {
         let refText = ''
         if (node.interactive && node.selector) {

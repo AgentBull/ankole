@@ -5,8 +5,18 @@ replies. It also signs operators in through a WeCom self-built app and imports
 WeCom users and departments. WeCom splits these functions across two product
 surfaces, so the chat face and the identity face use different credentials.
 
-Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
+Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+[Sessions](../Sessions.md), [Principal](../Principal.md), and
 [Plugins](../Plugins.md) for the common message, identity, and Plugin rules.
+
+## Provider and Public Identity
+
+The adapter reports an opaque `provider_conversation_id` and a
+`provider_message_id`. Conversations resolves these to a shared public
+Conversation UUID and Message UUID. All Agent observers of the same provider
+conversation in one tenant read those same public facts. Each participating
+Agent has its own `conversation:<public UUID>` Session; a Binding is its
+observation and delivery route, not the owner of the platform room.
 
 ## Current IDs and Features
 
@@ -15,7 +25,7 @@ Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
 | Plugin ID | `wecom-adapter` |
 | API version | `1` |
 | Signal adapter ID | `wecom` |
-| Signal configuration | `signals_gateway.wecom.bindings.<agent_uid>` |
+| Signal configuration | `signals.wecom.bindings.<agent_uid>` |
 | Identity adapter ID | `wecom` |
 | Identity configuration | `principals.identity_providers.wecom.<id>` |
 | Provider library | `libs/wecom_openapi` |
@@ -78,7 +88,7 @@ lowercase, so the client preserves their canonical case in the HTTP/1 request.
 
 An acknowledgement timeout closes the connection and fails its queued sends.
 A later acknowledgement cannot confirm the next frame with the same `req_id`.
-The existing reconnect and outbox recovery rules then apply.
+The existing reconnect and intent recovery rules then apply.
 
 WeCom permits one live connection for each bot. When a second consumer
 connects, the platform disconnects the first one and announces it with a
@@ -96,7 +106,7 @@ The message callback becomes `entry_receive`, and a `template_card_event`
 becomes `action_event`. Groups deliver only messages that address the bot, so
 every group message is explicit.
 
-The stable channel ID is `wecom:<encoded chat target>`. The chat target is the
+The opaque `provider_conversation_id` is `wecom:<encoded chat target>`. The chat target is the
 group `chatid` or, for a direct message, the counterpart `userid`. WeCom has
 no thread or anchored reply, so provider thread ID and reply target are empty.
 
@@ -122,7 +132,7 @@ voice, files, and video arrive in direct messages only.
 
 ## Send Replies
 
-The adapter sends only operations already stored in the outbox. It can send
+The adapter sends only operations already stored as Delivery intents. It can send
 Markdown text, send one attachment, or send a template card.
 
 Each send resolves a channel. A fresh respond anchor rides `aibot_respond_msg`
@@ -151,8 +161,8 @@ bytes, the whole card uses its Markdown fallback. The decoder still accepts
 `ank1|` keys from previously sent cards.
 
 Neither send path has an idempotency parameter. The adapter cannot reconcile an
-uncertain send. SignalsGateway can resend an uncertain visible final reply only
-inside its remaining attempt budget, and the resent reply says that it can be a
+uncertain send. Delivery stops it as `unknown`. An operator can requeue a
+visible durable reply for one more call; that reply states that it can be a
 duplicate.
 
 The adapter classifies connection, timeout, rate-limit, and server failures as
@@ -172,14 +182,15 @@ cap, and the platform rule that one stream must finish within 10 minutes. An
 open page near that deadline freezes at its last written text, seals, and the
 chain continues on a new stream message.
 
-The ActorEvent checkpoint is the durable page ledger. It stores each page's
+The Signal checkpoint is the durable page ledger. It stores each page's
 stream ID, source slice, open time, and sealed state, plus the pinned reply
 `req_id` and the last presentation that recovery can render. Sealed pages do
-not change.
+not change. A throttled update keeps the last confirmed source in the ledger.
+A new tail page is not throttled.
 
 A turn without a respond anchor cannot stream. Working updates then return a
 non-retryable error and only the final durable delivery falls back to plain
-Markdown sends. The checkpoint records each delivered chunk, so an outbox
+Markdown sends. The checkpoint records each delivered chunk, so an intent
 retry resumes after the last recorded chunk.
 
 ## Import People and Sign In
@@ -195,8 +206,8 @@ realtime events; the host runs periodic full syncs.
 
 ## Restart and Recovery
 
-AppConfigure stores encrypted settings. SignalsGateway records messages, Agent
-work, and replies. Principals and AuthZ store people, groups, memberships, and
+AppConfigure stores encrypted settings. Conversations records public Messages and Delivery intents. Signals stores
+authorized stimuli; Sessions owns Agent execution and recovery. Principals and AuthZ store people, groups, memberships, and
 grants.
 
 A control-plane restart rebuilds the long connections. An open stream page
@@ -207,7 +218,7 @@ WeCom credentials.
 ## Tests
 
 The repository tests the provider client and its WebSocket protocol,
-normalization, outbox channel resolution, template cards, streaming
+normalization, intent channel resolution, template cards, streaming
 checkpoints, login, and directory sync. The end-to-end transport suite drives
 a fake WeCom gateway through connect, auth, reply serialization, kick, and
 reconnect. A real WeCom acceptance test needs operator credentials, a

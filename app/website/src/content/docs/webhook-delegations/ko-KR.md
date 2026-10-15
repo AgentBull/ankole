@@ -46,7 +46,7 @@ Agent가 GitHub 위임을 만들기 전에:
 2. GitHub hook을 만들기 전에 지속적인 checkback을 만듭니다. 이것이 정리와 조정 의무를 기록합니다.
 3. 콜백 URL로 repository hook을 만듭니다. GitHub가 `ping`을 보냅니다.
 4. GitHub delivery 로그를 읽고 `ping`이 성공했는지 확인합니다.
-5. 일치하는 delivery가 도착하면 Ankole은 성공을 반환하기 전에 엔드포인트 결정과 `webhook.received` ActorEvent 또는 바인딩된 automation job 실행을 하나의 PostgreSQL 트랜잭션으로 커밋합니다.
+5. 일치하는 delivery가 도착하면 Ankole은 성공을 반환하기 전에 엔드포인트 결정과 `webhook.received` Signal 또는 바인딩된 automation job 실행을 하나의 PostgreSQL 트랜잭션으로 커밋합니다.
 6. 직접 경로에서 깨어난 Agent는 수령을 신뢰할 수 없는 입력으로 취급합니다. 바인딩된 automation job은 이벤트를 emit하기 전에 같은 규칙을 적용해야 합니다.
 7. 조정은 hook, 이벤트 집합, 실패한 delivery, 현재 GitHub 객체, 만료 시각, 다음 확인 시간을 검사합니다.
 8. 해체(teardown)는 Ankole 엔드포인트와 checkback을 취소하기 전에 GitHub hook을 제거합니다.
@@ -72,7 +72,7 @@ Agent는 엔드포인트를 만들 때 `--automation-job-id <id>`를 전달할 �
 
 Console에서 **Webhooks**를 열어 Agent와 session별로 엔드포인트를 검사하세요. 페이지에는 라벨, 모드, 상태, 만료 시각, 소스 라우트가 표시됩니다. 콜백 URL, 평문 token, 저장된 digest는 표시되지 않습니다.
 
-Console은 엔드포인트를 나열하고 취소할 수 있습니다. 만들 수는 없습니다. 만들려면 현재 대화 라우트가 필요하므로 활성 Agent 턴에 속합니다.
+Console은 Agent가 만든 raw 콜백 엔드포인트를 표시하고 취소합니다. Agent는 활성 turn에서 현재 응답 라우트로 이 엔드포인트를 만듭니다. CloudEvents 이벤트 소스와 Signal Routing Rule은 Console **Signals** 페이지에서 만들 수 있습니다. [Signals](../signals/)를 참조하세요.
 
 긴급 credential 회수가 필요하면 Console에서 취소하세요. 이것은 외부 GitHub hook을 삭제하지 않습니다. 그 hook은 별도로 제거하세요. 일반 해체에서는 Agent에게 먼저 GitHub hook을 제거하라고 요청하세요.
 
@@ -89,9 +89,9 @@ Console은 엔드포인트를 나열하고 취소할 수 있습니다. 만들 �
 
 - **Agent가 GitHub Skill을 찾지 못함:** 이 Agent에 GitHub Agent Plugin과 Skill이 활성화되어 있는지 확인한 다음 새 턴을 시작하세요.
 - **GitHub가 콜백에 도달하지 못함:** 공개 HTTPS 인증서, DNS, ingress 라우트, `/webhooks/v1/event-callbacks/*` 전달을 확인하세요.
-- **hook은 존재하지만 Agent 답변이 없음:** GitHub delivery 로그, Console의 엔드포인트 상태, Worker 준비 상태, 지속적인 actor 이벤트, 발신 chat 전달을 검사하세요.
+- **hook은 존재하지만 Agent 답변이 없음:** GitHub delivery 로그, Console의 엔드포인트 상태, Worker 준비 상태, 지속적인 Signal, 발신 chat 전달을 검사하세요.
 - **GitHub가 `413`을 보고함:** 선택한 이벤트 페이로드가 1 MiB보다 큽니다. GitHub에서 이벤트 형태를 좁히거나 다른 감지기를 사용하세요.
 - **같은 이벤트가 Agent를 두 번 깨움:** standing 엔드포인트에서는 유효한 동작입니다. Agent는 현재 GitHub 상태를 다시 읽고 반복 처리를 안전하게 만들어야 합니다.
 - **설정 중 콜백 URL을 잃음:** 일치하는 GitHub hook을 제거하고, 이전 엔드포인트와 checkback을 취소한 다음, 교체용 하나를 만드세요.
 
-ingress 소유자와 트랜잭션 경계는 [SignalsGateway](../signals-gateway/)를, capability 설정은 [Agent Library](../skills/)와 [환경 변수](../worker-env/)를 읽으세요.
+ingress 소유자와 트랜잭션 경계는 [Signals](../signals/)를, capability 설정은 [Agent Library](../skills/)와 [환경 변수](../worker-env/)를 읽으세요.

@@ -8,7 +8,7 @@ defmodule AnkoleWeb.AIGatewayConversationController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
-  alias Ankole.AIGateway.ConsoleQueries
+  alias Ankole.Sessions.ConsoleQueries
   alias Ankole.AIGateway.Schemas.Conversation
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsoleParams

@@ -2,7 +2,8 @@ defmodule Ankole.E2E.SlackTransportTest do
   use ExUnit.Case, async: false
   @moduletag plugin_transport: true
 
-  alias Ankole.E2E.FakeSlack.{Server, State}
+  alias Ankole.E2E.FakeSlack.Server
+  alias Ankole.E2E.FakeSlack.State
   alias SlackOpenAPI.SocketMode.{Client, Dispatcher}
 
   test "Socket Mode dispatches, acknowledges, and survives refresh_requested" do
@@ -107,7 +108,6 @@ defmodule Ankole.E2E.SlackTransportTest do
 
     assert :ok = State.push_event(fake.state, envelope("env-crash", "EvCrash", "boom"))
 
-    # The handler entered before it crashed.
     assert_receive {:dispatched, "EvCrash"}, 2_000
 
     # A crash (:DOWN) gives no commit guarantee; the envelope must not be acked.

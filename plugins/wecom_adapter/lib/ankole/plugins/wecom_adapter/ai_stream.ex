@@ -20,26 +20,26 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   There is no component model: the page content is Markdown. A working tail
   carries a status line and a quoted thought block that terminal writes
   remove; presentation actions are not rendered here — interactive choices
-  reach the user as separate template cards through the `card` outbox path.
+  reach the user as separate template cards through the `card` intent path.
 
   A turn without a respond anchor (proactive trigger, or the anchor expired)
   cannot stream: working syncs return the non-retryable
   `{:degraded, :plain_text, _}` shape (the host disables the preview for
   the turn) and only the durable terminal delivery falls back — once — to
-  plain Markdown sends, chunk-ledgered in the checkpoint so an outbox retry
+  plain Markdown sends, chunk-ledgered in the checkpoint so an intent retry
   never re-sends a delivered chunk.
   """
 
-  @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+  @behaviour Ankole.Conversations.Delivery.PreviewAdapter
 
+  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Plugins.WeComAdapter.Markdown
-  alias Ankole.Plugins.WeComAdapter.Outbox
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Plugins.WeComAdapter.Delivery
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias WeComOpenAPI.Bot
   alias WeComOpenAPI.Error
 
@@ -83,9 +83,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   def surface_open?(checkpoint) when is_map(checkpoint),
     do: checkpoint["streaming_state"] != "closed"
 
-  # core reconcile
-
-  defp reconcile(%Request{actor_event: event, checkpoint: checkpoint} = request, final?, repaint?) do
+  defp reconcile(%Request{signal: event, checkpoint: checkpoint} = request, final?, repaint?) do
     with {:ok, config} <- Config.validate_chat_config(request.config) do
       presentation = ReplyPresentation.normalize(request.presentation)
 
@@ -128,8 +126,8 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   defp respond_anchor(_event, %{"req_id" => req_id} = checkpoint) when is_binary(req_id),
     do: {:ok, req_id, checkpoint}
 
-  defp respond_anchor(%ActorEvent{signal_channel_id: signal_channel_id}, checkpoint) do
-    case Outbox.resolve_delivery(signal_channel_id) do
+  defp respond_anchor(%Signal{conversation_id: conversation_id}, checkpoint) do
+    case Delivery.resolve_delivery(conversation_id) do
       {:ok, %{respond_req_id: req_id}} when is_binary(req_id) ->
         {:ok, req_id, Map.put(checkpoint, "req_id", req_id)}
 
@@ -141,7 +139,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   # Degrade once, and only on the durable terminal path. A transient working
   # sync must never post provider messages — returning the non-retryable
   # fallback shape makes the gateway disable the preview for the rest of the
-  # turn while the outbox still delivers the final reply.
+  # turn while the intent still delivers the final reply.
   defp degrade(event, config, presentation, checkpoint, request, final?, reason) do
     if final? do
       plain_text_delivery(event, config, presentation, checkpoint, request)
@@ -154,10 +152,8 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     checkpoint
     |> Map.merge(%{"degraded" => true, "degraded_reason" => to_string(reason)})
     |> merge_common(presentation, request, true)
-    |> then(&Actors.put_reply_preview_checkpoint(event.id, &1))
+    |> then(&PreviewState.put_checkpoint(event.id, &1))
   end
-
-  # stream path
 
   defp reconcile_stream(
          event,
@@ -187,7 +183,8 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
       checkpoint =
         build_stream_checkpoint(checkpoint, page_records, presentation, request, final?, wrote?)
 
-      with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      with {:ok, _event} <-
+             PreviewState.put_checkpoint(event.id, checkpoint) do
         {:ok, delivery_result(event, page_records, checkpoint)}
       end
     end
@@ -287,40 +284,39 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
 
       seal? = page_sealed?(page, prior, tail?, final?, state)
 
-      display = Markdown.display_chunk(page.source, fence_open?)
-      content = render_page_content(presentation, display, tail?, seal?, final?, page)
+      skip? =
+        not is_nil(prior) and
+          (prior_sealed?(prior) or
+             (tail? and not (seal? or repaint? or final?) and throttled?(checkpoint, now)))
 
-      write_action =
-        if prior_sealed?(prior) or
-             (tail? and not (seal? or repaint? or final?) and throttled?(checkpoint, now)),
-           do: :skip,
-           else: :write
+      result =
+        if skip? do
+          {:ok, prior, wrote?}
+        else
+          display = Markdown.display_chunk(page.source, fence_open?)
+          content = render_page_content(presentation, display, tail?, seal?, final?, page)
 
-      write =
-        case write_action do
-          :skip ->
-            :ok
+          case Bot.reply_stream(client, req_id, stream_id, content, finish: seal?) do
+            {:ok, _ack} ->
+              record = %{
+                "index" => page.index,
+                "stream_id" => stream_id,
+                "source" => page.source,
+                "sealed" => seal?,
+                "opened_at" => page_opened_at(prior, now)
+              }
 
-          :write ->
-            case Bot.reply_stream(client, req_id, stream_id, content, finish: seal?) do
-              {:ok, _ack} -> :ok
-              {:error, _reason} = error -> error
-            end
+              {:ok, record, true}
+
+            {:error, _reason} = error ->
+              error
+          end
         end
 
-      case write do
-        :ok ->
-          record = %{
-            "index" => page.index,
-            "stream_id" => stream_id,
-            "source" => page.source,
-            "sealed" => seal?,
-            "opened_at" => page_opened_at(prior, now)
-          }
-
+      case result do
+        {:ok, record, wrote?} ->
           {:cont,
-           {:ok, [record | records], next_fence_state(fence_open?, page.source),
-            wrote? or write_action == :write}}
+           {:ok, [record | records], next_fence_state(fence_open?, record["source"]), wrote?}}
 
         {:error, _reason} = error ->
           {:halt, error}
@@ -350,8 +346,6 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   defp next_fence_state(open_before?, source) do
     Markdown.fence_open?(if(open_before?, do: "```\n", else: "") <> source)
   end
-
-  # rendering
 
   # A rolled-past page holds a finished slice of a longer answer; a working
   # tail leads with the live status and the transient thought (a quote block
@@ -470,8 +464,6 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   defp blank_to_space(text) when is_binary(text), do: text
   defp blank_to_space(_other), do: " "
 
-  # checkpoint
-
   defp ledger_by_index(checkpoint) do
     checkpoint
     |> Map.get("pages", [])
@@ -547,7 +539,18 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     first_stream_id = page_records |> List.first() |> then(&(&1 && &1["stream_id"]))
 
     %{
-      created_source_entry_id: event.reply_preview_source_entry_id || first_stream_id,
+      created_provider_message_id:
+        PreviewState.get(event).provider_message_id ||
+          first_stream_id,
+      messages:
+        Enum.map(page_records, fn record ->
+          %{
+            created_provider_message_id: record["stream_id"],
+            text: record["source"],
+            payload: %{"attachments" => []},
+            raw_payload: record["raw_payload"] || %{"stream_id" => record["stream_id"]}
+          }
+        end),
       reply_preview_checkpoint: checkpoint,
       recovery_state: %{
         "streaming_state" => checkpoint["streaming_state"],
@@ -556,11 +559,9 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     }
   end
 
-  # degraded plain delivery
-
   # Terminal-only fallback: the durable reply intent is still delivered, just
-  # without a stream. Chunks ride the same Markdown split budget as Outbox
-  # text, and each delivered chunk is ledgered in the checkpoint so an outbox
+  # without a stream. Chunks ride the same Markdown split budget as Delivery
+  # text, and each delivered chunk is ledgered in the checkpoint so an intent
   # retry resumes after the last recorded chunk instead of re-sending it. The
   # proactive send path requires the user to have messaged the bot before; a
   # locked conversation surfaces as an operator-visible provider error.
@@ -575,7 +576,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     ledger = plain_chunk_ledger(checkpoint)
 
     with {:ok, client} <- bot_client(config),
-         {:ok, delivery} <- Outbox.resolve_delivery(event.signal_channel_id) do
+         {:ok, delivery} <- Delivery.resolve_delivery(event.conversation_id) do
       {records, failure} = deliver_plain_chunks(client, delivery, chunks, ledger)
 
       checkpoint =
@@ -587,12 +588,22 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
         })
         |> merge_common(presentation, request, true)
 
-      with {:ok, _event} <- Actors.put_reply_preview_checkpoint(event.id, checkpoint) do
+      with {:ok, _event} <-
+             PreviewState.put_checkpoint(event.id, checkpoint) do
         case failure do
           nil ->
             {:ok,
              %{
-               created_source_entry_id: "wecom:degraded:#{event.id}",
+               created_provider_message_id: List.first(records)["provider_message_id"],
+               messages:
+                 Enum.map(records, fn record ->
+                   %{
+                     created_provider_message_id: record["provider_message_id"],
+                     text: record["source"],
+                     payload: %{"attachments" => []},
+                     raw_payload: record["raw_payload"] || %{}
+                   }
+                 end),
                delivered_operation: :post,
                reply_preview_checkpoint: checkpoint,
                raw_payload: %{"plain_chunks" => length(records)}
@@ -600,6 +611,9 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
 
           {:error, _reason} = error ->
             error
+
+          {:unknown, _} = unknown ->
+            unknown
         end
       end
     end
@@ -624,9 +638,21 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
             end
 
           case result do
-            {:ok, _ack} ->
-              record = %{"index" => index, "source" => chunk}
-              {:cont, {[record | records], nil}}
+            {:ok, ack} ->
+              case Delivery.confirmed_send_result(ack, chunk, %{"attachments" => []}) do
+                {:ok, confirmed} ->
+                  record = %{
+                    "index" => index,
+                    "source" => chunk,
+                    "provider_message_id" => confirmed.created_provider_message_id,
+                    "raw_payload" => ack
+                  }
+
+                  {:cont, {[record | records], nil}}
+
+                {:unknown, _} = unknown ->
+                  {:halt, {records, unknown}}
+              end
 
             {:error, _reason} = error ->
               {:halt, {records, error}}
@@ -643,15 +669,13 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     |> Map.new(&{&1["index"], &1})
   end
 
-  # helpers
+  defp page_stream_id(%Signal{id: id}, index), do: "ankole:#{id}:#{index}"
 
-  defp page_stream_id(%ActorEvent{id: id}, index), do: "ankole:#{id}:#{index}"
-
-  # Provider errors use the same retry policy as plain outbox delivery;
+  # Provider errors use the same retry policy as plain intent delivery;
   # deterministic degrades already returned the non-retryable fallback shape
   # from inside reconcile.
   defp normalize_result({:error, %Error{} = error}),
-    do: Outbox.normalize_delivery_result({:error, error})
+    do: Delivery.normalize_delivery_result({:error, error})
 
   defp normalize_result(result), do: result
 end

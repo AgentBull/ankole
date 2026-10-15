@@ -4,7 +4,7 @@ defmodule Ankole.E2E.Harness do
 
   The signals path is network-level end to end: a fake Feishu server speaks the
   real WS long-connection protocol to the real `plugins/lark_adapter` client,
-  and the real `LarkAdapter.Outbox` sends real HTTP back to it. LLM behavior is
+  and the real `LarkAdapter.Delivery` sends real HTTP back to it. LLM behavior is
   controlled by the fake OpenAI upstream (or a real provider in the real-LLM
   suite). The worker under test is the real Agent Computer process in Docker.
   """
@@ -17,10 +17,10 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.TurnItemProjection
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.Signals.Signal
+  alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.SweepJob
+  alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.E2E.FakeOpenAIPlug
   alias Ankole.E2E.WaitHelpers
@@ -30,10 +30,11 @@ defmodule Ankole.E2E.Harness do
   alias Ankole.Plugins.SlackAdapter.Config, as: SlackConfig
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.Entry
+  alias Ankole.Signals.Bindings
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.External
+  alias Ankole.Conversations.Message, as: ConversationMessage
+  alias Ankole.Conversations.Delivery.Intent
 
   import Ecto.Query
 
@@ -48,6 +49,23 @@ defmodule Ankole.E2E.Harness do
   @multi_a_app_id "cli_chaos_multi_a"
   @secondary_app_id "cli_chaos_lark_b"
   @app_secret "secret-chaos"
+
+  @doc "Observes a provider conversation through its real binding for a transport fixture."
+  def observe_external_conversation!(agent_uid, binding_name, provider_id) do
+    {:ok, binding} = Bindings.get_binding(agent_uid, binding_name)
+
+    {:ok, conversation} =
+      Repo.transact(fn repo ->
+        External.observe_conversation_in_tx(
+          repo,
+          binding,
+          %{provider_conversation_id: provider_id, external_kind: :im_group, reply_mode: :entry},
+          DateTime.utc_now(:microsecond)
+        )
+      end)
+
+    conversation
+  end
 
   @doc "Returns the fixed timestamp used to keep scenario ordering stable."
   def base_time, do: @base_time
@@ -70,8 +88,6 @@ defmodule Ankole.E2E.Harness do
   @doc "App id used by the secondary agent's binding."
   def secondary_app_id, do: @secondary_app_id
 
-  # -- infrastructure ---------------------------------------------------------
-
   @doc """
   Cleans up committed fixtures for a serial test tagged `sandbox: false`.
 
@@ -81,7 +97,7 @@ defmodule Ankole.E2E.Harness do
   """
   def cleanup_committed_fixtures_on_exit! do
     tenant_id = Repo.tenant_id!()
-    drivers = Ankole.SignalsGateway.ActorRuntimeCase.driver_pids()
+    drivers = Ankole.SessionsCase.driver_pids()
     principals = Repo.all(from(p in Principals.Principal, select: p.uid))
     workers = Repo.all(from(w in AgentWorker, select: w.agent_uid))
     providers = Repo.all(from(p in ProviderConfigs.Provider, select: p.provider_id))
@@ -92,11 +108,11 @@ defmodule Ankole.E2E.Harness do
     scopes =
       Repo.all(from(c in Ankole.AppConfigure.AppConfig, distinct: c.scope, select: c.scope))
 
-    channels = Repo.all(from(c in Channel, select: c.id))
+    conversations = Repo.all(from(c in Conversation, select: c.id))
 
     on_exit(
       Repo.bind_tenant(fn ->
-        Ankole.SignalsGateway.ActorRuntimeCase.stop_new_drivers(drivers)
+        Ankole.SessionsCase.stop_new_drivers(drivers)
 
         Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
           created = Repo.all(from(p in Principals.Principal, where: p.uid not in ^principals))
@@ -104,8 +120,8 @@ defmodule Ankole.E2E.Harness do
 
           Repo.delete_all(from(o in Ankole.Brain.Schemas.Object, where: o.id not in ^objects))
           Repo.delete_all(from(c in Ankole.AppConfigure.AppConfig, where: c.scope not in ^scopes))
-          # Provider mirrors outlive Agents. Volatile fences have no foreign keys.
-          Repo.delete_all(from(c in Channel, where: c.id not in ^channels))
+          # Shared conversations contain the committed fixture statements.
+          Repo.delete_all(from(c in Conversation, where: c.id not in ^conversations))
           # The owner foreign key is RESTRICT. Delete Agents before their Humans.
           Repo.delete_all(
             from(p in Principals.Principal, where: p.uid in ^uids and p.type == :agent)
@@ -195,7 +211,7 @@ defmodule Ankole.E2E.Harness do
     server =
       start_supervised!(
         {Bandit,
-         plug: {FakeFeishu.Router, state: state},
+         plug: {Keyword.get(opts, :platform_plug, FakeFeishu.Router), state: state},
          scheme: :http,
          ip: {127, 0, 0, 1},
          port: 0,
@@ -273,9 +289,9 @@ defmodule Ankole.E2E.Harness do
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
 
     old_env =
-      Application.fetch_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker)
+      Application.fetch_env(:ankole, Ankole.Sessions.AIGatewayAPIKeyBroker)
 
-    Application.put_env(:ankole, Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
+    Application.put_env(:ankole, Ankole.Sessions.AIGatewayAPIKeyBroker,
       base_url: "http://host.docker.internal:#{port}/api/v1/ai-gateway"
     )
 
@@ -294,14 +310,14 @@ defmodule Ankole.E2E.Harness do
         {:ok, value} ->
           Application.put_env(
             :ankole,
-            Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker,
+            Ankole.Sessions.AIGatewayAPIKeyBroker,
             value
           )
 
         :error ->
           Application.delete_env(
             :ankole,
-            Ankole.SignalsGateway.ActorRuntime.AIGatewayAPIKeyBroker
+            Ankole.Sessions.AIGatewayAPIKeyBroker
           )
       end
 
@@ -313,8 +329,6 @@ defmodule Ankole.E2E.Harness do
 
     port
   end
-
-  # -- suite stack --------------------------------------------------------------
 
   @doc """
   Starts the full worker e2e stack one suite test needs:
@@ -328,7 +342,8 @@ defmodule Ankole.E2E.Harness do
   adds the multi-agent-room bindings, `real_llm_api_key:` switches the domain
   to the real OpenRouter provider (no fake LLM assertions), `worker: false`
   runs Worker reconciliation without an initial Worker request,
-  and `replaces_workers: true` lets the test kill, stop, or
+  `automatic_signal_wakeups: false` leaves due Session wakeups for the test
+  to drive explicitly, and `replaces_workers: true` lets the test kill, stop, or
   replace its Workers (see `start_worker!/2`).
   """
   def start_worker_e2e_stack!(opts \\ []) do
@@ -336,7 +351,7 @@ defmodule Ankole.E2E.Harness do
     assert {:ok, _state} = Ankole.E2E.FakeOpenAIState.start_link(self())
 
     fake_llm_port = start_fake_llm_server!()
-    fake_feishu = start_fake_feishu!()
+    fake_feishu = start_fake_feishu!(Keyword.get(opts, :fake_feishu_opts, []))
 
     {domain, connections} =
       case Keyword.get(opts, :real_llm_api_key) do
@@ -378,8 +393,8 @@ defmodule Ankole.E2E.Harness do
       false ->
         port = start_ai_gateway_test_http_server!()
         Ankole.E2E.DockerWorker.install_provider!(worker_endpoint(port))
-        start_worker_reconciler!()
-        ctx
+        start_worker_reconciler!(opts)
+        Map.put(ctx, :server_port, port)
 
       true ->
         agent_uids =
@@ -389,7 +404,7 @@ defmodule Ankole.E2E.Harness do
               _domain -> []
             end
 
-        worker_opts = Keyword.take(opts, [:replaces_workers])
+        worker_opts = Keyword.take(opts, [:replaces_workers, :automatic_signal_wakeups])
         Map.merge(ctx, start_worker!(agent_uids, worker_opts))
     end
   end
@@ -409,10 +424,10 @@ defmodule Ankole.E2E.Harness do
   purpose gives `replaces_workers: true`.
   """
   def start_worker!([first | _rest] = agent_uids, opts \\ []) do
-    port = start_ai_gateway_test_http_server!()
+    port = Keyword.get(opts, :server_port) || start_ai_gateway_test_http_server!()
     endpoint = worker_endpoint(port)
     Ankole.E2E.DockerWorker.install_provider!(endpoint)
-    start_worker_reconciler!()
+    start_worker_reconciler!(opts)
 
     Enum.each(agent_uids, &request_worker!/1)
 
@@ -427,20 +442,40 @@ defmodule Ankole.E2E.Harness do
   defp assert_workers_kept_on_exit!(agent_uids) do
     started = Map.new(agent_uids, &{&1, worker_identity(&1)})
 
+    # Committed fixtures need their own checkout during on_exit. Shared Sandbox
+    # fixtures must keep using the transaction that owns their Worker rows.
+    # Probe from a new process so an existing allowance cannot reuse that owner.
+    committed? =
+      Repo.bind_tenant(fn ->
+        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+          Enum.all?(started, fn {agent_uid, _identity} ->
+            not is_nil(worker_identity(agent_uid))
+          end)
+        end)
+      end)
+      |> Task.async()
+      |> Task.await(15_000)
+
     on_exit(
       Repo.bind_tenant(fn ->
-        Enum.each(started, fn {agent_uid, identity} ->
-          current = worker_identity(agent_uid)
+        check = fn ->
+          Enum.each(started, fn {agent_uid, identity} ->
+            current = worker_identity(agent_uid)
 
-          if current != identity do
-            logs = Ankole.E2E.DockerWorker.logs(Ankole.E2E.DockerWorker.container(agent_uid))
+            if current != identity do
+              logs = Ankole.E2E.DockerWorker.logs(Ankole.E2E.DockerWorker.container(agent_uid))
 
-            flunk(
-              "the Worker of #{agent_uid} changed while the test ran: #{inspect(identity)} " <>
-                "became #{inspect(current)}; logs=#{inspect(logs, printable_limit: :infinity)}"
-            )
-          end
-        end)
+              flunk(
+                "the Worker of #{agent_uid} changed while the test ran: #{inspect(identity)} " <>
+                  "became #{inspect(current)}; logs=#{inspect(logs, printable_limit: :infinity)}"
+              )
+            end
+          end)
+        end
+
+        if committed?,
+          do: Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, check),
+          else: check.()
       end)
     )
   end
@@ -494,27 +529,40 @@ defmodule Ankole.E2E.Harness do
   end
 
   # Oban runs in manual mode in tests. This process runs the Worker lifecycle
-  # jobs that a deployment runs in the `agent_workers` queue and in cron: it
-  # drains the due reconciliations every 200 ms and sweeps every 5 seconds,
-  # with the provider instances every 30 seconds.
-  defp start_worker_reconciler! do
-    start_supervised!(%{
+  # and durable Session wakeup jobs that a deployment consumes. It drains
+  # due jobs every 200 ms and sweeps every 5 seconds, with the provider
+  # instances every 30 seconds.
+  defp start_worker_reconciler!(opts) do
+    automatic_signal_wakeups? = Keyword.get(opts, :automatic_signal_wakeups, true)
+
+    spec = %{
       id: :e2e_worker_reconciler,
-      start: {Task, :start_link, [Repo.bind_tenant(fn -> reconcile_workers(0) end)]}
-    })
+      start:
+        {Task, :start_link,
+         [Repo.bind_tenant(fn -> reconcile_workers(0, automatic_signal_wakeups?) end)]}
+    }
+
+    case start_supervised(spec) do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
+      error -> flunk("E2E runtime reconciler did not start: #{inspect(error)}")
+    end
   end
 
-  defp reconcile_workers(round) do
+  defp reconcile_workers(round, automatic_signal_wakeups?) do
     if rem(round, 25) == 0 do
       :ok = SweepJob.perform(%Oban.Job{args: %{"objects" => rem(round, 150) == 0}})
     end
 
-    Oban.drain_queue(queue: :agent_workers, with_scheduled: DateTime.utc_now())
-    Process.sleep(200)
-    reconcile_workers(round + 1)
-  end
+    now = DateTime.utc_now(:microsecond)
+    Oban.drain_queue(queue: :agent_workers, with_scheduled: now)
 
-  # -- domain setup -----------------------------------------------------------
+    if automatic_signal_wakeups?,
+      do: Oban.drain_queue(queue: :conversations, with_scheduled: now, with_limit: 20)
+
+    Process.sleep(200)
+    reconcile_workers(round + 1, automatic_signal_wakeups?)
+  end
 
   @doc """
   Creates an e2e agent with the human owner every Agent now requires.
@@ -751,42 +799,40 @@ defmodule Ankole.E2E.Harness do
              })
   end
 
-  # -- ingress waits ----------------------------------------------------------
-
   @doc """
-  Waits for one actor event created from a provider entry.
+  Waits for one Signal created from a provider entry.
 
   WS dispatch is asynchronous. The wait loop runs due Oban batch jobs and
-  checks whether the exact actor event exists.
+  checks whether the exact Signal exists.
   """
-  def actor_event_by_source_entry_id!(agent_uid, source_entry_id, timeout_ms \\ 20_000) do
+  def signal_by_provider_message_id!(agent_uid, provider_message_id, timeout_ms \\ 20_000) do
     case WaitHelpers.wait_until(WaitHelpers.deadline(timeout_ms), fn ->
            finalize_due_inbound_batch_events!()
-           actor_events_for(agent_uid, source_entry_id) |> List.first()
+           signals_for(agent_uid, provider_message_id) |> List.first()
          end) do
-      {:ok, %ActorEvent{} = input} ->
+      {:ok, %Signal{} = input} ->
         input
 
       :timeout ->
-        flunk("no actor event for source_entry_id=#{source_entry_id} agent_uid=#{agent_uid}")
+        flunk("no Signal for provider_message_id=#{provider_message_id} agent_uid=#{agent_uid}")
     end
   end
 
-  @doc "Returns the newest pending (not completed) actor event for one entry, or nil."
-  def pending_actor_event(agent_uid, source_entry_id) do
-    ActorEvent
+  @doc "Returns the newest pending (not completed) Signal for one entry, or nil."
+  def pending_signal(agent_uid, provider_message_id) do
+    Signal
     |> where([input], input.agent_uid == ^agent_uid)
-    |> where([input], input.source_entry_id == ^source_entry_id)
+    |> where([input], input.provider_message_id == ^provider_message_id)
     |> where([input], is_nil(input.completed_at))
     |> order_by([input], desc: input.inserted_at, desc: input.id)
     |> limit(1)
     |> Repo.one()
   end
 
-  defp actor_events_for(agent_uid, source_entry_id) do
-    ActorEvent
+  defp signals_for(agent_uid, provider_message_id) do
+    Signal
     |> where([input], input.agent_uid == ^agent_uid)
-    |> where([input], input.source_entry_id == ^source_entry_id)
+    |> where([input], input.provider_message_id == ^provider_message_id)
     |> order_by([input], desc: input.inserted_at, desc: input.id)
     |> Repo.all()
   end
@@ -804,39 +850,42 @@ defmodule Ankole.E2E.Harness do
     end
   end
 
-  def wait_for_signal_entry!(signal_channel_id, source_entry_id, timeout_ms \\ 15_000) do
+  def message_observation(provider_conversation_id, provider_message_id) do
+    case External.get_conversation(Repo, provider_conversation_id) do
+      %Conversation{id: id} -> External.get_message(Repo, id, provider_message_id)
+      nil -> nil
+    end
+  end
+
+  def wait_for_message_observation!(
+        provider_conversation_id,
+        provider_message_id,
+        timeout_ms \\ 15_000
+      ) do
     case WaitHelpers.wait_until(WaitHelpers.deadline(timeout_ms), fn ->
-           Repo.get_by(Entry,
-             signal_channel_id: signal_channel_id,
-             source_entry_id: source_entry_id
-           )
+           message_observation(provider_conversation_id, provider_message_id)
          end) do
-      {:ok, %Entry{} = entry} ->
-        entry
+      {:ok, %{message: %ConversationMessage{}} = observation} -> observation
+      :timeout -> flunk("no message for #{provider_conversation_id} / #{provider_message_id}")
+    end
+  end
+
+  @doc "Waits until a recalled provider statement and its reference are removed."
+  def wait_for_message_removed!(
+        provider_conversation_id,
+        provider_message_id,
+        timeout_ms \\ 15_000
+      ) do
+    case WaitHelpers.wait_until(WaitHelpers.deadline(timeout_ms), fn ->
+           is_nil(message_observation(provider_conversation_id, provider_message_id)) || nil
+         end) do
+      {:ok, true} ->
+        :ok
 
       :timeout ->
-        flunk("no signal entry for #{signal_channel_id} / #{source_entry_id}")
+        flunk("message #{provider_conversation_id}/#{provider_message_id} was not removed")
     end
   end
-
-  @doc """
-  Waits until the recall of one signal entry lands (mirror row gone or removed).
-  """
-  def wait_for_signal_entry_removed!(signal_channel_id, source_entry_id, timeout_ms \\ 15_000) do
-    case WaitHelpers.wait_until(WaitHelpers.deadline(timeout_ms), fn ->
-           is_nil(
-             Repo.get_by(Entry,
-               signal_channel_id: signal_channel_id,
-               source_entry_id: source_entry_id
-             )
-           ) || nil
-         end) do
-      {:ok, true} -> :ok
-      :timeout -> flunk("signal entry #{signal_channel_id}/#{source_entry_id} was not removed")
-    end
-  end
-
-  # -- turn driving -----------------------------------------------------------
 
   def finalize_due_inbound_batch_events! do
     result =
@@ -850,8 +899,8 @@ defmodule Ankole.E2E.Harness do
     :ok
   end
 
-  def ensure_input_driver!(%ActorEvent{} = event, _now) do
-    with {:ok, pid} <- Ankole.Conversations.ensure_driver(event) do
+  def ensure_input_driver!(%Signal{} = event, _now) do
+    with {:ok, pid} <- Ankole.Sessions.ensure_driver(event) do
       send(pid, {:inbox, event.id})
       {:ok, %{status: :driving, pid: pid}}
     end
@@ -868,30 +917,28 @@ defmodule Ankole.E2E.Harness do
            "input #{input.id} had no conversation driver"
   end
 
-  @doc "Asserts one actor event finished, either by completion or recall hard delete."
-  def assert_actor_event_finished!(actor_event_id) do
+  @doc "Asserts one Signal finished, either by completion or recall hard delete."
+  def assert_signal_finished!(signal_id) do
     assert {:ok, :finished} =
              WaitHelpers.wait_until(WaitHelpers.deadline(30_000), fn ->
-               case Repo.get(ActorEvent, actor_event_id) do
+               case Repo.get(Signal, signal_id) do
                  nil -> :finished
-                 %ActorEvent{completed_at: %DateTime{}} -> :finished
-                 %ActorEvent{} -> nil
+                 %Signal{completed_at: %DateTime{}} -> :finished
+                 %Signal{} -> nil
                end
              end)
   end
 
-  @doc "Asserts one actor event completed with a durable completion timestamp."
-  def assert_actor_event_completed!(actor_event_id) do
-    assert %DateTime{} = Repo.get!(ActorEvent, actor_event_id).completed_at
+  @doc "Asserts one Signal completed with a durable completion timestamp."
+  def assert_signal_completed!(signal_id) do
+    assert %DateTime{} = Repo.get!(Signal, signal_id).completed_at
   end
 
-  # -- outbox dispatch and platform-visible assertions --------------------------
-
   @doc """
-  Dispatches due outbox rows through the real Lark adapter (real HTTP to the
+  Dispatches due intent rows through the real Lark adapter (real HTTP to the
   fake Feishu server).
   """
-  def run_outbox_dispatch! do
+  def run_intent_dispatch! do
     Oban.drain_queue(
       queue: :outbox,
       with_scheduled: DateTime.utc_now(:microsecond),
@@ -900,22 +947,22 @@ defmodule Ankole.E2E.Harness do
   end
 
   @doc """
-  Dispatches one committed outbox row and asserts the message became visible on
+  Dispatches one committed intent row and asserts the message became visible on
   the fake Feishu platform with the expected text, operation, and target.
 
-  Returns the updated (succeeded) outbox row.
+  Returns the updated (succeeded) intent row.
   """
-  def dispatch_and_assert_lark_outbox(
+  def dispatch_and_assert_lark_intent(
         fake_feishu,
-        %OutboxEntry{} = outbox,
+        %Intent{} = intent,
         expected_text,
         operation,
         target
       ) do
-    assert outbox.payload["text"] =~ expected_text
-    sent = dispatch_outbox_succeeded!(outbox)
+    assert intent.payload["text"] =~ expected_text
+    sent = dispatch_succeeded!(intent)
 
-    message = platform_message!(fake_feishu, sent.created_source_entry_id)
+    message = platform_message!(fake_feishu, sent.created_provider_message_id)
     assert message.sender == :bot
     assert message.msg_type == "text"
     assert message.text =~ expected_text
@@ -925,18 +972,18 @@ defmodule Ankole.E2E.Harness do
 
   @doc """
   Asserts an ordinary streamed AI reply already landed on the fake Feishu
-  platform and has a final `signal_gateway_entries.ai_message_id` mirror.
+  platform and has a committed Message with its provider reference.
   """
   def assert_lark_final_reply(
         fake_feishu,
-        %Entry{} = reply,
+        %{message: %ConversationMessage{}, external_ref: _} = reply,
         expected_text,
         operation,
         target
       ) do
     assert final_reply_text(reply) =~ expected_text
 
-    message = platform_message!(fake_feishu, reply.source_entry_id)
+    message = platform_message!(fake_feishu, reply.external_ref.provider_message_id)
     assert message.sender == :bot
     assert message.msg_type == "text"
     assert message.text =~ expected_text
@@ -945,27 +992,27 @@ defmodule Ankole.E2E.Harness do
   end
 
   @doc """
-  Dispatches one attachment outbox row and asserts the platform-visible file
+  Dispatches one attachment intent row and asserts the platform-visible file
   message carries the content the worker actually produced.
   """
-  def dispatch_and_assert_lark_file_outbox(fake_feishu, %OutboxEntry{} = outbox, target) do
+  def dispatch_and_assert_lark_file_intent(fake_feishu, %Intent{} = intent, target) do
     # The attachment row carries the file and no visible text. The answer rides
     # on the final reply row, so no adapter posts the same wall twice.
-    assert is_nil(outbox.payload["text"])
+    assert is_nil(intent.payload["text"])
 
     assert [
              %{
-               "path" => "sent/" <> _digest_and_name,
+               "path" => "reports/chaos-report.txt",
                "blob_ref" => blob_ref,
                "name" => "chaos-report.txt"
              }
-           ] = outbox.payload["attachments"]
+           ] = intent.payload["attachments"]
 
     assert is_binary(blob_ref)
 
-    sent = dispatch_outbox_succeeded!(outbox)
+    sent = dispatch_succeeded!(intent)
 
-    message = platform_message!(fake_feishu, sent.created_source_entry_id)
+    message = platform_message!(fake_feishu, sent.created_provider_message_id)
     assert message.sender == :bot
     assert message.msg_type == "file"
     assert {:ok, %{"file_key" => file_key}} = JSON.decode(message.content)
@@ -980,18 +1027,18 @@ defmodule Ankole.E2E.Harness do
   end
 
   @doc """
-  Runs one outbox dispatch pass and asserts this row succeeded; returns the
-  updated row (with `created_source_entry_id` from the provider response).
+  Runs one intent dispatch pass and asserts this row succeeded; returns the
+  updated row (with `created_provider_message_id` from the provider response).
   """
-  def dispatch_outbox_succeeded!(%OutboxEntry{outbound_key: key}) do
-    results = run_outbox_dispatch!()
+  def dispatch_succeeded!(%Intent{outbound_key: key}) do
+    results = run_intent_dispatch!()
 
-    sent = Repo.get_by!(OutboxEntry, outbound_key: key)
+    sent = Repo.get_by!(Intent, outbound_key: key)
 
-    assert sent.status == :succeeded,
-           "outbox #{key} did not dispatch successfully: #{inspect(sent)} jobs=#{inspect(results)}"
+    assert sent.status == :sent,
+           "intent #{key} did not dispatch successfully: #{inspect(sent)} jobs=#{inspect(results)}"
 
-    assert is_binary(sent.created_source_entry_id)
+    assert is_binary(sent.created_provider_message_id)
     sent
   end
 
@@ -1004,9 +1051,7 @@ defmodule Ankole.E2E.Harness do
   defp assert_platform_target(message, :reply, target), do: assert(message.reply_to == target)
   defp assert_platform_target(message, :post, chat_id), do: assert(message.chat_id == chat_id)
 
-  defp final_reply_text(%Entry{text: text}), do: text || ""
-
-  # -- AI message (Responses) tool-result surface -------------------------------
+  defp final_reply_text(%{message: %ConversationMessage{text: text}}), do: text || ""
 
   @doc "Returns function_call items (optionally by tool name) across messages."
   def function_call_items(messages, tool_name \\ nil) do
@@ -1205,8 +1250,6 @@ defmodule Ankole.E2E.Harness do
       _empty -> %{"raw" => value}
     end
   end
-
-  # -- misc ---------------------------------------------------------------------
 
   @doc """
   Reads the persisted trajectory messages of one Job Turn in position order.

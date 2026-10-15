@@ -1,6 +1,5 @@
-//! Pure authorization rule engine shared by Bun and Elixir callers.
-//!
-//! This module evaluates explicit snapshots only. It does not know how to load
+//! Shared by Bun and Elixir callers. This module evaluates explicit snapshots only.
+//! It does not know how to load
 //! Principals, groups, grants, or request context from PostgreSQL or any host
 //! runtime state.
 

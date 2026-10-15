@@ -1,5 +1,60 @@
 # Changelog
 
+## Version 2.0.0-alpha.5 (2026-10-16)
+
+- Route every stimulus through `Signals` with one durable intake, source
+  deduplication, authorization snapshots, and committed Driver wakeups. Keep
+  private kernel provenance separate from external CloudEvents data.
+  Reject a route move when the destination already has an enabled route with
+  the same name, including CloudEvents routes.
+- Store external rooms as shared Conversations. Agents in one room keep
+  separate Sessions and model state while reading the same messages and
+  standing orders. Migrate history, files, Brain sources, and delivery records
+  without copying a room for each Agent. Degrade a removed intervention anchor
+  while preserving its judgment and each Agent's progress.
+  Share deletion guards across observers so delayed input cannot restore a
+  withdrawn message through another Agent or binding.
+- Let cron reports appear in native conversations and read new statements from
+  the current model branch. Replay completed model history exactly as stored.
+  Background edits leave a running turn unchanged; withdrawal of only its read
+  background stops it with a context-withdrawn notice. Explicit source withdrawal
+  keeps its existing cancellation behavior.
+- Preserve pending interactions for undeclared Signal types, including external
+  CloudEvents types. Rename provider removal to `conversation.message.removed`
+  and migrate stored Signals. Move preview recovery state to Delivery-owned
+  records and use one native/external statement operation.
+- Replace SignalsGateway with Conversation observation and Delivery contracts
+  across all ten channel plugins. Document the final architecture and the
+  source-backed comparison with deepseek-harness, pi durable, and qm in all
+  four website languages.
+- After sign-in, Ankole opens the new Workplace at `/workplace`: an empty
+  frame with Home and Chat sidebar tabs. The Workplace has no Console link;
+  open the Console at its configured path. First-time setup still opens the
+  Console. `ANKOLE_SITE_ADMIN_CONSOLE_PATH` cannot start with `/workplace`.
+  Signing out from either app clears the browser's selected data tenant.
+- Bring the shared uikit sidebar to the design language and add tabs whose
+  active tab is a paper control.
+- Keep Console drafts and saved values correct when decryption, saving, or
+  restore finishes after an edit or selection change. Preserve unsent WeCom
+  text across stream rollover, and compact the Response branch the caller
+  selected.
+- Keep Session finalization in Run and bind rendered fetch during Worker
+  execution preparation. Share workspace locking in Fence and the raw-history
+  rule for local compaction. Remove unused gateway wrappers and restrict
+  internal compaction interfaces. Make native compaction checks reject local
+  fallback.
+- Rename the execution runtime to `Sessions`, including its progress and
+  tool-receipt tables and saved Oban worker names. The upgrade keeps stored
+  progress, receipts, and queued work. Stop old control-plane replicas before
+  the upgrade.
+- Chat with active Agents in Workplace. Replies appear as they are generated,
+  and committed messages remain after a page reload. Retries with the same
+  message ID do not add a second message. Disabling an Agent keeps its chats
+  read-only; deleting the disabled Agent also deletes its native chats.
+- Remove source comments that restate the following code, explain ordinary
+  language behavior, or spell out a workaround. Comments that state a
+  constraint held outside the local code stay.
+
 ## Version 2.0.0-alpha.4 (2026-10-15)
 
 - Allow 2 ms of rounding in the native Retry-After timing test.

@@ -5,13 +5,13 @@ order: 124
 description: コントロールプレーンの計画と質問、Codex Job の入力経路。
 ---
 
-`todo` と `clarify` は `Ankole.Conversations.Tools.Session` が所有するコントロールプレーンのツールです。Driver が引数を検証し、AIGateway でモデル向けの結果を保存して現在の Run に反映します。Worker はメイン Turn のこれらのツールを所有しません。
+`todo` と `clarify` は `Ankole.Sessions.Tools.Session` が所有するコントロールプレーンのツールです。Driver が引数を検証し、AIGateway でモデル向けの結果を保存して現在の Run に反映します。Worker はメイン Turn のこれらのツールを所有しません。
 
 ## タスクリスト
 
 `todo` はリストを読み、置き換え、または項目 ID で統合します。状態は `pending`、`in_progress`、`completed`、`cancelled` で、宣言は最大 256 項目を受け付けます。指示は 3 ステップ以上の複雑な作業で使用し、優先順に並べ、進行中を 1 項目にし、完了を即時記録し、失敗時に修正版を追加するよう求めます。
 
-リストは `Ankole.Conversations.Run` の作業状態です。復旧時は現在の Run の履歴に保存された成功ツール呼び出しから再構築します。新しい Session は他の Session のリストを継承しません。Session 間で共有する知識は [Brain](../brain/) に保存します。
+リストは `Ankole.Sessions.Run` の作業状態です。復旧時は現在の Run の履歴に保存された成功ツール呼び出しから再構築します。新しい Session は他の Session のリストを継承しません。Session 間で共有する知識は [Brain](../brain/) に保存します。
 
 ## 1 つの判断質問
 

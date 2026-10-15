@@ -4,8 +4,18 @@ The Slack Adapter receives messages from one Slack app, sends Agent replies,
 and imports people and user groups. Chat and identity use separate settings.
 The control plane keeps all Slack tokens.
 
-Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
+Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+[Sessions](../Sessions.md), [Principal](../Principal.md), and
 [Plugins](../Plugins.md) for the common message, identity, and Plugin rules.
+
+## Provider and Public Identity
+
+The adapter reports an opaque `provider_conversation_id` and a
+`provider_message_id`. Conversations resolves these to a shared public
+Conversation UUID and Message UUID. All Agent observers of the same provider
+conversation in one tenant read those same public facts. Each participating
+Agent has its own `conversation:<public UUID>` Session; a Binding is its
+observation and delivery route, not the owner of the platform room.
 
 ## Current IDs and Features
 
@@ -14,7 +24,7 @@ Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
 | Plugin ID | `slack-adapter` |
 | API version | `1` |
 | Signal adapter ID | `slack` |
-| Signal configuration | `signals_gateway.slack.bindings.<id>` |
+| Signal configuration | `signals.slack.bindings.<id>` |
 | Identity adapter ID | `slack` |
 | Identity configuration | `principals.identity_providers.slack.<id>` |
 | Provider library | `libs/slack_openapi` |
@@ -74,7 +84,7 @@ The Socket Mode client processes an event before it acknowledges it. Slack can
 send the event again after a crash. Database keys prevent duplicate Ankole
 records.
 
-## Receive Messages and Learn Channels
+## Observe Messages and Provider Conversations
 
 The adapter accepts messages, deletions, reactions, Block Kit actions, and
 channel events. Public and private channel rename events use their separate
@@ -82,15 +92,16 @@ Slack event types. The adapter also accepts user and user-group events for
 directory sync.
 
 The adapter normalizes each accepted chat event and submits it through
-SignalsGateway ingress. SignalsGateway owns the provider mirror and creates
-ActorEvents.
+Conversations.Observe. Conversations owns shared Messages and external
+references. Required work enters `Ankole.Signals.accept_in_tx/2`.
 
-The stable channel ID is `slack:<channel_id>`. The message timestamp is the
-source entry ID. A reply uses the root message timestamp as its reply target.
-Thread identity uses the channel ID and root timestamp.
+The opaque `provider_conversation_id` is `slack:<channel_id>`. The message timestamp is the
+provider message ID. A reply uses the root message timestamp as its reply target.
+Thread identity uses the Slack channel ID and root timestamp; it is separate
+from the public Conversation UUID.
 
 Direct messages give explicit input. A mention of the current bot makes a group
-message explicit. SignalsGateway applies the configured group policy to other
+message explicit. Conversations applies the configured group policy to other
 group messages. After the Agent replies in a Slack thread, later human replies
 in that thread stay explicit without another mention.
 
@@ -115,7 +126,7 @@ in PostgreSQL. Slack only transports the source events.
 
 ## Send Replies
 
-The adapter sends only operations already stored in the outbox. It uses
+The adapter sends only operations already stored as Delivery intents. It uses
 `chat.postMessage`, `chat.update`, `chat.delete`, and reaction methods. It
 renders rich replies with its own Block Kit renderer and text with Slack
 `mrkdwn`. It does not call another chat adapter or translate another provider's
@@ -133,7 +144,7 @@ managed action, and it repaints answered or superseded controls. Slack message
 blocks do not provide a submit action for free-text input, so a free-text prompt
 asks the user to reply in the same Slack thread.
 
-The adapter supports one outbound attachment per outbox row. It uses Slack
+The adapter supports one outbound attachment per Delivery intent. It uses Slack
 external upload operations for that attachment: it requests an upload URL with
 `files.getUploadURLExternal`, uploads the bytes, and completes the upload with
 `files.completeUploadExternal`. The file row does not repeat the final answer as
@@ -142,7 +153,7 @@ create more than one Slack message, and all reply chunks keep the same thread.
 
 Retryable transport, rate-limit, and server failures keep their retry schedule.
 Deterministic Slack rejections, including a missing `files:write` scope, block
-the outbox row until an operator repairs and saves the binding. The stored error
+the Delivery intent until an operator repairs and saves the binding. The stored error
 contains the Slack error code and required scope without storing the raw response.
 
 Slack has no general idempotency key for `chat.postMessage`. Reconciliation
@@ -175,8 +186,8 @@ members, the adapter requests the complete member list.
 
 ## Restart and Recovery
 
-AppConfigure stores encrypted settings. SignalsGateway records messages, Agent
-work, and replies. Principals and AuthZ store people, groups, memberships, and
+AppConfigure stores encrypted settings. Conversations records public Messages and Delivery intents. Signals stores
+authorized stimuli; Sessions owns Agent execution and recovery. Principals and AuthZ store people, groups, memberships, and
 grants.
 
 A control-plane restart rebuilds Socket Mode connections. Startup jobs refresh

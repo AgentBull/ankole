@@ -65,12 +65,12 @@ export type AgentLibraryDocumentItem = {
  * One concrete fire: a one-shot checkback or one slot of a cron schedule.
  */
 export type ScheduledEventItem = {
-  actor_event_id: string | null
   agent_uid: string
   automation_job_id: number | null
   automation_job_run_id: number | null
-  binding_name: string
+  binding_name: string | null
   cancelled_at: string | null
+  conversation_id: string | null
   cron_fire_slot_at: string | null
   cron_schedule_id: string | null
   due_at: string
@@ -86,15 +86,15 @@ export type ScheduledEventItem = {
     [key: string]: unknown
   }
   origin_ai_message_id: string | null
+  provider_message_id: string | null
   provider_thread_id: string | null
   requested_at: string
   session_id: string
-  signal_channel_id: string | null
-  source_actor_event_id: string | null
-  source_entry_id: string | null
+  signal_id: string | null
   source_provenance: {
     [key: string]: unknown
   }
+  source_signal_id: string | null
   status: 'scheduled' | 'fired' | 'cancelled' | 'failed'
   timezone: string
   tool_call_id: string | null
@@ -183,6 +183,17 @@ export type AppConfigurationResponse = {
 }
 
 /**
+ * ConversationStandingOrdersItem
+ */
+export type ConversationStandingOrdersItem = {
+  conversation_id: string
+  orders?: string | null
+  set_by?: string | null
+  title?: string | null
+  updated_at?: string | null
+}
+
+/**
  * PrincipalGroupCreateRequest
  */
 export type PrincipalGroupCreateRequest = {
@@ -197,6 +208,14 @@ export type PrincipalGroupCreateRequest = {
    * Lowercase stable policy key
    */
   name: string
+}
+
+/**
+ * CloudEventEndpointCreateRequest
+ */
+export type CloudEventEndpointCreateRequest = {
+  expires_at: string
+  label: string
 }
 
 /**
@@ -850,11 +869,11 @@ export type BrainPromotionResultResponse = {
  */
 export type AgentFileEntry = {
   content_type: string
+  conversation_id: string | null
+  message_id: string | null
   path: string
-  signal_channel_id: string | null
   size: number
   source: 'inbound' | 'generated' | 'sent' | 'agent' | 'console'
-  source_entry_id: string | null
   updated_at: string
 }
 
@@ -916,7 +935,7 @@ export type AiGatewayConversationItem = {
   ended_at?: string | null
   id: string
   inserted_at: string
-  kind: 'signal' | 'dreaming' | 'job' | 'responses_api' | 'custom'
+  kind: 'conversation' | 'signal' | 'dreaming' | 'job' | 'cron' | 'responses_api' | 'custom'
   message_count: number
   metadata: {
     [key: string]: unknown
@@ -1133,7 +1152,7 @@ export type BrainObjectSummaryResponse = {
 export type CronScheduleItem = {
   agent_uid: string
   automation_job_id: number | null
-  binding_name: string
+  binding_name: string | null
   /**
    * Origin of the schedule; `kind` names the writer.
    */
@@ -1244,7 +1263,7 @@ export type BackgroundAgentJobItem = {
     [key: string]: unknown
   }
   runtime_thread_id?: string | null
-  source_actor_event_id?: string | null
+  source_signal_id?: string | null
   source_tool_call_id: string
   started_at?: string | null
   status: 'queued' | 'running' | 'waiting_on_user' | 'succeeded' | 'failed' | 'stopped'
@@ -1268,6 +1287,14 @@ export type BackgroundAgentJobItem = {
 export type BrainRecallResult = {
   chunks: Array<BrainRecallChunk>
   claims: Array<BrainRecallClaim>
+}
+
+/**
+ * CloudEventEndpointCreateResponse
+ */
+export type CloudEventEndpointCreateResponse = {
+  token: string
+  webhook_endpoint: WebhookEndpointItem
 }
 
 /**
@@ -1306,7 +1333,9 @@ export type AppConfigurationItem = {
  */
 export type SignalBindingUpdateRequest = {
   config: JsonValue
+  filters?: JsonValue
   group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
+  target?: JsonValue
   target_agent_uid: string
   unmatched_sender_policy?: 'manual_review' | 'create_standalone'
 }
@@ -1339,16 +1368,6 @@ export type BrainPageLinks = {
     link_type: string
     to: string
   }>
-}
-
-/**
- * SignalChannelStandingOrdersWriteRequest
- */
-export type SignalChannelStandingOrdersWriteRequest = {
-  /**
-   * Full replacement standing-orders text; empty clears them.
-   */
-  orders: string
 }
 
 /**
@@ -1526,13 +1545,13 @@ export type ProviderHostedCapabilities = {
  * SignalAdapterItem
  */
 export type SignalAdapterItem = {
-  adapter_category: 'enterprise_im' | 'consumer_im' | 'email'
+  adapter_category: 'enterprise_im' | 'consumer_im' | 'email' | 'event_source'
   adapter_id: string
   display_name?: LocalizedText
   fields: Array<SignalAdapterField>
-  group_message_mode_field: SignalAdapterField
+  group_message_mode_field: SignalAdapterField | null
   plugin_id?: string | null
-  unmatched_sender_policy_field: SignalAdapterField
+  unmatched_sender_policy_field: SignalAdapterField | null
 }
 
 /**
@@ -1772,22 +1791,23 @@ export type IdentityMappingBindRequest = {
  * WebhookEndpointItem
  */
 export type WebhookEndpointItem = {
-  agent_uid: string
+  agent_uid: string | null
   automation_job_id?: number | null
-  binding_name: string
+  binding_name: string | null
   cancelled_at?: string | null
+  conversation_id?: string | null
   created_at: string
+  event_format?: 'raw' | 'cloudevents'
   expires_at: string
   fired_at?: string | null
   id: string
   label: string
   mode: 'one_shot' | 'standing'
+  provider_message_id?: string | null
   provider_thread_id?: string | null
-  session_id: string
-  signal_channel_id?: string | null
-  source_actor_event_id?: string | null
-  source_entry_id?: string | null
+  session_id: string | null
   source_provenance?: JsonValue
+  source_signal_id?: string | null
   status: 'armed' | 'active' | 'fired' | 'expired' | 'cancelled'
   updated_at: string
 }
@@ -1797,7 +1817,9 @@ export type WebhookEndpointItem = {
  */
 export type SignalBindingWriteRequest = {
   config: JsonValue
+  filters?: JsonValue
   group_message_mode?: 'addressed_only' | 'observe_all' | 'may_intervene'
+  target?: JsonValue
   unmatched_sender_policy?: 'manual_review' | 'create_standalone'
 }
 
@@ -1974,7 +1996,7 @@ export type ModelProfileWriteRequest = {
  * ScheduleCronWriteRequest
  */
 export type ScheduleCronWriteRequest = {
-  binding_name: string
+  binding_name?: string | null
   delivery: ScheduleDelivery
   idempotency_key: string
   name: string
@@ -2142,7 +2164,7 @@ export type BrainRecallChunk = {
 /**
  * ScheduleDelivery
  *
- * Where the result of a fire goes. The first target is primary and its binding must equal the schedule `binding_name`. When `quiet_success` is true, a fire with nothing to report sends no message. An update that omits `quiet_success` keeps the stored value.
+ * Where the result of a fire goes. A target is a native conversation ID or an external reply route. An external primary target uses the schedule `binding_name`; a native primary target has no binding. When `quiet_success` is true, a fire with nothing to report sends no message. An update that omits `quiet_success` keeps the stored value.
  */
 export type ScheduleDelivery = {
   quiet_success?: boolean
@@ -2177,11 +2199,15 @@ export type AiGatewayChatGptLoginStartRequest = {
 /**
  * ScheduleDeliveryTarget
  */
-export type ScheduleDeliveryTarget = {
-  binding_name: string
-  provider_thread_id?: string
-  signal_channel_id: string
-}
+export type ScheduleDeliveryTarget =
+  | {
+      conversation_id: string
+    }
+  | {
+      binding_name: string
+      conversation_id: string
+      provider_thread_id?: string
+    }
 
 /**
  * BrainContradictionDecideRequest
@@ -2243,13 +2269,13 @@ export type BrainRecallClaim = {
   claim: string
   claim_type: string
   confidence?: number | null
+  conversation_id?: string | null
   holder?: string | null
   id: string
   kind?: string | null
   notability?: string | null
   object_slug?: string | null
   provenance?: string | null
-  signal_gateway_channel_id?: string | null
   since_date?: string | null
   until_date?: string | null
   valid_from?: string | null
@@ -2348,6 +2374,7 @@ export type BrainClaim = {
   claim: string
   claim_type: 'fact' | 'take'
   confidence?: number | null
+  conversation_id?: string | null
   created_at: string
   expired_at?: string | null
   graded_confidence?: number | null
@@ -2361,7 +2388,6 @@ export type BrainClaim = {
   resolved_at?: string | null
   resolved_outcome?: boolean | null
   resolved_quality?: string | null
-  signal_gateway_channel_id?: string | null
   since_date?: string | null
   superseded_by?: string | null
   until_date?: string | null
@@ -2397,11 +2423,11 @@ export type AutomationJobItem = {
   id: number
   label: string
   owner_session_id: string
+  provider_message_id?: string | null
   reply_route: JsonValue
   runs: Array<AutomationJobRunItem>
-  source_actor_event_id?: string | null
-  source_entry_id?: string | null
   source_provenance: JsonValue
+  source_signal_id?: string | null
   status: 'active' | 'cancelled' | 'expired'
   updated_at: string
   wake_on_failure: boolean
@@ -2542,13 +2568,6 @@ export type BackgroundAgentJobTurnToolExecutionMechanism = {
   execution_mechanism: 'local_dynamic' | 'provider_hosted'
   name: string
   namespace?: string
-}
-
-/**
- * SignalChannelStandingOrdersResponse
- */
-export type SignalChannelStandingOrdersResponse = {
-  standing_orders: SignalChannelStandingOrdersItem
 }
 
 /**
@@ -2707,6 +2726,13 @@ export type BackgroundAgentJobResponse = {
 }
 
 /**
+ * ConversationStandingOrdersResponse
+ */
+export type ConversationStandingOrdersResponse = {
+  standing_orders: ConversationStandingOrdersItem
+}
+
+/**
  * ConsoleApiErrorDetail
  */
 export type ConsoleApiErrorDetail = {
@@ -2722,17 +2748,6 @@ export type ConsoleApiErrorDetail = {
 export type TokenQuotaResponse = {
   token_quota: TokenQuota | null
   usage: TokenQuotaUsage | null
-}
-
-/**
- * SignalChannelStandingOrdersItem
- */
-export type SignalChannelStandingOrdersItem = {
-  channel_id: string
-  channel_name?: string | null
-  orders?: string | null
-  set_by?: string | null
-  updated_at?: string | null
 }
 
 /**
@@ -2839,10 +2854,12 @@ export type PrincipalListResponse = {
 export type SignalBindingItem = {
   adapter: string
   agent_uid: string
-  config_key: string
+  config_key: string | null
   config_ref: string
   enabled: boolean
+  filters?: JsonValue
   name: string
+  target?: JsonValue
   unaddressed_group_message_policy: 'ignore' | 'record_only' | 'may_intervene'
   unavailable_reason?: string | null
   unmatched_sender_policy: 'manual_review' | 'create_standalone'
@@ -2893,7 +2910,7 @@ export type WebhookEndpointListResponse = {
 /**
  * AgentSession
  *
- * One actor session surfaced from durable schedule, event, or job rows.
+ * One Session surfaced from durable schedule, Signal, or job rows.
  */
 export type AgentSession = {
   /**
@@ -2985,7 +3002,7 @@ export type SignalDeliveryFailureItem = {
   outbound_key: string
   possible_duplicate: boolean
   state: 'blocked' | 'permanent' | 'exhausted'
-  status: 'failed' | 'unknown_after_send'
+  status: 'failed' | 'expired' | 'unknown'
   updated_at: string
 }
 
@@ -3182,6 +3199,16 @@ export type AgentFileMoveRequest = {
  */
 export type WorkerProviderResponse = {
   worker_provider: WorkerProvider
+}
+
+/**
+ * ConversationStandingOrdersWriteRequest
+ */
+export type ConversationStandingOrdersWriteRequest = {
+  /**
+   * Full replacement standing-orders text; empty clears them.
+   */
+  orders: string
 }
 
 export type AnkoleWebAiGatewayFilesControllerContentData = {
@@ -3565,6 +3592,35 @@ export type AnkoleWebAiGatewayFilesControllerShowResponses = {
 export type AnkoleWebAiGatewayFilesControllerShowResponse =
   AnkoleWebAiGatewayFilesControllerShowResponses[keyof AnkoleWebAiGatewayFilesControllerShowResponses]
 
+export type AnkoleWebWebhookEndpointControllerCancelData = {
+  body?: never
+  path: {
+    webhook_endpoint_id: string
+  }
+  query?: never
+  url: '/api/v1/webhook-endpoints/{webhook_endpoint_id}'
+}
+
+export type AnkoleWebWebhookEndpointControllerCancelErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWebhookEndpointControllerCancelError =
+  AnkoleWebWebhookEndpointControllerCancelErrors[keyof AnkoleWebWebhookEndpointControllerCancelErrors]
+
+export type AnkoleWebWebhookEndpointControllerCancelResponses = {
+  /**
+   * Webhook endpoint
+   */
+  200: WebhookEndpointResponse
+}
+
+export type AnkoleWebWebhookEndpointControllerCancelResponse =
+  AnkoleWebWebhookEndpointControllerCancelResponses[keyof AnkoleWebWebhookEndpointControllerCancelResponses]
+
 export type AnkoleWebTenantControllerIndexData = {
   body?: never
   path?: never
@@ -3926,67 +3982,6 @@ export type AnkoleWebAgentControllerResetTokenQuotaResponses = {
 
 export type AnkoleWebAgentControllerResetTokenQuotaResponse =
   AnkoleWebAgentControllerResetTokenQuotaResponses[keyof AnkoleWebAgentControllerResetTokenQuotaResponses]
-
-export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersData = {
-  body?: never
-  path: {
-    channel_id: string
-  }
-  query?: never
-  url: '/api/v1/signal-channels/{channel_id}/standing-orders'
-}
-
-export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersError =
-  AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors[keyof AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors]
-
-export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses = {
-  /**
-   * Standing orders
-   */
-  200: SignalChannelStandingOrdersResponse
-}
-
-export type AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponse =
-  AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses]
-
-export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersData = {
-  /**
-   * Standing orders
-   */
-  body: SignalChannelStandingOrdersWriteRequest
-  path: {
-    channel_id: string
-  }
-  query?: never
-  url: '/api/v1/signal-channels/{channel_id}/standing-orders'
-}
-
-export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors = {
-  /**
-   * Error
-   */
-  default: ConsoleApiErrorEnvelope
-}
-
-export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersError =
-  AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors[keyof AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors]
-
-export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses = {
-  /**
-   * Standing orders
-   */
-  200: SignalChannelStandingOrdersResponse
-}
-
-export type AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponse =
-  AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses]
 
 export type AnkoleWebAppConfigurationControllerIndexData = {
   body?: never
@@ -4529,6 +4524,67 @@ export type AnkoleWebAgentFileControllerDownloadResponses = {
 export type AnkoleWebAgentFileControllerDownloadResponse =
   AnkoleWebAgentFileControllerDownloadResponses[keyof AnkoleWebAgentFileControllerDownloadResponses]
 
+export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersData = {
+  body?: never
+  path: {
+    conversation_id: string
+  }
+  query?: never
+  url: '/api/v1/conversations/{conversation_id}/standing-orders'
+}
+
+export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersError =
+  AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors[keyof AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors]
+
+export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses = {
+  /**
+   * Standing orders
+   */
+  200: ConversationStandingOrdersResponse
+}
+
+export type AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponse =
+  AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses]
+
+export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersData = {
+  /**
+   * Standing orders
+   */
+  body: ConversationStandingOrdersWriteRequest
+  path: {
+    conversation_id: string
+  }
+  query?: never
+  url: '/api/v1/conversations/{conversation_id}/standing-orders'
+}
+
+export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersError =
+  AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors[keyof AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors]
+
+export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses = {
+  /**
+   * Standing orders
+   */
+  200: ConversationStandingOrdersResponse
+}
+
+export type AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponse =
+  AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses[keyof AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses]
+
 export type AnkoleWebWebhookEndpointControllerIndexData = {
   body?: never
   path?: never
@@ -4557,6 +4613,36 @@ export type AnkoleWebWebhookEndpointControllerIndexResponses = {
 
 export type AnkoleWebWebhookEndpointControllerIndexResponse =
   AnkoleWebWebhookEndpointControllerIndexResponses[keyof AnkoleWebWebhookEndpointControllerIndexResponses]
+
+export type AnkoleWebWebhookEndpointControllerCreateData = {
+  /**
+   * CloudEvents endpoint
+   */
+  body: CloudEventEndpointCreateRequest
+  path?: never
+  query?: never
+  url: '/api/v1/webhook-endpoints'
+}
+
+export type AnkoleWebWebhookEndpointControllerCreateErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type AnkoleWebWebhookEndpointControllerCreateError =
+  AnkoleWebWebhookEndpointControllerCreateErrors[keyof AnkoleWebWebhookEndpointControllerCreateErrors]
+
+export type AnkoleWebWebhookEndpointControllerCreateResponses = {
+  /**
+   * Endpoint and one-time credential
+   */
+  201: CloudEventEndpointCreateResponse
+}
+
+export type AnkoleWebWebhookEndpointControllerCreateResponse =
+  AnkoleWebWebhookEndpointControllerCreateResponses[keyof AnkoleWebWebhookEndpointControllerCreateResponses]
 
 export type AnkoleWebAiGatewayFilesControllerIndexData = {
   body?: never

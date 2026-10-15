@@ -13,7 +13,6 @@ import { blockquote, blocks, bulletList, heading } from './markdown-text'
 
 type DocEntry = CollectionEntry<'docs'>
 
-/** The documentation index for one locale. Every page link targets the page's Markdown version. */
 export function llmsIndex(docs: DocEntry[], locale: Locale, site: URL): string {
   const { sections, flat } = buildDocsNav(docs, locale)
   const pageLink = (slug: string) => {
@@ -49,7 +48,6 @@ export function llmsIndex(docs: DocEntry[], locale: Locale, site: URL): string {
   )}\n`
 }
 
-/** Every page of one locale in navigation order, as one Markdown document. */
 export function llmsFull(docs: DocEntry[], locale: Locale, site: URL): string {
   const pages = buildDocsNav(docs, locale).flat.map(doc => {
     const entry = localizedEntry(docs, doc.slug, locale)

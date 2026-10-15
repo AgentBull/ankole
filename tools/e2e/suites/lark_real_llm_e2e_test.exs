@@ -1,7 +1,7 @@
 defmodule Ankole.E2E.LarkRealLLME2ETest do
   @moduledoc """
   Real-provider scenarios use fake Feishu WS ingress, the control-plane loop,
-  real OpenRouter models, and Outbox HTTP. Computer scenarios use a real
+  real OpenRouter models, and Delivery HTTP. Computer scenarios use a real
   Docker Worker. Embedding and rerank use the real AIGateway provider.
 
   Requires `ANKOLE_REAL_LLM_E2E=1` and an OpenRouter API key.
@@ -22,8 +22,9 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   alias Ankole.BackgroundAgentJobs.Schemas.Job, as: BackgroundAgentJob
   alias Ankole.E2E.WaitHelpers
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Signals.Signal
+  alias Ankole.AgentWorkers.AgentWorker
 
   import Ecto.Query
 
@@ -98,34 +99,37 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
                """
              )
 
-    input = actor_event_by_source_entry_id!(ctx.agent.uid, source_id)
+    input = signal_by_provider_message_id!(ctx.agent.uid, source_id)
     assert {:ok, _} = ensure_input_driver!(input, input.available_at)
 
     assert {:ok, _} =
-             WaitHelpers.wait_for_actor_event_completed(process, input.id, deadline(180_000))
+             WaitHelpers.wait_for_signal_completed(process, input.id, deadline(180_000))
 
-    messages = WaitHelpers.ai_messages_for_actor_event(input.id)
+    messages = WaitHelpers.ai_messages_for_signal(input.id)
     assert [call] = tool_call_items(messages, "clarify")
     assert tool_result_succeeded?(messages, "clarify")
 
-    assert [question_outbox] =
+    assert [question_intent] =
              Repo.all(
-               from(o in Ankole.SignalsGateway.OutboxEntry,
-                 where: o.source_actor_event_id == ^input.id,
+               from(o in Ankole.Conversations.Delivery.Intent,
+                 where: o.source_signal_id == ^input.id,
                  where: o.delivery_class == :durable_ai_reply
                )
              )
 
-    assert question_outbox.payload["metadata"]["source"] == "ai_gateway_clarify"
-    [ground, air] = question_outbox.payload["interactive_output"]["choices"]
+    assert question_intent.payload["metadata"]["source"] == "ai_gateway_clarify"
+    [ground, air] = question_intent.payload["interactive_output"]["choices"]
     assert String.downcase(ground["label"]) =~ "ground"
     assert String.downcase(air["label"]) =~ "air"
     interaction_id = "clarify:#{call["call_id"]}"
-    checkpoint = Repo.reload!(input).reply_preview_checkpoint
+    checkpoint = PreviewState.get(input.id).checkpoint
     assert checkpoint["interactions"][interaction_id]["state"] == "pending"
 
-    sent_question = dispatch_outbox_succeeded!(question_outbox)
-    visible_question = platform_message!(ctx.fake_feishu, sent_question.created_source_entry_id)
+    sent_question = dispatch_succeeded!(question_intent)
+
+    visible_question =
+      platform_message!(ctx.fake_feishu, sent_question.created_provider_message_id)
+
     assert visible_question.sender == :bot
     assert visible_question.chat_id == chat_id
     assert visible_question.reply_to == source_id
@@ -141,7 +145,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
                text: "1"
              )
 
-    answer = actor_event_by_source_entry_id!(ctx.agent.uid, answer_id)
+    answer = signal_by_provider_message_id!(ctx.agent.uid, answer_id)
     assert answer.session_id == input.session_id
     assert answer.queue_sequence > input.queue_sequence
     assert {:ok, _} = ensure_input_driver!(answer, answer.available_at)
@@ -150,36 +154,36 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
              wait_for_completed_final_reply(process, answer.id, deadline(180_000))
 
     assert_lark_final_reply(ctx.fake_feishu, reply, reference, :reply, answer_id)
-    assert String.downcase(reply.text) =~ "ground"
-    assert_actor_event_completed!(answer.id)
+    assert String.downcase(reply.message.text) =~ "ground"
+    assert_signal_completed!(answer.id)
 
-    assert successful_tool_results(WaitHelpers.ai_messages_for_actor_event(answer.id), "clarify") ==
+    assert successful_tool_results(WaitHelpers.ai_messages_for_signal(answer.id), "clarify") ==
              []
 
     # Ordinary messages supersede the pending card; only a managed button or
     # form callback records an answered interaction.
-    resolved = Repo.reload!(input).reply_preview_checkpoint["interactions"][interaction_id]
+    resolved = PreviewState.get(input.id).checkpoint["interactions"][interaction_id]
     assert resolved["state"] == "superseded"
-    assert resolved["superseded_by_actor_event_id"] == answer.id
+    assert resolved["superseded_by_signal_id"] == answer.id
     assert is_binary(resolved["resolved_at"])
 
-    assert [%Ankole.SignalsGateway.OutboxEntry{status: :succeeded} = final_outbox] =
+    assert [%Ankole.Conversations.Delivery.Intent{status: :sent} = final_intent] =
              Repo.all(
-               from(o in Ankole.SignalsGateway.OutboxEntry,
-                 where: o.source_actor_event_id == ^answer.id,
+               from(o in Ankole.Conversations.Delivery.Intent,
+                 where: o.source_signal_id == ^answer.id,
                  where: o.delivery_class == :durable_ai_reply
                )
              )
 
-    assert final_outbox.payload["metadata"]["source"] == "ai_gateway_final_reply"
-    assert final_outbox.tenant_id == input.tenant_id
-    assert reply.tenant_id == input.tenant_id
+    assert final_intent.payload["metadata"]["source"] == "ai_gateway_final_reply"
+    assert final_intent.tenant_id == input.tenant_id
+    assert reply.message.tenant_id == input.tenant_id
 
-    assert Repo.get_by!(Ankole.SignalsGateway.OutboxEntry,
+    assert Repo.get_by!(Ankole.Conversations.Delivery.Intent,
              agent_uid: sent_question.agent_uid,
              binding_name: sent_question.binding_name,
              outbound_key: sent_question.outbound_key
-           ).status == :succeeded
+           ).status == :sent
   end
 
   @tag timeout: 600_000
@@ -264,41 +268,41 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
                """
              )
 
-    input = actor_event_by_source_entry_id!(ctx.agent.uid, source_id)
+    input = signal_by_provider_message_id!(ctx.agent.uid, source_id)
     assert {:ok, _} = ensure_input_driver!(input, input.available_at)
 
     assert {:ok, true} =
              Ankole.E2E.WaitHelpers.wait_until(deadline(180_000), fn ->
-               Repo.get!(Ankole.SignalsGateway.ActorEvent, input.id).completed_at != nil
+               Repo.get!(Ankole.Signals.Signal, input.id).completed_at != nil
              end)
 
-    [attachment_outbox] =
+    [attachment_intent] =
       Repo.all(
-        from(o in Ankole.SignalsGateway.OutboxEntry,
-          where: o.source_actor_event_id == ^input.id
+        from(o in Ankole.Conversations.Delivery.Intent,
+          where: o.source_signal_id == ^input.id
         )
       )
       |> Enum.filter(&match?([_], &1.payload["attachments"]))
 
-    assert attachment_outbox.status == :created
-    [attachment] = attachment_outbox.payload["attachments"]
+    assert attachment_intent.status == :pending
+    [attachment] = attachment_intent.payload["attachments"]
     assert {:ok, _, ^content} = Ankole.Files.read(ctx.agent.uid, attachment["path"])
 
     assert Ankole.E2E.DockerWorker.exec!(ctx.container, ["cat", "/workspace/handoff.txt"]) ==
              content
 
     # Exhaust the HTTP client's three retries after platform acceptance, so
-    # the durable Outbox must own the later retry of the same intent.
+    # the durable Delivery must own the later retry of the same intent.
     for _ <- 1..4 do
       :ok =
         FakeFeishu.State.fail_next(ctx.fake_feishu.state, :reply_message, :accepted_then_http_500)
     end
 
     assert {:ok, failed} =
-             Ankole.SignalsGateway.dispatch_outbox_by_key(
-               attachment_outbox.agent_uid,
-               attachment_outbox.binding_name,
-               attachment_outbox.outbound_key
+             Ankole.Conversations.Delivery.dispatch_by_key(
+               attachment_intent.agent_uid,
+               attachment_intent.binding_name,
+               attachment_intent.outbound_key
              )
 
     assert failed.status == :failed
@@ -315,22 +319,22 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
              FakeFeishu.State.uploaded_file(ctx.fake_feishu.state, file_key)
 
     assert {:ok, sent} =
-             Ankole.SignalsGateway.dispatch_outbox_by_key(
+             Ankole.Conversations.Delivery.dispatch_by_key(
                failed.agent_uid,
                failed.binding_name,
                failed.outbound_key,
                now: failed.next_attempt_at
              )
 
-    assert sent.status == :succeeded
-    assert sent.created_source_entry_id == accepted.id
+    assert sent.status == :sent
+    assert sent.created_provider_message_id == accepted.id
 
     assert FakeFeishu.State.visible_messages(ctx.fake_feishu.state, "oc_real_delivery_loss")
            |> Enum.filter(&(&1.msg_type == "file")) == [accepted]
 
     assert {:ok, _, ^content} = Ankole.Files.read(ctx.agent.uid, attachment["path"])
 
-    messages = Ankole.E2E.WaitHelpers.ai_messages_for_actor_event(input.id)
+    messages = Ankole.E2E.WaitHelpers.ai_messages_for_signal(input.id)
     assert command_tool_succeeded?(messages)
     assert tool_result_succeeded?(messages, "reply_attachment")
 
@@ -350,7 +354,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     result = run_real_lark_codex_pptx_skill_turn(ctx)
 
     assert result.job.status == "succeeded"
-    assert result.outbox.status == :succeeded
+    assert result.intent.status == :sent
     assert result.platform_message.msg_type == "file"
     assert result.outline =~ "2 slides"
     assert result.text =~ "Verified Handoff"
@@ -461,9 +465,9 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
                "metadata" => %{"owner_conversation_id" => owner_conversation.id},
                "reply_route" => %{
                  "binding_name" => ctx.primary_binding.name,
-                 "signal_channel_id" => "oc_codex_background_direct_real",
+                 "conversation_id" => "oc_codex_background_direct_real",
                  "provider_thread_id" => "",
-                 "source_entry_id" => "om_codex_background_direct_real"
+                 "provider_message_id" => "om_codex_background_direct_real"
                }
              })
 
@@ -493,7 +497,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     ctx = start_worker_e2e_stack!(real_llm_api_key: openrouter_api_key!())
 
     direct = run_real_lark_post_image_direct_vision_turn(ctx)
-    direct_text = direct.reply.text || ""
+    direct_text = direct.reply.message.text || ""
 
     assert_lark_final_reply(
       ctx.fake_feishu,
@@ -506,7 +510,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     assert_vision_false_reply!(direct_text)
 
     fallback = run_real_lark_post_image_vision_fallback_turn(ctx)
-    fallback_text = fallback.reply.text || ""
+    fallback_text = fallback.reply.message.text || ""
 
     assert_lark_final_reply(
       ctx.fake_feishu,
@@ -601,7 +605,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
   end
 
   defp maybe_dispatch_direct_job_event(dispatch_event_id) do
-    event = Repo.get!(ActorEvent, dispatch_event_id)
+    event = Repo.get!(Signal, dispatch_event_id)
 
     now = DateTime.utc_now(:microsecond)
 

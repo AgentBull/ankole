@@ -3,11 +3,11 @@ defmodule Ankole.Principals.WorkAccess do
   import Ecto.Query
   alias Ankole.Principals.Principal
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
 
   @fields [:authorization_kind, :human_uid, :human_access_version]
   @owners %{
-    "actor_event" => Ankole.SignalsGateway.ActorEvent,
+    "signal" => Ankole.Signals.Signal,
     "cron" => Ankole.Schedule.Schemas.CronSchedule,
     "scheduled_event" => Ankole.Schedule.Schemas.ScheduledEvent,
     "background_job" => Ankole.BackgroundAgentJobs.Schemas.Job,
@@ -46,7 +46,7 @@ defmodule Ankole.Principals.WorkAccess do
 
       query =
         case kind do
-          "actor_event" ->
+          "signal" ->
             from w in query, where: is_nil(w.completed_at)
 
           "cron" ->
@@ -158,7 +158,7 @@ defmodule Ankole.Principals.WorkAccess do
 
   defp reauthorizable?(kind, %{authorization_kind: "review_required"} = work) do
     case kind do
-      "actor_event" -> is_nil(work.completed_at)
+      "signal" -> is_nil(work.completed_at)
       "cron" -> work.status in ["active", "paused"]
       "scheduled_event" -> work.status in ["scheduled", "failed"]
       "background_job" -> work.status in ["queued", "waiting_on_user"]
@@ -222,11 +222,11 @@ defmodule Ankole.Principals.WorkAccess do
   defp valid_subject_now?(%{authorization_kind: "service"}), do: true
   defp valid_subject_now?(_), do: false
 
-  def from_event(repo, id) when is_binary(id), do: fields(repo.get(ActorEvent, id))
+  def from_event(repo, id) when is_binary(id), do: fields(repo.get(Signal, id))
   def from_event(_repo, _id), do: fields(nil)
 
   def inherit(repo, attrs) do
-    source_id = value(attrs, :source_actor_event_id)
+    source_id = value(attrs, :source_signal_id)
     created_by = value(attrs, :created_by) || %{}
 
     authorization =
@@ -234,8 +234,8 @@ defmodule Ankole.Principals.WorkAccess do
         is_binary(source_id) ->
           from_event(repo, source_id)
 
-        is_binary(created_by["actor_event_id"]) ->
-          from_event(repo, created_by["actor_event_id"])
+        is_binary(created_by["signal_id"]) ->
+          from_event(repo, created_by["signal_id"])
 
         is_binary(created_by["principal_uid"]) ->
           case Ankole.ActorRef.cast(created_by["principal_uid"]) do

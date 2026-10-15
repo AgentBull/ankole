@@ -9,11 +9,7 @@ const AEAD_NONCE_LEN: usize = 24;
 const AEAD_SEPARATOR: &str = ".";
 const GENERATE_KEY_CONTEXT: &str = "[extra=generateKey()]";
 
-/// Encrypts a binary payload with XChaCha20-Poly1305.
-///
-/// The returned token is `<base64url(nonce)>.<base64url(ciphertext)>` without
-/// padding. That shape stays compact and can pass through URLs, environment
-/// variables, JS strings, and Elixir strings without extra escaping.
+/// The token passes through URLs and host strings without extra escaping.
 pub fn aead_encrypt(plaintext: &[u8], key: &str) -> KernelResult<String> {
     let key = parse_hex_32(key, "key")?;
     let nonce = rand::random::<[u8; AEAD_NONCE_LEN]>();
@@ -30,11 +26,6 @@ pub fn aead_encrypt(plaintext: &[u8], key: &str) -> KernelResult<String> {
     ))
 }
 
-/// Decrypts the compact AEAD token produced by [`aead_encrypt`].
-///
-/// The function validates the token shape before calling the cipher. That gives
-/// callers a useful format error when the token was truncated, copied with the
-/// wrong separator, or encoded with the wrong base64 variant.
 pub fn aead_decrypt(ciphertext: &str, key: &str) -> KernelResult<Vec<u8>> {
     let key = parse_hex_32(key, "key")?;
     let (nonce, ciphertext) = split_aead_ciphertext(ciphertext)?;
@@ -46,30 +37,19 @@ pub fn aead_decrypt(ciphertext: &str, key: &str) -> KernelResult<Vec<u8>> {
         .map_err(|error| KernelError::new(format!("decryption failed: {error}")))
 }
 
-/// Derives a deterministic 32-byte sub-key from a seed and labeled context.
-///
-/// BLAKE3 derives keys from a context string. The explicit `subKeyId` and
-/// `extra` labels make collisions less likely when different host runtimes add
-/// new derivation sites over time.
+/// The `subKeyId` and `extra` labels keep derivation sites from colliding across host runtimes.
 pub fn derive_key(key_seed: &[u8], sub_key_id: &str, extra_context: Option<&str>) -> String {
     let context = derive_key_context(sub_key_id, extra_context);
     blake3::derive_key(&context, key_seed).encode_hex()
 }
 
-/// Generates a random 32-byte hex key for kernel cryptographic helpers.
-///
-/// The random seed is passed through a dedicated BLAKE3 derivation context so this
-/// API does not share a context string with application-level `derive_key` calls.
+/// Uses a BLAKE3 context that `derive_key` does not share.
 pub fn generate_key() -> String {
     let seed = rand::random::<[u8; blake3::KEY_LEN]>();
     blake3::derive_key(GENERATE_KEY_CONTEXT, &seed).encode_hex()
 }
 
-/// Parses a host-supplied 32-byte key encoded as 64 lowercase or uppercase hex chars.
-///
-/// AEAD and BLAKE3 keyed hashing both require exactly 32 bytes. Checking length
-/// before decoding produces clearer errors and prevents accidentally accepting
-/// shortened key material.
+/// AEAD and keyed BLAKE3 both require 32 bytes.
 pub(crate) fn parse_hex_32(input: &str, label: &str) -> KernelResult<[u8; 32]> {
     if input.len() != AEAD_KEY_LEN * 2 {
         return Err(KernelError::new(format!(
@@ -81,11 +61,7 @@ pub(crate) fn parse_hex_32(input: &str, label: &str) -> KernelResult<[u8; 32]> {
         .map_err(|error| KernelError::new(format!("invalid {label}: {error}")))
 }
 
-/// Builds the BLAKE3 context string used for deterministic sub-key derivation.
-///
-/// The square-bracket labels are part of the contract. They separate values by
-/// role instead of relying on positional concatenation, which is easier to break
-/// when new optional context is added later.
+/// The square-bracket labels are the derivation contract.
 fn derive_key_context(sub_key_id: &str, extra_context: Option<&str>) -> String {
     let sub_key = format!("[subKeyId={sub_key_id}]");
 
@@ -95,18 +71,13 @@ fn derive_key_context(sub_key_id: &str, extra_context: Option<&str>) -> String {
     }
 }
 
-/// Converts the decoded nonce into the exact XChaCha20-Poly1305 nonce length.
 fn parse_nonce(nonce: &[u8]) -> KernelResult<[u8; AEAD_NONCE_LEN]> {
     nonce
         .try_into()
         .map_err(|_| KernelError::new("nonce must decode to 24 bytes"))
 }
 
-/// Splits and decodes the kernel AEAD token format.
-///
-/// The parser requires exactly two non-empty segments. Base64url never emits `.`,
-/// so the dot separator is safe and malformed extra segments are rejected instead
-/// of being silently joined.
+/// Base64url never emits `.`, so a third segment is rejected instead of joined.
 fn split_aead_ciphertext(sealed: &str) -> KernelResult<(Vec<u8>, Vec<u8>)> {
     let mut parts = sealed.split(AEAD_SEPARATOR);
 

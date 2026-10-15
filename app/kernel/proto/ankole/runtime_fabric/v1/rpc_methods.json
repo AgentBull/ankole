@@ -1,12 +1,5 @@
 [
   {
-    "method": "actor_turn.abort",
-    "scope": "turn",
-    "effect": "complete",
-    "request_type": "ankole.runtime_fabric.v1.ActorTurnAbortRequest",
-    "response_type": "ankole.runtime_fabric.v1.ActorTurnAbortResponse"
-  },
-  {
     "method": "ai_gateway.api_key_for.create_or_find_by_agent",
     "scope": "worker_agent",
     "request_type": "ankole.runtime_fabric.v1.AIGatewayAPIKeyRequest",
@@ -103,6 +96,13 @@
     "scope": "worker_agent",
     "request_type": "ankole.runtime_fabric.v1.ObservabilitySpansExportRequest",
     "response_type": "ankole.runtime_fabric.v1.ObservabilitySpansExportResponse"
+  },
+  {
+    "method": "session_turn.abort",
+    "scope": "turn",
+    "effect": "complete",
+    "request_type": "ankole.runtime_fabric.v1.ActorTurnAbortRequest",
+    "response_type": "ankole.runtime_fabric.v1.ActorTurnAbortResponse"
   },
   {
     "method": "tools.read",

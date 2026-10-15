@@ -28,9 +28,9 @@ order: 125
 
 日志级别和格式见 [环境变量](../environment-variables/)，定位具体故障的方法见 [怎样阅读 Ankole 日志](../log-reading/)。
 
-## Actor-event 与 delivery 行
+## Signal 与 delivery 行
 
-每个 actor 事件（驱动 session 的持久收件箱）和每次 delivery 尝试是 PostgreSQL 里的一行。这些通常不为审计而读——它们是运维状态——但它们构成了系统被要求做什么、是否已投递的记录。Console 的 `/background-agent-jobs/:id` 路由显示任务的 `attempts` 和 `error`；`/ai-gateway/conversations` 路由显示一个回合做过的模型调用。
+每个 Signal（驱动 session 的持久收件箱）和每次 delivery 尝试是 PostgreSQL 里的一行。这些通常不为审计而读——它们是运维状态——但它们构成了系统被要求做什么、是否已投递的记录。Console 的 `/background-agent-jobs/:id` 路由显示任务的 `attempts` 和 `error`；`/ai-gateway/conversations` 路由显示一个回合做过的模型调用。
 
 ## 配合使用
 

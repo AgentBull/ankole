@@ -1,6 +1,7 @@
 defmodule Ankole.Plugins.WeComAdapterTest do
   use Ankole.DataCase, async: false
-  import Ankole.SignalsGatewayFixtures, only: [start_connection_owner: 3]
+  import Ankole.ExternalConversationsFixtures
+  import Ankole.SignalsFixtures, only: [start_connection_owner: 3]
 
   import Ankole.PrincipalsFixtures
 
@@ -13,14 +14,13 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   alias Ankole.Plugins.WeComAdapter.ConnectionReconciler
   alias Ankole.Plugins.WeComAdapter.IdentityProvider
   alias Ankole.Plugins.WeComAdapter.Inbound
-  alias Ankole.Plugins.WeComAdapter.Outbox
+  alias Ankole.Plugins.WeComAdapter.Delivery
   alias Ankole.Plugins.WeComAdapter.TemplateCard
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.Adapters
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.OutboxEntry
+
+  alias Ankole.Signals.Adapters
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Delivery.Intent
 
   setup do
     previous = Req.default_options()
@@ -34,7 +34,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
 
       assert [chat, identity] = WeComAdapter.adapter_declarations()
 
-      assert chat.contract_id == "signals_gateway.adapter"
+      assert chat.contract_id == "signals.adapter"
       assert chat.id == "wecom"
       # WeCom AI bots receive only @-mentions and DMs — addressed_only is the
       # sole group message mode this platform can honour.
@@ -86,24 +86,9 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     end
   end
 
-  # --- delivery resolution ---------------------------------------------------
-
   defp seed_channel(id, attrs) do
-    %Channel{}
-    |> Channel.changeset(
-      Map.merge(
-        %{
-          id: id,
-          kind: :im_dm,
-          reply_mode: :channel,
-          metadata: %{},
-          first_seen_at: DateTime.utc_now(),
-          last_seen_at: DateTime.utc_now()
-        },
-        attrs
-      )
-    )
-    |> Repo.insert!()
+    attrs = attrs |> Map.put(:external_kind, Map.get(attrs, :kind, :im_dm)) |> Map.delete(:kind)
+    external_conversation_fixture(id, Map.put_new(attrs, :reply_mode, :channel))
   end
 
   describe "resolve_delivery" do
@@ -118,7 +103,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       })
 
       assert {:ok, %{chat_target: "alice", chat_type: 1, respond_req_id: "req-9"}} =
-               Outbox.resolve_delivery("wecom:alice")
+               Delivery.resolve_delivery(external_conversation_id("wecom:alice"))
     end
 
     test "an anchor beyond the 24-hour reply window falls back to proactive send" do
@@ -130,7 +115,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       })
 
       assert {:ok, %{chat_target: "bob", chat_type: 1, respond_req_id: nil}} =
-               Outbox.resolve_delivery("wecom:bob")
+               Delivery.resolve_delivery(external_conversation_id("wecom:bob"))
     end
 
     test "group channels decode the chatid; unknown channels stay group-shaped" do
@@ -138,19 +123,19 @@ defmodule Ankole.Plugins.WeComAdapterTest do
 
       # A group anchor without a timestamp does not count as fresh.
       assert {:ok, %{chat_target: "wr-g1", chat_type: 2, respond_req_id: nil}} =
-               Outbox.resolve_delivery("wecom:wr-g1")
+               Delivery.resolve_delivery(external_conversation_id("wecom:wr-g1"))
 
       assert {:ok, %{chat_target: "wr-x", chat_type: 2, respond_req_id: nil}} =
-               Outbox.resolve_delivery("wecom:wr-x")
+               Delivery.resolve_delivery(external_conversation_id("wecom:wr-x"))
     end
 
     test "a DM channel without a recorded counterpart fails closed" do
       seed_channel("wecom:mystery", %{kind: :im_dm, metadata: %{}})
-      assert {:error, :dm_recipient_unknown} = Outbox.resolve_delivery("wecom:mystery")
+
+      assert {:error, :dm_recipient_unknown} =
+               Delivery.resolve_delivery(external_conversation_id("wecom:mystery"))
     end
   end
-
-  # --- outbox through a fake bot connection ----------------------------------
 
   defmodule FakeBotClient do
     use GenServer
@@ -168,8 +153,16 @@ defmodule Ankole.Plugins.WeComAdapterTest do
 
       reply =
         case Map.get(script, cmd) do
-          nil -> {:ok, %{"headers" => %{"req_id" => req_id}, "errcode" => 0, "body" => %{}}}
-          fun when is_function(fun, 2) -> fun.(req_id, body)
+          nil ->
+            {:ok,
+             %{
+               "headers" => %{"req_id" => req_id},
+               "errcode" => 0,
+               "body" => %{"msgid" => "provider-#{req_id}"}
+             }}
+
+          fun when is_function(fun, 2) ->
+            fun.(req_id, body)
         end
 
       {:reply, reply, state}
@@ -196,7 +189,8 @@ defmodule Ankole.Plugins.WeComAdapterTest do
 
       on_exit(fn -> ConnectionReconciler.stop(key) end)
 
-      assert {:ok, _binding} = SignalsGateway.disable_binding(binding.agent_uid, binding.name)
+      assert {:ok, _binding} =
+               Ankole.Signals.Bindings.disable_binding(binding.agent_uid, binding.name)
 
       assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
@@ -206,7 +200,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
   defp setup_chat_binding do
     setup_wecom_config_registry()
 
-    config_id = "wecom-outbox-#{System.unique_integer([:positive])}"
+    config_id = "wecom-intent-#{System.unique_integer([:positive])}"
     bot_id = "bot-#{System.unique_integer([:positive])}"
     config = %{"botId" => bot_id, "secret" => "secret"}
 
@@ -215,9 +209,9 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, binding} =
-      SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: agent.uid,
-        name: "wecom-outbox",
+        name: "wecom-intent",
         adapter: "wecom",
         config_ref: "app-config://#{Config.chat_config_key(config_id)}",
         filters: %{},
@@ -242,13 +236,19 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     })
   end
 
-  defp outbox_entry(binding, attrs) do
+  defp intent_entry(binding, attrs) do
+    attrs =
+      Keyword.update(attrs, :conversation_id, nil, fn id -> external_conversation_id(id) end)
+
+    attrs =
+      if is_nil(attrs[:conversation_id]), do: Keyword.delete(attrs, :conversation_id), else: attrs
+
     struct!(
-      %OutboxEntry{
+      %Intent{
         agent_uid: binding.agent_uid,
         binding_name: binding.name,
         outbound_key: "test-key-#{System.unique_integer([:positive])}",
-        signal_channel_id: "wecom:wr-g1",
+        conversation_id: external_conversation_id("wecom:wr-g1"),
         operation: :post,
         payload: %{},
         fallback_visible_text: "hello"
@@ -269,17 +269,17 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     })
 
     assert {:ok, result} =
-             Outbox.send(outbox_entry(binding, signal_channel_id: "wecom:anchored"))
+             Delivery.deliver(intent_entry(binding, conversation_id: "wecom:anchored"))
 
     assert_receive {:bot_frame, "aibot_respond_msg", "req-anchor", body}
     assert body["msgtype"] == "markdown"
     assert body["markdown"]["content"] == "hello"
-    assert is_binary(result.created_source_entry_id)
+    assert is_binary(result.created_provider_message_id)
 
     seed_channel("wecom:unanchored", %{kind: :im_group, metadata: %{}})
 
     assert {:ok, _result} =
-             Outbox.send(outbox_entry(binding, signal_channel_id: "wecom:unanchored"))
+             Delivery.deliver(intent_entry(binding, conversation_id: "wecom:unanchored"))
 
     assert_receive {:bot_frame, "aibot_send_msg", _req_id, send_body}
     assert send_body["chatid"] == "unanchored"
@@ -295,7 +295,12 @@ defmodule Ankole.Plugins.WeComAdapterTest do
         :counters.add(counter, 1, 1)
 
         if :counters.get(counter, 1) == 1 do
-          {:ok, %{"headers" => %{"req_id" => req_id}, "errcode" => 0, "body" => %{}}}
+          {:ok,
+           %{
+             "headers" => %{"req_id" => req_id},
+             "errcode" => 0,
+             "body" => %{"msgid" => "provider-#{req_id}"}
+           }}
         else
           {:error,
            WeComOpenAPI.Error.from_ack(%{"errcode" => 45_009, "errmsg" => "rate limited"})}
@@ -304,14 +309,14 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     })
 
     assert :unknown =
-             Outbox.send(
-               outbox_entry(binding, fallback_visible_text: String.duplicate("a", 30_000))
+             Delivery.deliver(
+               intent_entry(binding, fallback_visible_text: String.duplicate("a", 30_000))
              )
 
     assert :counters.get(counter, 1) == 2
   end
 
-  test "provider ack errors classify for the outbox retry policy" do
+  test "provider ack errors classify for the intent retry policy" do
     {binding, config} = setup_chat_binding()
 
     start_fake_client(config, %{
@@ -328,7 +333,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     seed_channel("wecom:limited", %{kind: :im_group, metadata: %{}})
 
     assert {:error, {:reply_delivery, :retryable, %{reason: :rate_limited, code: 45_009}}} =
-             Outbox.send(outbox_entry(binding, signal_channel_id: "wecom:limited"))
+             Delivery.deliver(intent_entry(binding, conversation_id: "wecom:limited"))
   end
 
   test "deterministic provider rejection is permanent" do
@@ -348,7 +353,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     seed_channel("wecom:blocked", %{kind: :im_group, metadata: %{}})
 
     assert {:error, {:reply_delivery, :permanent, %{reason: 40_201, code: 40_201}}} =
-             Outbox.send(outbox_entry(binding, signal_channel_id: "wecom:blocked"))
+             Delivery.deliver(intent_entry(binding, conversation_id: "wecom:blocked"))
   end
 
   test "a card operation renders a button_interaction card with packed keys" do
@@ -363,15 +368,15 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       }
     })
 
-    outbox =
-      outbox_entry(binding,
-        signal_channel_id: "wecom:cardch",
+    intent =
+      intent_entry(binding,
+        conversation_id: "wecom:cardch",
         operation: :card,
         payload: %{
           "interactive_output" => %{
             "interaction_id" => "int-1",
             "control_id" => "choice",
-            "source_actor_event_id" => "evt-77",
+            "source_signal_id" => "evt-77",
             "version" => 3,
             "body" => "选择一个方向",
             "choices" => [
@@ -383,8 +388,8 @@ defmodule Ankole.Plugins.WeComAdapterTest do
         fallback_visible_text: "选择一个方向：方案 A / 方案 B"
       )
 
-    assert {:ok, result} = Outbox.send(outbox)
-    assert result.created_source_entry_id == "ankole:evt-77"
+    assert {:ok, result} = Delivery.deliver(intent)
+    assert result.created_provider_message_id == "provider-req-card"
 
     assert_receive {:bot_frame, "aibot_respond_msg", "req-card", body}
     assert body["msgtype"] == "template_card"
@@ -402,13 +407,13 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     output = %{
       "interaction_id" => "int|1",
       "control_id" => "choice|one",
-      "source_actor_event_id" => "evt-77",
+      "source_signal_id" => "evt-77",
       "version" => 3,
       "choices" => [%{"id" => "opt|a", "label" => "A", "value" => "a|b\"中文"}]
     }
 
-    outbox = %OutboxEntry{fallback_visible_text: "choose"}
-    assert {:card, _, card} = TemplateCard.render(output, outbox)
+    intent = %Intent{fallback_visible_text: "choose"}
+    assert {:card, _, card} = TemplateCard.render(output, intent)
 
     assert {:ok,
             %{
@@ -427,20 +432,20 @@ defmodule Ankole.Plugins.WeComAdapterTest do
         %{"id" => "a", "label" => "A", "value" => String.duplicate("文", 1024)}
       ])
 
-    assert :fallback = TemplateCard.render(oversized, outbox)
+    assert :fallback = TemplateCard.render(oversized, intent)
   end
 
   test "a settled interaction card degrades to the fallback text" do
     output = %{
       "interaction_id" => "int-1",
       "control_id" => "choice",
-      "source_actor_event_id" => "evt-77",
+      "source_signal_id" => "evt-77",
       "version" => 3,
       "state" => "answered",
       "choices" => [%{"id" => "opt-a", "label" => "方案 A"}]
     }
 
-    outbox = %OutboxEntry{
+    intent = %Intent{
       agent_uid: "a",
       binding_name: "b",
       outbound_key: "k",
@@ -448,7 +453,7 @@ defmodule Ankole.Plugins.WeComAdapterTest do
       fallback_visible_text: "已选择方案 A"
     }
 
-    assert :fallback = TemplateCard.render(output, outbox)
+    assert :fallback = TemplateCard.render(output, intent)
   end
 
   test "media without a respond anchor fails with no_reply_anchor" do
@@ -456,9 +461,9 @@ defmodule Ankole.Plugins.WeComAdapterTest do
     start_fake_client(config)
     seed_channel("wecom:mediach", %{kind: :im_group, metadata: %{}})
 
-    outbox =
-      outbox_entry(binding,
-        signal_channel_id: "wecom:mediach",
+    intent =
+      intent_entry(binding,
+        conversation_id: "wecom:mediach",
         operation: :post,
         payload: %{
           "attachments" => [
@@ -471,10 +476,8 @@ defmodule Ankole.Plugins.WeComAdapterTest do
         }
       )
 
-    assert {:error, :no_reply_anchor} = Outbox.send(outbox)
+    assert {:error, :no_reply_anchor} = Delivery.deliver(intent)
   end
-
-  # --- identity provider -----------------------------------------------------
 
   defp identity_config(overrides \\ %{}) do
     Map.merge(

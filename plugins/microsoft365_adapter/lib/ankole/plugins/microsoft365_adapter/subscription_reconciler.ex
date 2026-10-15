@@ -14,7 +14,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler do
 
   alias Ankole.{IdentityProviders, Logging, Repo}
   alias Ankole.Tenants.Tenant
-  alias Ankole.Plugins.Microsoft365Adapter.{Config, GraphSubscriptions}
+  alias Ankole.Plugins.Microsoft365Adapter.Config
+  alias Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions
 
   @default_interval_ms :timer.hours(6)
   @call_timeout 60_000

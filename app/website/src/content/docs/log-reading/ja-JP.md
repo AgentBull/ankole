@@ -48,7 +48,7 @@ Agent の Worker が起動しない場合は、**Console → Workers** にその
 ```json
 {
   "severity": "warning",
-  "event": "signals_gateway.webhook.dispatch_failed",
+  "event": "signals.webhook.dispatch_failed",
   "message": "provider webhook dispatch failed",
   "handler_id": "lark",
   "reason": "..."

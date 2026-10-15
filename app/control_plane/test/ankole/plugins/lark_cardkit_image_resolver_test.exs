@@ -8,7 +8,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
   alias Ankole.AppConfigure.Registry
   alias Ankole.Plugins.LarkAdapter.CardKit.ImageResolver
   alias Ankole.Security.SSRFFilter
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ReplyPresentation
   alias FeishuOpenAPI.Client
 
   setup do

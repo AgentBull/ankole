@@ -111,9 +111,15 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     api_spec = AnkoleWeb.APISpec.spec()
     conn = console_conn(conn)
 
+    digest_id = conversation!(agent.uid, "lark:chat:digest")
+    archive_id = conversation!(agent.uid, "lark:chat:archive")
+
     created =
       conn
-      |> post(~p"/api/v1/agents/#{agent.uid}/cron-schedules", cron_body("session-a", "digest"))
+      |> post(
+        ~p"/api/v1/agents/#{agent.uid}/cron-schedules",
+        cron_body(agent.uid, "session-a", "digest")
+      )
       |> json_response(200)
 
     assert_schema(created, "ScheduleCronScheduleResponse", api_spec)
@@ -127,15 +133,15 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     assert get_in(created, ["cron_schedule", "delivery", "targets"]) == [
              %{
                "binding_name" => "lark",
-               "signal_channel_id" => "lark:chat:digest"
+               "conversation_id" => digest_id
              }
            ]
 
     schedule_id = get_in(created, ["cron_schedule", "id"])
 
     targets = [
-      %{"binding_name" => "lark", "signal_channel_id" => "lark:chat:digest"},
-      %{"binding_name" => "lark-record", "signal_channel_id" => "lark:chat:archive"}
+      %{"binding_name" => "lark", "conversation_id" => digest_id},
+      %{"binding_name" => "lark-record", "conversation_id" => archive_id}
     ]
 
     updated =
@@ -152,7 +158,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
            |> recycle_api()
            |> post(
              ~p"/api/v1/agents/#{agent.uid}/cron-schedules",
-             Map.delete(cron_body("session-a", "second-digest"), "owner_session_id")
+             Map.delete(cron_body(agent.uid, "session-a", "second-digest"), "owner_session_id")
            )
            |> json_response(422)
 
@@ -160,7 +166,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
            |> recycle_api()
            |> post(
              ~p"/api/v1/agents/#{agent.uid}/cron-schedules",
-             Map.put(cron_body("session-a", "third-digest"), "payload", %{})
+             Map.put(cron_body(agent.uid, "session-a", "third-digest"), "payload", %{})
            )
            |> json_response(422)
   end
@@ -239,7 +245,9 @@ defmodule AnkoleWeb.ScheduleControllerTest do
            |> json_response(401)
   end
 
-  defp cron_body(owner_session_id, name) do
+  defp cron_body(agent_uid, owner_session_id, name) do
+    conversation_id = conversation!(agent_uid, "lark:chat:#{name}")
+
     %{
       "owner_session_id" => owner_session_id,
       "binding_name" => "lark",
@@ -249,7 +257,7 @@ defmodule AnkoleWeb.ScheduleControllerTest do
       "payload" => %{"task" => "console test task for #{name}"},
       "delivery" => %{
         "targets" => [
-          %{"binding_name" => "lark", "signal_channel_id" => "lark:chat:#{name}"}
+          %{"binding_name" => "lark", "conversation_id" => conversation_id}
         ]
       },
       "idempotency_key" => "console-test-#{name}"
@@ -258,8 +266,8 @@ defmodule AnkoleWeb.ScheduleControllerTest do
 
   defp cron_schedule!(agent_uid, owner_session_id, name) do
     attrs =
-      owner_session_id
-      |> cron_body(name)
+      agent_uid
+      |> cron_body(owner_session_id, name)
       |> Map.put("agent_uid", agent_uid)
 
     assert {:ok, %{cron_schedule: schedule}} =
@@ -276,10 +284,29 @@ defmodule AnkoleWeb.ScheduleControllerTest do
     schedule
   end
 
+  defp conversation!(agent_uid, provider_id) do
+    assert {:ok, conversation} =
+             Ankole.Repo.transact(fn repo ->
+               Ankole.Conversations.External.observe_conversation_in_tx(
+                 repo,
+                 %{agent_uid: agent_uid},
+                 %{
+                   provider_conversation_id: provider_id,
+                   external_kind: :im_group,
+                   title: provider_id,
+                   reply_mode: :entry
+                 },
+                 DateTime.utc_now(:microsecond)
+               )
+             end)
+
+    conversation.id
+  end
+
   defp checkback!(agent_uid, session_id, reason) do
     assert {:ok, %{scheduled_event: event}} =
              Schedule.create_check_back_later(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "session_id" => session_id,
                "binding_name" => "lark",
@@ -291,7 +318,9 @@ defmodule AnkoleWeb.ScheduleControllerTest do
                },
                "reason" => reason,
                "check" => reason,
-               "reply_route" => %{"signal_channel_id" => "lark:chat:#{session_id}"}
+               "reply_route" => %{
+                 "conversation_id" => conversation!(agent_uid, "lark:chat:#{session_id}")
+               }
              })
 
     event

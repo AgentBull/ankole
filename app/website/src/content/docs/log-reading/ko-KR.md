@@ -48,7 +48,7 @@ Agent의 Worker가 시작되지 않으면 **Console → Workers**에 그 상태�
 ```json
 {
   "severity": "warning",
-  "event": "signals_gateway.webhook.dispatch_failed",
+  "event": "signals.webhook.dispatch_failed",
   "message": "provider webhook dispatch failed",
   "handler_id": "lark",
   "reason": "..."

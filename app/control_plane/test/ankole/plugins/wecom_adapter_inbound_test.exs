@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
   use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.WeComAdapter.Inbound
-  alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.Conversations.AdapterContext
   alias WeComOpenAPI.Bot.Event
 
   defp consumer do
@@ -37,9 +37,9 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
     }
 
     assert {:ok, input} = Inbound.normalize_message_receive(event(body, "req-dm-1"), consumer())
-    assert input.source_entry_id == "m1"
+    assert input.provider_message_id == "m1"
     assert input.source_event_id == "m1"
-    assert input.signal_channel_id == "wecom:Alice"
+    assert input.provider_conversation_id == "wecom:Alice"
     assert input.channel.kind == :im_dm
     assert input.channel.metadata["dm_user_id"] == "Alice"
     assert input.channel.metadata["last_req_id"] == "req-dm-1"
@@ -50,7 +50,7 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
     assert input.author["platform_subject"] == "Alice"
     refute Map.has_key?(input.author, "principal_uid")
     assert input.metadata["req_id"] == "req-dm-1"
-    assert input.reply_to_source_entry_id == nil
+    assert input.reply_to_provider_message_id == nil
     assert input.provider_thread_id == nil
   end
 
@@ -66,7 +66,7 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
 
     assert {:ok, input} = Inbound.normalize_message_receive(event(body), consumer())
     assert input.channel.kind == :im_group
-    assert input.signal_channel_id == "wecom:wr-group-1"
+    assert input.provider_conversation_id == "wecom:wr-group-1"
     assert input.channel.metadata["dm_user_id"] == nil
     # Groups deliver only @-mentions, so every group inbound is explicit.
     assert input.explicit == true
@@ -212,11 +212,11 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
       })
 
     assert {:ok, input} = Inbound.normalize_card_action(card_event)
-    assert input.source_entry_id == "ankole:actor-evt-1"
-    assert input.signal_channel_id == "wecom:wr-group-1"
+    assert input.provider_message_id == "ankole:actor-evt-1"
+    assert input.provider_conversation_id == "wecom:wr-group-1"
     assert input.action["value"]["interactionVersion"] == 7
     assert input.action["value"]["selectedOptionId"] == "opt-a"
-    assert input.action["value"]["sourceActorEventId"] == "actor-evt-1"
+    assert input.action["value"]["sourceSignalId"] == "actor-evt-1"
     assert input.source_event_id == "card:ankole:actor-evt-1:int-1:7:choice:opt-a"
 
     # A foreign (unmanaged) key still produces an action with a distinct id.
@@ -233,7 +233,7 @@ defmodule Ankole.Plugins.WeComAdapterInboundTest do
     assert foreign_input.source_event_id != input.source_event_id
   end
 
-  test "signal_channel_id percent-encodes the chat target" do
-    assert Inbound.signal_channel_id("wr AB/12") == "wecom:wr%20AB%2F12"
+  test "provider_conversation_id percent-encodes the chat target" do
+    assert Inbound.provider_conversation_id("wr AB/12") == "wecom:wr%20AB%2F12"
   end
 end

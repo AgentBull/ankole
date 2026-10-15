@@ -72,8 +72,6 @@ Commands
   cancel-webhook-cli --id <webhook-endpoint-id>`
 
 /**
- * Detects a help request anywhere in the argument list.
- *
  * The Docker shims prepend the operation, so \`create-webhook-cli --help\`
  * arrives as \`['create', '--help']\` and must short-circuit before option
  * parsing and before the turn-socket requirement.

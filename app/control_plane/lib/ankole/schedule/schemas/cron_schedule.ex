@@ -24,7 +24,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
 
   @type t :: %__MODULE__{}
 
-  schema "actor_cron_schedules" do
+  schema "cron_schedules" do
     field :authorization_kind, :string, default: "review_required"
     field :human_uid, Ankole.Ecto.PrincipalKey
     field :human_access_version, :integer
@@ -88,7 +88,6 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       :status,
       :agent_uid,
       :owner_session_id,
-      :binding_name,
       :name,
       :schedule,
       :timezone,
@@ -105,21 +104,21 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
     |> foreign_key_constraint(:agent_uid)
     |> foreign_key_constraint(:automation_job_id)
     |> unique_constraint([:agent_uid, :owner_session_id, :idempotency_key],
-      name: :actor_cron_schedules_idempotency_index
+      name: :cron_schedules_idempotency_index
     )
     |> unique_constraint([:agent_uid, :owner_session_id, :name],
-      name: :actor_cron_schedules_agent_name_index
+      name: :cron_schedules_agent_name_index
     )
-    |> check_constraint(:status, name: :actor_cron_schedules_status_check)
-    |> check_constraint(:timezone, name: :actor_cron_schedules_timezone_present)
-    |> check_constraint(:name, name: :actor_cron_schedules_name_present)
+    |> check_constraint(:status, name: :cron_schedules_status_check)
+    |> check_constraint(:timezone, name: :cron_schedules_timezone_present)
+    |> check_constraint(:name, name: :cron_schedules_name_present)
     |> check_constraint(:idempotency_key,
-      name: :actor_cron_schedules_idempotency_key_present
+      name: :cron_schedules_idempotency_key_present
     )
-    |> check_constraint(:schedule, name: :actor_cron_schedules_schedule_object)
-    |> check_constraint(:payload, name: :actor_cron_schedules_payload_object)
-    |> check_constraint(:delivery, name: :actor_cron_schedules_delivery_object)
-    |> check_constraint(:created_by, name: :actor_cron_schedules_created_by_object)
+    |> check_constraint(:schedule, name: :cron_schedules_schedule_object)
+    |> check_constraint(:payload, name: :cron_schedules_payload_object)
+    |> check_constraint(:delivery, name: :cron_schedules_delivery_object)
+    |> check_constraint(:created_by, name: :cron_schedules_created_by_object)
   end
 
   defp validate_nullable_map(changeset, field) do

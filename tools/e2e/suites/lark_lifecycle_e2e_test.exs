@@ -9,7 +9,7 @@ defmodule Ankole.E2E.LarkLifecycleE2ETest do
 
   import Ankole.E2E.Harness
 
-  import Ankole.E2E.Scenarios.Ingress,
+  import Ankole.E2E.Scenarios.Observe,
     only: [run_direct_duplicate_and_llm_retry: 1, run_compress_command: 2]
 
   import Ankole.E2E.Scenarios.Lifecycle

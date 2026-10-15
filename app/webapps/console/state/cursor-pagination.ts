@@ -10,7 +10,6 @@
 const ROOT_CURSOR = '~'
 const CURSOR_HISTORY_SEPARATOR = '.'
 
-/** Advances to a server-issued cursor while retaining the exact cursor needed to return. */
 export function nextCursorParams(
   searchParams: URLSearchParams,
   nextCursor: string,

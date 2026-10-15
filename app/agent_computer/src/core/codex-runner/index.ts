@@ -1,4 +1,4 @@
-import type { TurnStart } from '../../lanes/actor_lane'
+import type { TurnStart } from '../../lanes/session_lane'
 import { isTerminalBackgroundAgentJobStatus } from '../background-agent-job-documents'
 import { modelIntegerIDFromWire, modelIntegerIDToWire } from '../model-integer-id'
 import type { CodexJobOptions } from './options'
@@ -30,7 +30,7 @@ export async function runCodexJob(turnStart: TurnStart, opts: CodexJobOptions): 
 }
 
 function jobIDFromTurn(turnStart: TurnStart): string {
-  const sessionID = turnStart.turn.actor.session_id
+  const sessionID = turnStart.turn.session.session_id
   if (sessionID.startsWith('job:') && sessionID.length > 'job:'.length) {
     const value = sessionID.slice('job:'.length)
     return modelIntegerIDToWire(modelIntegerIDFromWire(value, 'background Agent Job session id'))

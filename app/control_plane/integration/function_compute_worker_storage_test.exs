@@ -3,12 +3,14 @@ defmodule Ankole.FunctionComputeWorkerStorageIntegrationTest do
   import Ankole.PrincipalsFixtures
   import Ankole.WorkerStorageFixtures
   alias Ankole.Principals
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.AgentWorkers
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Config, Providers, FunctionCompute}
+  alias Ankole.AgentWorkers.Config
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.FunctionCompute
 
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
+  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.WorkerBootstrap
 
   @moduletag cloud: true, sandbox: false, timeout: 3_600_000
 

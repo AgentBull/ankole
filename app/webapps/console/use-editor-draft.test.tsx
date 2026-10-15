@@ -58,6 +58,11 @@ const identities: Array<{
     sourceKey: 'setting:tenant:time.zone'
   },
   {
+    name: 'setting group',
+    identity: { resource: 'setting-group', scope: 'global', group: 'brain' },
+    sourceKey: 'setting-group:global:brain'
+  },
+  {
     name: 'new signal binding',
     identity: { resource: 'signal-binding', agentUID: 'ada', adapterID: 'slack' },
     sourceKey: 'binding:ada:slack:new'
@@ -137,6 +142,37 @@ describe('useEditorDraft', () => {
     seedEditorDraft(model, resolveEditorDraftIdentity(identity), 'refetched', false)
 
     expect(model.initializations).toEqual([{ key: 'agent:ada', source: 'cached' }])
+  })
+
+  test('revokes a previous draft when the selected source is loading or absent', () => {
+    for (const absent of [false, true]) {
+      const model = recordingModel()
+      let resets = 0
+      model.resetSource = () => {
+        resets += 1
+        model.sourceKey.value = undefined
+      }
+      const a = resolveEditorDraftIdentity({ resource: 'setting', scope: 'tenant', key: 'A' })
+      const b = resolveEditorDraftIdentity({ resource: 'setting', scope: 'global', key: 'B' })
+      seedEditorDraft(model, a, 'A source', false)
+      seedEditorDraft(model, b, undefined, absent)
+      expect(resets).toBe(1)
+      expect(model.sourceKey.value).toBeUndefined()
+      expect(model.initializations).toEqual([{ key: a.sourceKey, source: 'A source' }])
+      seedEditorDraft(model, b, undefined, absent)
+      expect(resets).toBe(1)
+    }
+  })
+
+  test('a pending refetch of the same identity keeps its loaded draft', () => {
+    const model = recordingModel()
+    model.resetSource = () => {
+      throw new Error('same-identity loading must retain the draft')
+    }
+    const identity = resolveEditorDraftIdentity({ resource: 'setting', scope: 'tenant', key: 'A' })
+    seedEditorDraft(model, identity, 'A source', false)
+    seedEditorDraft(model, identity, undefined, false)
+    expect(model.sourceKey.value).toBe(identity.sourceKey)
   })
 
   test('seeds a new identity and preserves the agent-library initializer contract', () => {

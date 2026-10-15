@@ -1,10 +1,10 @@
 defmodule Ankole.Plugins.LarkAdapter.Card do
   @moduledoc """
-  Rendering for provider-native and portable Lark card outbox payloads.
+  Rendering for provider-native and portable Lark card intent payloads.
   """
 
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   import MapHelpers, only: [fetch_value: 2, maybe_put_nonempty_map: 3]
 

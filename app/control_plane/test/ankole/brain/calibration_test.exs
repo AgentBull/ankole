@@ -87,7 +87,7 @@ defmodule Ankole.Brain.CalibrationTest do
     channel_take =
       write_take!(
         context.member,
-        %{signal_gateway_channel_id: context.channel.id},
+        %{conversation_id: context.channel.id},
         channel_text
       )
 
@@ -455,7 +455,7 @@ defmodule Ankole.Brain.CalibrationTest do
     channel_take =
       write_take!(
         context.member,
-        %{signal_gateway_channel_id: context.channel.id},
+        %{conversation_id: context.channel.id},
         "The channel prediction was resolved"
       )
 
@@ -557,9 +557,13 @@ defmodule Ankole.Brain.CalibrationTest do
     now = DateTime.utc_now(:microsecond)
 
     Repo.insert!(
-      Ankole.SignalsGateway.Channel.changeset(%Ankole.SignalsGateway.Channel{}, %{
-        id: "test:calibration-#{System.unique_integer([:positive])}",
-        kind: :im_dm,
+      Ankole.Conversations.Conversation.changeset(%Ankole.Conversations.Conversation{}, %{
+        id: Ecto.UUID.generate(),
+        provider_conversation_id: "test:calibration-#{System.unique_integer([:positive])}",
+        title: "Conversation",
+        last_activity_at: now,
+        kind: :external,
+        external_kind: :im_dm,
         reply_mode: :entry,
         metadata: %{},
         raw_payload: %{},

@@ -1663,7 +1663,7 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
     owner_uid = "human-e2e-owner-#{suffix}"
 
     {:ok, worker_provider} =
-      Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.create(%{
+      Ankole.AgentWorkers.Providers.create(%{
         provider_id: "e2e-worker-#{suffix}",
         display_name: "AIGateway E2E Worker provider",
         kind: "docker",

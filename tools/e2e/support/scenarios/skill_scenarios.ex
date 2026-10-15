@@ -11,7 +11,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
     only: [
       deadline: 1,
       wait_for_completed_final_reply: 3,
-      ai_messages_for_actor_event: 1
+      ai_messages_for_signal: 1
     ]
 
   alias Ankole.AIAgent.Library
@@ -39,7 +39,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                  DateTime.to_unix(DateTime.add(@base_time, 5_050, :millisecond), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_skill_view_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_skill_view_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -47,9 +47,9 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(90_000))
 
-    assert reply.text =~ "CHAOS_SKILL_VIEW_OK"
+    assert reply.message.text =~ "CHAOS_SKILL_VIEW_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     assert [skill_result] = successful_tool_results(messages, "skill_view")
     rendered = inspect(skill_result)
     assert rendered =~ "pdf Skill is a background-task capability"
@@ -58,7 +58,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
     refute rendered =~ "directory="
     refute rendered =~ "# PDF"
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply}
   end
 
@@ -81,7 +81,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                  DateTime.to_unix(DateTime.add(@base_time, 5_060, :millisecond), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_skill_view_all_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_skill_view_all_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -89,9 +89,9 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(90_000))
 
-    assert reply.text =~ "CHAOS_SKILL_VIEW_ALL_OK"
+    assert reply.message.text =~ "CHAOS_SKILL_VIEW_ALL_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     skill_results = successful_tool_results(messages, "skill_view")
     assert length(skill_results) == 2
     rendered = inspect(skill_results)
@@ -106,7 +106,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     assert rendered =~ "# Jupyter Live Kernel"
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply}
   end
 
@@ -140,7 +140,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                  DateTime.to_unix(DateTime.add(@base_time, 5_090, :millisecond), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_skill_disabled_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_skill_disabled_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -148,15 +148,15 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(%{agent_uid: agent.uid}, input.id, deadline(90_000))
 
-    assert reply.text =~ "CHAOS_SKILL_DISABLED_OK"
+    assert reply.message.text =~ "CHAOS_SKILL_DISABLED_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
 
     assert Enum.any?(tool_results(messages, "skill_view"), fn call ->
              tool_result_error?(call) and inspect(call.result) =~ "skill is not enabled"
            end)
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     %{input: input, reply: reply}
   end
 
@@ -202,7 +202,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                  DateTime.to_unix(DateTime.add(@base_time, 5_100, :millisecond), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_installed_skill_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_installed_skill_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
@@ -210,9 +210,9 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(container, input.id, deadline(90_000))
 
-    assert reply.text =~ "CHAOS_INSTALLED_SKILL_OK"
+    assert reply.message.text =~ "CHAOS_INSTALLED_SKILL_OK"
 
-    messages = ai_messages_for_actor_event(input.id)
+    messages = ai_messages_for_signal(input.id)
     skill_tool_results = tool_results(messages, "skill_view")
 
     successful_results =
@@ -252,7 +252,7 @@ defmodule Ankole.E2E.Scenarios.Skill do
                  DateTime.to_unix(DateTime.add(@base_time, 5_110, :millisecond), :millisecond)
              )
 
-    deleted_input = actor_event_by_source_entry_id!(agent.uid, "om_installed_skill_deleted_1")
+    deleted_input = signal_by_provider_message_id!(agent.uid, "om_installed_skill_deleted_1")
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(
@@ -263,9 +263,9 @@ defmodule Ankole.E2E.Scenarios.Skill do
     assert {:ok, deleted_reply, _message} =
              wait_for_completed_final_reply(container, deleted_input.id, deadline(90_000))
 
-    assert deleted_reply.text =~ "CHAOS_INSTALLED_SKILL_DELETED_OK"
+    assert deleted_reply.message.text =~ "CHAOS_INSTALLED_SKILL_DELETED_OK"
 
-    deleted_messages = ai_messages_for_actor_event(deleted_input.id)
+    deleted_messages = ai_messages_for_signal(deleted_input.id)
 
     assert Enum.any?(tool_results(deleted_messages, "skill_view"), fn call ->
              tool_result_error?(call) and inspect(call.result) =~ "skill is not enabled"
@@ -273,8 +273,8 @@ defmodule Ankole.E2E.Scenarios.Skill do
 
     refute Repo.get_by(AgentSkill, agent_uid: agent.uid, skill_name: "e2e-installed")
 
-    assert_actor_event_completed!(input.id)
-    assert_actor_event_completed!(deleted_input.id)
+    assert_signal_completed!(input.id)
+    assert_signal_completed!(deleted_input.id)
     %{input: input, reply: reply, deleted_input: deleted_input, deleted_reply: deleted_reply}
   end
 end

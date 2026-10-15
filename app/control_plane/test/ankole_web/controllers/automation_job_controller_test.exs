@@ -13,7 +13,6 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
   alias Ankole.AutomationJobs
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway
 
   setup do
     allow_cache_database_access()
@@ -188,12 +187,12 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
              AutomationJobs.create_job(%{
                agent_uid: agent_uid,
                owner_session_id: source.session_id,
-               source_actor_event_id: source.id,
-               source_entry_id: source.source_entry_id,
+               source_signal_id: source.id,
+               provider_message_id: source.provider_message_id,
                source_provenance: %{"kind" => "console-test"},
                reply_route: %{
-                 "binding_name" => source.binding_name,
-                 "signal_channel_id" => source.signal_channel_id
+                 "binding_name" => source.reply_binding_name,
+                 "conversation_id" => source.conversation_id
                },
                drive_prefix: "automation/console-test",
                label: label,
@@ -204,29 +203,9 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
   end
 
   defp source_event!(agent_uid) do
-    unique = System.unique_integer([:positive])
-
-    {:ok, event} =
-      SignalsGateway.append_actor_event(%{
-        agent_uid: agent_uid,
-        binding_name: "lark",
-        session_id: "automation-console-#{unique}",
-        source_event_id: "automation-console-source-#{unique}",
-        signal_channel_id: "lark:chat:#{unique}",
-        provider_thread_id: "thread-#{unique}",
-        source_entry_id: "message-#{unique}",
-        type: "im.message.addressed",
-        available_at: DateTime.utc_now(:microsecond),
-        sender_key: agent_uid,
-        payload: %{
-          "specversion" => "1.0",
-          "id" => "automation-console-source-#{unique}",
-          "source" => "test://automation-console",
-          "type" => "im.message.addressed",
-          "data" => %{}
-        }
-      })
-
-    event
+    Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid,
+      binding_name: "github",
+      source: "test://webhook-source"
+    )
   end
 end

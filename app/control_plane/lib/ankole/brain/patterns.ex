@@ -8,8 +8,15 @@ defmodule Ankole.Brain.Patterns do
 
   import Ecto.Query
 
-  alias Ankole.Brain.{Claims, Config, Links, Markdoc, ModelCalls, Objects}
-  alias Ankole.Brain.Schemas.{Claim, Link, Object}
+  alias Ankole.Brain.Claims
+  alias Ankole.Brain.Config
+  alias Ankole.Brain.Links
+  alias Ankole.Brain.Markdoc
+  alias Ankole.Brain.ModelCalls
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.Schemas.Link
+  alias Ankole.Brain.Schemas.Object
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Repo
 

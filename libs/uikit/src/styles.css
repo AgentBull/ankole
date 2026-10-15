@@ -314,7 +314,7 @@
      common type of color vision. */
   --selection: #cfe4f2;
 
-  --sidebar: var(--color-gray-10);
+  --sidebar: var(--ground);
   --sidebar-foreground: var(--text-primary);
   --sidebar-accent: var(--color-gray-20);
   --sidebar-accent-foreground: var(--text-primary);
@@ -439,7 +439,7 @@
   --ring: var(--text-primary);
   --selection: #27425c;
 
-  --sidebar: var(--color-gray-100);
+  --sidebar: var(--ground);
   --sidebar-foreground: var(--color-gray-10);
   --sidebar-accent: var(--color-gray-80);
   --sidebar-accent-foreground: var(--color-white);
@@ -681,13 +681,7 @@
 }
 
 /*
- * Reduced motion.
- *
- * Carbon's motion guidance requires a reduced alternative for interface state
- * transitions. Nothing here removes a state change — only the travel between
- * states — so a panel still opens and a menu still closes. `animate-spin` is
- * exempt because a busy indicator that stops moving reads as a hung request,
- * which is the opposite of the state it must report.
+ * `animate-spin` keeps moving. A stopped spinner reads as a hung request.
  */
 @media (prefers-reduced-motion: reduce) {
   *,

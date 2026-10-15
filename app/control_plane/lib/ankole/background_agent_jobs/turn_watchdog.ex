@@ -2,10 +2,16 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   @moduledoc "Detects a stalled Job from durable Codex trajectory activity."
   import Ecto.Query
   alias Ankole.{BackgroundAgentJobs, Repo}
-  alias Ankole.BackgroundAgentJobs.{Lifecycle, Queries, Turns, Schemas.Job, Schemas.Turn}
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.{AgentWorkers, TurnControl}
-  alias Ankole.Conversations.{CodexJob, JobTurnRef}
+  alias Ankole.BackgroundAgentJobs.Lifecycle
+  alias Ankole.BackgroundAgentJobs.Queries
+  alias Ankole.BackgroundAgentJobs.Turns
+  alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Schemas.Turn
+  alias Ankole.Signals.Signal
+  alias Ankole.AgentWorkers
+  alias Ankole.Sessions.TurnControl
+  alias Ankole.Sessions.CodexJob
+  alias Ankole.Sessions.JobTurnRef
   @stall_grace_seconds 3_600
   @max_stalls 3
   @stall_code "background_agent_job_turn_stalled"
@@ -39,7 +45,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
 
             event =
               repo.one(
-                from e in ActorEvent,
+                from e in Signal,
                   where:
                     e.agent_uid == ^job.agent_uid and
                       e.session_id == ^BackgroundAgentJobs.job_session_id(job.id) and
@@ -52,7 +58,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
               ref = %JobTurnRef{
                 agent_uid: job.agent_uid,
                 session_id: event.session_id,
-                actor_event_id: event.id,
+                signal_id: event.id,
                 job_id: job.id,
                 attempt: job.attempts
               }
@@ -91,16 +97,16 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   @doc """
   Closes the runtime Turns of one stalled attempt inside the abort transaction.
 
-  A retryable stall keeps its actor event open, so only the Turn rows close.
+  A retryable stall keeps its Signal open, so only the Turn rows close.
   Recording the stall code on them is what lets a later stall count the earlier
   ones instead of retrying forever. An exhausted stall arrives here as a
   dead-letter event and follows the ordinary Job failure compensation.
   """
-  @spec compensate_in_tx(module(), ActorEvent.t(), map(), DateTime.t()) ::
+  @spec compensate_in_tx(module(), Signal.t(), map(), DateTime.t()) ::
           {:ok, map() | nil} | {:error, term()}
   def compensate_in_tx(
         repo,
-        %ActorEvent{agent_uid: agent_uid, session_id: session_id, input_state: "open"},
+        %Signal{agent_uid: agent_uid, session_id: session_id, input_state: "open"},
         %{"code" => @stall_code, "message" => message},
         %DateTime{} = now
       ) do
@@ -123,7 +129,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
     end
   end
 
-  def compensate_in_tx(repo, %ActorEvent{} = event, reason, %DateTime{} = now),
+  def compensate_in_tx(repo, %Signal{} = event, reason, %DateTime{} = now),
     do: BackgroundAgentJobs.compensate_turn_error_in_tx(repo, event, reason, now)
 
   defp stall_count(repo, job_id) do

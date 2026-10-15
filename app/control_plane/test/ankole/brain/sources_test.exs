@@ -8,25 +8,25 @@ defmodule Ankole.Brain.SourcesTest do
 
   test "recording an extraction watermark keeps Source list ordering" do
     assert {:ok, source} =
-             Sources.create(%{kind: "signal_channel", upstream_id: "channel-1", name: "Channel"})
+             Sources.create(%{kind: "conversation", upstream_id: "channel-1", name: "Channel"})
 
-    boundary = {~U[2026-08-20 10:00:00.123456Z], "message-9"}
+    boundary = {~U[2026-08-20 10:00:00.123456Z], 9}
     assert :ok = Sources.record_extraction_watermark(Repo, source, boundary)
     current = Repo.get!(Source, source.id)
-    assert Sources.extraction_watermark(current) == boundary
+    assert Sources.extraction_watermark(current) == 9
     assert current.updated_at == source.updated_at
   end
 
   test "a channel watermark is absent until a Source records its complete boundary" do
-    assert Sources.channel_extraction_watermark("channel-1") == nil
+    assert Sources.conversation_extraction_watermark("channel-1") == nil
 
     assert {:ok, source} =
-             Sources.create(%{kind: "signal_channel", upstream_id: "channel-1", name: "Channel"})
+             Sources.create(%{kind: "conversation", upstream_id: "channel-1", name: "Channel"})
 
-    assert Sources.channel_extraction_watermark("channel-1") == nil
-    boundary = {~U[2026-08-20 10:00:00.123456Z], "message-9"}
+    assert Sources.conversation_extraction_watermark("channel-1") == nil
+    boundary = {~U[2026-08-20 10:00:00.123456Z], 9}
     assert :ok = Sources.record_extraction_watermark(Repo, source, boundary)
-    assert Sources.channel_extraction_watermark("channel-1") == boundary
+    assert Sources.conversation_extraction_watermark("channel-1") == 9
   end
 
   test "strict creation rejects a duplicate while idempotent registration reuses it" do

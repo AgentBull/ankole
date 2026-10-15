@@ -1,7 +1,7 @@
-defmodule Ankole.AIGateway.CodexModelBindingTest do
+defmodule Ankole.Sessions.CodexModelBindingTest do
   use ExUnit.Case, async: true
 
-  alias Ankole.AIGateway.CodexModelBinding
+  alias Ankole.Sessions.CodexModelBinding
 
   test "decodes one frozen binding and preserves every provider option" do
     encoded =
@@ -159,7 +159,7 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
   end
 
   test "carries the Job's hosted Brain declaration and applies it to the request" do
-    actor_event_id = Ankole.Ecto.UUIDv7.autogenerate()
+    signal_id = Ankole.Ecto.UUIDv7.autogenerate()
 
     encoded =
       %{
@@ -167,7 +167,7 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
         "provider_options" => %{},
         "supports_parallel_tool_calls" => true,
         "input_modalities" => ["text"],
-        "brain" => %{"operations" => ["recall", "get_page"], "actor_event_id" => actor_event_id}
+        "brain" => %{"operations" => ["recall", "get_page"], "signal_id" => signal_id}
       }
       |> Ankole.JSON.encode!()
       |> Base.url_encode64(padding: false)
@@ -176,7 +176,7 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
 
     assert binding["brain"] == %{
              "operations" => ["recall", "get_page"],
-             "actor_event_id" => actor_event_id
+             "signal_id" => signal_id
            }
 
     request = %{
@@ -193,14 +193,14 @@ defmodule Ankole.AIGateway.CodexModelBindingTest do
              "operations" => ["recall", "get_page"]
            }
 
-    assert applied["metadata"] == %{"trace" => "abc", "actor_event_id" => actor_event_id}
+    assert applied["metadata"] == %{"trace" => "abc", "signal_id" => signal_id}
   end
 
   test "rejects a Brain declaration with unknown operations or no actor event" do
     for brain <- [
-          %{"operations" => ["erase"], "actor_event_id" => "event-1"},
-          %{"operations" => ["recall"], "actor_event_id" => ""},
-          %{"operations" => [], "actor_event_id" => "event-1"}
+          %{"operations" => ["erase"], "signal_id" => "event-1"},
+          %{"operations" => ["recall"], "signal_id" => ""},
+          %{"operations" => [], "signal_id" => "event-1"}
         ] do
       encoded =
         %{

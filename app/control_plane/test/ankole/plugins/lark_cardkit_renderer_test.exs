@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
   use Ankole.DataCase, async: true
 
   alias Ankole.Plugins.LarkAdapter.CardKit.Renderer
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   test "renders live Markdown, plan, thought, typed results, receipts and actions as CardKit 2.0" do
     presentation =
@@ -544,7 +544,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
             "label" => "运营人员",
             "description" => "负责日常运行和故障处理的团队。",
             "interaction_id" => "clarify:4",
-            "source_actor_event_id" => source_event_id,
+            "source_signal_id" => source_event_id,
             "control_id" => "audience",
             "selected_option_id" => "operators",
             "option_value" => "Operators",
@@ -555,7 +555,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
             "type" => "button",
             "label" => "管理层",
             "interaction_id" => "clarify:4",
-            "source_actor_event_id" => source_event_id,
+            "source_signal_id" => source_event_id,
             "control_id" => "audience",
             "selected_option_id" => "executives",
             "option_value" => "Executives",
@@ -566,7 +566,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
             "type" => "button",
             "label" => long_label,
             "interaction_id" => "clarify:4",
-            "source_actor_event_id" => source_event_id,
+            "source_signal_id" => source_event_id,
             "control_id" => "audience",
             "selected_option_id" => "long-option",
             "option_value" => long_label,
@@ -603,7 +603,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
                "controlId" => "audience",
                "selectedOptionId" => "operators",
                "optionValue" => "Operators",
-               "sourceActorEventId" => source_event_id
+               "sourceSignalId" => source_event_id
              }
            }
 
@@ -641,7 +641,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
             "type" => "button",
             "label" => "全部",
             "interaction_id" => "clarify:form",
-            "source_actor_event_id" => source_event_id,
+            "source_signal_id" => source_event_id,
             "control_id" => "scope",
             "selected_option_id" => "all",
             "option_value" => "All",
@@ -653,7 +653,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
             "label" => "Reply",
             "style" => "primary",
             "interaction_id" => "clarify:form",
-            "source_actor_event_id" => source_event_id,
+            "source_signal_id" => source_event_id,
             "control_id" => "clarify-free-input",
             "revision" => 1,
             "fields" => [
@@ -709,7 +709,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
                "interactionVersion" => 1,
                "controlId" => "clarify-free-input",
                "inputName" => "clarify-answer",
-               "sourceActorEventId" => source_event_id
+               "sourceSignalId" => source_event_id
              }
            }
 

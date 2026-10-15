@@ -1,10 +1,12 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it, mock } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { cleanupExecutionMaterials, prepareExecutionMaterials } from '../src/core/execution/execution-materials'
-import { BrowserRuntime } from '../src/browser-runtime'
+import { BrowserRuntime, type RenderedFetchBrowserMaterializeSettings } from '../src/browser-runtime'
+import type { BrowserRoute } from '../src/browser-runtime/materializer'
+import { projectWorkerEnv, type CodexJobRuntimeProjection } from '../src/core/codex-runner/job/runtime-projection'
 import { LARK_TENANT_TOKEN_ENV } from '../src/core/execution/lark-credential'
 import { MCPORTER_CONFIG_ENV } from '../src/tools/mcp/mcporter-config'
 import { WorkerEnvResolveResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
@@ -18,16 +20,15 @@ afterEach(() => {
 })
 
 describe('execution materials', () => {
-  it('consumes material source values but returns only command-safe environment', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'ankole-execution-materials-'))
-    roots.push(root)
-    const agentHome = join(root, 'agent')
-    const scopeRoot = join(root, 'scope')
-    const temp = join(root, 'temp')
-    mkdirSync(agentHome)
-    mkdirSync(scopeRoot)
-    mkdirSync(temp)
-    let materialSourceEnv: Record<string, string> | undefined
+  it('binds rendered fetch source settings but returns only command-safe environment', async () => {
+    const { root, agentHome, scopeRoot, temp } = executionPaths()
+    const runtime = browserRuntime(root)
+    const fetchRendered = mock(
+      async (_urls: string[], _settings: RenderedFetchBrowserMaterializeSettings, _signal?: AbortSignal) => ({
+        results: []
+      })
+    )
+    runtime.fetchRendered = fetchRendered
 
     const materials = await prepareExecutionMaterials({
       agentHome,
@@ -36,25 +37,27 @@ describe('execution materials', () => {
       runtimeEnv: { RUNTIME_SAFE: 'yes' },
       mcpServers: [],
       mcporterDirectory: temp,
+      renderedFetch: {
+        config: { ssrfFilter: true, renderedFetchIdleTtlMs: 45_000 },
+        browserRuntime: runtime
+      },
       browser: {
-        runtime: new BrowserRuntime({
-          runtimeRoot: join(root, 'runtime'),
-          socketPath: join(root, 'socket', 'browser.sock'),
-          daemonEntry: '/bin/true',
-          runnerPath: '/bin/true',
-          localChromiumExecutable: '/bin/true'
-        }),
+        runtime,
         scopeRoot,
         artifactRoot: join(scopeRoot, 'browser'),
         ssrfFilter: true
-      },
-      consumeMaterialSourceEnv: async workerEnv => {
-        materialSourceEnv = workerEnv
       }
     })
 
-    expect(materialSourceEnv?.BROWSER_BACKEND_JSON).toBe(browserBackendJSON)
-    expect(materialSourceEnv?.[LARK_TENANT_TOKEN_ENV]).toBeUndefined()
+    const signal = new AbortController().signal
+    expect(materials.renderedFetch?.ssrfFilter).toBe(true)
+    await materials.renderedFetch!.fetchBatch(['https://example.com'], signal)
+    expect(fetchRendered).toHaveBeenCalledTimes(1)
+    const settings = fetchRendered.mock.calls[0]![1]
+    expect(settings.workerEnv?.BROWSER_BACKEND_JSON).toBe(browserBackendJSON)
+    expect(settings.workerEnv?.[LARK_TENANT_TOKEN_ENV]).toBeUndefined()
+    expect(settings.idleTtlMs).toBe(45_000)
+    expect(fetchRendered).toHaveBeenCalledWith(['https://example.com'], settings, signal)
     expect(materials.workerEnv.SAFE).toBe('value')
     expect(materials.workerEnv.BROWSER_BACKEND_JSON).toBeUndefined()
     expect(materials.workerEnv[LARK_TENANT_TOKEN_ENV]).toBeUndefined()
@@ -71,12 +74,63 @@ describe('execution materials', () => {
     expect(await Bun.file(mcporterPath).exists()).toBe(true)
     expect(await Bun.file(larkPath).exists()).toBe(true)
     expect(await Bun.file(browserPath).exists()).toBe(true)
+    expect((await Bun.file(browserPath).json()).idle_ttl_ms).toBe(30 * 60_000)
 
     await materials.cleanup()
     await materials.cleanup()
     expect(await Bun.file(mcporterPath).exists()).toBe(false)
     expect(await Bun.file(larkPath).exists()).toBe(false)
     expect(await Bun.file(browserPath).exists()).toBe(false)
+    expect(await Bun.file(join(scopeRoot, '.ankole', 'browser-route.json')).exists()).toBe(true)
+  })
+
+  it('uses the frozen Job projection for separate ephemeral fetch routes', async () => {
+    const { root, agentHome, temp } = executionPaths()
+    const runtime = browserRuntime(root)
+    const routes: BrowserRoute[] = []
+    runtime.fetchRendered = async (_urls, settings) => {
+      routes.push(await runtime.materializer.materializeEphemeral({ settings }))
+      return { results: [] }
+    }
+    const frozenBackend = JSON.stringify({ kind: 'local_chromium', executable: '/bin/true', args: ['--frozen'] })
+    const projection: CodexJobRuntimeProjection = {
+      version: 1,
+      modelRef: {},
+      runtimePolicy: {},
+      nativeMCPServers: [],
+      workerEnv: {
+        names: ['SAFE', 'BROWSER_BACKEND_JSON'],
+        plainValues: { SAFE: 'frozen-value', BROWSER_BACKEND_JSON: frozenBackend }
+      },
+      browser: { mode: 'persistent' }
+    }
+    const materials = await prepareExecutionMaterials({
+      agentHome,
+      rpc: workerEnvRPC(),
+      bindingName: 'lark-main',
+      mcpServers: [],
+      mcporterDirectory: temp,
+      projectEnv: workerEnv => projectWorkerEnv(projection, workerEnv),
+      renderedFetch: { config: { ssrfFilter: false }, browserRuntime: runtime }
+    })
+
+    try {
+      expect(materials.workerEnv.SAFE).toBe('frozen-value')
+      expect(materials.workerEnv.BROWSER_BACKEND_JSON).toBeUndefined()
+      expect(materials.browserEnv).toEqual({})
+      expect(materials.renderedFetch?.ssrfFilter).toBe(false)
+      await materials.renderedFetch!.fetchBatch(['https://example.com'])
+      await materials.renderedFetch!.fetchBatch(['https://example.com'])
+      expect(routes).toHaveLength(2)
+      expect(routes[0]!.route).not.toBe(routes[1]!.route)
+      for (const route of routes) {
+        expect(route.material.backend).toMatchObject({ args: ['--frozen'] })
+        expect(route.material.navigation.ssrf_filter).toBe(false)
+        expect(route.material.idle_ttl_ms).toBe(30 * 60_000)
+      }
+    } finally {
+      await materials.cleanup()
+    }
   })
 
   it('cleans Browser, MCPorter, and Lark in order without hiding the first error', async () => {
@@ -108,6 +162,24 @@ describe('execution materials', () => {
     expect(calls).toEqual(['browser', 'mcporter', 'lark'])
   })
 })
+
+function executionPaths() {
+  const root = mkdtempSync(join(tmpdir(), 'ankole-execution-materials-'))
+  roots.push(root)
+  const paths = { root, agentHome: join(root, 'agent'), scopeRoot: join(root, 'scope'), temp: join(root, 'temp') }
+  for (const directory of [paths.agentHome, paths.scopeRoot, paths.temp]) mkdirSync(directory)
+  return paths
+}
+
+function browserRuntime(root: string): BrowserRuntime {
+  return new BrowserRuntime({
+    runtimeRoot: join(root, 'runtime'),
+    socketPath: join(root, 'socket', 'browser.sock'),
+    daemonEntry: '/bin/true',
+    runnerPath: '/bin/true',
+    localChromiumExecutable: '/bin/true'
+  })
+}
 
 function workerEnvRPC(): RPCRequester {
   return (async (method: unknown, payload: unknown, frame: unknown) => {

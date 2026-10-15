@@ -52,8 +52,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
   import Ankole.AIGateway.ResponseCommit,
     only: [notify_ai_message_deadline: 2, lock_generating_message_by_id: 2]
 
-  # Public API
-
   @doc """
   Admits a stateful response run and creates its `generating` message row.
 

@@ -12,7 +12,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
   alias Ankole.BackgroundAgentJobs
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
+  alias Ankole.AgentWorkers.WorkerRoute
 
   setup do
     allow_cache_database_access()
@@ -217,20 +217,20 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     {:ok, profile} = Ankole.AIAgent.ModelProfiles.get_model_profile(agent.uid, "coding")
 
     :ok =
-      Ankole.SignalsGateway.ActorRuntimeCase.cache_actor_runtime_models(profile["provider_id"])
+      Ankole.SessionsCase.cache_actor_runtime_models(profile["provider_id"])
 
     route = "agent-library-skill-disable-#{System.unique_integer([:positive])}"
     :ok = WorkerRoute.register_local_worker(route, self())
     on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
 
     assert {:ok, _worker} =
-             Ankole.SignalsGateway.ActorRuntimeCase.admit_worker(route, %{worker_id: agent.uid})
+             Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
 
     assert {:ok, %{job: job}} = create_job(agent.uid, "skill-disable", nil)
     assert job.authorization_kind == "service"
 
     event =
-      Repo.get_by!(Ankole.SignalsGateway.ActorEvent,
+      Repo.get_by!(Ankole.Signals.Signal,
         session_id: BackgroundAgentJobs.job_session_id(job.id),
         type: "background_agent_job.dispatch"
       )
@@ -238,7 +238,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
     assert event.authorization_kind == job.authorization_kind
 
     assert {:ok, _driver} =
-             Ankole.Conversations.ensure_driver(%{
+             Ankole.Sessions.ensure_driver(%{
                agent_uid: agent.uid,
                session_id: BackgroundAgentJobs.job_session_id(job.id)
              })
@@ -265,7 +265,7 @@ defmodule AnkoleWeb.AgentLibraryCapabilityControllerTest do
 
   defp create_job(agent_uid, suffix, workspace_template_id) do
     BackgroundAgentJobs.create_with_dispatch(%{
-      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+      "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
       "agent_uid" => agent_uid,
       "owner_session_id" => "parent-session-#{suffix}",
       "source_tool_call_id" => "tool-#{suffix}",

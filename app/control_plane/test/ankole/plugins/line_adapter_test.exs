@@ -1,37 +1,38 @@
 defmodule Ankole.Plugins.LineAdapterTest do
   use Ankole.DataCase, async: false
+  import Ankole.ExternalConversationsFixtures
 
   import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
+  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Plugins.LineAdapter
 
-  alias Ankole.Plugins.LineAdapter.{
-    Config,
-    Inbound,
-    Outbox,
-    Presentation,
-    Profile,
-    Signature,
-    Webhook
-  }
+  alias Ankole.Plugins.LineAdapter.Config
+  alias Ankole.Plugins.LineAdapter.Inbound
+  alias Ankole.Plugins.LineAdapter.Delivery
+  alias Ankole.Plugins.LineAdapter.Presentation
+  alias Ankole.Plugins.LineAdapter.Profile
+  alias Ankole.Plugins.LineAdapter.Signature
+  alias Ankole.Plugins.LineAdapter.Webhook
 
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.ReplyActionToken
 
-  alias Ankole.SignalsGateway.{
-    ActorEvent,
-    AdapterContext,
-    Entry,
-    OutboxEntry,
-    ReplyInteractionState,
-    ReplyPresentation
-  }
+  alias Ankole.Conversations.Delivery.ActionToken
+
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Message
+
+  import Ankole.Conversations.Assertions,
+    only: [message_snapshot: 1, message_snapshot!: 1, observation_snapshot: 1]
+
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.InteractionState
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @channel_id "1650000001"
   @channel_secret "line-channel-secret"
@@ -87,7 +88,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert adapter.id == "line"
       assert adapter.adapter_category == "consumer_im"
       assert adapter.author_hydrator == Profile
-      refute Map.has_key?(adapter, :reply_preview_module)
+      refute Map.has_key?(adapter, :preview_module)
 
       assert adapter.supported_group_message_modes == [
                "addressed_only",
@@ -113,7 +114,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       assert Enum.map(adapter.fields, & &1.encrypted) == [false, true, true]
 
-      assert handler.contract_id == "signals_gateway.webhook_handler"
+      assert handler.contract_id == "signals.webhook_handler"
       assert handler.id == "line"
       assert handler.module == Webhook
       assert handler.kinds == ["events"]
@@ -153,18 +154,20 @@ defmodule Ankole.Plugins.LineAdapterTest do
       attrs = %{"config" => binding_config()}
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(first_agent.uid, "line", "line-one", attrs)
+               Ankole.Signals.Bindings.put_binding(first_agent.uid, "line", "line-one", attrs)
 
       {:ok, application} = Config.platform_application(binding_config())
 
       assert {:error, {:platform_application_already_bound, ^application, first_uid, "line-one"}} =
-               SignalsGateway.put_binding(second_agent.uid, "line", "line-two", attrs)
+               Ankole.Signals.Bindings.put_binding(second_agent.uid, "line", "line-two", attrs)
 
       assert first_uid == first_agent.uid
-      assert {:ok, _disabled} = SignalsGateway.disable_binding(first_agent.uid, "line-one")
+
+      assert {:ok, _disabled} =
+               Ankole.Signals.Bindings.disable_binding(first_agent.uid, "line-one")
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(second_agent.uid, "line", "line-two", attrs)
+               Ankole.Signals.Bindings.put_binding(second_agent.uid, "line", "line-two", attrs)
     end
   end
 
@@ -191,7 +194,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
                )
 
       assert dm.explicit
-      assert dm.signal_channel_id == "line:#{@bot_user_id}:user:#{@user_id}"
+      assert dm.provider_conversation_id == "line:#{@bot_user_id}:user:#{@user_id}"
       assert is_nil(dm.provider_thread_id)
       assert dm.channel.kind == :im_dm
       assert dm.author["provider"] == "line"
@@ -222,7 +225,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert group.explicit
       assert group.text == "😀  please check" |> String.trim()
       assert group.channel.kind == :im_group
-      assert group.signal_channel_id == "line:#{@bot_user_id}:group:#{@group_id}"
+      assert group.provider_conversation_id == "line:#{@bot_user_id}:group:#{@group_id}"
       assert [%{"kind" => "bot", "targets_current_agent" => true}] = group.mentions
       assert group.author["metadata"]["group_id"] == @group_id
 
@@ -239,14 +242,14 @@ defmodule Ankole.Plugins.LineAdapterTest do
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_line_binding(agent.uid, "line-quote")
 
-      Repo.insert!(%OutboxEntry{
+      Repo.insert!(%Intent{
         agent_uid: agent.uid,
         binding_name: "line-quote",
         outbound_key: "ai-reply:1",
         operation: :post,
-        status: :succeeded,
-        signal_channel_id: "line:#{@bot_user_id}:group:#{@group_id}",
-        created_source_entry_id: "bot-message-1",
+        status: :sent,
+        conversation_id: external_conversation_id("line:#{@bot_user_id}:group:#{@group_id}"),
+        created_provider_message_id: "bot-message-1",
         payload: %{}
       })
 
@@ -262,7 +265,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
                )
 
       assert projected.explicit
-      assert projected.reply_to_source_entry_id == "bot-message-1"
+      assert projected.reply_to_provider_message_id == "bot-message-1"
 
       other = text_message("what about this?") |> Map.put("quotedMessageId", "human-message-9")
 
@@ -296,18 +299,18 @@ defmodule Ankole.Plugins.LineAdapterTest do
       channel_id = "line:#{@bot_user_id}:group:#{@group_id}"
 
       {:ok, row} =
-        SignalsGateway.Outbox.commit_outbox(%{
+        Ankole.Conversations.Delivery.commit(%{
           agent_uid: agent.uid,
           binding_name: "line-group",
           outbound_key: "earlier-bot-post",
           operation: :post,
-          signal_channel_id: channel_id,
+          conversation_id: external_conversation_id(channel_id),
           payload: %{},
           fallback_visible_text: "earlier bot message"
         })
 
-      assert {:ok, %{status: :succeeded}} =
-               SignalsGateway.Outbox.dispatch_outbox_by_key(
+      assert {:ok, %{status: :sent}} =
+               Ankole.Conversations.Delivery.dispatch_by_key(
                  row.agent_uid,
                  row.binding_name,
                  row.outbound_key
@@ -325,7 +328,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
                Inbound.handle_message_receive("message", incoming, [consumer])
 
       assert status in [:ignored, :recorded]
-      refute "command.stop" in Enum.map(Repo.all(ActorEvent), & &1.type)
+      refute "command.stop" in Enum.map(Repo.all(Signal), & &1.type)
     end
 
     test "a quote of any message of a split reply makes the group message explicit" do
@@ -350,25 +353,25 @@ defmodule Ankole.Plugins.LineAdapterTest do
       end)
 
       {:ok, row} =
-        SignalsGateway.Outbox.commit_outbox(%{
+        Ankole.Conversations.Delivery.commit(%{
           agent_uid: agent.uid,
           binding_name: "line-split",
           outbound_key: "split-1",
           operation: :post,
-          signal_channel_id: "line:#{@bot_user_id}:group:#{@group_id}",
+          conversation_id: external_conversation_id("line:#{@bot_user_id}:group:#{@group_id}"),
           payload: %{},
           fallback_visible_text: String.duplicate("A", 5_001)
         })
 
-      assert {:ok, %{status: :succeeded, created_source_entry_id: "part-one"}} =
-               SignalsGateway.Outbox.dispatch_outbox_by_key(
+      assert {:ok, %{status: :sent, created_provider_message_id: "part-one"}} =
+               Ankole.Conversations.Delivery.dispatch_by_key(
                  row.agent_uid,
                  row.binding_name,
                  row.outbound_key
                )
 
-      assert %OutboxEntry{payload: %{"line_message_ids" => ["part-one", "part-two"]}} =
-               Repo.get_by!(OutboxEntry, outbound_key: "split-1")
+      assert %Intent{payload: %{"line_message_ids" => ["part-one", "part-two"]}} =
+               Repo.get_by!(Intent, outbound_key: "split-1")
 
       second =
         envelope(
@@ -485,24 +488,25 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       # The webhook answer carries the pending observation; the download runs
       # after it, so the durable ID exists before any bytes move.
-      assert %Entry{attachments: [pending]} = result.signal_entry
+      assert %{attachments: [pending]} = observation_snapshot(result.message_observation)
       assert is_integer(pending["attachment_id"])
       refute pending["materialization_state"] == "complete"
 
       assert eventually(fn ->
                entry =
-                 Repo.get_by(Entry,
-                   signal_channel_id: result.signal_entry.signal_channel_id,
-                   source_entry_id: "m-photo"
+                 message_snapshot(
+                   conversation_id:
+                     observation_snapshot(result.message_observation).conversation_id,
+                   provider_message_id: "m-photo"
                  )
 
-               match?(%Entry{attachments: [%{"materialization_state" => "complete"}]}, entry)
+               match?(%{attachments: [%{"materialization_state" => "complete"}]}, entry)
              end)
 
-      %Entry{attachments: [attachment]} =
-        Repo.get_by(Entry,
-          signal_channel_id: result.signal_entry.signal_channel_id,
-          source_entry_id: "m-photo"
+      %{attachments: [attachment]} =
+        message_snapshot(
+          conversation_id: observation_snapshot(result.message_observation).conversation_id,
+          provider_message_id: "m-photo"
         )
 
       assert attachment["attachment_id"] == pending["attachment_id"]
@@ -510,7 +514,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       assert_stored_attachment!(
         agent.uid,
-        @dm_channel,
+        external_conversation_id(@dm_channel),
         attachment,
         "attachment",
         "image-m-photo.jpg"
@@ -531,28 +535,30 @@ defmodule Ankole.Plugins.LineAdapterTest do
                  consumer(agent.uid, "line-media")
                ])
 
-      assert %Entry{attachments: [kept]} = redelivered.signal_entry
+      assert %{attachments: [kept]} = observation_snapshot(redelivered.message_observation)
       assert kept["materialization_state"] == "complete"
       assert kept["blob_ref"] == attachment["blob_ref"]
       assert kept["attachment_id"] == attachment["attachment_id"]
       refute_received {:line_request, "/v2/bot/message/m-photo/content"}
 
-      %Entry{attachments: [stored], metadata: metadata} =
-        Repo.get_by(Entry,
-          signal_channel_id: result.signal_entry.signal_channel_id,
-          source_entry_id: "m-photo"
+      %{attachments: [stored], metadata: metadata} =
+        message_snapshot(
+          conversation_id: observation_snapshot(result.message_observation).conversation_id,
+          provider_message_id: "m-photo"
         )
 
       assert stored["path"] == attachment["path"]
       assert metadata["attachment_materialization"]["state"] == "complete"
 
       assert metadata["attachment_materialization"]["observed_at"] ==
-               result.signal_entry.metadata["attachment_materialization"]["observed_at"]
+               observation_snapshot(result.message_observation).metadata[
+                 "attachment_materialization"
+               ]["observed_at"]
 
-      refute Map.get(redelivered, :actor_event)
+      refute Map.get(redelivered, :signal)
 
       refute Enum.any?(
-               Repo.all(ActorEvent),
+               Repo.all(Signal),
                &(&1.agent_uid == agent.uid and &1.event_type == "input.revised")
              )
     end
@@ -567,18 +573,18 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert {:ok, [first]} =
                Inbound.handle_message_receive("message", envelope(photo), [consumer])
 
-      assert %Entry{attachments: [pending]} = first.signal_entry
+      assert %{attachments: [pending]} = observation_snapshot(first.message_observation)
       assert_receive {:download_waiting, first_download}, 2_000
 
       assert {:ok, [second]} =
                Inbound.handle_message_receive("message", envelope(photo), [consumer])
 
-      assert %Entry{attachments: [reused]} = second.signal_entry
+      assert %{attachments: [reused]} = observation_snapshot(second.message_observation)
       assert reused["attachment_id"] == pending["attachment_id"]
       assert_receive {:download_waiting, second_download}, 2_000
 
       release.(first_download, :finish_success)
-      channel_id = first.signal_entry.signal_channel_id
+      channel_id = observation_snapshot(first.message_observation).conversation_id
       assert eventually(fn -> complete?(channel_id, "m-slow") end)
 
       # The second fetch fails after the first one wrote the bytes; the entry
@@ -587,14 +593,17 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert eventually(fn -> not Process.alive?(second_download) end)
       assert complete?(channel_id, "m-slow")
 
-      %Entry{attachments: [attachment]} =
-        Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: "m-slow")
+      %{attachments: [attachment]} =
+        message_snapshot(
+          conversation_id: external_conversation_id(channel_id),
+          provider_message_id: "m-slow"
+        )
 
       assert attachment["attachment_id"] == pending["attachment_id"]
 
       assert_stored_attachment!(
         agent.uid,
-        @dm_channel,
+        external_conversation_id(@dm_channel),
         attachment,
         "attachment",
         "image-m-slow.jpg"
@@ -609,7 +618,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert {:ok, [first]} =
                Inbound.handle_message_receive("message", envelope(photo), [consumer])
 
-      assert %Entry{attachments: [pending]} = first.signal_entry
+      assert %{attachments: [pending]} = observation_snapshot(first.message_observation)
       assert_receive {:download_waiting, dead_download}, 2_000
 
       Process.exit(dead_download, :kill)
@@ -621,11 +630,14 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert_receive {:download_waiting, replacement}, 2_000
       release.(replacement, :finish_success)
 
-      channel_id = first.signal_entry.signal_channel_id
+      channel_id = observation_snapshot(first.message_observation).conversation_id
       assert eventually(fn -> complete?(channel_id, "m-dead") end)
 
-      %Entry{attachments: [attachment]} =
-        Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: "m-dead")
+      %{attachments: [attachment]} =
+        message_snapshot(
+          conversation_id: external_conversation_id(channel_id),
+          provider_message_id: "m-dead"
+        )
 
       assert attachment["attachment_id"] == pending["attachment_id"]
     end
@@ -639,18 +651,21 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert {:ok, [first]} =
                Inbound.handle_message_receive("message", envelope(photo), [fixture.consumer])
 
-      assert %Entry{attachments: [pending]} = first.signal_entry
+      assert %{attachments: [pending]} = observation_snapshot(first.message_observation)
       assert_receive {:download_waiting, download}, 2_000
       release.(download, :finish_success)
-      channel_id = first.signal_entry.signal_channel_id
+      channel_id = observation_snapshot(first.message_observation).conversation_id
       assert eventually(fn -> complete?(channel_id, "m-moved") end)
 
-      %Entry{attachments: [first_copy]} =
-        Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: "m-moved")
+      %{attachments: [first_copy]} =
+        message_snapshot(
+          conversation_id: external_conversation_id(channel_id),
+          provider_message_id: "m-moved"
+        )
 
       assert_stored_attachment!(
         first_agent.uid,
-        @dm_channel,
+        external_conversation_id(@dm_channel),
         first_copy,
         "attachment",
         "image-m-moved.jpg"
@@ -660,7 +675,9 @@ defmodule Ankole.Plugins.LineAdapterTest do
       # channel now belongs to another Agent. The stored bytes serve every
       # Agent, so nothing is downloaded again, and the drive of the new Agent
       # gets its own entry for them.
-      assert {:ok, _disabled} = SignalsGateway.disable_binding(first_agent.uid, "line-moved")
+      assert {:ok, _disabled} =
+               Ankole.Signals.Bindings.disable_binding(first_agent.uid, "line-moved")
+
       %{principal: second_agent} = agent_fixture()
       assert {:ok, _binding} = put_line_binding(second_agent.uid, "line-moved")
 
@@ -670,14 +687,14 @@ defmodule Ankole.Plugins.LineAdapterTest do
                ])
 
       refute_receive {:download_waiting, _download}, 200
-      assert %Entry{attachments: [kept]} = moved.signal_entry
+      assert %{attachments: [kept]} = observation_snapshot(moved.message_observation)
       assert kept["attachment_id"] == pending["attachment_id"]
       assert kept["materialization_state"] == "complete"
       assert kept["blob_ref"] == first_copy["blob_ref"]
 
       assert_stored_attachment!(
         second_agent.uid,
-        @dm_channel,
+        external_conversation_id(@dm_channel),
         kept,
         "attachment",
         "image-m-moved.jpg"
@@ -693,10 +710,10 @@ defmodule Ankole.Plugins.LineAdapterTest do
       request = signed_request([message_event(user_source(), text_message("hello"))])
 
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(request)
-      assert Repo.aggregate(Entry, :count) == 1
+      assert Repo.aggregate(Message, :count) == 1
 
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(request)
-      assert Repo.aggregate(Entry, :count) == 1
+      assert Repo.aggregate(Message, :count) == 1
 
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(signed_request([]))
 
@@ -708,7 +725,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert {:ok, %{status: 401}} = Webhook.handle_webhook(forged)
 
       assert {:ok, %{status: 404}} = Webhook.handle_webhook(%{request | instance_id: "999"})
-      assert Repo.aggregate(Entry, :count) == 1
+      assert Repo.aggregate(Message, :count) == 1
     end
 
     test "an unsend event removes the mirrored message" do
@@ -717,7 +734,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       event = message_event(user_source(), text_message("delete me"))
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(signed_request([event]))
-      assert %Entry{} = Repo.get_by(Entry, source_entry_id: event["message"]["id"])
+      assert %{} = message_snapshot(provider_message_id: event["message"]["id"])
 
       unsend = %{
         "type" => "unsend",
@@ -730,7 +747,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       }
 
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(signed_request([unsend]))
-      assert is_nil(Repo.get_by(Entry, source_entry_id: event["message"]["id"]))
+      assert is_nil(message_snapshot(provider_message_id: event["message"]["id"]))
     end
   end
 
@@ -753,12 +770,12 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert request.provider == "line"
       assert request.external_id == @user_id
       assert request.display_name == "Ada"
-      assert Repo.aggregate(Entry, :count) == 0
+      assert Repo.aggregate(Message, :count) == 0
 
-      assert %OutboxEntry{operation: :reply, fallback_visible_text: notice} =
-               Repo.one!(OutboxEntry)
+      assert %Intent{operation: :reply, fallback_visible_text: notice} =
+               Repo.one!(Intent)
 
-      assert notice == Ankole.I18n.t("signals_gateway.reply.unmapped_sender")
+      assert notice == Ankole.I18n.t("conversations.delivery.reply.unmapped_sender")
 
       %{principal: human} = human_fixture()
       assert {:ok, _mapping} = MappingRequests.bind_request(request.id, human.uid)
@@ -818,14 +835,14 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert {:ok, _binding} = put_line_binding(agent.uid, "line-action")
       channel_id = "line:#{@bot_user_id}:user:#{@user_id}"
 
-      %{actor_event: %ActorEvent{} = event} =
-        emit_addressed_actor_event(
+      %{signal: %Signal{} = event} =
+        emit_addressed_signal(
           agent.uid,
           "line-action",
           %{
             source_event_id: "event-1",
-            signal_channel_id: channel_id,
-            source_entry_id: "m-50",
+            provider_conversation_id: channel_id,
+            provider_message_id: "m-50",
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
@@ -845,7 +862,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
               "id" => "approve",
               "label" => "Approve the deployment right away",
               "interaction_id" => "interaction-1",
-              "source_actor_event_id" => event.id,
+              "source_signal_id" => event.id,
               "control_id" => "approve",
               "selected_option_id" => "yes",
               "option_value" => "approved",
@@ -855,8 +872,10 @@ defmodule Ankole.Plugins.LineAdapterTest do
           ]
         })
 
-      checkpoint = ReplyInteractionState.initialize(%{}, presentation, base_time())
-      assert {:ok, _event} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+      checkpoint = InteractionState.initialize(%{}, presentation, base_time())
+
+      assert {:ok, _event} =
+               PreviewState.put_checkpoint(event.id, checkpoint)
 
       assert [template] = Presentation.action_messages(presentation, event.id)
       assert template["template"]["text"] == "Deploy to production?"
@@ -869,24 +888,24 @@ defmodule Ankole.Plugins.LineAdapterTest do
       assert String.starts_with?(token, "ln1:")
 
       assert {:ok, value} =
-               ReplyActionToken.resolve(token, agent.uid, "line-action", nil, prefix: "ln1")
+               ActionToken.resolve(token, agent.uid, "line-action", nil, prefix: "ln1")
 
       assert value["optionValue"] == "approved"
 
       # The clarify reply row carries the presentation; sending it pushes the
       # buttons and records the sent message as the event's reply surface.
       card_row =
-        Repo.insert!(%OutboxEntry{
+        Repo.insert!(%Intent{
           agent_uid: agent.uid,
           binding_name: "line-action",
           outbound_key: "ai-reply:clarify-1",
           operation: :reply,
-          status: :succeeded,
+          status: :sent,
           delivery_class: :durable_ai_reply,
-          signal_channel_id: channel_id,
-          reply_to_source_entry_id: "m-50",
-          source_actor_event_id: event.id,
-          created_source_entry_id: "sent-1",
+          conversation_id: external_conversation_id(channel_id),
+          reply_to_provider_message_id: "m-50",
+          source_signal_id: event.id,
+          created_provider_message_id: "sent-1",
           payload: %{"reply_presentation" => presentation},
           fallback_visible_text: "Deploy to production?"
         })
@@ -897,11 +916,11 @@ defmodule Ankole.Plugins.LineAdapterTest do
         Req.Test.json(conn, %{"sentMessages" => [%{"id" => "sent-1", "quoteToken" => "qt-1"}]})
       end)
 
-      assert {:ok, %{created_source_entry_id: "sent-1"}} = Outbox.send(card_row)
+      assert {:ok, %{created_provider_message_id: "sent-1"}} = Delivery.deliver(card_row)
       assert_received {:push, %{"messages" => [%{"type" => "text"}, %{"type" => "template"}]}}
 
-      assert %ActorEvent{reply_preview_source_entry_id: "sent-1"} =
-               Repo.get!(ActorEvent, event.id)
+      assert %Ankole.Conversations.Delivery.PreviewState{provider_message_id: "sent-1"} =
+               Ankole.Conversations.Delivery.PreviewState.get(event.id)
 
       %{principal: operator} = human_fixture()
 
@@ -923,7 +942,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       consumer = consumer(agent.uid, "line-action")
 
-      assert {:ok, [%{status: :accepted, actor_event: action_event}]} =
+      assert {:ok, [%{status: :accepted, signal: action_event}]} =
                Inbound.handle_card_action("postback", envelope(postback), [consumer])
 
       assert action_event.type == "signal.action.invoked"
@@ -954,61 +973,65 @@ defmodule Ankole.Plugins.LineAdapterTest do
                  [consumer(agent.uid, "line-out")]
                )
 
-      %Entry{source_entry_id: quoted_id} = Repo.one!(Entry)
+      %{provider_message_id: quoted_id} = message_snapshot!([])
 
-      base = %OutboxEntry{
+      base = %Intent{
         agent_uid: agent.uid,
         binding_name: "line-out",
         outbound_key: "out-1",
         operation: :post,
-        signal_channel_id: group_channel,
+        conversation_id: external_conversation_id(group_channel),
         payload: %{},
         fallback_visible_text: "hello"
       }
 
       for operation <- [:post, :reply, :divider, :card] do
-        outbox =
+        intent =
           %{base | operation: operation}
-          |> Map.put(:reply_to_source_entry_id, if(operation == :reply, do: quoted_id))
+          |> Map.put(:reply_to_provider_message_id, if(operation == :reply, do: quoted_id))
 
         assert {:ok, [%{index: 0, body: %{"to" => @group_id, "messages" => [_ | _]}}]} =
-                 Outbox.requests_for_outbox(outbox)
+                 Delivery.requests_for_intent(intent)
       end
 
       assert {:ok, [%{body: %{"messages" => [reply]}}]} =
-               Outbox.requests_for_outbox(%{
+               Delivery.requests_for_intent(%{
                  base
                  | operation: :reply,
-                   reply_to_source_entry_id: quoted_id
+                   reply_to_provider_message_id: quoted_id
                })
 
       assert reply["quoteToken"] == "quote-token-1"
 
       assert {:ok, [%{body: %{"to" => @user_id, "messages" => [dm_reply]}}]} =
-               Outbox.requests_for_outbox(%{
+               Delivery.requests_for_intent(%{
                  base
                  | operation: :reply,
-                   signal_channel_id: dm_channel,
-                   reply_to_source_entry_id: quoted_id
+                   conversation_id: external_conversation_id(dm_channel),
+                   reply_to_provider_message_id: quoted_id
                })
 
       refute Map.has_key?(dm_reply, "quoteToken")
 
-      assert {:error, :unsupported_outbox_operation} =
-               Outbox.requests_for_outbox(%{base | operation: :edit, target_source_entry_id: "1"})
+      assert {:error, :unsupported_intent_operation} =
+               Delivery.requests_for_intent(%{
+                 base
+                 | operation: :edit,
+                   target_provider_message_id: "1"
+               })
 
       long = String.duplicate("あ", 5_001 * 6)
 
       assert {:ok, [first, second]} =
-               Outbox.requests_for_outbox(%{base | fallback_visible_text: long})
+               Delivery.requests_for_intent(%{base | fallback_visible_text: long})
 
       assert length(first.body["messages"]) == 5
       assert length(second.body["messages"]) == 2
       assert Enum.all?(first.body["messages"], &(String.length(&1["text"]) <= 5_000))
-      assert Outbox.retry_key(base, 0) == Outbox.retry_key(base, 0)
-      assert Outbox.retry_key(base, 0) != Outbox.retry_key(base, 1)
+      assert Delivery.retry_key(base, 0) == Delivery.retry_key(base, 0)
+      assert Delivery.retry_key(base, 0) != Delivery.retry_key(base, 1)
 
-      assert Outbox.retry_key(base, 0) =~
+      assert Delivery.retry_key(base, 0) =~
                ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
     end
 
@@ -1017,12 +1040,12 @@ defmodule Ankole.Plugins.LineAdapterTest do
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_line_binding(agent.uid, "line-send")
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: agent.uid,
         binding_name: "line-send",
         outbound_key: "send-1",
         operation: :post,
-        signal_channel_id: "line:#{@bot_user_id}:user:#{@user_id}",
+        conversation_id: external_conversation_id("line:#{@bot_user_id}:user:#{@user_id}"),
         payload: %{},
         fallback_visible_text: "hello"
       }
@@ -1033,12 +1056,12 @@ defmodule Ankole.Plugins.LineAdapterTest do
         Req.Test.json(conn, %{"sentMessages" => [%{"id" => "sent-1", "quoteToken" => "qt-1"}]})
       end)
 
-      assert {:ok, %{created_source_entry_id: "sent-1", raw_payload: %{"messages" => [sent]}}} =
-               Outbox.send(outbox)
+      assert {:ok, %{created_provider_message_id: "sent-1", raw_payload: %{"messages" => [sent]}}} =
+               Delivery.deliver(intent)
 
       assert sent["id"] == "sent-1"
       assert_received {:push, [retry_key], body}
-      assert retry_key == Outbox.retry_key(outbox, 0)
+      assert retry_key == Delivery.retry_key(intent, 0)
       assert Ankole.JSON.decode!(body)["to"] == @user_id
 
       Req.Test.stub(__MODULE__, fn conn ->
@@ -1050,7 +1073,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
         })
       end)
 
-      assert {:ok, %{created_source_entry_id: "sent-1"}} = Outbox.reconcile(outbox)
+      assert {:ok, %{created_provider_message_id: "sent-1"}} = Delivery.reconcile(intent)
 
       Req.Test.stub(__MODULE__, fn conn ->
         conn
@@ -1059,16 +1082,16 @@ defmodule Ankole.Plugins.LineAdapterTest do
       end)
 
       assert {:error, {:reply_delivery, :operator_action_required, %{"status" => 429}}} =
-               Outbox.send(outbox)
+               Delivery.deliver(intent)
 
       Req.Test.stub(__MODULE__, fn conn ->
         conn |> Plug.Conn.put_status(429) |> Req.Test.json(%{"message" => "Too many requests"})
       end)
 
-      assert {:error, {:reply_delivery, :retryable, _detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :retryable, _detail}} = Delivery.deliver(intent)
 
       Req.Test.stub(__MODULE__, fn conn -> Req.Test.transport_error(conn, :timeout) end)
-      assert {:error, {:reply_delivery, :retryable, _detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :retryable, _detail}} = Delivery.deliver(intent)
 
       Req.Test.stub(__MODULE__, fn conn ->
         conn
@@ -1076,17 +1099,18 @@ defmodule Ankole.Plugins.LineAdapterTest do
         |> Req.Test.json(%{"message" => "Authentication failed"})
       end)
 
-      assert {:error, {:reply_delivery, :operator_action_required, _detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :operator_action_required, _detail}} =
+               Delivery.deliver(intent)
 
-      attachment_outbox = %{
-        outbox
+      attachment_intent = %{
+        intent
         | outbound_key: "send-2",
           payload: %{"attachments" => [%{"name" => "report.pdf"}]}
       }
 
       assert {:error,
               {:reply_delivery, :permanent, %{"code" => "outbound_attachments_not_supported"}}} =
-               Outbox.send(attachment_outbox)
+               Delivery.deliver(attachment_intent)
     end
   end
 
@@ -1120,14 +1144,14 @@ defmodule Ankole.Plugins.LineAdapterTest do
       stale_row = fn key, age_seconds ->
         started_at = DateTime.add(now, -age_seconds, :second)
 
-        Repo.insert!(%OutboxEntry{
+        Repo.insert!(%Intent{
           agent_uid: agent.uid,
           binding_name: "line-expiry",
           outbound_key: key,
           operation: :reply,
-          status: :sending,
+          status: :pending,
           delivery_class: :durable_ai_reply,
-          signal_channel_id: channel_id,
+          conversation_id: external_conversation_id(channel_id),
           payload: %{"reply_presentation" => ReplyPresentation.new(state: "completed")},
           fallback_visible_text: "already delivered before shutdown",
           platform_send_started_at: started_at,
@@ -1140,21 +1164,21 @@ defmodule Ankole.Plugins.LineAdapterTest do
       expired = stale_row.("expired-send", 25 * 3600)
 
       assert {:ok, _outcome} =
-               SignalsGateway.Outbox.dispatch_outbox_by_key(
+               Ankole.Conversations.Delivery.dispatch_by_key(
                  expired.agent_uid,
                  expired.binding_name,
                  expired.outbound_key
                )
 
-      assert %OutboxEntry{status: :unknown_after_send} =
-               Repo.get_by!(OutboxEntry, outbound_key: "expired-send")
+      assert %Intent{status: :unknown} =
+               Repo.get_by!(Intent, outbound_key: "expired-send")
 
       refute_received {:push, _key}
 
       recent = stale_row.("recent-send", 2 * 3600)
 
-      assert {:ok, %{status: :succeeded, created_source_entry_id: "accepted-earlier"}} =
-               SignalsGateway.Outbox.dispatch_outbox_by_key(
+      assert {:ok, %{status: :sent, created_provider_message_id: "accepted-earlier"}} =
+               Ankole.Conversations.Delivery.dispatch_by_key(
                  recent.agent_uid,
                  recent.binding_name,
                  recent.outbound_key
@@ -1173,12 +1197,12 @@ defmodule Ankole.Plugins.LineAdapterTest do
         Req.Test.json(conn, %{"sentMessages" => [%{"id" => "sent-late"}]})
       end)
 
-      aged = %OutboxEntry{
+      aged = %Intent{
         agent_uid: agent.uid,
         binding_name: "line-aged",
         outbound_key: "aged-1",
         operation: :post,
-        signal_channel_id: "line:#{@bot_user_id}:user:#{@user_id}",
+        conversation_id: external_conversation_id("line:#{@bot_user_id}:user:#{@user_id}"),
         payload: %{},
         fallback_visible_text: "hello",
         attempt_count: 2,
@@ -1194,20 +1218,20 @@ defmodule Ankole.Plugins.LineAdapterTest do
             %{"reason" => %{"code" => "line_api_error", "status" => 429}},
             %{"reason" => %{"code" => "line_api_error", "status" => 401}}
           ] do
-        assert :unknown = Outbox.send(%{aged | last_error: last_error})
+        assert :unknown = Delivery.deliver(%{aged | last_error: last_error})
         refute_received {:push, _path}
       end
 
       flagged = %{aged | recovery_state: %{"possible_duplicate" => true}}
-      assert {:ok, %{created_source_entry_id: "sent-late"}} = Outbox.send(flagged)
+      assert {:ok, %{created_provider_message_id: "sent-late"}} = Delivery.deliver(flagged)
       assert_received {:push, "/v2/bot/message/push"}
 
       first_attempt = %{aged | attempt_count: 1}
-      assert {:ok, %{created_source_entry_id: "sent-late"}} = Outbox.send(first_attempt)
+      assert {:ok, %{created_provider_message_id: "sent-late"}} = Delivery.deliver(first_attempt)
       assert_received {:push, "/v2/bot/message/push"}
 
       fresh = %{aged | inserted_at: DateTime.utc_now(:microsecond)}
-      assert {:ok, %{created_source_entry_id: "sent-late"}} = Outbox.send(fresh)
+      assert {:ok, %{created_provider_message_id: "sent-late"}} = Delivery.deliver(fresh)
       assert_received {:push, "/v2/bot/message/push"}
     end
   end
@@ -1256,10 +1280,13 @@ defmodule Ankole.Plugins.LineAdapterTest do
     }
   end
 
-  defp complete?(channel_id, source_entry_id) do
+  defp complete?(channel_id, provider_message_id) do
     match?(
-      %Entry{attachments: [%{"materialization_state" => "complete"}]},
-      Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: source_entry_id)
+      %{attachments: [%{"materialization_state" => "complete"}]},
+      message_snapshot(
+        conversation_id: external_conversation_id(channel_id),
+        provider_message_id: provider_message_id
+      )
     )
   end
 
@@ -1272,7 +1299,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
   end
 
   defp put_line_binding(agent_uid, name, attrs \\ %{}) do
-    SignalsGateway.put_binding(
+    Ankole.Signals.Bindings.put_binding(
       agent_uid,
       "line",
       name,

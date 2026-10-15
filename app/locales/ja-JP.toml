@@ -80,19 +80,19 @@ ssrf_filter = "true の場合、モデルが制御する URL 取得はプライ�
 bootstrap_activation_code = "初回セットアップセッションのゲートに使用する現在のブートストラップ有効化コード。"
 completed = "Ankole デプロイメントインスタンスのセットアップが完了しているかどうか。"
 
-[app_configure.descriptions.signals_gateway]
+[app_configure.descriptions.signals]
 show_dead_letter_error_details = "有効にすると、Signal チャネルに送信するデッドレター通知に、長さを制限して機密情報を伏せた Actor turn のエラー詳細を追加します。"
 
-[app_configure.descriptions.signals_gateway.dingtalk.bindings]
+[app_configure.descriptions.signals.dingtalk.bindings]
 "*" = "暗号化された DingTalk Channel Provider の設定。"
 
-[app_configure.descriptions.signals_gateway.lark.bindings]
+[app_configure.descriptions.signals.lark.bindings]
 "*" = "暗号化された Lark / Feishu Channel Provider の設定。"
 
-[app_configure.descriptions.signals_gateway.slack.bindings]
+[app_configure.descriptions.signals.slack.bindings]
 "*" = "暗号化された Slack Channel Provider の設定。"
 
-[app_configure.descriptions.signals_gateway.teams.bindings]
+[app_configure.descriptions.signals.teams.bindings]
 "*" = "暗号化された Microsoft Teams Channel Provider の設定。"
 
 [app_configure.descriptions.system]
@@ -1532,6 +1532,7 @@ source_entry = "メッセージ：{$id}"
 restore_tenant_description = "{$key} の現在のテナントの上書きを削除します。以降はサイトの値または宣言された既定値を継承します。"
 
 [console.signals]
+adapter_group_event_source = "イベントソース"
 adapter = "Adapter"
 adapter_group_consumer_im = "コンシューマー IM"
 adapter_group_enterprise_im = "エンタープライズ IM"
@@ -1551,6 +1552,9 @@ delivery_state_blocked = "対応が必要"
 delivery_state_exhausted = "再試行上限に到達"
 delivery_state_permanent = "チャネルが拒否"
 delivery_state_unsupported = "このチャネルでは未対応"
+delivery_status_failed = "配信失敗"
+delivery_status_expired = "期限切れ"
+delivery_status_unknown = "配信結果不明"
 delivery_updated = "更新日時"
 description = "Channel Provider やその他のシグナルソースからのメッセージとイベントを Agent にルーティングします。"
 edit_hint = "このルーティングルールを表示・編集します。保存済みの secret はブラウザーに読み込まれません。secret フィールドは空白のままにすると保持されます。"
@@ -1595,7 +1599,7 @@ anchor_hint = "間隔グリッドの起点となる ISO8601 の時点。"
 binding = "ルーティングルール"
 binding_empty = "この Agent にはまだルーティングルールがありません"
 binding_empty_action = "ルーティングルールを作成"
-binding_empty_hint = "スケジュールはルーティングルール経由で配信されます。"
+binding_empty_hint = "外部の会話への配信にはルーティングルールが必要です。"
 binding_placeholder = "ルーティングルールを選択"
 cancel = "Checkback をキャンセル"
 cancel_description = "この保留中のチェックバックをキャンセルしますか？"
@@ -1608,10 +1612,11 @@ deleted = "スケジュールを削除しました。"
 delete_description = "スケジュール {$name} を削除しますか？"
 delete_title = "スケジュールを削除"
 add_delivery_target = "配信先を追加"
-delivery_channel = "配信チャネル"
+delivery_conversation = "配信先の会話 ID"
+native_delivery = "ネイティブ会話"
 delivery_target = "配信先 {$number}"
 delivery_targets = "配信先"
-delivery_targets_hint = "スケジュールは 1 回だけ実行され、各配信先は独立した永続配信で同じ最終結果を受け取ります。"
+delivery_targets_hint = "スケジュールは 1 回実行され、各対象の会話は同じ最終結果を受け取ります。"
 delivery_thread = "配信スレッド"
 description = "Agent が全セッションにわたって保持する定期スケジュールとワンショットのチェックバック。"
 due_at = "予定日時"
@@ -1679,11 +1684,17 @@ timezone_hint = "IANA タイムゾーン。コントロールプレーンはシ�
 title = "Schedules"
 
 [console.webhooks]
+create = "CloudEvents エンドポイントを作成"
+create_description = "認証済みのイベントソースを作成し、ルーティングルールで Agent と宛先を指定します。"
+created_url = "Capability URL（一度のみ表示）"
+created_url_description = "閉じる前に URL をコピーしてください。ルーティングルールでこのソースを選択するにはエンドポイント ID を使います。"
+endpoint_id = "エンドポイント ID"
+create_failed = "エンドポイントを作成できませんでした。"
 cancel = "エンドポイントをキャンセル"
 cancel_description = "{$label} をキャンセルしますか？ そのコールバック URL は新しい配信の受け付けを停止します。"
 cancel_title = "Webhook エンドポイントをキャンセル"
 cancelled = "Webhook エンドポイントをキャンセルしました。"
-description = "Agent が全セッションにわたって作成したコールバック機能を確認し、キャンセルします。機能 URL は作成されたときだけ表示されます。"
+description = "CloudEvents ソースを作成し、Agent のコールバックエンドポイントを確認・キャンセルします。Capability URL は作成時だけ表示されます。"
 empty_description = "有効な Webhook エンドポイントがありません。完了したものを含めると履歴を確認できます。"
 empty_title = "Webhook エンドポイントはありません"
 expires_at = "期限"
@@ -1692,7 +1703,7 @@ mode = "モード"
 mode_one_shot = "ワンショット"
 mode_standing = "常設"
 route = "返信ルート"
-search_placeholder = "ラベル、モード、ステータス、バインディング、またはチャネルで検索"
+search_placeholder = "ラベル、モード、ステータス、バインディング、対話で検索"
 status = "ステータス"
 status_active = "アクティブ"
 status_armed = "待機中"
@@ -2000,7 +2011,7 @@ steps = "セットアップステップ"
 title = "Ankole セットアップ"
 validating_and_redirecting = "検証してリダイレクト中…"
 
-[signals_gateway.reply]
+[conversations.delivery.reply]
 tenant_suspended = "このテナントは現在、新しい処理を開始できません。サイト管理者に連絡してから、リクエストを再送してください。（actor-event::{$ref}）"
 choose_option = "選択"
 context_withdrawn = "参照したメッセージが撤回されたため、この返信を停止しました。完了した操作は取り消されません。新しいリクエストを送信してください。"
@@ -2034,7 +2045,7 @@ tool_call_completed = "ツール {$tool} を実行しました。結果を読み
 tool_call_started = "ツールを呼び出しています: {$tool}"
 unmapped_sender = "このアカウントはまだ Ankole ユーザーに紐付けられていません。管理者に Ankole コンソールでの紐付けを依頼し、そのあとでメッセージを送り直してください。"
 
-[signals_gateway.reply.activity]
+[conversations.delivery.reply.activity]
 starting_computer = "Agent のコンピューターを起動中"
 resuming_computer = "Agent のコンピューターを再開中"
 computer_retrying = "コンピューターの起動に問題が発生したため再試行中"
@@ -2141,7 +2152,7 @@ scheduled = "スケジュール済み"
 stopped = "停止"
 working = "作業中…"
 
-[signals_gateway.cardkit]
+[conversations.delivery.cardkit]
 activity_title = "進捗"
 activity_title_current = "進捗 · 進行中: {$current}"
 activity_title_parallel = "進捗 · 進行中: {$count} 項目中 {$current}"
@@ -2287,3 +2298,46 @@ new_site_admin = "新しいサイト管理者"
 choose_human = "有効なユーザーを選択"
 no_humans = "サイト管理の移管前に、このテナントに有効なユーザーを作成してください。"
 transfer_confirm = "サイト管理を { $name } に移管しますか？新しいサイト管理者としてログインする必要があります。"
+
+[workplace.sidebar]
+title = "ワークプレイスのナビゲーション"
+tabs_label = "サイドバーのセクション"
+collapse = "サイドバーを閉じる"
+expand = "サイドバーを開く"
+sign_out = "サインアウト"
+home_empty = "まだ何もありません。"
+chat_empty = "チャットはまだありません。"
+
+[workplace.sidebar.tabs]
+home = "ホーム"
+chat = "チャット"
+
+[workplace.chat]
+new_title = "会話を始める"
+new_conversation = "新しい会話"
+loading_agents = "Agent を読み込み中…"
+no_agents = "利用可能な有効な Agent がありません。テナント管理者が Agent を有効にできます。"
+loading_history = "会話を読み込み中…"
+history_failed = "会話を読み込めませんでした。"
+message_label = "メッセージ"
+placeholder = "Agent にメッセージを送信…"
+choose_agent = "Agent を選択"
+send = "メッセージを送信"
+sending = "送信中…"
+send_failed = "送信が未確認"
+retry_send = "送信を再試行"
+retry_load = "再読み込み"
+draft_preserved = "メッセージと ID は保持されています。再試行して送信を確認してください。"
+replying = "返信中…"
+retrying = "返信中 · { $time } に再試行"
+scroll_latest = "最新のメッセージへ"
+reconnecting = "再接続中です。保存済みのメッセージは閲覧できます。"
+agent_unavailable = "この Agent は無効です。過去のメッセージは閲覧できますが、新しいメッセージは送信できません。"
+
+[workplace.chat.errors]
+agent_unavailable = "Agent は無効です。新しいメッセージは送信できません。"
+conversation_not_found = "この会話は存在しないか、アクセス権がありません。"
+conversation_conflict = "この ID は別のメッセージに使用されています。"
+invalid_id = "会話またはメッセージの ID が無効です。"
+invalid_text = "空ではないメッセージを入力してください。"
+invalid_request = "メッセージのリクエストが無効です。"

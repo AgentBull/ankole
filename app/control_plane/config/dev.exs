@@ -34,7 +34,7 @@ config :ankole, Ankole.AIAgent.Library,
 # These mounts exist only in the source checkout, never in a release.
 internal_skills_root = Path.expand("../../../internals/skills", __DIR__)
 
-config :ankole, Ankole.SignalsGateway.ActorRuntime.AgentWorkers,
+config :ankole, Ankole.AgentWorkers,
   source_root: Path.expand("../../agent_computer/src", __DIR__),
   internal_skills_root: if(File.dir?(internal_skills_root), do: internal_skills_root)
 
@@ -42,14 +42,11 @@ config :ankole, Ankole.SignalsGateway.ActorRuntime.AgentWorkers,
 config :ankole, Ankole.ObjectStore,
   spec: %{scheme: "fs", root: Path.expand("../../../var/ankole-dev/files", __DIR__)}
 
-# Reload browser tabs when matching files change.
 config :ankole, AnkoleWeb.Endpoint,
   live_reload: [
     web_console_logger: true,
     patterns: [
-      # Static assets, except user uploads
       ~r"priv/static/(?!uploads/).*\.(js|css|png|jpeg|jpg|gif|svg)$"E,
-      # Router, controllers, and templates
       ~r"lib/ankole_web/router\.ex$"E,
       ~r"lib/ankole_web/(controllers|components)/.*\.(ex|eex)$"E
     ]

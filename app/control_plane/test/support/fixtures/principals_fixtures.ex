@@ -4,9 +4,9 @@ defmodule Ankole.PrincipalsFixtures do
   """
 
   alias Ankole.Principals
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.Provider
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Providers.Provider
+  alias Ankole.AgentWorkers.AgentWorker
 
   def first_site_admin_fixture(uid) do
     Ankole.Repo.transact(fn repo ->
@@ -126,6 +126,12 @@ defmodule Ankole.PrincipalsFixtures do
       if owner_uid,
         do: ["agents/#{agent_uid}", "people/#{owner_uid}"],
         else: ["agents/#{agent_uid}"]
+
+    {:ok, _} =
+      Ankole.Repo.transact(fn repo ->
+        :ok = Ankole.Conversations.delete_for_agent_in_tx(repo, agent_uid)
+        {:ok, :ok}
+      end)
 
     Ankole.Brain.Schemas.Object
     |> where([object], object.slug in ^slugs)

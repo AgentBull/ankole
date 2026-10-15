@@ -18,7 +18,7 @@ export interface ArchitectureDiagramCopy {
   signals: NodeCopy
   identity: NodeCopy
   ai: NodeCopy
-  actor: NodeCopy
+  sessions: NodeCopy
   brain: NodeCopy
   jobs: NodeCopy
   fabric: string
@@ -42,10 +42,10 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
     operators: ['Console and APIs', 'Operators · enterprise apps'],
     idp: ['Identity Providers', 'SSO · directory · organization'],
     providers: ['AI Providers', 'Models · vectors · images · web'],
-    signals: ['SignalsGateway', 'Signal routing · message delivery'],
+    signals: ['Conversations / Signals', 'Messages · admission · Delivery'],
     identity: ['Principal and AuthZ', 'Identity · access · config · plugins'],
-    ai: ['AIGateway', 'Model selection · sessions · credentials'],
-    actor: ['Conversations', 'Main Agent loop · tools · recovery'],
+    ai: ['AIGateway', 'Model state · tools · credentials'],
+    sessions: ['Sessions', 'Main Agent loop · tools · recovery'],
     brain: ['Brain', 'World model · recall · Dreaming'],
     jobs: ['Background Agent Jobs', 'Non-blocking · resumable · interactive'],
     fabric: 'RuntimeFabric · Phoenix Channels',
@@ -70,10 +70,10 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
     operators: ['Console 与 API', '管理员 · 企业应用'],
     idp: ['身份源提供商', 'SSO · 通讯录 · 组织架构'],
     providers: ['AI Provider', '模型 · 向量 · 图像 · Web'],
-    signals: ['SignalsGateway', '信号路由 · 消息收发'],
+    signals: ['Conversations / Signals', '发言 · 接纳 · 投递'],
     identity: ['主体与 AuthZ', '身份 · 权限 · 配置 · 插件'],
-    ai: ['AIGateway', '模型选择 · 会话 · 凭证'],
-    actor: ['Conversations', '主 Agent 循环 · 工具 · 恢复'],
+    ai: ['AIGateway', '模型状态 · 工具 · 凭证'],
+    sessions: ['Sessions', '主 Agent 循环 · 工具 · 恢复'],
     brain: ['Brain', '世界模型 · 召回 · Dreaming'],
     jobs: ['后台 Agent 任务', '非阻塞 · 可恢复 · 可通信'],
     fabric: 'RuntimeFabric · Phoenix Channels',
@@ -95,10 +95,10 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
     operators: ['Console と API', 'オペレーター · 企業アプリ'],
     idp: ['アイデンティティプロバイダー', 'SSO · ディレクトリ · 組織'],
     providers: ['AI Provider', 'モデル · ベクトル · 画像 · Web'],
-    signals: ['SignalsGateway', 'シグナルルーティング · メッセージ送受信'],
+    signals: ['Conversations / Signals', '発言 · 受付 · 配送'],
     identity: ['主体と AuthZ', 'アイデンティティ · 権限 · 設定 · プラグイン'],
-    ai: ['AIGateway', 'モデル選択 · セッション · 認証情報'],
-    actor: ['Conversations', 'メイン会話ループ · ツール · 復旧'],
+    ai: ['AIGateway', 'モデル状態 · ツール · 認証情報'],
+    sessions: ['Sessions', 'メイン Agent ループ · ツール · 復旧'],
     brain: ['Brain', 'ワールドモデル · 想起 · Dreaming'],
     jobs: ['バックグラウンド Agent タスク', 'ノンブロッキング · 再開可能 · 通信可能'],
     fabric: 'RuntimeFabric · Phoenix Channels',
@@ -123,10 +123,10 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
     operators: ['Console 및 API', '운영자 · 엔터프라이즈 앱'],
     idp: ['Identity Provider', 'SSO · 디렉터리 · 조직'],
     providers: ['AI Provider', '모델 · 벡터 · 이미지 · Web'],
-    signals: ['SignalsGateway', '시그널 라우팅 · 메시지 송수신'],
+    signals: ['Conversations / Signals', '발언 · 접수 · 전달'],
     identity: ['Principal 및 AuthZ', '아이덴티티 · 권한 · 설정 · 플러그인'],
-    ai: ['AIGateway', '모델 선택 · 세션 · 자격 증명'],
-    actor: ['Conversations', '메인 대화 루프 · 도구 · 복구'],
+    ai: ['AIGateway', '모델 상태 · 도구 · 자격 증명'],
+    sessions: ['Sessions', '주 Agent 루프 · 도구 · 복구'],
     brain: ['Brain', '월드 모델 · 회상 · Dreaming'],
     jobs: ['백그라운드 Agent 작업', '비차단 · 재개 가능 · 상호작용 가능'],
     fabric: 'RuntimeFabric · Phoenix Channels',
@@ -141,14 +141,14 @@ export const ARCHITECTURE_DIAGRAM_COPY: Record<Locale, ArchitectureDiagramCopy> 
   }
 }
 
-type ControlNodeKey = 'signals' | 'identity' | 'ai' | 'actor' | 'brain' | 'jobs'
+type ControlNodeKey = 'signals' | 'identity' | 'ai' | 'sessions' | 'brain' | 'jobs'
 
 /** Control-plane nodes in diagram order, with the docs page that each one links to. */
 export const ARCHITECTURE_CONTROL_NODES: readonly { key: ControlNodeKey; slug: string }[] = [
-  { key: 'signals', slug: 'signals-gateway' },
+  { key: 'signals', slug: 'conversations-signals-sessions' },
   { key: 'identity', slug: 'principal-authz' },
   { key: 'ai', slug: 'ai-gateway' },
-  { key: 'actor', slug: 'actor-runtime' },
+  { key: 'sessions', slug: 'sessions' },
   { key: 'brain', slug: 'brain' },
   { key: 'jobs', slug: 'background-jobs' }
 ]

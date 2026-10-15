@@ -11,14 +11,14 @@ defmodule Ankole.Plugins.DiscordAdapter.Config do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.Signals.Bindings
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.DiscordAdapter.Client
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.Binding
+  alias Ankole.Signals.Binding
 
-  @key_pattern ~r/\Asignals_gateway\.discord\.bindings\.[A-Za-z0-9_.:-]+\z/
+  @key_pattern ~r/\Asignals\.discord\.bindings\.[A-Za-z0-9_.:-]+\z/
 
   @type t :: %{required(String.t()) => String.t()}
 
@@ -35,7 +35,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Config do
   def app_config_patterns do
     [
       AppConfigure.define_pattern(
-        id: "signals_gateway.discord.bindings.*",
+        id: "signals.discord.bindings.*",
         console_writable: false,
         key_pattern: @key_pattern,
         encrypted: true,
@@ -61,7 +61,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Config do
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
 
-    "signals_gateway.discord.bindings.#{id}"
+    "signals.discord.bindings.#{id}"
   end
 
   @spec validate_binding_config(term()) :: {:ok, t()} | {:error, term()}

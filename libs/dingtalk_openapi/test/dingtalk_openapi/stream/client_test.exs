@@ -79,8 +79,6 @@ defmodule DingTalkOpenAPI.Stream.ClientTest do
     assert Client.status(pid) == :connected
   end
 
-  # --- fake WebSocket server ------------------------------------------------
-
   defp run_ws_server(listener, parent) do
     with {:ok, socket} <- :gen_tcp.accept(listener, 2_000),
          :ok <- :gen_tcp.close(listener),

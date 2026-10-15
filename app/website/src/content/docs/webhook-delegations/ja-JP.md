@@ -46,7 +46,7 @@ Agent が GitHub 委譲を作成する前に:
 2. GitHub hook を作成する前に、永続的な checkback を作成します。これにより、クリーンアップと照合の義務が記録されます。
 3. コールバック URL で repository hook を作成します。GitHub は `ping` を送ります。
 4. GitHub の delivery ログを読み、`ping` が成功したことを確認します。
-5. 一致する delivery が届くと、Ankole はエンドポイントの判定と、`webhook.received` ActorEvent またはバインドされた automation job の run を、成功を返す前に 1 つの PostgreSQL トランザクションで確定します。
+5. 一致する delivery が届くと、Ankole はエンドポイントの判定と、`webhook.received` Signal またはバインドされた automation job の run を、成功を返す前に 1 つの PostgreSQL トランザクションで確定します。
 6. 直接経路では、起こされた Agent が受領を信頼できない入力として扱います。バインドされた automation job は、イベントを発火する前に同じ規則を適用しなければなりません。
 7. 照合は、hook、イベント集合、失敗した delivery、現在の GitHub オブジェクト、期限、次のチェック時刻を確認します。
 8. 撤去（teardown）は、Ankole のエンドポイントと checkback をキャンセルする前に GitHub hook を削除します。
@@ -72,7 +72,7 @@ Agent は、エンドポイントを作成するときに `--automation-job-id <
 
 Console で **Webhooks** を開き、Agent と session ごとにエンドポイントを確認できます。ページには、ラベル、モード、状態、期限、ソースルートが表示されます。コールバック URL、平文 token、保存された digest は表示されません。
 
-Console はエンドポイントの一覧とキャンセルができます。作成はできません。作成には現在の会話ルートが必要なので、アクティブな Agent turn に属しています。
+Console は Agent が作成した raw コールバックのエンドポイントを表示し、キャンセルできます。Agent はアクティブな turn で現在の返信ルートを使って作成します。CloudEvents のイベントソースとシグナルルーティングルールは Console の **Signals** ページで作成できます。[Signals](../signals/) を参照してください。
 
 緊急の credential 失効が必要なときは、Console からキャンセルしてください。これは外部の GitHub hook を削除しません。その hook は別途削除してください。通常の撤去では、Agent にまず GitHub hook の削除を依頼してください。
 
@@ -89,9 +89,9 @@ Console はエンドポイントの一覧とキャンセルができます。作
 
 - **Agent が GitHub Skill を見つけられない:** この Agent に対して GitHub Agent Plugin と Skill が有効になっているか確認し、新しい turn を開始してください。
 - **GitHub がコールバックに到達できない:** 公開 HTTPS 証明書、DNS、ingress ルート、`/webhooks/v1/event-callbacks/*` の転送を確認してください。
-- **hook は存在するが Agent の返信がない:** GitHub の delivery ログ、Console のエンドポイント状態、Worker の準備状況、永続的な actor イベント、出方向の chat 配信を確認してください。
+- **hook は存在するが Agent の返信がない:** GitHub の delivery ログ、Console のエンドポイント状態、Worker の準備状況、永続的な Signal、出方向の chat 配信を確認してください。
 - **GitHub が `413` を報告する:** 選択したイベントのペイロードが 1 MiB を超えています。GitHub 側でイベントの形状を絞るか、別の検出器を使ってください。
 - **同じイベントが Agent を 2 回起こす:** standing エンドポイントではこれは有効です。Agent は現在の GitHub 状態を再読み取りし、繰り返しの処理を安全にしなければなりません。
 - **セットアップ中にコールバック URL を失った:** 一致する GitHub hook を削除し、古いエンドポイントと checkback をキャンセルし、置き換えを 1 つ作成してください。
 
-入口の owner とトランザクション境界は [SignalsGateway](../signals-gateway/) を、能力の設定は [Agent Library](../skills/) と [環境変数](../worker-env/) を読んでください。
+入口の owner とトランザクション境界は [Signals](../signals/) を、能力の設定は [Agent Library](../skills/) と [環境変数](../worker-env/) を読んでください。

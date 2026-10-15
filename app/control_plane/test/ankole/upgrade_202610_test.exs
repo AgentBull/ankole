@@ -1,8 +1,11 @@
 defmodule Ankole.Upgrade202610Test do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
-  alias Ankole.AppConfigure.{AppConfig, SiteConfig, Crypto}
-  alias Ankole.SignalsGateway.{Binding, Bindings}
+  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.SiteConfig
+  alias Ankole.AppConfigure.Crypto
+  alias Ankole.Signals.Binding
+  alias Ankole.Signals.Bindings
   alias Ankole.Upgrade202610
   alias Ankole.Plugins.SlackAdapter.Config, as: SlackConfig
   alias Ankole.Plugins.Microsoft365Adapter.Config, as: TeamsConfig
@@ -51,7 +54,7 @@ defmodule Ankole.Upgrade202610Test do
 
       for agent <- [first, second] do
         assert {:ok, _} =
-                 Ankole.SignalsGateway.upsert_binding(%{
+                 Ankole.Signals.Bindings.upsert_binding(%{
                    agent_uid: agent.uid,
                    name: "shared",
                    adapter: @adapter,
@@ -103,7 +106,7 @@ defmodule Ankole.Upgrade202610Test do
       seed_config(key, config)
 
       assert {:ok, binding} =
-               Ankole.SignalsGateway.upsert_binding(%{
+               Ankole.Signals.Bindings.upsert_binding(%{
                  agent_uid: agent.uid,
                  name: "existing",
                  adapter: @adapter,
@@ -131,7 +134,7 @@ defmodule Ankole.Upgrade202610Test do
 
     for agent <- [first, second],
         do:
-          Ankole.SignalsGateway.upsert_binding(%{
+          Ankole.Signals.Bindings.upsert_binding(%{
             agent_uid: agent.uid,
             name: "shared-conflict",
             adapter: "teams",

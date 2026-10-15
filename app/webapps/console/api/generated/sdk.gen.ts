@@ -489,15 +489,15 @@ import type {
   AnkoleWebSignalBindingControllerPutBindingData,
   AnkoleWebSignalBindingControllerPutBindingErrors,
   AnkoleWebSignalBindingControllerPutBindingResponses,
-  AnkoleWebSignalBindingControllerPutChannelStandingOrdersData,
-  AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors,
-  AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses,
+  AnkoleWebSignalBindingControllerPutConversationStandingOrdersData,
+  AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors,
+  AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses,
   AnkoleWebSignalBindingControllerRequeueDeliveryData,
   AnkoleWebSignalBindingControllerRequeueDeliveryErrors,
   AnkoleWebSignalBindingControllerRequeueDeliveryResponses,
-  AnkoleWebSignalBindingControllerShowChannelStandingOrdersData,
-  AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors,
-  AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses,
+  AnkoleWebSignalBindingControllerShowConversationStandingOrdersData,
+  AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors,
+  AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses,
   AnkoleWebSignalBindingControllerShowData,
   AnkoleWebSignalBindingControllerShowErrors,
   AnkoleWebSignalBindingControllerShowResponses,
@@ -528,6 +528,12 @@ import type {
   AnkoleWebTenantControllerUpdateData,
   AnkoleWebTenantControllerUpdateErrors,
   AnkoleWebTenantControllerUpdateResponses,
+  AnkoleWebWebhookEndpointControllerCancelData,
+  AnkoleWebWebhookEndpointControllerCancelErrors,
+  AnkoleWebWebhookEndpointControllerCancelResponses,
+  AnkoleWebWebhookEndpointControllerCreateData,
+  AnkoleWebWebhookEndpointControllerCreateErrors,
+  AnkoleWebWebhookEndpointControllerCreateResponses,
   AnkoleWebWebhookEndpointControllerDeleteData,
   AnkoleWebWebhookEndpointControllerDeleteErrors,
   AnkoleWebWebhookEndpointControllerDeleteResponses,
@@ -906,6 +912,32 @@ export const ankoleWebAiGatewayFilesControllerShow = <ThrowOnError extends boole
   })
 
 /**
+ * Cancel one CloudEvents endpoint
+ */
+export const ankoleWebWebhookEndpointControllerCancel = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWebhookEndpointControllerCancelData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWebhookEndpointControllerCancelResponses,
+  AnkoleWebWebhookEndpointControllerCancelErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).delete<
+    AnkoleWebWebhookEndpointControllerCancelResponses,
+    AnkoleWebWebhookEndpointControllerCancelErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        in: 'cookie',
+        name: '_ankole_key',
+        type: 'apiKey'
+      }
+    ],
+    url: '/api/v1/webhook-endpoints/{webhook_endpoint_id}',
+    ...options
+  })
+
+/**
  * List tenants
  */
 export const ankoleWebTenantControllerIndex = <ThrowOnError extends boolean = false>(
@@ -1229,62 +1261,6 @@ export const ankoleWebAgentControllerResetTokenQuota = <ThrowOnError extends boo
     ],
     url: '/api/v1/agents/{agent_uid}/token-quota/reset',
     ...options
-  })
-
-/**
- * Read the standing orders of one signal channel
- */
-export const ankoleWebSignalBindingControllerShowChannelStandingOrders = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerShowChannelStandingOrdersData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses,
-  AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).get<
-    AnkoleWebSignalBindingControllerShowChannelStandingOrdersResponses,
-    AnkoleWebSignalBindingControllerShowChannelStandingOrdersErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        in: 'cookie',
-        name: '_ankole_key',
-        type: 'apiKey'
-      }
-    ],
-    url: '/api/v1/signal-channels/{channel_id}/standing-orders',
-    ...options
-  })
-
-/**
- * Replace the standing orders of one signal channel
- */
-export const ankoleWebSignalBindingControllerPutChannelStandingOrders = <ThrowOnError extends boolean = false>(
-  options: Options<AnkoleWebSignalBindingControllerPutChannelStandingOrdersData, ThrowOnError>
-): RequestResult<
-  AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses,
-  AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors,
-  ThrowOnError
-> =>
-  (options.client ?? client).put<
-    AnkoleWebSignalBindingControllerPutChannelStandingOrdersResponses,
-    AnkoleWebSignalBindingControllerPutChannelStandingOrdersErrors,
-    ThrowOnError
-  >({
-    security: [
-      {
-        in: 'cookie',
-        name: '_ankole_key',
-        type: 'apiKey'
-      }
-    ],
-    url: '/api/v1/signal-channels/{channel_id}/standing-orders',
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    }
   })
 
 /**
@@ -1786,6 +1762,62 @@ export const ankoleWebAgentFileControllerDownload = <ThrowOnError extends boolea
   })
 
 /**
+ * Read the standing orders of one conversation
+ */
+export const ankoleWebSignalBindingControllerShowConversationStandingOrders = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSignalBindingControllerShowConversationStandingOrdersData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses,
+  AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).get<
+    AnkoleWebSignalBindingControllerShowConversationStandingOrdersResponses,
+    AnkoleWebSignalBindingControllerShowConversationStandingOrdersErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        in: 'cookie',
+        name: '_ankole_key',
+        type: 'apiKey'
+      }
+    ],
+    url: '/api/v1/conversations/{conversation_id}/standing-orders',
+    ...options
+  })
+
+/**
+ * Replace the standing orders of one conversation
+ */
+export const ankoleWebSignalBindingControllerPutConversationStandingOrders = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebSignalBindingControllerPutConversationStandingOrdersData, ThrowOnError>
+): RequestResult<
+  AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses,
+  AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).put<
+    AnkoleWebSignalBindingControllerPutConversationStandingOrdersResponses,
+    AnkoleWebSignalBindingControllerPutConversationStandingOrdersErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        in: 'cookie',
+        name: '_ankole_key',
+        type: 'apiKey'
+      }
+    ],
+    url: '/api/v1/conversations/{conversation_id}/standing-orders',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
+  })
+
+/**
  * List webhook endpoints
  */
 export const ankoleWebWebhookEndpointControllerIndex = <ThrowOnError extends boolean = false>(
@@ -1809,6 +1841,36 @@ export const ankoleWebWebhookEndpointControllerIndex = <ThrowOnError extends boo
     ],
     url: '/api/v1/webhook-endpoints',
     ...options
+  })
+
+/**
+ * Create one authenticated CloudEvents endpoint
+ */
+export const ankoleWebWebhookEndpointControllerCreate = <ThrowOnError extends boolean = false>(
+  options: Options<AnkoleWebWebhookEndpointControllerCreateData, ThrowOnError>
+): RequestResult<
+  AnkoleWebWebhookEndpointControllerCreateResponses,
+  AnkoleWebWebhookEndpointControllerCreateErrors,
+  ThrowOnError
+> =>
+  (options.client ?? client).post<
+    AnkoleWebWebhookEndpointControllerCreateResponses,
+    AnkoleWebWebhookEndpointControllerCreateErrors,
+    ThrowOnError
+  >({
+    security: [
+      {
+        in: 'cookie',
+        name: '_ankole_key',
+        type: 'apiKey'
+      }
+    ],
+    url: '/api/v1/webhook-endpoints',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers
+    }
   })
 
 /**

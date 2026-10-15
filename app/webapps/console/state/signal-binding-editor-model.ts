@@ -38,6 +38,10 @@ const SIGNAL_ADAPTER_GROUPS = [
   {
     category: 'email',
     labelKey: 'console.signals.adapter_group_email'
+  },
+  {
+    category: 'event_source',
+    labelKey: 'console.signals.adapter_group_event_source'
   }
 ] as const
 

@@ -2,15 +2,11 @@ import i18n from '../common/i18n'
 import { requestErrorMessage } from '../common/request-errors'
 
 /**
- * JSON/text parsing and date formatting shared by the console pages. The
- * inline error surface is `common/error-block`; page chrome lives in
+ * The inline error surface is `common/error-block`. Page chrome lives in
  * `console-shell-chrome` (layout), `console-list-page` (list frame), and
  * `console-form` (editor frame).
  */
 
-// JSON / text helpers
-
-/** Bounds display text and marks the cut with an ellipsis. */
 export function truncate(value: string, limit: number): string {
   return value.length <= limit ? value : `${value.slice(0, limit)}…`
 }
@@ -20,7 +16,6 @@ export function blankToNull(value: string): string | null {
   return text ? text : null
 }
 
-/** Parses a decimal identifier and applies the owning API's lower bound. */
 export function resourceID(value: string | null, minimum: number): number | undefined {
   if (!value || !/^[1-9][0-9]*$/.test(value)) return undefined
 
@@ -40,8 +35,6 @@ export function formatJSON(value: unknown): string {
   return JSON.stringify(value, null, 2)
 }
 
-// Date formatting
-//
 // One formatter per first-class locale keeps all console timestamps consistent.
 const CONSOLE_DATE_FORMATTERS: Record<string, Intl.DateTimeFormat> = {
   en: new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short' }),
@@ -55,7 +48,6 @@ function consoleDateFormatter(): Intl.DateTimeFormat {
   return CONSOLE_DATE_FORMATTERS[language.slice(0, 2)] ?? CONSOLE_DATE_FORMATTERS.en
 }
 
-/** Compact duration for operator surfaces: 42s, 5m, 3h 20m, 22d 4h. */
 export function formatDuration(seconds: number): string {
   if (seconds < 60) return `${seconds}s`
   if (seconds < 3_600) return `${Math.floor(seconds / 60)}m`
@@ -63,11 +55,6 @@ export function formatDuration(seconds: number): string {
   return `${Math.floor(seconds / 86_400)}d ${Math.floor((seconds % 86_400) / 3_600)}h`
 }
 
-/**
- * Formats an ISO timestamp for display. Returns `'—'` for null/blank input and
- * the raw string for values that do not parse as dates, so callers can pass
- * nullable fields straight through.
- */
 export function formatConsoleDate(value?: string | null): string {
   if (!value?.trim()) return '—'
   const date = new Date(value)

@@ -6,7 +6,8 @@ defmodule Ankole.Plugins.DiscordAdapter.Dispatcher do
   the list of interesting event names stays in one place.
   """
 
-  alias Ankole.Plugins.DiscordAdapter.{Client, Inbound}
+  alias Ankole.Plugins.DiscordAdapter.Client
+  alias Ankole.Plugins.DiscordAdapter.Inbound
 
   @message_component_interaction 3
   @deferred_update_callback 6

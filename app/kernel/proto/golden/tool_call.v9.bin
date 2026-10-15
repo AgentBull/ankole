@@ -1,5 +1,0 @@
-	tool_call.v9.binºV
-
-
-job:1000input-1
-response-1call-1*command2{"command":"printf done"}:probe

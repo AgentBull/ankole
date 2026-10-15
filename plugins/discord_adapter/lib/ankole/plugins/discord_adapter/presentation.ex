@@ -3,8 +3,8 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
 
   alias Ankole.I18n
   alias Ankole.Plugins.UTF16Text
-  alias Ankole.SignalsGateway.ReplyActionToken
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ActionToken
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @message_utf16_units 2_000
   @button_chars 80
@@ -16,11 +16,11 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
   @primary_style 1
 
   @spec render(map(), String.t()) :: {:ok, [map()]} | {:error, term()}
-  def render(presentation, actor_event_id)
-      when is_map(presentation) and is_binary(actor_event_id) do
+  def render(presentation, signal_id)
+      when is_map(presentation) and is_binary(signal_id) do
     presentation = ReplyPresentation.normalize(presentation)
     text = ReplyPresentation.fallback_text(presentation)
-    components = components(presentation, actor_event_id)
+    components = components(presentation, signal_id)
 
     chunks(text)
     |> Enum.with_index()
@@ -30,14 +30,14 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
     |> then(&{:ok, &1})
   end
 
-  def render(_presentation, _actor_event_id), do: {:error, :invalid_discord_presentation}
+  def render(_presentation, _signal_id), do: {:error, :invalid_discord_presentation}
 
   @spec card(map(), String.t(), String.t() | nil) :: {:ok, [map()]} | {:error, term()}
-  def card(%{"reply_presentation" => presentation}, _fallback, actor_event_id)
-      when is_map(presentation) and is_binary(actor_event_id),
-      do: render(presentation, actor_event_id)
+  def card(%{"reply_presentation" => presentation}, _fallback, signal_id)
+      when is_map(presentation) and is_binary(signal_id),
+      do: render(presentation, signal_id)
 
-  def card(_payload, fallback, _actor_event_id) do
+  def card(_payload, fallback, _signal_id) do
     {:ok, Enum.map(chunks(fallback), &%{"content" => &1, "components" => []})}
   end
 
@@ -61,7 +61,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
   defp button({%{"type" => "button"} = action, index}, event_id) do
     with label when is_binary(label) <- action["label"],
          {:ok, custom_id} <-
-           ReplyActionToken.encode(event_id, index, action,
+           ActionToken.encode(event_id, index, action,
              prefix: "dc1",
              max_bytes: 100,
              too_long_error: :custom_id_too_long
@@ -84,7 +84,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Presentation do
   @doc false
   def chunks(value) do
     case UTF16Text.chunks(to_string(value), @message_utf16_units) do
-      [] -> [I18n.t("signals_gateway.reply.no_content")]
+      [] -> [I18n.t("conversations.delivery.reply.no_content")]
       values -> values
     end
   end

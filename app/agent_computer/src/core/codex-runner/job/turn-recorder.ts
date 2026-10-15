@@ -1,6 +1,6 @@
 import { jsonObject, ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { sanitizeTurnContent } from './turn-content'
-import type { JobTurnRef } from '../../../lanes/actor_lane'
+import type { JobTurnRef } from '../../../lanes/session_lane'
 import { jsonBytes } from '../../../fabric/envelope_proto'
 import {
   RPCRejectedError,

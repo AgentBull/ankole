@@ -8,9 +8,7 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Mutex;
 
-/// Stores derived values without making a cache hit part of correctness.
-/// Contended reads can miss, and eviction is arbitrary. This avoids wait time
-/// on cache reads and avoids recency bookkeeping.
+/// A cache hit is not part of correctness.
 pub(crate) struct BoundedCache<K, V> {
     max_entries: usize,
     entries: Mutex<HashMap<K, V>>,

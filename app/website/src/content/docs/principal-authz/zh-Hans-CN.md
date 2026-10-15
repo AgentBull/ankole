@@ -59,7 +59,7 @@ Ankole 中的每个动作都有明确的主体：人员登录、Agent 运行一�
 AuthZ 不是 agent 能绕开的一层，因为运行时在关键边界上都会咨询它：
 
 - AIGateway 从一个经验证的 token 解析出每次调用的主体，而该主体的 grant 决定它能触及哪些 model 选择符和 provider。
-- 主对话 Driver 提交前检查持久栅栏；Worker 的 Job 操作检查持久 Job attempt 栅栏和认证连接身份。
+- 执行会话 Driver 提交前检查持久栅栏；Worker 的 Job 操作检查持久 Job attempt 栅栏和认证连接身份。
 - Console 操作使用活跃管理员的浏览器会话与 CSRF 凭据，Principal 当前的组成员资格决定可修改的范围。
 
 模型没有机会自行声明“我有权限”。系统边界会核对主体和授权规则，并落实求值结果。
@@ -89,4 +89,4 @@ AuthZ 不是 Prompt 指令，也不是对模型的期望。它核对主体并强
 ## 下一步
 
 - 经过验证的 Token 怎样在 AIGateway 边缘解析成主体，见 [AIGateway API](../ai-gateway/)。
-- Agent 主体的 Driver fence 怎样为一个回合设置隔离栏，见 [Actor Runtime](../actor-runtime/)。
+- Agent 主体的 Driver fence 怎样为一个回合设置隔离栏，见 [Sessions](../sessions/)。

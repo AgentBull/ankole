@@ -25,10 +25,10 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   alias Ankole.AIAgent.Library
   alias Ankole.AutomationJobs
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Settings, as: WorkerSettings
-  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRoute
+  alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.Settings, as: WorkerSettings
+  alias Ankole.AgentWorkers.RPCWire
+  alias Ankole.AgentWorkers.WorkerRoute
 
   @worker_wait_seconds 10
 

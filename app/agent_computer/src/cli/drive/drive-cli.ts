@@ -14,8 +14,8 @@ export const DRIVE_CLI_HELP = `ankole-files — your drive: files that other peo
 
 What it is
   The drive holds the files that other people see or receive. Attachments
-  that people send you and files delivered to a channel are under
-  chats/<channel-id>/. Session resets keep the same channel directory.
+  that people send you and files delivered to a conversation are under
+  chats/<conversation-uuid>/. Session resets keep the same directory.
   Installed Skills are under skills/. People with access see the drive in
   the Ankole Console; a put notifies nobody. Session and Job workspaces are
   temporary working directories. Save files that must be kept or delivered

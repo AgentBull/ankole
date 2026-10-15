@@ -5,13 +5,13 @@ section: Developer guide
 order: 120
 ---
 
-제어 플레인은 주 Agent의 모델 루프와 도구 분배를 소유합니다. `Ankole.Conversations.Driver`는 AIGateway를 호출하고 요청한 도구를 실행하며 결과를 기록한 뒤 턴을 계속합니다. Agent Computer는 환경 작업과 Codex Job을 실행합니다. [Agent loop](../agent-loop/)와 [Agent Computer Worker](../agent-computer-worker/)를 참조하세요.
+제어 플레인은 주 Agent의 모델 루프와 도구 분배를 소유합니다. `Ankole.Sessions.Driver`는 AIGateway를 호출하고 요청한 도구를 실행하며 결과를 기록한 뒤 턴을 계속합니다. Agent Computer는 환경 작업과 Codex Job을 실행합니다. [Agent loop](../agent-loop/)와 [Agent Computer Worker](../agent-computer-worker/)를 참조하세요.
 
 ## 현재 도구 집합
 
-`Ankole.Conversations.ToolCatalog.for_run/1`은 현재 도메인 선언과 `worker_tools.json`의 Worker 선언을 결합합니다. 실행 종류, 모델 기능, 선택한 Skill과 플러그인, ambient 권한에 따라 구성하며 Agent의 전역 도구 집합으로 저장하지 않습니다.
+`Ankole.Sessions.ToolCatalog.for_run/1`은 현재 도메인 선언과 `worker_tools.json`의 Worker 선언을 결합합니다. 실행 종류, 모델 기능, 선택한 Skill과 플러그인, ambient 권한에 따라 구성하며 Agent의 전역 도구 집합으로 저장하지 않습니다.
 
-`Ankole.Conversations.Tool`은 모델에 보이는 schema, 실행 주체, 실행 순서, 허용된 호출자와 읽기·파괴·재시도 메타데이터를 보관합니다. `Ankole.Conversations.Tools.prepare/2`는 호출자를 확인하고 인수를 파싱한 다음 도구 소유자가 정규화하고 JSON Schema를 검증한 뒤 실행합니다.
+`Ankole.Sessions.Tool`은 모델에 보이는 schema, 실행 주체, 실행 순서, 허용된 호출자와 읽기·파괴·재시도 메타데이터를 보관합니다. `Ankole.Sessions.Tools.prepare/2`는 호출자를 확인하고 인수를 파싱한 다음 도구 소유자가 정규화하고 JSON Schema를 검증한 뒤 실행합니다.
 
 ## 소유자에서 실행
 
@@ -20,7 +20,7 @@ order: 120
 - MCP-backed Skill은 Worker의 computer command 도구와 mcporter를 사용합니다.
 - Provider hosted tool은 AIGateway를 통해 실행하며 선택한 모델이 선언한 기능을 따릅니다.
 
-Driver는 선언에 따라 병렬 또는 순차 호출을 예약합니다. 영구 변경은 `Ankole.Conversations.Receipts`를 사용해 도메인 변경과 결과를 같은 트랜잭션에서 커밋합니다. AIGateway는 다음 모델 반복에 사용할 도구 출력을 저장합니다. Worker가 끊기면 Driver가 선언된 재시도 계약에 따라 결과가 불확실한 환경 작업을 처리합니다.
+Driver는 선언에 따라 병렬 또는 순차 호출을 예약합니다. 영구 변경은 `Ankole.Sessions.Receipts`를 사용해 도메인 변경과 결과를 같은 트랜잭션에서 커밋합니다. AIGateway는 다음 모델 반복에 사용할 도구 출력을 저장합니다. Worker가 끊기면 Driver가 선언된 재시도 계약에 따라 결과가 불확실한 환경 작업을 처리합니다.
 
 ## Workflow 작업 도구
 

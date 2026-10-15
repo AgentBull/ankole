@@ -13,11 +13,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.I18n do
     i18n_content =
       Map.new(@provider_locales, fn {provider_locale, ankole_locale} ->
         {provider_locale,
-         AnkoleI18n.t("signals_gateway.cardkit.#{key}", bindings, locale: ankole_locale)}
+         AnkoleI18n.t("conversations.delivery.cardkit.#{key}", bindings, locale: ankole_locale)}
       end)
 
     %{
-      "content" => AnkoleI18n.t("signals_gateway.cardkit.#{key}", bindings),
+      "content" => AnkoleI18n.t("conversations.delivery.cardkit.#{key}", bindings),
       "i18n_content" => i18n_content
     }
   end

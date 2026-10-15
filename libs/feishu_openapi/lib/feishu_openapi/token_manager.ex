@@ -1,40 +1,17 @@
 defmodule FeishuOpenAPI.TokenManager do
   @moduledoc """
-  Per-app GenServer that serializes token fetches, caches results in ETS,
-  and schedules proactive refreshes ahead of expiry.
+  One `TokenManager` per `app_id`, registered in `FeishuOpenAPI.TokenRegistry`
+  and supervised by `FeishuOpenAPI.TokenManager.Supervisor`. A process starts
+  on the first token miss. The ETS table (`:feishu_openapi_tokens`) belongs to
+  `FeishuOpenAPI.TokenStore`: reads are lock-free, and misses go through this
+  process.
 
-  ## Topology
+  For `app_type: :marketplace`, call `bootstrap/1` at startup when the SDK
+  should ask Feishu to resend a ticket that is not cached. Wire the incoming
+  `app_ticket` event through `FeishuOpenAPI.Event.Dispatcher.new/1`'s `:client`
+  option, or call `put_app_ticket/2`.
 
-  One `TokenManager` process per `app_id`, registered in
-  `FeishuOpenAPI.TokenRegistry` and supervised by
-  `FeishuOpenAPI.TokenManager.Supervisor`. Processes start lazily on the first
-  token-miss for a given client. The ETS table (`:feishu_openapi_tokens`) is
-  owned by `FeishuOpenAPI.TokenStore` and shared across all managers — reads are
-  lock-free; misses funnel through this GenServer.
-
-  ## Async fetch
-
-  `handle_call` records the caller's `from` reference and returns `:noreply`.
-  The HTTP fetch runs in a `Task`, and on completion every waiter on that key
-  is replied to via `GenServer.reply/2`. This means a slow fetch cannot block
-  the mailbox — a burst of concurrent callers on a cold cache still triggers
-  exactly one upstream token request per key.
-
-  ## Proactive refresh
-
-  After a successful fetch we schedule an internal `:refresh` message ~30s
-  before `expires_at`. If the refresh fetch fails we swallow the error and
-  let the next user-initiated call fall through to the normal reactive path.
-
-  ## Marketplace `app_ticket`
-
-  For `app_type: :marketplace`, call `bootstrap/1` explicitly from your
-  application startup if you want the SDK to ask Feishu to resend a ticket
-  when none is cached. Wire the incoming `app_ticket` event through
-  `FeishuOpenAPI.Event.Dispatcher.new/1`'s `:client` option (which
-  auto-registers the handler) or manually via `put_app_ticket/2`.
-
-  Keys stored in ETS:
+  Keys in ETS:
 
     * `{:tenant, cache_namespace, tenant_key}` — tenant access token (tenant_key is
       `nil` for self-built apps).
@@ -61,8 +38,6 @@ defmodule FeishuOpenAPI.TokenManager do
 
   @type key ::
           {:tenant, Client.cache_namespace(), String.t() | nil} | {:app, Client.cache_namespace()}
-
-  # Public API
 
   @doc false
   @spec start_link(Client.t()) :: GenServer.on_start()
@@ -207,8 +182,6 @@ defmodule FeishuOpenAPI.TokenManager do
     :ok
   end
 
-  # GenServer callbacks
-
   @impl true
   def init(%Client{} = client) do
     {:ok,
@@ -272,8 +245,6 @@ defmodule FeishuOpenAPI.TokenManager do
   end
 
   def handle_info(_other, state), do: {:noreply, state}
-
-  # Internal
 
   defp finish_fetch(state, key, result) do
     {waiters, fetches} = Map.pop(state.fetches, key, [])

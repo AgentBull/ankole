@@ -829,8 +829,7 @@ fn bedrock_event(event_type: &str, payload: &str) -> Vec<u8> {
     )
 }
 
-// Serves the frames as the body of one ConverseStream HTTP response, and
-// returns the Responses events of the stream and the event that ends it.
+// Returns the Responses events of the stream and the event that ends it.
 fn bedrock_eventstream(frames: &[Vec<u8>]) -> (Vec<Value>, StreamEvent) {
     let listener = StdTCPListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();

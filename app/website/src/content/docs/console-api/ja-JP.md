@@ -79,8 +79,8 @@ signal routing rule（API schema では `Signal Binding`）は provider adapter 
 | `PUT` | `/agents/:agent_uid/signal-bindings/:adapter_id/:binding_name` | routing rule を作成または置換 |
 | `PATCH` | `/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を更新 |
 | `DELETE` | `/agents/:agent_uid/signal-bindings/:binding_name` | routing rule を削除 |
-| `GET` | `/signal-channels/:channel_id/standing-orders` | 1 つの channel の standing orders を読み取る |
-| `PUT` | `/signal-channels/:channel_id/standing-orders` | 1 つの channel の standing orders を置換 |
+| `GET` | `/conversations/:conversation_id/standing-orders` | 1 つの Conversation の standing orders を読み取る |
+| `PUT` | `/conversations/:conversation_id/standing-orders` | 1 つの Conversation の standing orders を置換 |
 
 binding を無効にすると、binding を削除せずに、新しい signal が agent を wake しなくなります。
 
@@ -181,6 +181,6 @@ configuration に加えて、Console はシステムの残りの部分に対す�
 
 ## 次のステップ
 
-- Console が構成する runtime surface については、[AIGateway API](../ai-gateway/)、[SignalsGateway](../signals-gateway/)、[Actor Runtime](../actor-runtime/) をお読みください。
+- Console が構成する runtime surface については、[AIGateway API](../ai-gateway/)、[Signals](../signals/)、[Sessions](../sessions/) をお読みください。
 - Console 自身が従う permission model については、[Principal と AuthZ](../principal-authz/) をお読みください。
 - 新しい deployment instance を構成するには、[クイックスタートの deployment セクション](../quickstart/#deployment) をお読みください。

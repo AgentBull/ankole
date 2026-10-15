@@ -80,5 +80,5 @@ Worker는 설치된 Skill을 실행 캐시에 다운로드합니다. 캐시를 �
 
 - 라이브러리를 구성하는 라우트는 [Console](../console-api/) 페이지를 읽으세요.
 - Agent별 작업 지침은 [Skill 교훈](../skill-lessons/)을 참고하세요.
-- turn 중에 활성화된 Skill을 실행하는 Worker는 [Actor Runtime](../actor-runtime/) 페이지를 읽으세요.
+- turn 중에 활성화된 Skill을 실행하는 Worker는 [Sessions](../sessions/) 페이지를 읽으세요.
 - 라이브러리가 범위로 삼는 Agent Principal은 [Principal과 AuthZ](../principal-authz/)를 읽으세요.

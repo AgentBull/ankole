@@ -1,51 +1,17 @@
 defmodule Ankole.AIGateway.CompactionRequests do
   alias Ankole.AIGateway.ResponseChain
   @moduledoc "Manual and client-triggered compaction protocols."
-  alias Ankole.AIGateway.{
-    CompactionArtifacts,
-    CompactionCandidate,
-    CompactionSummarizer,
-    Conversations,
-    ResponsesPreparation,
-    UpstreamCompaction
-  }
+  alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.CompactionCandidate
+  alias Ankole.AIGateway.CompactionHistory
+  alias Ankole.AIGateway.CompactionPolicy
+  alias Ankole.AIGateway.CompactionSummarizer
+  alias Ankole.AIGateway.Conversations
+  alias Ankole.AIGateway.ResponsesPreparation
+  alias Ankole.AIGateway.UpstreamCompaction
 
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.{Attrs, Logging}
-
-  import Ankole.AIGateway.CompactionPolicy,
-    only: [
-      threshold_spec: 2,
-      retained_tail_budget_tokens: 2,
-      upstream_compaction?: 0,
-      user_message_budget_tokens: 0
-    ]
-
-  import Ankole.AIGateway.CompactionArtifacts,
-    only: [
-      request_metadata: 1,
-      put_issuer: 2,
-      checkpoint_pack: 5,
-      with_upstream_pack: 4,
-      upstream_artifact_attrs: 3,
-      create_artifact_for_candidate: 4,
-      compaction_metadata: 4,
-      checkpoint_metadata: 3,
-      issuer_of: 1,
-      checkpoint_within_budget: 4
-    ]
-
-  import Ankole.AIGateway.CompactionHistory,
-    only: [
-      messages_to_items: 1,
-      history_items_for_artifact: 2,
-      history_usage_tokens: 1,
-      native_checkpoint_state: 3,
-      native_checkpoint?: 1,
-      force_local_checkpoint?: 2,
-      raw_history: 3,
-      previous_response_id_for: 2
-    ]
 
   defmodule ManualContext do
     @moduledoc false
@@ -225,7 +191,8 @@ defmodule Ankole.AIGateway.CompactionRequests do
   end
 
   @doc """
-  Forces one manual compaction for a conversation's current visible chain.
+  Compacts the stored chain at the request's `previous_response_id`, or the
+  conversation's current visible leaf when the request has no anchor.
 
   This is the control-plane `/compress` path. It reuses the same candidate and
   summarizer logic as automatic compaction, but it does not depend on the
@@ -237,25 +204,37 @@ defmodule Ankole.AIGateway.CompactionRequests do
           | {:error, term()}
   def compact_conversation(subject_uid, conversation_id, request \\ %{}, identity \\ [])
       when is_map(request) do
-    history = ResponseChain.expand_history(conversation_id)
-    total_tokens = history_usage_tokens(history)
-    visible_previous_response_id = previous_response_id_for(history, request)
-    upstream_compaction? = upstream_compaction?()
+    previous_response_id = Map.get(request, "previous_response_id")
 
-    with {:ok, runtime} <-
+    with {:ok, conversation} <-
+           ResponseChain.get_conversation_for_subject(subject_uid, conversation_id),
+         :ok <- ResponseChain.validate_response_anchor(conversation.id, previous_response_id),
+         history =
+           ResponseChain.expand_history(conversation.id,
+             previous_response_id: previous_response_id
+           ),
+         {:ok, runtime} <-
            ResponsesPreparation.resolve_runtime(subject_uid, %{"model" => "primary"}, identity),
-         {:ok, native_state} <- native_checkpoint_state(subject_uid, history, runtime) do
-      history =
-        if force_local_checkpoint?(native_state, upstream_compaction?),
-          do: raw_history(conversation_id, history, request),
-          else: history
+         {:ok, native_state} <-
+           CompactionHistory.native_checkpoint_state(subject_uid, history, runtime) do
+      total_tokens = CompactionHistory.history_usage_tokens(history)
+      visible_previous_response_id = CompactionHistory.previous_response_id_for(history, request)
+      upstream_compaction? = CompactionPolicy.upstream_compaction?()
 
       compact_conversation_history(%ManualContext{
         identity: identity,
         subject_uid: subject_uid,
-        conversation_id: conversation_id,
+        conversation_id: conversation.id,
         history: history,
-        brain_context_pack: checkpoint_pack(subject_uid, conversation_id, request, [], history),
+        brain_context_pack:
+          CompactionArtifacts.checkpoint_pack(
+            subject_uid,
+            conversation.id,
+            request,
+            [],
+            history,
+            identity
+          ),
         request: request,
         total_tokens: total_tokens,
         runtime: runtime,
@@ -277,7 +256,7 @@ defmodule Ankole.AIGateway.CompactionRequests do
 
   def compact_response(subject_uid, request, identity) when is_map(request) do
     request = Attrs.normalize_external_attrs(request)
-    upstream_compaction? = upstream_compaction?()
+    upstream_compaction? = CompactionPolicy.upstream_compaction?()
 
     with {:ok, _model} <- standalone_model(request),
          {:ok, input} <- standalone_input(request),
@@ -287,7 +266,14 @@ defmodule Ankole.AIGateway.CompactionRequests do
         Map.put(
           store_context,
           :brain_context_pack,
-          checkpoint_pack(subject_uid, store_context.conversation_id, request, input, [])
+          CompactionArtifacts.checkpoint_pack(
+            subject_uid,
+            store_context.conversation_id,
+            request,
+            input,
+            [],
+            identity
+          )
         )
 
       compact_standalone(
@@ -308,7 +294,6 @@ defmodule Ankole.AIGateway.CompactionRequests do
     %ManualContext{
       identity: identity,
       subject_uid: subject_uid,
-      conversation_id: conversation_id,
       history: history,
       request: request,
       runtime: runtime,
@@ -316,10 +301,10 @@ defmodule Ankole.AIGateway.CompactionRequests do
       upstream_compaction?: upstream_compaction?
     } = context
 
-    if force_local_checkpoint?(native_state, upstream_compaction?) do
+    if CompactionHistory.force_local_checkpoint?(native_state, upstream_compaction?) do
       compact_conversation_locally(context)
     else
-      with {:ok, input} <- history_items_for_artifact(subject_uid, history),
+      with {:ok, input} <- CompactionHistory.history_items_for_artifact(subject_uid, history),
            {:ok, input} <- CompactionArtifacts.resolve_input_handles(subject_uid, input) do
         case UpstreamCompaction.compact(
                runtime,
@@ -331,11 +316,6 @@ defmodule Ankole.AIGateway.CompactionRequests do
             create_manual_upstream_checkpoint(context, upstream)
 
           {:fallback, _reason} ->
-            context =
-              if native_checkpoint?(native_state),
-                do: %{context | history: raw_history(conversation_id, history, request)},
-                else: context
-
             compact_conversation_locally(context)
         end
       end
@@ -352,36 +332,45 @@ defmodule Ankole.AIGateway.CompactionRequests do
       request: request,
       total_tokens: total_tokens,
       runtime: runtime,
+      native_state: native_state,
       visible_previous_response_id: visible_previous_response_id
     } = context
 
-    threshold = threshold_spec(runtime, request)
+    history =
+      CompactionHistory.local_checkpoint_history(conversation_id, history, request, native_state)
+
+    threshold = CompactionPolicy.threshold_spec(runtime, request)
 
     with {:ok, candidate} <-
            CompactionCandidate.for_history(
              subject_uid,
              history,
              [],
-             retained_tail_budget_tokens(threshold, pack)
+             CompactionPolicy.retained_tail_budget_tokens(threshold, pack)
            ),
          candidate = %{candidate | brain_context_pack: pack},
          {:ok, summary} <- summarize_candidate(subject_uid, candidate, identity),
-         :ok <- checkpoint_within_budget(candidate, summary, [], threshold),
+         :ok <- CompactionArtifacts.checkpoint_within_budget(candidate, summary, [], threshold),
          {:ok, artifact} <-
-           create_artifact_for_candidate(subject_uid, conversation_id, candidate, summary),
+           CompactionArtifacts.create_artifact_for_candidate(
+             subject_uid,
+             conversation_id,
+             candidate,
+             summary
+           ),
          {:ok, checkpoint} <-
            ResponseChain.create_compaction_checkpoint(%{
              subject_uid: subject_uid,
              previous_response_id: visible_previous_response_id,
              artifact: artifact,
              metadata:
-               checkpoint_metadata(
+               CompactionArtifacts.checkpoint_metadata(
                  request,
-                 compaction_metadata(summary, candidate, total_tokens, %{
+                 CompactionArtifacts.compaction_metadata(summary, candidate, total_tokens, %{
                    "auto" => false,
                    "manual" => true
                  }),
-                 issuer_of(context)
+                 CompactionArtifacts.issuer_of(context)
                )
            }) do
       manual_checkpoint_result(conversation_id, checkpoint)
@@ -399,11 +388,11 @@ defmodule Ankole.AIGateway.CompactionRequests do
     } = context
 
     with {:ok, attrs} <-
-           with_upstream_pack(
-             upstream_artifact_attrs(subject_uid, conversation_id, upstream),
+           CompactionArtifacts.with_upstream_pack(
+             CompactionArtifacts.upstream_artifact_attrs(subject_uid, conversation_id, upstream),
              pack,
              [],
-             threshold_spec(runtime, request)
+             CompactionPolicy.threshold_spec(runtime, request)
            ),
          {:ok, artifact} <- CompactionArtifacts.insert_artifact(attrs),
          {:ok, checkpoint} <-
@@ -412,10 +401,10 @@ defmodule Ankole.AIGateway.CompactionRequests do
              previous_response_id: previous_response_id,
              artifact: artifact,
              metadata:
-               checkpoint_metadata(
+               CompactionArtifacts.checkpoint_metadata(
                  request,
                  %{"auto" => false, "manual" => true, "source" => "upstream"},
-                 issuer_of(context)
+                 CompactionArtifacts.issuer_of(context)
                )
            }) do
       manual_checkpoint_result(conversation_id, checkpoint)
@@ -474,11 +463,15 @@ defmodule Ankole.AIGateway.CompactionRequests do
            ) do
         {:ok, upstream} ->
           with {:ok, attrs} <-
-                 with_upstream_pack(
-                   upstream_artifact_attrs(subject_uid, store_context.conversation_id, upstream),
+                 CompactionArtifacts.with_upstream_pack(
+                   CompactionArtifacts.upstream_artifact_attrs(
+                     subject_uid,
+                     store_context.conversation_id,
+                     upstream
+                   ),
                    store_context.brain_context_pack,
                    [],
-                   threshold_spec(runtime, request)
+                   CompactionPolicy.threshold_spec(runtime, request)
                  ),
                {:ok, artifact} <- CompactionArtifacts.insert_artifact(attrs),
                {:ok, ankole_extension} <-
@@ -519,10 +512,10 @@ defmodule Ankole.AIGateway.CompactionRequests do
            CompactionCandidate.for_input(subject_uid, original_input, resolved_input),
          :ok <- warn_opaque_preserved(candidate),
          {:ok, runtime} <- standalone_local_runtime(runtime, subject_uid, request, identity),
-         threshold = threshold_spec(runtime, request),
+         threshold = CompactionPolicy.threshold_spec(runtime, request),
          {:ok, summary} <- summarize_standalone(subject_uid, candidate, identity),
          candidate = %{candidate | brain_context_pack: store_context.brain_context_pack},
-         :ok <- checkpoint_within_budget(candidate, summary, [], threshold),
+         :ok <- CompactionArtifacts.checkpoint_within_budget(candidate, summary, [], threshold),
          {:ok, artifact} <-
            create_standalone_artifact(subject_uid, store_context, candidate, summary),
          {:ok, ankole_extension} <-
@@ -573,7 +566,7 @@ defmodule Ankole.AIGateway.CompactionRequests do
           "strategy" => "standalone_user_messages",
           "requested" => candidate.tail_rows_requested,
           "actual" => length(candidate.retained_tail),
-          "user_budget_tokens" => user_message_budget_tokens(),
+          "user_budget_tokens" => CompactionPolicy.user_message_budget_tokens(),
           "user_message_count" => length(candidate.retained_user_originals)
         }
         |> Ankole.Attrs.put_present(
@@ -601,7 +594,11 @@ defmodule Ankole.AIGateway.CompactionRequests do
              conversation_id: store_context.conversation_id,
              previous_response_id: store_context.previous_response_id,
              artifact: artifact,
-             metadata: put_issuer(%{"request_metadata" => store_context.metadata}, issuer)
+             metadata:
+               CompactionArtifacts.put_issuer(
+                 %{"request_metadata" => store_context.metadata},
+                 issuer
+               )
            }) do
       {:ok,
        %{
@@ -635,7 +632,7 @@ defmodule Ankole.AIGateway.CompactionRequests do
                  store?: true,
                  conversation_id: anchor.conversation_id,
                  previous_response_id: previous_response_id,
-                 metadata: request_metadata(request)
+                 metadata: CompactionArtifacts.request_metadata(request)
                }}
 
             {:ok, %Message{}} ->
@@ -655,21 +652,21 @@ defmodule Ankole.AIGateway.CompactionRequests do
                store?: true,
                conversation_id: conversation.id,
                previous_response_id: nil,
-               metadata: request_metadata(request)
+               metadata: CompactionArtifacts.request_metadata(request)
              }}
           end
 
         true ->
           with {:ok, conversation} <-
                  Conversations.create_managed_stateful_responses_conversation(subject_uid,
-                   metadata: request_metadata(request)
+                   metadata: CompactionArtifacts.request_metadata(request)
                  ) do
             {:ok,
              %{
                store?: true,
                conversation_id: conversation.id,
                previous_response_id: nil,
-               metadata: request_metadata(request)
+               metadata: CompactionArtifacts.request_metadata(request)
              }}
           end
       end
@@ -731,7 +728,7 @@ defmodule Ankole.AIGateway.CompactionRequests do
   defp summarize_candidate(subject_uid, candidate, identity) do
     CompactionSummarizer.summarize(
       subject_uid,
-      messages_to_items(candidate.prefix),
+      CompactionHistory.messages_to_items(candidate.prefix),
       candidate.previous_chat_history,
       [recent_items: candidate.recent_items] ++ identity
     )

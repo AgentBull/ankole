@@ -591,7 +591,7 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
     assert {:ok, %{job: job}} =
              Repo.transact(fn _repo ->
                BackgroundAgentJobs.create_with_dispatch(%{
-                 "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+                 "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                  "agent_uid" => agent_uid,
                  "owner_session_id" => "parent-session-#{suffix}",
                  "source_tool_call_id" => "tool-background-agent-job-#{suffix}",
@@ -599,9 +599,12 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReaderTest do
                  "task" => "Complete the #{suffix} job.",
                  "reply_route" => %{
                    "binding_name" => "lark",
-                   "signal_channel_id" => "chat-#{suffix}",
+                   "conversation_id" =>
+                     Ankole.ExternalConversationsFixtures.external_conversation_id(
+                       "chat-#{suffix}"
+                     ),
                    "provider_thread_id" => "thread-#{suffix}",
-                   "source_entry_id" => "message-#{suffix}"
+                   "provider_message_id" => "message-#{suffix}"
                  }
                })
              end)

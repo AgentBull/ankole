@@ -159,7 +159,7 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
   it('executes a Background web call through the fenced shared owner', async () => {
     const requests: unknown[] = []
     const webTools = await createWebTools({
-      turn: { actor: { session_id: 'job:1000' }, job_id: 1000, attempt: 1, actor_event_id: 'input-1' },
+      turn: { session: { session_id: 'job:1000' }, job_id: 1000, attempt: 1, signal_id: 'input-1' },
       rpc: (async (method: unknown, payload: unknown, scope: unknown) => {
         requests.push({ method, name: (payload as { name: string }).name, scope })
         return { bodyJson: new TextEncoder().encode(JSON.stringify({ output: 'Search result', details: {} })) }
@@ -183,10 +183,10 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
         name: 'web_search',
         scope: {
           jobTurn: {
-            actor: { session_id: 'job:1000' },
+            session: { session_id: 'job:1000' },
             job_id: 1000,
             attempt: 1,
-            actor_event_id: 'input-1'
+            signal_id: 'input-1'
           }
         }
       }

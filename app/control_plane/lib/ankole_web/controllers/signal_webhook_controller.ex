@@ -1,6 +1,6 @@
 defmodule AnkoleWeb.SignalWebhookController do
   @moduledoc """
-  Provider webhook front door for `signals_gateway.webhook_handler` plugins.
+  Provider webhook front door for `signals.webhook_handler` plugins.
 
   The controller only routes: it resolves the declared handler, enforces the
   declared kind whitelist, and renders the handler's response instruction.
@@ -11,7 +11,7 @@ defmodule AnkoleWeb.SignalWebhookController do
   use AnkoleWeb, :controller
 
   alias Ankole.Logging
-  alias Ankole.SignalsGateway.WebhookHandlers
+  alias Ankole.Signals.WebhookHandlers
   alias AnkoleWeb.Plugs.ProviderWebhookBodyReader
 
   def handle(conn, %{"handler_id" => handler_id, "instance_id" => instance_id, "kind" => kind}) do
@@ -40,7 +40,7 @@ defmodule AnkoleWeb.SignalWebhookController do
 
       {:error, reason} ->
         Logging.warning(
-          "signals_gateway.webhook.dispatch_failed",
+          "signals.webhook.dispatch_failed",
           "provider webhook dispatch failed",
           %{handler_id: handler_id, kind: kind, reason: inspect(reason)}
         )

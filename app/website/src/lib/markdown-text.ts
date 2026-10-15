@@ -20,7 +20,6 @@ export function requiredProp<T>(props: Record<string, unknown>, name: string): T
   return props[name] as T
 }
 
-/** Joins Markdown blocks with one blank line and drops empty blocks. */
 export function blocks(...parts: (string | false | null | undefined)[]): string {
   return parts
     .filter((part): part is string => typeof part === 'string' && part.trim() !== '')
@@ -28,7 +27,6 @@ export function blocks(...parts: (string | false | null | undefined)[]): string 
     .join('\n\n')
 }
 
-/** An ATX heading. Markdown has six levels, so deeper sections stay at level 6. */
 export function heading(depth: number, text: string): string {
   return `${'#'.repeat(Math.min(Math.max(depth, 1), 6))} ${text}`
 }
@@ -48,7 +46,6 @@ export function orderedList(items: readonly string[] | undefined): string {
   return (items ?? []).map((item, index) => `${index + 1}. ${indentContinuation(item, 3)}`).join('\n')
 }
 
-/** A fenced code block whose fence is longer than any backtick run in the code. */
 export function fence(code: string, language = ''): string {
   const marker = '`'.repeat(Math.max(3, longestRun(code, '`') + 1))
   return `${marker}${language}\n${code.replace(/\n+$/, '')}\n${marker}`

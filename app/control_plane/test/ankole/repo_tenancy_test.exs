@@ -4,7 +4,8 @@ defmodule Ankole.RepoTenancyTest do
   alias Ankole.ActorRef
   alias Ankole.AuthZ.Group
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.{Channel, Entry}
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.{ExternalMessageRef, Message}
   alias Ankole.Tenants.Tenant
 
   test "Ecto can record and remove schema versions without a tenant context" do
@@ -132,29 +133,43 @@ defmodule Ankole.RepoTenancyTest do
     end)
   end
 
-  test "composite primary keys protect struct writes and natural-key preloads", %{tenant: tenant} do
+  test "composite primary keys protect conversation writes and tenant-scoped message joins", %{
+    tenant: tenant
+  } do
     other = new_tenant()
-    channel = channel("lark:same", "first")
-    entry(channel.id, "first")
+    id = Ecto.UUID.generate()
+    message_id = Ecto.UUID.generate()
+    conversation = conversation(id, "first")
+    message(id, message_id, "first")
 
     Repo.with_tenant(other.id, fn ->
-      channel("lark:same", "second")
-      entry(channel.id, "second")
+      conversation(id, "second")
+      message(id, message_id, "second")
     end)
 
-    channel |> Ecto.Changeset.change(name: "changed") |> Repo.update!()
-    loaded = Repo.preload(channel, :entries)
-    assert [%Entry{text: "first", tenant_id: tenant_id}] = loaded.entries
+    conversation |> Ecto.Changeset.change(title: "changed") |> Repo.update!()
+
+    assert [%{text: "first", tenant_id: tenant_id}] =
+             Repo.all(
+               from m in Message,
+                 join: ref in ExternalMessageRef,
+                 on: ref.message_id == m.id and ref.tenant_id == m.tenant_id,
+                 where: m.conversation_id == ^id,
+                 select: %{text: m.text, tenant_id: m.tenant_id}
+             )
+
     assert tenant_id == tenant.id
 
-    Repo.with_tenant(other.id, fn ->
-      assert Repo.get_by!(Channel, id: channel.id).name == "second"
-    end)
+    assert Repo.with_tenant(other.id, fn -> Repo.get_by!(Conversation, id: id).title end) ==
+             "second"
 
-    Repo.delete!(channel)
-    assert Repo.get_by(Channel, id: channel.id) == nil
+    Repo.delete!(conversation)
+    assert Repo.get_by(Conversation, id: id) == nil
 
-    assert Repo.with_tenant(other.id, fn -> Repo.get_by!(Channel, id: channel.id).name end) ==
+    assert Repo.with_tenant(other.id, fn -> Repo.get_by!(Conversation, id: id).title end) ==
+             "second"
+
+    assert Repo.with_tenant(other.id, fn -> Repo.get_by!(Message, id: message_id).text end) ==
              "second"
   end
 
@@ -546,24 +561,44 @@ defmodule Ankole.RepoTenancyTest do
     %Group{} |> Group.changeset(%{name: name, display_name: name}) |> Repo.insert!()
   end
 
-  defp channel(id, name) do
+  defp conversation(id, title) do
     now = DateTime.utc_now(:microsecond)
 
-    %Channel{}
-    |> Channel.changeset(%{id: id, name: name, first_seen_at: now, last_seen_at: now})
+    %Conversation{}
+    |> Conversation.changeset(%{
+      id: id,
+      title: title,
+      kind: :external,
+      external_kind: :im_group,
+      reply_mode: :entry,
+      provider_conversation_id: "lark:same",
+      last_activity_at: now,
+      first_seen_at: now,
+      last_seen_at: now
+    })
     |> Repo.insert!()
   end
 
-  defp entry(channel_id, text) do
+  defp message(conversation_id, id, text) do
     now = DateTime.utc_now(:microsecond)
 
-    %Entry{}
-    |> Entry.changeset(%{
-      document_id: "same-document",
-      signal_channel_id: channel_id,
-      source_entry_id: "same-message",
+    %Message{}
+    |> Message.changeset(%{
+      id: id,
+      conversation_id: conversation_id,
+      seq: 1,
+      origin: :external,
+      author_type: :unknown,
       text: text,
-      content_hash: "hash",
+      created_at: now
+    })
+    |> Repo.insert!()
+
+    %ExternalMessageRef{}
+    |> ExternalMessageRef.changeset(%{
+      message_id: id,
+      conversation_id: conversation_id,
+      provider_message_id: "same-message",
       first_seen_at: now,
       last_seen_at: now
     })

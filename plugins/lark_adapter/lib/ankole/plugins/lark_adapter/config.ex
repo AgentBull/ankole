@@ -15,8 +15,8 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   import Ankole.Plugins.MapHelpers,
     only: [required_string: 2, optional_string: 3, optional_boolean: 3, integer_between: 5]
 
-  @binding_config_key_pattern ~r/\Asignals_gateway\.lark\.binding_configs\.[a-f0-9]{64}\z/
-  @legacy_chat_key_pattern ~r/\Asignals_gateway\.lark\.bindings\.[A-Za-z0-9_.:-]+\z/
+  @binding_config_key_pattern ~r/\Asignals\.lark\.binding_configs\.[a-f0-9]{64}\z/
+  @legacy_chat_key_pattern ~r/\Asignals\.lark\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.lark\.[A-Za-z0-9_.:-]+\z/
   @domains ["feishu", "lark"]
   @default_oidc_scopes ["contact:user.employee_id:readonly"]
@@ -37,7 +37,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   def app_config_patterns do
     [
       AppConfigure.define_pattern(
-        id: "signals_gateway.lark.binding_configs.*",
+        id: "signals.lark.binding_configs.*",
         key_pattern: @binding_config_key_pattern,
         encrypted: true,
         console_writable: false,
@@ -46,7 +46,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
         description: "Encrypted binding-owned Lark / Feishu chat configuration."
       ),
       AppConfigure.define_pattern(
-        id: "signals_gateway.lark.bindings.*",
+        id: "signals.lark.bindings.*",
         key_pattern: @legacy_chat_key_pattern,
         encrypted: true,
         console_writable: false,
@@ -70,7 +70,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   @doc """
   Builds a legacy-compatible AppConfigure key for one chat binding.
   """
-  def chat_config_key(id), do: "signals_gateway.lark.bindings.#{id}"
+  def chat_config_key(id), do: "signals.lark.bindings.#{id}"
 
   @doc """
   Builds the stable AppConfigure key owned by one Agent binding.
@@ -88,7 +88,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
 
-    "signals_gateway.lark.binding_configs.#{id}"
+    "signals.lark.binding_configs.#{id}"
   end
 
   @spec identity_config_key(String.t()) :: String.t()
@@ -122,11 +122,11 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   @doc """
   Returns the Principal subject namespace of one chat config. See
-  `Ankole.SignalsGateway.SubjectNamespace.resolve/3`.
+  `Ankole.Signals.SubjectNamespace.resolve/3`.
   """
   @spec subject_namespace(map()) :: String.t()
   def subject_namespace(config) do
-    Ankole.SignalsGateway.SubjectNamespace.resolve(
+    Ankole.Signals.SubjectNamespace.resolve(
       "lark",
       Map.get(config, "identityProvider"),
       "lark-main"
@@ -134,7 +134,7 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   end
 
   @doc """
-  Validates chat config when it is used as a SignalsGateway binding.
+  Validates chat config when it is used as a Signal Binding.
 
   A binding needs no extra input beyond the chat config: the bot's own
   `open_id` is resolved from `bot/v3/info` at connection time, so operators are

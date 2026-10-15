@@ -46,7 +46,7 @@ Agent 创建 GitHub 委托之前，需要满足：
 2. Agent 在创建 GitHub hook 前先创建 durable checkback，记录清理和对账责任。
 3. Agent 用回调 URL 创建 repository hook。GitHub 随即发送 `ping`。
 4. Agent 读取 GitHub delivery 日志，确认 `ping` 成功。
-5. 匹配的 delivery 到达后，Ankole 在返回成功之前，用同一 PostgreSQL 事务提交 endpoint 判定，以及 `webhook.received` ActorEvent 或绑定的 automation job run。
+5. 匹配的 delivery 到达后，Ankole 在返回成功之前，用同一 PostgreSQL 事务提交 endpoint 判定，以及 `webhook.received` Signal 或绑定的 automation job run。
 6. 在直接路径上，被唤醒的 Agent 把回执当作不可信输入。绑定的 automation job 在发出事件前必须遵守同一规则。
 7. 对账检查 hook、事件集合、失败 delivery、当前 GitHub 对象、到期时间和下一次检查时间。
 8. 撤防先删除 GitHub hook，再取消 Ankole endpoint 和 checkback。
@@ -72,7 +72,7 @@ Agent 创建 endpoint 时可以传入 `--automation-job-id <id>`。被接受的 
 
 在 Console 中打开 **Webhooks**，可以按 Agent 和 session 查看 endpoint。页面显示 label、mode、状态、到期时间和来源路由，但不显示 callback URL、明文 token 或存储的 digest。
 
-Console 只提供 list 和 cancel，不提供 create。创建 endpoint 需要当前对话路由，所以属于活跃 Agent turn。
+Console 可以查看和取消 Agent 创建的 raw 回调 endpoint。Agent 在活跃回合中使用当前回复路由创建这种 endpoint。CloudEvents 事件源及其信号路由规则可在 Console 的 **Signals** 页面创建，见 [Signals](../signals/)。
 
 需要紧急撤销凭据时，可以从 Console 取消 endpoint。这个操作不会删除外部 GitHub hook，仍需单独删除。正常撤防应让 Agent 先删 GitHub hook。
 
@@ -89,9 +89,9 @@ Console 只提供 list 和 cancel，不提供 create。创建 endpoint 需要当
 
 - **Agent 找不到 GitHub Skill：**确认该 Agent 已开启 GitHub Agent Plugin 及相关 Skills，再开始新的 turn。
 - **GitHub 无法访问 callback：**检查公网 HTTPS 证书、DNS、ingress route 和 `/webhooks/v1/event-callbacks/*` 转发。
-- **Hook 已存在但 Agent 没有回复：**依次检查 GitHub delivery 日志、Console 中的 endpoint 状态、Worker readiness、durable actor event 和聊天出站投递。
+- **Hook 已存在但 Agent 没有回复：**依次检查 GitHub delivery 日志、Console 中的 endpoint 状态、Worker readiness、durable Signal 和聊天出站投递。
 - **GitHub 返回 `413`：**所选事件的 payload 超过 1 MiB。缩小 GitHub 侧事件形状，或改用其他检测器。
 - **同一事件唤醒两次：**standing endpoint 允许这种情况。Agent 必须重新读取 GitHub 当前状态，并让重复处理保持安全。
 - **布防时丢失 callback URL：**先删除可能存在的 GitHub hook，取消旧 endpoint 与 checkback，再创建一个替代 endpoint。
 
-入口所有者和事务边界见 [SignalsGateway](../signals-gateway/)。能力设置见 [Agent 能力库](../skills/)和 [环境变量](../worker-env/)。
+入口所有者和事务边界见 [Signals](../signals/)。能力设置见 [Agent 能力库](../skills/)和 [环境变量](../worker-env/)。

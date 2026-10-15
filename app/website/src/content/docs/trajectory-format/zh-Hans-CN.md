@@ -9,6 +9,8 @@ Ankole 在两处、为两种工作记录 agent 做了什么：AIGateway 存储�
 
 先说明最关键的一点：模型永远看不到原始存储行。两种形态都投影到一个模型可见的形式，剥离协议身份、用回合局部调用别名替换——模型看到"工具调用 1 → 工具结果 1"，而非内部 UUID 或线上协议字段。存储形式用于持久和审计；投影形式用于模型。
 
+这里的 AIGateway conversation 指 Session 的模型历史，与 `Ankole.Conversations` 保存的共享 Conversation 和 Message 分开。公开历史可以提供当前背景上下文，不替代持久模型链和工具日志。
+
 ## AIGateway 会话消息
 
 AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里的一行：
@@ -26,7 +28,7 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 
 `previous_message_id` 是续接锚点：每条消息指向前一条，产生一条链。在 API 上，它渲染为 `previous_response_id`，使调用者或 compaction 可从任何锚点续接。`metadata` 携带 AIGateway 拥有的事实——使用的模型和 provider、token 用量、provider 原始响应 ID——以及不透明的调用者元数据。它不得携带第二份条目列表。
 
-一次 compaction（见 [上下文压缩与 compaction](../context-compression-and-caching/)）用一条摘要消息替换旧消息，该摘要成为新锚点。旧消息不再在模型的可见上下文里；摘要是新起点。
+一次 compaction（见 [上下文压缩与 compaction](../context-compression-and-caching/)）写入摘要 checkpoint，作为新的可见锚点。旧行仍保留以支持恢复与审计；投影后的模型上下文从摘要开始，不再重放更早的消息。
 
 ## 后台 Agent 任务轨迹
 
@@ -48,7 +50,7 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 
 ## 模型可见投影
 
-控制面通过 `Ankole.Conversations.Tools.Jobs.visible_trajectory/1` 投影已存 Job 条目。模型可见投影包含：
+控制面通过 `Ankole.Sessions.Tools.Jobs.visible_trajectory/1` 投影已存 Job 条目。模型可见投影包含：
 
 - **剥离存储的协议身份**——内部消息 id、线上协议字段、任何模型不应据以行动的东西。
 - **用回合局部别名替换工具调用 id**——`call_1`、`call_2` 等。模型看到哪个工具结果属于哪个工具调用（唯一有用的关系），无需用来关联的内部 UUID。
@@ -64,7 +66,7 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 | 谁拥有 | AIGateway | 后台 Agent 任务 |
 | 规范格式 | AIGateway 的消息 schema | 语义条目投影为 ChatML |
 | 模型如何看到 | 有状态 Responses API | `visible_trajectory/1` 投影 |
-| Compaction | AIGateway compaction 替换旧消息 | 不压缩（任务受重试预算约束） |
+| Compaction | AIGateway 写入新的可见 checkpoint，旧行仍保留 | 不压缩（任务受重试预算约束） |
 
 两者不混合。一个会话的消息归 AIGateway；一个任务的轨迹归任务。任务通过唤醒事件（见 [Background Agent Jobs](../background-agent-jobs/)）把结果回报给拥有它的会话，而非写进会话的消息存储。
 
@@ -76,5 +78,5 @@ AIGateway 拥有实时会话转写。每条消息是 `ai_gateway_messages` 里�
 
 - 会话消息存储，读 [AIGateway](../ai-gateway/)。
 - 任务轨迹存储，读 [Background Agent Jobs](../background-agent-jobs/)。
-- compaction（替换旧消息），读 [上下文压缩与 compaction](../context-compression-and-caching/)。
+- compaction 与可见 checkpoint，读 [上下文压缩与 compaction](../context-compression-and-caching/)。
 - 读取这些的 Console 路由，读 [Console API 参考](../console-api/)。

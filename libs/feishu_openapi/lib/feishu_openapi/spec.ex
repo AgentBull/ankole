@@ -92,8 +92,6 @@ defmodule FeishuOpenAPI.Spec do
   def auth_managed?(%__MODULE__{user_access_token: t}) when is_binary(t), do: false
   def auth_managed?(%__MODULE__{}), do: true
 
-  # --- internals -----------------------------------------------------------
-
   defp resolve_access_token_type(opts, user_token, user_token_key) do
     case Keyword.fetch(opts, :access_token_type) do
       {:ok, type} when type in @valid_access_token_types ->

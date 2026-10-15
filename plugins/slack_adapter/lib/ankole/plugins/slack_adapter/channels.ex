@@ -3,19 +3,20 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.{Logging, Principals, Repo, SignalsGateway}
+  alias Ankole.Signals.Bindings
+  alias Ankole.{Logging, Principals, Repo}
   alias Ankole.AuthZ.Store
-  alias Ankole.Plugins.{ChannelSync, MapHelpers}
-  alias Ankole.Plugins.SlackAdapter.{Config, ConnectionReconciler, Inbound}
+  alias Ankole.Plugins.ChannelSync
+  alias Ankole.Plugins.MapHelpers
+  alias Ankole.Plugins.SlackAdapter.Config
+  alias Ankole.Plugins.SlackAdapter.ConnectionReconciler
+  alias Ankole.Plugins.SlackAdapter.Inbound
 
-  alias Ankole.SignalsGateway.{
-    AdapterContext,
-    Binding,
-    Channel,
-    IMGroupMembers,
-    IMGroupProjection
-  }
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.Binding
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.IMGroupMembers
+  alias Ankole.Conversations.IMGroupProjection
 
   alias SlackOpenAPI.{Event, Pagination}
 
@@ -61,14 +62,17 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
   @spec maybe_enqueue_missing_channel_refresh(map(), map()) :: :ok
   def maybe_enqueue_missing_channel_refresh(%{context: context, config: config}, %{
         channel: %{kind: :im_group},
-        signal_channel_id: signal_channel_id
+        provider_conversation_id: provider_conversation_id
       }) do
-    case Repo.get_by(Channel, id: signal_channel_id) do
-      %Channel{principal_group_id: group_id} when is_binary(group_id) ->
+    case Ankole.Conversations.External.get_conversation(
+           Repo,
+           provider_conversation_id
+         ) do
+      %Conversation{principal_group_id: group_id} when is_binary(group_id) ->
         :ok
 
-      %Channel{} ->
-        case channel_id_from_signal(signal_channel_id) do
+      %Conversation{} ->
+        case channel_id_from_signal(provider_conversation_id) do
           nil ->
             :ok
 
@@ -85,7 +89,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   @spec sync_binding(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def sync_binding(agent_uid, binding_name) do
-    with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          {:ok, channels} <- list_channels(config),
          {:ok, bot_ids} <- list_bot_ids(config),
@@ -108,7 +112,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   @spec refresh_channel(String.t(), String.t(), String.t()) :: {:ok, map()} | {:error, term()}
   def refresh_channel(agent_uid, binding_name, channel_id) do
-    with {:ok, binding} <- SignalsGateway.get_binding(agent_uid, binding_name),
+    with {:ok, binding} <- Ankole.Signals.Bindings.get_binding(agent_uid, binding_name),
          {:ok, config} <- Bindings.binding_config(binding, Config),
          context <- binding_context(binding, config),
          {:ok, channel} <- fetch_channel(config, channel_id),
@@ -318,7 +322,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
       channel: %{
         on_conflict: :replace,
         fact: %{
-          signal_channel_id: Inbound.signal_channel_id(channel["id"]),
+          provider_conversation_id: Inbound.provider_conversation_id(channel["id"]),
           channel_kind: if(channel["is_im"], do: :im_dm, else: :im_group),
           reply_mode: :entry,
           channel_name: channel["name"],

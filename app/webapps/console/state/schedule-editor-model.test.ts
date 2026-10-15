@@ -17,7 +17,7 @@ const draft: ScheduleEditorDraft = {
   everyMs: '',
   anchorAt: '',
   timezone: 'Asia/Shanghai',
-  deliveryTargets: [{ bindingName: 'lark-agent', channelId: 'lark:market', threadId: '' }],
+  deliveryTargets: [{ bindingName: 'lark-agent', conversationId: 'lark:market', threadId: '' }],
   task: 'prepare report',
   payload: '{"task":"prepare report"}',
   hasAutomationJob: false,
@@ -25,6 +25,34 @@ const draft: ScheduleEditorDraft = {
 }
 
 describe('ScheduleEditorModel', () => {
+  test('creates a native delivery without a routing rule and preserves mixed destinations', () => {
+    const model = new ScheduleEditorModel()
+    const id = '019a5bc0-0000-7000-8000-000000000001'
+    model.initialize('new-native', {
+      ...draft,
+      bindingName: '',
+      deliveryTargets: [{ bindingName: '', conversationId: id, threadId: '' }]
+    })
+    expect(model.isComplete()).toBe(true)
+    expect(model.toCreateBody()?.binding_name).toBeUndefined()
+    expect(model.toCreateBody()?.delivery).toEqual({ targets: [{ conversation_id: id }] })
+    model.addDeliveryTarget()
+    model.updateDeliveryTarget(1, {
+      bindingName: 'lark-agent',
+      conversationId: '019a5bc0-0000-7000-8000-000000000002',
+      threadId: 'report'
+    })
+    expect(model.toCreateBody()?.delivery?.targets).toEqual([
+      { conversation_id: id },
+      {
+        conversation_id: '019a5bc0-0000-7000-8000-000000000002',
+        binding_name: 'lark-agent',
+        provider_thread_id: 'report'
+      }
+    ])
+    model[Symbol.dispose]()
+  })
+
   test('requires a name, owner conversation, and task when it creates a recurring schedule', () => {
     const model = new ScheduleEditorModel()
     model.initialize('new', { ...draft, name: '' })
@@ -60,7 +88,7 @@ describe('ScheduleEditorModel', () => {
       timezone: 'Asia/Shanghai',
       payload: { task: 'prepare report' },
       delivery: {
-        targets: [{ binding_name: 'lark-agent', signal_channel_id: 'lark:market' }]
+        targets: [{ binding_name: 'lark-agent', conversation_id: 'lark:market' }]
       },
       idempotency_key: 'cron:add:market-open'
     })
@@ -149,17 +177,17 @@ describe('ScheduleEditorModel', () => {
     model.addDeliveryTarget()
     model.updateDeliveryTarget(1, {
       bindingName: 'lark-secondary',
-      channelId: 'lark:research',
+      conversationId: 'lark:research',
       threadId: 'morning-report'
     })
 
     expect(model.toUpdateBody()).toEqual({
       delivery: {
         targets: [
-          { binding_name: 'lark-agent', signal_channel_id: 'lark:market' },
+          { binding_name: 'lark-agent', conversation_id: 'lark:market' },
           {
             binding_name: 'lark-secondary',
-            signal_channel_id: 'lark:research',
+            conversation_id: 'lark:research',
             provider_thread_id: 'morning-report'
           }
         ]
@@ -171,10 +199,10 @@ describe('ScheduleEditorModel', () => {
 
     model.updateDeliveryTarget(1, {
       bindingName: 'changed-execution-binding',
-      channelId: 'lark:market',
+      conversationId: 'lark:market',
       threadId: ''
     })
-    model.updateDeliveryTarget(0, { channelId: 'lark:market', threadId: '' })
+    model.updateDeliveryTarget(0, { conversationId: 'lark:market', threadId: '' })
     expect(model.isComplete()).toBe(false)
     expect(model.toUpdateBody()).toBeNull()
 
@@ -198,8 +226,8 @@ describe('ScheduleEditorModel', () => {
   })
 
   test('maps stored delivery targets', () => {
-    expect(deliveryTargetDrafts({ targets: [{ binding_name: 'a', signal_channel_id: 'c' }] })).toEqual([
-      { bindingName: 'a', channelId: 'c', threadId: '' }
+    expect(deliveryTargetDrafts({ targets: [{ binding_name: 'a', conversation_id: 'c' }] })).toEqual([
+      { bindingName: 'a', conversationId: 'c', threadId: '' }
     ])
     expect(deliveryTargetDrafts(undefined)).toEqual([])
   })

@@ -5,7 +5,7 @@ defmodule Ankole.Plugins.Plugin do
   A plugin advertises an identity through `plugin_id/0` and may contribute
   AppConfigure keys, adapter declarations
   (the data that lets a plugin plug into a subsystem contract such as
-  `signals_gateway.adapter` or `principals.identity_provider`), and supervised
+  `signals.adapter` or `principals.identity_provider`), and supervised
   children. Everything except identity is optional, so a minimal plugin only
   implements `plugin_id/0`. `Ankole.Plugins.Spec.from_module/1`
   reads these callbacks and normalizes the result into a `Spec`.

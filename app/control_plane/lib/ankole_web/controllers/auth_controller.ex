@@ -8,7 +8,8 @@ defmodule AnkoleWeb.AuthController do
   alias Ankole.AuthZ
   alias Ankole.BrowserSessions
   alias Ankole.IdentityProviders
-  alias Ankole.IdentityProviders.{LocalPassword, Login}
+  alias Ankole.IdentityProviders.LocalPassword
+  alias Ankole.IdentityProviders.Login
   alias Ankole.OIDC.LoginPolicy
   alias Ankole.Setup.Completion, as: SetupCompletion
   alias Ankole.Setup.Config, as: SetupConfig

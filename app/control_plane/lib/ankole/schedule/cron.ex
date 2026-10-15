@@ -15,9 +15,6 @@ defmodule Ankole.Schedule.Cron do
   alias Ankole.Schedule.Store
   alias Ankole.Schedule.Jobs.FireCron
 
-  @execution_session_prefix "cron:"
-  @execution_session_prefix_size byte_size(@execution_session_prefix)
-
   @doc """
   Builds the durable execution session id for one cron schedule.
 
@@ -28,23 +25,20 @@ defmodule Ankole.Schedule.Cron do
   """
   @spec execution_session_id(Ecto.UUID.t()) :: String.t()
   def execution_session_id(cron_schedule_id) when is_binary(cron_schedule_id),
-    do: @execution_session_prefix <> cron_schedule_id
-
-  @doc "True when the value is a cron execution session id. Usable in guards."
-  defguard is_execution_session_id(session_id)
-           when is_binary(session_id) and
-                  byte_size(session_id) > @execution_session_prefix_size and
-                  binary_part(session_id, 0, @execution_session_prefix_size) ==
-                    @execution_session_prefix
+    do: Ankole.Sessions.Key.cron(cron_schedule_id)
 
   @doc "Returns the schedule id whose fires run in this session, or nil."
   @spec execution_schedule_id(String.t()) :: Ecto.UUID.t() | nil
-  def execution_schedule_id(@execution_session_prefix <> id) when id != "", do: id
-  def execution_schedule_id(_session_id), do: nil
+  def execution_schedule_id(key) do
+    case Ankole.Sessions.Key.parse(key) do
+      {:cron, id} -> id
+      _ -> nil
+    end
+  end
 
   @doc "The raw prefix, only for storage-boundary prefix matching."
   @spec execution_session_prefix() :: String.t()
-  def execution_session_prefix, do: @execution_session_prefix
+  def execution_session_prefix, do: Ankole.Sessions.Key.cron("")
 
   @spec create_cron_schedule(map(), keyword()) ::
           {:ok, %{status: :created | :already_exists, cron_schedule: CronSchedule.t()}}
@@ -57,6 +51,7 @@ defmodule Ankole.Schedule.Cron do
         attrs = Ankole.Principals.WorkAccess.inherit(repo, attrs)
 
         with :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
+             :ok <- validate_native_delivery_in_tx(repo, attrs.agent_uid, attrs.delivery),
              :ok <-
                AutomationJobs.validate_bindable_in_tx(
                  repo,
@@ -70,6 +65,15 @@ defmodule Ankole.Schedule.Cron do
     end
   end
 
+  defp validate_native_delivery_in_tx(repo, agent_uid, delivery) do
+    Enum.reduce_while(delivery["targets"], :ok, fn target, :ok ->
+      case Ankole.Conversations.Target.for_delivery_in_tx(repo, agent_uid, target) do
+        {:ok, _} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
   @spec update_cron_schedule(Ecto.UUID.t(), map(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
   def update_cron_schedule(cron_schedule_id, attrs, opts \\ [])
@@ -80,6 +84,12 @@ defmodule Ankole.Schedule.Cron do
       with %CronSchedule{} = schedule <- Store.lock_cron_schedule(repo, cron_schedule_id),
            :ok <- Store.reject_terminal(schedule),
            {:ok, attrs} <- Normalizer.cron_schedule_update_attrs(schedule, attrs, now, opts),
+           :ok <-
+             validate_native_delivery_in_tx(
+               repo,
+               schedule.agent_uid,
+               attrs[:delivery] || schedule.delivery
+             ),
            :ok <-
              validate_updated_automation_job(repo, schedule, attrs, now),
            changeset = CronSchedule.changeset(schedule, attrs),
@@ -433,7 +443,7 @@ defmodule Ankole.Schedule.Cron do
       agent_uid: schedule.agent_uid,
       session_id: execution_session_id(schedule.id),
       binding_name: schedule.binding_name,
-      signal_channel_id: primary_target["signal_channel_id"],
+      conversation_id: primary_target["conversation_id"],
       provider_thread_id: primary_target["provider_thread_id"],
       due_at: due_at,
       timezone: schedule.timezone,

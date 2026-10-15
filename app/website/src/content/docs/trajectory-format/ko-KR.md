@@ -9,6 +9,8 @@ Ankole은 에이전트가 수행한 작업을 두 종류의 작업에 대해 두
 
 먼저 핵심 속성을 밝힙니다: 모델은 원시 저장 행을 결코 보지 못합니다. 두 형태 모두 프로토콜 식별자를 제거하고 턴 로컬 호출 별칭으로 대체한 모델 가시 형태로 투영됩니다 — 모델은 내부 UUID나 와이어 프로토콜 필드가 아니라 “tool call 1 → tool result 1”을 봅니다. 저장 형태는 지속성과 감사를 위한 것이고, 투영 형태는 모델을 위한 것입니다.
 
+여기서 AIGateway conversation은 Session의 모델 이력입니다. `Ankole.Conversations`가 저장하는 공유 Conversation 및 Message와 별개입니다. 공개 이력은 현재 배경 정보를 제공하며 저장된 모델 체인과 도구 기록을 대체하지 않습니다.
+
 ## AIGateway 대화 메시지
 
 AIGateway는 실시간 대화 전사를 소유합니다. 각 메시지는 `ai_gateway_messages`의 행입니다:
@@ -26,7 +28,7 @@ AIGateway는 실시간 대화 전사를 소유합니다. 각 메시지는 `ai_ga
 
 `previous_message_id`는 연속 앵커입니다: 각 메시지는 이전 메시지를 가리켜 연결 체인을 만듭니다. API에서는 `previous_response_id`로 렌더링되므로 호출자나 압축(compaction)이 어떤 앵커에서든 재개할 수 있습니다. `metadata` 필드는 불투명한 호출자 메타데이터와 함께 AIGateway가 소유한 사실, 즉 사용된 모델과 제공자, 토큰 사용량, 제공자의 원시 응답 id를 담습니다. 이 필드는 두 번째 항목 목록을 담아서는 안 됩니다.
 
-압축([Context compression](../context-compression-and-caching/) 참조)은 이전 메시지를 새 앵커가 되는 요약 메시지로 대체합니다. 이전 메시지는 더 이상 모델의 가시 컨텍스트에 없으며, 요약이 새 시작점입니다.
+압축([Context compression](../context-compression-and-caching/) 참조)은 요약 checkpoint를 새 가시 앵커로 저장합니다. 이전 행은 복구와 감사를 위해 유지합니다. 모델 투영은 요약에서 시작하며 이전 메시지를 다시 재생하지 않습니다.
 
 ## Background Agent Job 궤적
 
@@ -48,7 +50,7 @@ AIGateway는 실시간 대화 전사를 소유합니다. 각 메시지는 `ai_ga
 
 ## 모델 가시 투영
 
-컨트롤 플레인은 `Ankole.Conversations.Tools.Jobs.visible_trajectory/1`로 저장된 Job 항목을 투영합니다. 모델 가시 투영은 다음을 포함합니다.
+컨트롤 플레인은 `Ankole.Sessions.Tools.Jobs.visible_trajectory/1`로 저장된 Job 항목을 투영합니다. 모델 가시 투영은 다음을 포함합니다.
 
 - **저장된 프로토콜 식별자 제거** — 내부 메시지 id, 와이어 프로토콜 필드, 모델이 행동해서는 안 되는 모든 것.
 - **tool-call id를 턴 로컬 별칭으로 대체** — `call_1`, `call_2` 등. 모델은 이를 연결하는 내부 UUID 없이 어떤 tool result가 어떤 tool call에 속하는지(유일하게 유용한 관계)를 봅니다.
@@ -64,7 +66,7 @@ AIGateway는 실시간 대화 전사를 소유합니다. 각 메시지는 `ai_ga
 | 소유자 | AIGateway | Background Agent Jobs |
 | 정규 형식 | AIGateway의 메시지 스키마 | 시맨틱 항목을 ChatML로 투영 |
 | 모델이 보는 경로 | 상태 저장 Responses API | `visible_trajectory/1` 투영 |
-| 압축 | AIGateway 압축이 이전 메시지 대체 | 압축 없음(Job은 재시도 예산으로 제한됨) |
+| 압축 | AIGateway가 새 가시 checkpoint를 저장하고 이전 행은 유지 | 압축 없음(Job은 재시도 예산으로 제한됨) |
 
 두 형태는 섞이지 않습니다. 대화의 메시지는 AIGateway의 것이고, Job의 궤적은 Job의 것입니다. Job은 대화의 메시지 저장소에 쓰는 것이 아니라 웨이크업 이벤트를 통해([Background Agent Jobs](../background-agent-jobs/) 참조) 소유 대화에 결과를 보고합니다.
 
@@ -76,5 +78,5 @@ AIGateway는 실시간 대화 전사를 소유합니다. 각 메시지는 `ai_ga
 
 - 대화 메시지 저장소에 대해서는 [AIGateway](../ai-gateway/)를 읽으세요.
 - Job 궤적 저장소에 대해서는 [Background Agent Jobs](../background-agent-jobs/)를 읽으세요.
-- 압축(이전 메시지를 대체)에 대해서는 [Context compression](../context-compression-and-caching/)을 읽으세요.
+- 압축과 가시 checkpoint에 대해서는 [Context compression](../context-compression-and-caching/)을 읽으세요.
 - 이들을 읽는 Console 라우트에 대해서는 [Console API reference](../console-api/)를 읽으세요.

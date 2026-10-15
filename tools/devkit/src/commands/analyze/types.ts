@@ -1,5 +1,3 @@
-// Shared result contract for every `analyze` check module.
-
 export type ExitCode = 0 | 1 | 2
 
 export interface Finding {

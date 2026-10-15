@@ -2,10 +2,13 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
   @moduledoc false
 
   alias Ankole.Principals
-  alias Ankole.Plugins.DiscordAdapter.{Client, Config, Emoji}
+  alias Ankole.Plugins.DiscordAdapter.Client
+  alias Ankole.Plugins.DiscordAdapter.Config
+  alias Ankole.Plugins.DiscordAdapter.Emoji
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.{AdapterContext, Ingress}
-  alias Ankole.SignalsGateway.ReplyActionToken
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.Delivery.ActionToken
 
   # Discord serves attachments from its CDN without a documented size ceiling,
   # so this is Ankole's own download budget rather than a provider limit.
@@ -66,16 +69,16 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
          true <- material_message?(text, attachments) || {:ignore, :empty_message} do
       guild_id = MapHelpers.optional_text(message, "guild_id")
       channel_kind = if is_nil(guild_id), do: :im_dm, else: :im_group
-      signal_channel_id = signal_channel_id(bot.id, channel_id)
+      conversation_id = provider_conversation_id(bot.id, channel_id)
       mentioned? = mentions_bot?(message, bot.id)
 
       {:ok,
        %{
          source_event_id: message_id,
-         signal_channel_id: signal_channel_id,
-         source_entry_id: message_id,
-         reply_to_source_entry_id: referenced_message_id(message),
-         provider_thread_id: signal_channel_id,
+         provider_conversation_id: conversation_id,
+         provider_message_id: message_id,
+         reply_to_provider_message_id: referenced_message_id(message),
+         provider_thread_id: conversation_id,
          channel: %{
            kind: channel_kind,
            reply_mode: :entry,
@@ -122,11 +125,11 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
   defp emit_with_materialization(input, consumer, event) do
     client = client_for(consumer, event)
 
-    Ingress.emit_entry_with_attachments(
+    Observe.emit_entry_with_attachments(
       consumer.context.agent_uid,
       consumer.context.binding_name,
       input,
-      &Ingress.materialize_attachments(
+      &Observe.materialize_attachments(
         &1,
         "discord",
         fn attachment ->
@@ -148,10 +151,10 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
          channel_id when is_binary(channel_id) <-
            MapHelpers.optional_text(reaction, "channel_id"),
          {reaction_key, raw_key} <- Emoji.reaction_key(map(reaction, "emoji")) do
-      Ingress.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
+      Observe.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
         source_event_id: "discord:gateway:#{gateway_session_id}:#{gateway_sequence}",
-        signal_channel_id: signal_channel_id(bot.id, channel_id),
-        source_entry_id: message_id,
+        provider_conversation_id: provider_conversation_id(bot.id, channel_id),
+        provider_message_id: message_id,
         reaction_key: reaction_key,
         raw_reaction_key: raw_key,
         actor_key: user_id,
@@ -185,28 +188,28 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
            MapHelpers.optional_text(interaction, "channel_id"),
          user_id when is_binary(user_id) <- MapHelpers.optional_text(user, "id"),
          {:ok, principal} <- Principals.resolve_platform_subject("discord", user_id),
-         channel <- signal_channel_id(bot.id, channel_id),
+         channel <- provider_conversation_id(bot.id, channel_id),
          {:ok, value} <-
-           ReplyActionToken.resolve(
+           ActionToken.resolve(
              token,
              consumer.context.agent_uid,
              consumer.context.binding_name,
              message_id,
              prefix: "dc1"
            ) do
-      Ingress.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
+      Observe.emit_action(consumer.context.agent_uid, consumer.context.binding_name, %{
         source_event_id: interaction_id,
         action_id: interaction_id,
-        signal_channel_id: channel,
-        source_entry_id: message_id,
+        provider_conversation_id: channel,
+        provider_message_id: message_id,
         provider_thread_id: channel,
-        actor_event_type: "signal.action.invoked",
+        signal_type: "signal.action.invoked",
         action: %{
           "name" => "discord_component",
           "value" => value,
           "operator_id" => user_id,
           "operator_principal_uid" => principal.uid,
-          "source_entry_id" => message_id
+          "provider_message_id" => message_id
         },
         raw_payload: %{"interaction_id" => interaction_id}
       })
@@ -388,8 +391,8 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
   defp downloadable_size(_size), do: :ok
 
   @doc false
-  @spec signal_channel_id(String.t(), String.t()) :: String.t()
-  def signal_channel_id(bot_id, channel_id), do: "discord:#{bot_id}:channel:#{channel_id}"
+  @spec provider_conversation_id(String.t(), String.t()) :: String.t()
+  def provider_conversation_id(bot_id, channel_id), do: "discord:#{bot_id}:channel:#{channel_id}"
 
   defp client_for(_consumer, %{"client" => %Client{} = client}), do: client
   defp client_for(consumer, _event), do: Config.client(consumer.config)

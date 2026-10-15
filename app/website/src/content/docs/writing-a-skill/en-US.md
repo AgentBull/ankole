@@ -146,7 +146,7 @@ The Plugin then appears in the Console catalog. After an administrator enables i
 def adapter_declarations do
   [
     %{
-      contract_id: "signals_gateway.adapter",
+      contract_id: "signals.adapter",
       id: "my-adapter",
       plugin_id: plugin_id()
     }
@@ -154,7 +154,7 @@ def adapter_declarations do
 end
 ```
 
-The owning subsystem defines the adapter-specific fields. A chat adapter follows the [SignalsGateway](../signals-gateway/) contract. IdPs and model Providers use their existing registries. Do not create a parallel configuration path inside the Plugin.
+The owning subsystem defines the adapter-specific fields. A chat adapter follows the [Signals](../signals/) contract. IdPs and model Providers use their existing registries. Do not create a parallel configuration path inside the Plugin.
 
 ### Declare settings and services
 

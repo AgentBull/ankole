@@ -1,6 +1,6 @@
 defmodule Ankole.Files.Jobs.CollectUnreferenced do
   @moduledoc """
-  Removes old file contents without drive paths or uncompleted Outbox references.
+  Removes old file contents without drive paths or uncompleted Delivery references.
 
   The job runs in two steps:
 
@@ -63,10 +63,15 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
           AND last_referenced_at < now() - interval '#{@grace}'
           AND NOT EXISTS (SELECT 1 FROM agent_files WHERE agent_files.sha256 = files.sha256)
           AND NOT EXISTS (
-            SELECT 1 FROM signal_gateway_outbox_entries AS outbox
-            WHERE outbox.status <> 'succeeded'
-              AND outbox.payload @> jsonb_build_object('attachments',
+            SELECT 1 FROM deliveries AS intent
+            WHERE intent.status IN ('pending', 'failed', 'unknown')
+              AND intent.payload @> jsonb_build_object('attachments',
                 jsonb_build_array(jsonb_build_object('blob_ref', encode(files.sha256, 'hex'))))
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM conversation_messages AS message,
+              unnest(message.attachments) AS attachment(value)
+            WHERE attachment.value->>'blob_ref' = encode(files.sha256, 'hex')
           )
         """,
         []
@@ -113,10 +118,15 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
         WHERE sha256 = $1 AND deleting
           AND NOT EXISTS (SELECT 1 FROM agent_files WHERE agent_files.sha256 = files.sha256)
           AND NOT EXISTS (
-            SELECT 1 FROM signal_gateway_outbox_entries AS outbox
-            WHERE outbox.status <> 'succeeded'
-              AND outbox.payload @> jsonb_build_object('attachments',
+            SELECT 1 FROM deliveries AS intent
+            WHERE intent.status IN ('pending', 'failed', 'unknown')
+              AND intent.payload @> jsonb_build_object('attachments',
                 jsonb_build_array(jsonb_build_object('blob_ref', encode(files.sha256, 'hex'))))
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM conversation_messages AS message,
+              unnest(message.attachments) AS attachment(value)
+            WHERE attachment.value->>'blob_ref' = encode(files.sha256, 'hex')
           )
         """,
         [digest]

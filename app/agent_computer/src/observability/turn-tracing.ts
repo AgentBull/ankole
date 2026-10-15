@@ -18,7 +18,7 @@ import {
 import { ProtobufTraceSerializer } from '@opentelemetry/otlp-transformer'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { redactText, sensitiveKey } from '../common/content-redaction'
-import type { TurnStart } from '../lanes/actor_lane'
+import type { TurnStart } from '../lanes/session_lane'
 import { toError } from '../common/errors'
 
 const tracerName = 'ankole-worker'
@@ -71,7 +71,7 @@ export function workerTurnTrace(turnStart: TurnStart, agentUID: string): WorkerT
       'ankole.principal.uid': agentUID,
       'ankole.principal.type': 'agent',
       ...(propagation.observabilityUserID ? { 'user.id': propagation.observabilityUserID } : {}),
-      'session.id': turnStart.turn.actor.session_id
+      'session.id': turnStart.turn.session.session_id
     }
   }
 }

@@ -10,7 +10,7 @@ defmodule Ankole.Plugins.LarkAdapter do
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
   alias Ankole.Plugins.LarkAdapter.IMGroups
   alias Ankole.Plugins.LarkAdapter.Inbound
-  alias Ankole.Plugins.LarkAdapter.Outbox
+  alias Ankole.Plugins.LarkAdapter.Delivery
   alias Ankole.Plugins.LarkAdapter.CardKit
   alias Ankole.Plugins.LarkAdapter.RuntimeEnv
 
@@ -44,20 +44,20 @@ defmodule Ankole.Plugins.LarkAdapter do
     # Signal and identity contracts have separate host-owned lifecycles.
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "lark",
         adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: adapter_display_name(),
-        config_key_pattern: "signals_gateway.lark.binding_configs.<id>",
+        config_key_pattern: "signals.lark.binding_configs.<id>",
         config_module: Config,
         application_bindings: :one,
         worker_env_module: RuntimeEnv,
         fields: chat_fields(),
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
-        reply_preview_module: CardKit,
+        observe_module: Inbound,
+        deliver_module: Delivery,
+        preview_module: CardKit,
         binding_saved_module: IMGroups,
         author_hydrator: IdentityProvider,
         inbound_capabilities: [

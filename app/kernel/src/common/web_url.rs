@@ -16,7 +16,6 @@ use url::{Host, Url as URL};
 
 use crate::common::{KernelError, KernelResult};
 
-/// Host classification for the web tools URL policy.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HostClass {
     /// Cloud metadata endpoints; rejected regardless of policy.
@@ -38,19 +37,14 @@ impl HostClass {
     }
 }
 
-/// Parsed facts about one web URL.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WebURLFacts {
-    /// Lowercase URL scheme without the trailing colon.
     pub scheme: String,
-    /// WHATWG-normalized host (lowercased, canonical IP text, no brackets),
-    /// or `None` for host-less URLs such as `data:` and `about:`.
+    /// `None` for host-less URLs such as `data:` and `about:`.
     pub host: Option<String>,
-    /// Host classification; `None` exactly when `host` is `None`.
     pub host_class: Option<HostClass>,
 }
 
-/// Parses an absolute web URL with WHATWG semantics and classifies its host.
 pub fn web_url_facts(input: &str) -> KernelResult<WebURLFacts> {
     let url =
         URL::parse(input).map_err(|error| KernelError::new(format!("invalid web url: {error}")))?;
@@ -84,7 +78,6 @@ fn classify_host(host: &Host<&str>) -> HostClass {
 }
 
 fn classify_domain(domain: &str) -> HostClass {
-    // WHATWG parsing already lowercased the domain.
     if domain == "metadata" || domain == "metadata.google.internal" {
         return HostClass::Metadata;
     }
@@ -248,7 +241,6 @@ mod tests {
 
     #[test]
     fn whatwg_canonicalization_feeds_classification() {
-        // Hex, octal, and integer IPv4 forms canonicalize before classification.
         let facts = web_url_facts("https://0x7f000001/x").unwrap();
         assert_eq!(facts.host.as_deref(), Some("127.0.0.1"));
         assert_eq!(facts.host_class, Some(HostClass::Private));

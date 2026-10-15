@@ -1,45 +1,13 @@
 defmodule FeishuOpenAPI.WS.Client do
   @moduledoc """
-  Long-lived GenServer that keeps a Feishu/Lark WebSocket event-push connection
-  open and forwards decoded events to a `FeishuOpenAPI.Event.Dispatcher`.
+  Long-lived GenServer for Feishu's WebSocket event push.
 
-      {:ok, _pid} =
-        FeishuOpenAPI.WS.Client.start_link(
-          client: FeishuOpenAPI.Client.new(app_id, app_secret),
-          dispatcher: my_dispatcher,
-          auto_reconnect: true
-        )
-
-  Behavior:
-    * Calls `POST {base_url}/callback/ws/endpoint` to discover the WS URL and
-      runtime config (ping interval, reconnect parameters).
-    * Uses `mint_web_socket` for the connection.
-    * Sends a `pbbp2` application ping immediately after upgrade, then every
-      `ping_interval` seconds (default 120s, overridable by its application
-      pong payload).
-    * Echoes every RFC 6455 WebSocket ping payload in a transport pong; Mint
-      deliberately leaves that protocol housekeeping to its caller.
-    * Re-assembles fragmented messages (headers `sum > 1`, `seq`, `message_id`)
-      with a 5-second window.
-    * Dispatches `event` and `card` messages to the dispatcher as trusted
-      decoded payloads. Webhook token/signature verification does not apply to
-      long-connection frames.
-    * Server error codes `514`, `403`, `1000040350` are treated as fatal
-      (client misconfiguration); everything else triggers a backoff-based
-      reconnect when `:auto_reconnect` is `true`.
-
-  Design note: `Mint.WebSocket` is process-less by design — it covers the
-  upgrade handshake and frame codec and deliberately leaves the process model,
-  RFC 6455 pong replies, keepalive, reconnection, and backoff to its caller,
-  so the GenServer plumbing here is that contract, not accidental complexity.
-  Higher-level clients (WebSockex, Fresh, Slipstream) auto-reconnect to a
-  fixed URI, while this protocol requires fresh endpoint discovery on every
-  connect and takes its reconnect tuning (interval, nonce, attempt cap) from
-  the server at runtime, so their reconnect layers cannot be used as-is.
-  `DingTalkOpenAPI.Stream.Client` shares this skeleton on purpose: only the
-  Mint plumbing overlaps, and everything above it (pbbp2 Protobuf vs JSON
-  frames, fragmentation, ack envelopes, discovery vs registration) diverges,
-  so no shared abstraction is extracted.
+  Every connect discovers a fresh endpoint, and reconnect timing comes from
+  the server, so a client that reconnects to a fixed URI cannot be used.
+  Long-connection frames are already authenticated: webhook signature checks
+  do not apply, and the frames carry no webhook signature.
+  `DingTalkOpenAPI.Stream.Client` shares only the Mint plumbing; the protocols
+  diverge, so there is no shared abstraction.
   """
 
   use GenServer
@@ -61,7 +29,6 @@ defmodule FeishuOpenAPI.WS.Client do
   # `fragments` map instead of letting it grow unbounded.
   @fragment_ttl_ms :timer.seconds(5)
 
-  # Field notes for the non-obvious ones:
   #   service_id        — parsed from the WS URL, echoed back in every frame
   #   reconnect_attempt — count since the last successful connect; resets to 0 on
   #                       connect and drives the nonce-vs-interval delay choice
@@ -90,8 +57,6 @@ defmodule FeishuOpenAPI.WS.Client do
             _upgrade_status: nil,
             _upgrade_headers: nil,
             status: :disconnected
-
-  # Public API ---------------------------------------------------------
 
   @doc """
   Start a WebSocket client.
@@ -129,14 +94,10 @@ defmodule FeishuOpenAPI.WS.Client do
   @spec reconnect(GenServer.server()) :: :ok
   def reconnect(server), do: GenServer.cast(server, :reconnect)
 
-  @doc "Return the current WebSocket lifecycle status."
   @spec status(GenServer.server()) :: atom()
   def status(server), do: GenServer.call(server, :status)
 
-  @doc "Stop the server gracefully."
   def stop(server), do: GenServer.stop(server)
-
-  # GenServer callbacks ------------------------------------------------
 
   @impl true
   def init(opts) do
@@ -171,8 +132,6 @@ defmodule FeishuOpenAPI.WS.Client do
   end
 
   @impl true
-  # Already connected: ignore a stray `:connect` (e.g. a queued reconnect that
-  # raced an explicit one) so we never open two sockets.
   def handle_info(:connect, %{conn: conn} = state) when not is_nil(conn), do: {:noreply, state}
 
   def handle_info(:connect, state) do
@@ -185,8 +144,6 @@ defmodule FeishuOpenAPI.WS.Client do
       {:error, reason, fatal?} ->
         Logger.error("feishu_openapi ws connect failed: #{inspect(reason)} fatal?=#{fatal?}")
 
-        # Fatal = misconfiguration; stop so the supervisor surfaces it instead of
-        # restarting into the same failure. Recoverable errors back off and retry.
         if fatal? do
           {:stop, {:shutdown, reason}, state}
         else
@@ -208,40 +165,29 @@ defmodule FeishuOpenAPI.WS.Client do
     {:noreply, state}
   end
 
-  # Reconnect logic asked to give up (e.g. attempts exhausted); turn that into a
-  # GenServer stop on the main loop.
   def handle_info({:shutdown_ws, reason}, state), do: {:stop, {:shutdown, reason}, state}
 
-  # TTL fired for a fragment set that never completed — drop it. Harmless no-op if
-  # the set already completed and was deleted.
   def handle_info({:cleanup_fragment, mid}, state) do
     {:noreply, %{state | fragments: Map.delete(state.fragments, mid)}}
   end
 
-  # A dispatch Task finished. `{ref, result}` is the Task's reply; match it back to
-  # the frame awaiting an ack. An unknown ref is a late reply for a task we already
-  # cleaned up (e.g. after a reconnect), so ignore it.
+  # A late reply after reconnect has no task.
   def handle_info({ref, result}, %{dispatch_tasks: tasks} = state) when is_reference(ref) do
     case Map.pop(tasks, ref) do
       {nil, _} ->
         {:noreply, state}
 
       {{frame, event_type, start_ms}, rest} ->
-        # Reply already arrived, so the matching :DOWN is noise — flush it.
         Process.demonitor(ref, [:flush])
         duration_ms = System.monotonic_time(:millisecond) - start_ms
         state = %{state | dispatch_tasks: rest}
-        # User handlers run outside the WebSocket GenServer, but the response
-        # must still be written in this process because Mint connection state is
-        # owned here.
+        # The ack is written here. Mint connection state belongs to this process.
         log_dispatch_result(frame, event_type, result, duration_ms, state)
         {:noreply, send_dispatch_response(frame, result, duration_ms, state)}
     end
   end
 
-  # A dispatch Task crashed without replying (async_nolink, so it can't take the
-  # WS process down). Still send the provider a 500 ack so the event isn't left
-  # hanging, then forget the task.
+  # A crash still acks, so the provider does not leave the event hanging.
   def handle_info({:DOWN, ref, :process, _pid, reason}, %{dispatch_tasks: tasks} = state)
       when is_reference(ref) do
     case Map.pop(tasks, ref) do
@@ -263,11 +209,8 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # No live connection: any leftover socket/timer message is stale, drop it.
   def handle_info(_message, %{conn: nil} = state), do: {:noreply, state}
 
-  # Catch-all for raw transport messages (TCP/SSL data, closes). Hand them to Mint
-  # to turn into decoded WS responses; a stream error tears down and reconnects.
   def handle_info(message, state) do
     case Mint.WebSocket.stream(state.conn, message) do
       {:ok, conn, responses} ->
@@ -278,20 +221,16 @@ defmodule FeishuOpenAPI.WS.Client do
         state = %{state | conn: conn} |> drop_conn()
         maybe_schedule_reconnect(state, reason)
 
-      # Message wasn't for this connection (e.g. another socket) — ignore.
       :unknown ->
         {:noreply, state}
     end
   end
 
   @impl true
-  # Best-effort socket close on shutdown so we don't leak the TCP connection.
   def terminate(_reason, state) do
     drop_conn(state)
     :ok
   end
-
-  # Connection lifecycle -----------------------------------------------
 
   defp do_connect(state) do
     with {:ok, endpoint, client_config} <- fetch_endpoint(state.client),
@@ -315,16 +254,12 @@ defmodule FeishuOpenAPI.WS.Client do
            status: :upgrading
        }}
     else
-      # Endpoint discovery rejected us with a known misconfiguration code → fatal.
       {:error, %FeishuOpenAPI.Error{code: code} = err} when code in @fatal_codes ->
         {:error, err, true}
 
-      # Everything else (network, DNS, transient HTTP) is recoverable → retry.
       {:error, reason} ->
         {:error, reason, false}
 
-      # Mint connect/upgrade errors carry the conn as the middle element; discard
-      # it (the half-open conn is unusable) and treat as recoverable.
       {:error, _conn, reason} ->
         {:error, reason, false}
     end
@@ -399,13 +334,8 @@ defmodule FeishuOpenAPI.WS.Client do
 
   defp headers, do: [{"user-agent", "feishu_openapi-elixir/0.1"}]
 
-  # Response handling --------------------------------------------------
-
   defp handle_responses([], state), do: {:noreply, state}
 
-  # The HTTP upgrade response streams in as separate status/headers/done events.
-  # Stash status and headers in transient keys until `:done`, where they're
-  # consumed to complete the WebSocket handshake.
   defp handle_responses([{:status, ref, status} | rest], %{request_ref: ref} = state) do
     handle_responses(rest, %{state | _upgrade_status: status})
   end
@@ -418,7 +348,6 @@ defmodule FeishuOpenAPI.WS.Client do
     upgrade_status = state._upgrade_status
     upgrade_headers = state._upgrade_headers
 
-    # Promote the bare HTTP connection to a WebSocket using the upgrade response.
     case Mint.WebSocket.new(
            state.conn,
            ref,
@@ -440,8 +369,6 @@ defmodule FeishuOpenAPI.WS.Client do
       {:error, conn, reason} ->
         state = %{state | conn: conn} |> drop_conn()
 
-        # Some handshake failures are permanent provider rejections, not network
-        # blips. Classifying them here prevents infinite reconnect loops.
         case Protocol.classify_handshake(upgrade_status, upgrade_headers, reason) do
           {:fatal, reason} ->
             Logger.error("feishu_openapi ws handshake failed: #{inspect(reason)} fatal?=true")
@@ -454,7 +381,7 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # Mint can emit data before :done. Only a successful handshake decodes it.
+  # Mint can emit body bytes before `:done`.
   defp handle_responses(
          [{:data, ref, data} | rest],
          %{request_ref: ref, websocket: nil} = state
@@ -498,9 +425,6 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # RFC 6455 requires the pong payload to exactly echo the ping payload. Unlike
-  # the higher-level `pbbp2` heartbeat below, Mint deliberately does not perform
-  # this protocol housekeeping for callers.
   defp handle_ws_frame({:ping, payload}, state) when is_binary(payload) do
     handle_send_result(
       send_websocket_frame({:pong, payload}, state),
@@ -509,12 +433,9 @@ defmodule FeishuOpenAPI.WS.Client do
     )
   end
 
-  # A peer pong is proof of life but carries no application-level config.
   defp handle_ws_frame({:pong, _payload}, state), do: state
 
   defp handle_ws_frame({:close, code, reason}, state) do
-    # Peer-initiated close is a recoverable event (e.g. server rotation), so drop
-    # the dead connection and let backoff bring up a fresh one.
     Logger.warning(
       "feishu_openapi ws closed by peer app_id=#{state.client.app_id} close_code=#{inspect(code)} close_reason=#{inspect(reason)}"
     )
@@ -533,9 +454,6 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # Route a fully-reassembled frame by its `type` header. event/card both go to a
-  # user handler; ping/pong are protocol housekeeping (reply / absorb config);
-  # anything else is ignored.
   defp do_route(frame, state) do
     case Frame.type(frame) do
       "event" ->
@@ -544,11 +462,9 @@ defmodule FeishuOpenAPI.WS.Client do
       "card" ->
         dispatch_event(frame, state)
 
-      # Server's reply to our ping may carry updated tuning config.
       "pong" ->
         apply_pong_config(frame, state)
 
-      # Server-initiated ping; reply with a pong echoing its identity.
       "ping" ->
         handle_send_result(send_pong_for(frame, state), state, "pong")
 
@@ -565,8 +481,7 @@ defmodule FeishuOpenAPI.WS.Client do
         start_task_for(frame, event_type, decoded, state)
 
       {:error, reason} ->
-        # Couldn't even parse the payload JSON; ack with a 500 so the provider
-        # stops resending this frame rather than retrying a poison message.
+        # A 500 ack stops the provider from resending a frame that cannot be parsed.
         Logger.warning("feishu_openapi ws payload decode error: #{inspect(reason)}")
         send_dispatch_response(frame, {:error, {:payload_decode_error, reason}}, 0, state)
     end
@@ -587,12 +502,8 @@ defmodule FeishuOpenAPI.WS.Client do
   defp start_task_for(%Frame{} = frame, event_type, decoded, %{dispatcher: dispatcher} = state) do
     start_ms = System.monotonic_time(:millisecond)
 
-    # The dispatcher may call user code. Running it in a task protects ping,
-    # reconnect, and frame parsing from slow or crashing handlers.
-    #
-    # `:trusted_decoded` skips the webhook signature/token checks: the long
-    # connection already authenticated at handshake, so per-frame verification
-    # would be redundant (and the frames carry no webhook signature anyway).
+    # `:trusted_decoded` skips webhook signature checks. The handshake already
+    # authenticated the connection, and these frames carry no webhook signature.
     task =
       Task.Supervisor.async_nolink(state.task_supervisor, fn ->
         Dispatcher.dispatch(dispatcher, {:trusted_decoded, decoded})
@@ -604,8 +515,7 @@ defmodule FeishuOpenAPI.WS.Client do
     }
   end
 
-  # If the connection dropped while a handler was running, there's nowhere to send
-  # the ack — discard it. The provider will redeliver after reconnect.
+  # The provider redelivers an event that was not acked.
   defp send_dispatch_response(_frame, _dispatch_result, _duration_ms, %{conn: nil} = state),
     do: state
 
@@ -623,8 +533,6 @@ defmodule FeishuOpenAPI.WS.Client do
   defp send_dispatch_response(%Frame{} = frame, dispatch_result, duration_ms, state) do
     case Protocol.encode_ws_response(dispatch_result) do
       {:ok, response_payload} ->
-        # The provider expects the response to reuse the request frame identity.
-        # `biz_rt` reports handler time without exposing local scheduler details.
         response_frame = %Frame{
           seq_id: frame.seq_id,
           log_id: frame.log_id,
@@ -665,10 +573,6 @@ defmodule FeishuOpenAPI.WS.Client do
   defp dispatch_result({:error, reason}), do: "error:#{inspect(reason)}"
   defp dispatch_result(other), do: inspect(other)
 
-  # Fragmentation ------------------------------------------------------
-
-  # A frame is whole unless its headers say it's 1-of-`sum`. `sum <= 1` (and the
-  # no-headers case) means a single self-contained frame — route immediately.
   defp reassemble(%Frame{} = frame, state) do
     case Frame.fragmentation(frame) do
       nil -> {:ok, frame, state}
@@ -677,8 +581,6 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # Defensive: a `seq` outside `0..sum-1` is a malformed/hostile frame. Drop it
-  # rather than risk a bad index in `combine_fragments` or a never-completing set.
   defp fold_fragment(frame, sum, seq, state) when seq < 0 or seq >= sum do
     Logger.warning(
       "feishu_openapi ws invalid fragment indexes: #{inspect(%{message_id: Frame.message_id(frame), sum: sum, seq: seq})}"
@@ -688,9 +590,6 @@ defmodule FeishuOpenAPI.WS.Client do
   end
 
   defp fold_fragment(frame, sum, seq, state) do
-    # All fragments of one message share a `message_id`; group by it. The anonymous
-    # fallback should not happen in practice but keeps a missing header from
-    # crashing reassembly.
     mid = Frame.message_id(frame) || "(anonymous)"
 
     entry =
@@ -704,10 +603,6 @@ defmodule FeishuOpenAPI.WS.Client do
         {:ok, combined, %{state | fragments: Map.delete(state.fragments, mid)}}
 
       true ->
-        # Arm the TTL eviction only when this message_id is first seen, so the 5s
-        # window starts at the first fragment and isn't reset by later ones.
-        # Dropping a stale partial set is better than an unbounded map from a
-        # broken connection.
         unless Map.has_key?(state.fragments, mid),
           do: Process.send_after(self(), {:cleanup_fragment, mid}, @fragment_ttl_ms)
 
@@ -715,8 +610,7 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # Reassemble in seq order (0..sum-1) and concatenate payloads. `template` is the
-  # last fragment, reused for the frame metadata (headers/ids) of the whole.
+  # Headers come from the fragment that completed the set, not from `seq` order.
   defp combine_fragments(sum, parts, template) do
     payload =
       0..(sum - 1)
@@ -730,13 +624,10 @@ defmodule FeishuOpenAPI.WS.Client do
     Enum.all?(0..(sum - 1), &Map.has_key?(parts, &1))
   end
 
-  # Pings / outbound ---------------------------------------------------
-
   defp send_ping(%{websocket: nil} = state), do: {:error, :not_connected, state}
 
-  # Application-level keepalive (distinct from a WS control ping): a control frame
-  # (`method: 0`) tagged `type: ping`. Keeps the connection from idling out and
-  # lets the server piggyback updated config on its pong.
+  # Application ping (`method: 0`), distinct from a transport ping. The server
+  # can attach updated config to the pong.
   defp send_ping(state) do
     frame = %Frame{method: 0, service: state.service_id, headers: [{"type", "ping"}]}
     send_ws_frame(frame, state)
@@ -775,8 +666,6 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # Timers / lifecycle helpers ----------------------------------------
-
   defp schedule_ping(%{websocket: websocket, ping_interval_s: ping_interval_s} = state)
        when not is_nil(websocket) and is_integer(ping_interval_s) and ping_interval_s > 0 do
     if state.ping_timer, do: Process.cancel_timer(state.ping_timer)
@@ -786,24 +675,18 @@ defmodule FeishuOpenAPI.WS.Client do
 
   defp schedule_ping(state), do: state
 
-  # Decides the next reconnect step. Pure w.r.t. timers it sets, so both the
-  # callback-returning and state-returning callers can share it.
   defp reconnect_action(state, reason) do
     cond do
       not state.auto_reconnect ->
         {:stop, reason, state}
 
-      # A reconnect is already pending; don't stack a second timer.
       state.reconnect_timer ->
         {:schedule, state}
 
-      # Hit the configured attempt cap (count < 0 means unlimited) — give up.
       state.reconnect_count >= 0 and state.reconnect_attempt >= state.reconnect_count ->
         {:stop, {:reconnect_exhausted, reason}, state}
 
       true ->
-        # First retry uses a random 0..nonce delay to de-sync a fleet reconnecting
-        # together; subsequent retries use the fixed provider-supplied interval.
         delay =
           if state.reconnect_attempt == 0 do
             :timer.seconds(:rand.uniform(max(state.reconnect_nonce_s, 1)))
@@ -822,8 +705,6 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # Used from a GenServer callback: returns a `{:noreply, _}` / `{:stop, _}` tuple
-  # directly.
   defp maybe_schedule_reconnect(state, reason) do
     case reconnect_action(state, reason) do
       {:schedule, state} ->
@@ -834,8 +715,7 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # Used from deep inside a fold over frames, where we can only return new state.
-  # To stop, it self-sends `:shutdown_ws` so the stop happens on the next loop.
+  # A frame fold can only return state. `:shutdown_ws` stops on the next loop.
   defp schedule_reconnect_async(state, reason) do
     case reconnect_action(state, reason) do
       {:schedule, state} ->
@@ -863,8 +743,6 @@ defmodule FeishuOpenAPI.WS.Client do
 
   defp handle_send_result({:ok, state}, _old_state, _kind), do: state
 
-  # Any outbound write failure (ping, pong, or ack) means the socket is gone; tear
-  # it down and reconnect rather than keep using a half-dead connection.
   defp handle_send_result({:error, reason, send_state}, _old_state, kind) do
     Logger.warning("feishu_openapi ws #{kind} send failed: #{inspect(reason)}")
 
@@ -887,8 +765,6 @@ defmodule FeishuOpenAPI.WS.Client do
       {:ok, config} ->
         state = apply_client_config(state, config)
 
-        # Only re-arm the ping timer if the server actually changed the interval;
-        # otherwise the existing schedule is still correct.
         if Map.has_key?(config, :ping_interval_s) do
           schedule_ping(state)
         else
@@ -901,10 +777,6 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  # Full connection teardown, reused by every disconnect path. Cancels the ping
-  # timer, closes the socket, and demonitors in-flight dispatch tasks (their late
-  # replies/:DOWNs will then be ignored). Resets all connection-scoped fields but
-  # preserves reconnect bookkeeping, which lives outside this struct slice.
   defp drop_conn(state) do
     if state.ping_timer, do: Process.cancel_timer(state.ping_timer)
 

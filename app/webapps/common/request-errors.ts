@@ -1,10 +1,6 @@
 import i18n from './i18n'
 
-/**
- * Reads the machine-readable code from a console API error envelope
- * (`{error: {code, message}}`), so pages can localize known failures instead
- * of showing the server's English message.
- */
+/** Pages localize known failures from this code instead of showing the server's English message. */
 export function requestErrorCode(error: unknown): string | undefined {
   if (error && typeof error === 'object' && 'error' in error) {
     const value = (error as { error?: unknown }).error
@@ -17,11 +13,7 @@ export function requestErrorCode(error: unknown): string | undefined {
   return undefined
 }
 
-/**
- * Reads the structured detail list from a console API error envelope
- * (`{error: {details: [{...}]}}`), merged into one record. Pages use it to
- * show the real upstream response behind a coded failure.
- */
+/** Pages show the upstream response behind a coded failure from these details. */
 export function requestErrorDetails(error: unknown): Record<string, unknown> {
   return Object.assign({}, ...requestErrorDetailList(error))
 }
@@ -43,7 +35,6 @@ export function requestErrorDetailList(error: unknown): Record<string, unknown>[
   return []
 }
 
-/** Converts caught request failures into UI-safe text. */
 export function requestErrorMessage(error: unknown): string {
   if (error && typeof error === 'object') {
     if ('error' in error) {

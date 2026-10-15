@@ -4,7 +4,8 @@ defmodule AnkoleWeb.WorkerProviderController do
   use AnkoleWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{ProviderKind, Providers}
+  alias Ankole.AgentWorkers.ProviderKind
+  alias Ankole.AgentWorkers.Providers
   alias AnkoleWeb.{ConsoleErrors, ConsoleParams, ConsolePolicy}
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
   alias AnkoleWeb.Schemas.WorkerProviderAPI

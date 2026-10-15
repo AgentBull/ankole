@@ -3,7 +3,10 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
   import Ankole.PrincipalsFixtures
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1]
   alias Ankole.{BrowserSessions, OIDC, Repo, TokenSigning}
-  alias Ankole.OIDC.{Logout, LogoutDelivery, SigningKey, Tokens}
+  alias Ankole.OIDC.Logout
+  alias Ankole.OIDC.LogoutDelivery
+  alias Ankole.OIDC.SigningKey
+  alias Ankole.OIDC.Tokens
   alias AnkoleWeb.Session, as: WebSession
 
   setup do
@@ -195,7 +198,9 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
 
       rejected =
         Req.post!(origin <> "/oauth/logout/confirm",
-          headers: [cookie: cookie],
+          # CSRF rejection precedes reading the POST body. Close this connection
+          # before sending the independent confirmation request.
+          headers: [cookie: cookie, connection: "close"],
           form: [request: id, action: "confirm"],
           redirect: false
         )

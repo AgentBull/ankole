@@ -134,19 +134,23 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
                ToolSearch.plan(%{"input" => []}, brain: nil, native_tools?: true)
     end
 
-    test "an actor event of another Agent makes the declaration invalid", context do
-      %{principal: other} = agent_fixture()
-      event = insert_actor_event!(other.uid)
+    test "public caller metadata remains opaque to the hosted Brain context", context do
+      event = %{id: Ecto.UUID.generate()}
 
       request = %{
         "model" => "openrouter/openai/gpt-5.6",
         "tools" => [%{"type" => "brain"}],
-        "metadata" => %{"actor_event_id" => event.id},
+        "metadata" => %{"signal_id" => event.id},
         "input" => []
       }
 
-      assert {:error, {:invalid_brain_tool, :actor_event_not_owned}} =
-               Brain.split(context.agent.uid, request)
+      assert {:ok, plan, _} = Brain.split(context.agent.uid, request)
+      assert plan.context == Ankole.Brain.Tools.Context.for_subject(context.agent.uid)
+
+      assert {:error, {:invalid_brain_tool, :invalid_context}} =
+               Brain.split(context.agent.uid, request,
+                 brain_context: Ankole.Brain.Tools.Context.for_subject("another-subject")
+               )
     end
   end
 
@@ -418,7 +422,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
 
       conversation = Repo.reload!(conversation)
       %{principal: other} = agent_fixture()
-      event = insert_actor_event!(other.uid)
+      event = %{id: Ecto.UUID.generate()}
 
       log =
         ExUnit.CaptureLog.capture_log(fn ->
@@ -426,9 +430,10 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
                    Brain.checkpoint_context_pack(
                      context.agent.uid,
                      conversation,
-                     %{"metadata" => %{"actor_event_id" => event.id}},
+                     %{"metadata" => %{"signal_id" => event.id}},
                      [user_message("Wire Format")],
-                     fn -> [] end
+                     fn -> [] end,
+                     brain_context: Ankole.Brain.Tools.Context.for_subject(other.uid)
                    )
         end)
 
@@ -474,8 +479,8 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
     test "a retry preserves the existing opening claim and does not inject a second pack",
          context do
       conversation = insert_conversation!(context.agent.uid)
-      event = insert_actor_event!(context.agent.uid)
-      request = injecting_request(%{"actor_event_id" => event.id})
+      event = %{id: Ecto.UUID.generate()}
+      request = injecting_request(%{"signal_id" => event.id})
       input = [user_message("Wire Format again")]
 
       assert [_pack, _prompt] =
@@ -486,8 +491,8 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       assert [_prompt_only] =
                inject_stateful(context.agent.uid, request, conversation, input)
 
-      successor = insert_actor_event!(context.agent.uid)
-      later = injecting_request(%{"actor_event_id" => successor.id})
+      successor = %{id: Ecto.UUID.generate()}
+      later = injecting_request(%{"signal_id" => successor.id})
       conversation = Repo.reload!(conversation)
       assert [_prompt_only] = inject_stateful(context.agent.uid, later, conversation, input)
     end
@@ -582,14 +587,15 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       assert ^input = inject_stateful(context.agent.uid, %{}, conversation, input)
 
       %{principal: other} = agent_fixture()
-      foreign = insert_actor_event!(other.uid)
+      foreign = %{id: Ecto.UUID.generate()}
 
       assert ^input =
                inject_stateful(
                  context.agent.uid,
-                 injecting_request(%{"actor_event_id" => foreign.id}),
+                 injecting_request(%{"signal_id" => foreign.id}),
                  conversation,
-                 input
+                 input,
+                 brain_context: Ankole.Brain.Tools.Context.for_subject(other.uid)
                )
     end
 
@@ -606,14 +612,15 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
     end
   end
 
-  defp inject_stateful(subject_uid, request, conversation, input) do
+  defp inject_stateful(subject_uid, request, conversation, input, opts \\ []) do
     {items, memory} =
       Brain.inject_stateful(
         subject_uid,
         request,
         conversation,
         input,
-        ResponseChain.expand_history(conversation.id)
+        ResponseChain.expand_history(conversation.id),
+        opts
       )
 
     assert items == input
@@ -729,22 +736,5 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       inserted_at: at,
       updated_at: at
     })
-  end
-
-  defp insert_actor_event!(agent_uid) do
-    Repo.insert!(
-      struct!(Ankole.SignalsGateway.ActorEvent, %{
-        agent_uid: agent_uid,
-        binding_name: "test-binding",
-        session_id: "session-#{System.unique_integer([:positive])}",
-        source_event_id: "event-#{System.unique_integer([:positive])}",
-        signal_channel_id: nil,
-        type: "signal",
-        available_at: DateTime.utc_now(:microsecond),
-        queue_sequence: System.unique_integer([:positive]),
-        sender_key: nil,
-        payload: %{}
-      })
-    )
   end
 end

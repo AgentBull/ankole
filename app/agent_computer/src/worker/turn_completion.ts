@@ -1,4 +1,4 @@
-import type { JobTurnRef } from '../lanes/actor_lane'
+import type { JobTurnRef } from '../lanes/session_lane'
 import { isRuntimeFabricTransportError } from '../fabric/fabric'
 import { jsonBytes } from '../fabric/envelope_proto'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
@@ -12,7 +12,7 @@ import {
 } from '../lanes/rpc_lane'
 
 /** These aliases keep each terminal RPC method as a literal requester type. */
-const abortMethod = 'actor_turn.abort'
+const abortMethod = 'session_turn.abort'
 export type TurnAbortRequester = {
   request(
     method: typeof abortMethod,

@@ -1,9 +1,6 @@
-//! Host-neutral search ranking primitives.
-
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
 
-/// One result from reciprocal-rank fusion.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ReciprocalRankFusionResult {
     pub id: String,
@@ -16,11 +13,6 @@ struct AccumulatedScore {
     first_seen: usize,
 }
 
-/// Combines ordered result ID lists with standard reciprocal-rank fusion.
-///
-/// Ranks are one-based and each route contributes `1 / (k + rank)`. Repeated
-/// IDs within one route contribute only at their first occurrence. Equal scores
-/// preserve the order in which an ID first appeared across the input routes.
 pub fn reciprocal_rank_fusion(
     ranked_lists: &[Vec<String>],
     k: u64,

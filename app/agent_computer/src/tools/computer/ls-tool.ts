@@ -32,11 +32,6 @@ interface LsDetails {
   truncated: boolean
 }
 
-/**
- * The model's directory-listing tool: one directory's complete entries in
- * deterministic alphabetical order. Discovery across the tree belongs to
- * find; this tool answers "what exactly is in this directory".
- */
 export function createLsTool(context: ComputerToolContext): WorkerAgentTool<typeof LsParams, LsDetails> {
   return defineWorkerTool({
     name: 'ls',

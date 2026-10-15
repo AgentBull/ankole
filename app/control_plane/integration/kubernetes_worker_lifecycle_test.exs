@@ -3,16 +3,14 @@ defmodule Ankole.KubernetesWorkerLifecycleIntegrationTest do
   import Ankole.PrincipalsFixtures
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.AgentWorkers
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{
-    Config,
-    Kubernetes,
-    Providers,
-    ReconcileJob
-  }
+  alias Ankole.AgentWorkers.Config
+  alias Ankole.AgentWorkers.Kubernetes
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.ReconcileJob
 
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.WorkerProviderHTTPBarrier
 
   @moduletag timeout: 180_000

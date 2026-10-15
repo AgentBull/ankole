@@ -50,19 +50,13 @@ interface FindDetails {
   cursor?: string
 }
 
-// Below half of a perfect fuzzy score, results are scattered noise: show a
-// small sample instead of a full page. Mirrors the fff scoring formula.
 const WEAK_SAMPLE_SIZE = 5
 
+// Half of fff's perfect fuzzy score (`length * 12`).
 function weakScoreThreshold(pattern: string): number {
   return Math.floor(pattern.length * 12 * 0.5)
 }
 
-/**
- * The model's file-discovery tool: fuzzy whole-path search over the warm fff
- * index of the workspace, ranked by relevance and recency. Ranking makes a
- * small first page enough, which is why the default limit stays low.
- */
 export function createFindTool(
   context: ComputerToolContext,
   runtime: FffSearchRuntime = fffSearchRuntime
@@ -141,8 +135,7 @@ export function createFindTool(
         }
       }
 
-      // Trust native ranking: never re-sort engine output. When even the top
-      // score is weak the whole page is fuzzy noise — show a sample instead.
+      // Do not re-sort engine output.
       const topScore = result.scores[0]?.total ?? 0
       const weak = topScore < weakScoreThreshold(pattern)
       const shown = weak ? result.items.slice(0, Math.min(WEAK_SAMPLE_SIZE, pageSize)) : result.items

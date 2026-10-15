@@ -6,7 +6,11 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
   use Ankole.AIGatewayCase
 
   alias Ankole.AppConfigure
-  alias Ankole.Brain.{Calibration, Claims, Objects, Patterns, SchemaPacks}
+  alias Ankole.Brain.Calibration
+  alias Ankole.Brain.Claims
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.Patterns
+  alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
 
   @moduletag :real_llm

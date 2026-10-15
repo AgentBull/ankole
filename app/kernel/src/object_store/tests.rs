@@ -18,7 +18,6 @@ fn fs_store(root: &Path) -> Store {
     open(&spec).expect("open fs store")
 }
 
-/// An outcome with the bytes of a read in one vector, so that tests can compare it.
 #[derive(Debug, PartialEq, Eq)]
 enum Seen {
     Done,
@@ -82,8 +81,7 @@ fn fs_store_writes_reads_and_deletes_an_object() {
     );
     assert!(!root.join(key).exists());
 
-    // Deleting an object that does not exist is a success, so a retried
-    // collection step can repeat a delete.
+    // A retried collection step can repeat a delete.
     assert_eq!(
         run_operation(
             &store,
@@ -118,7 +116,6 @@ fn fs_store_moves_large_objects_through_local_files() {
     let work = temp_root("files-work");
     let source = work.join("source.bin");
     let target = work.join("target.bin");
-    // Larger than one write chunk, so the writer sends more than one part.
     let payload: Vec<u8> = (0..(WRITE_CHUNK_BYTES + 12_345))
         .map(|index| (index % 251) as u8)
         .collect();
@@ -146,7 +143,6 @@ fn fs_store_moves_large_objects_through_local_files() {
     );
     assert_eq!(std::fs::read(&target).expect("read target"), payload);
 
-    // The atomic write directory holds no leftover temporary file.
     let leftovers: Vec<_> = std::fs::read_dir(root.join(".tmp"))
         .expect("read temp dir")
         .collect();

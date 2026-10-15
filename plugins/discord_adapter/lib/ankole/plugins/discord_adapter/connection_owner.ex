@@ -6,7 +6,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   number of the last event it handled and a RESUME replays everything after it,
   so the owner advances the sequence only after ingress durably accepted or
   explicitly ignored the event. Received events stay in a bounded local queue
-  across reconnects, and SignalsGateway deduplicates gateway replays with its
+  across reconnects, and Signals deduplicates gateway replays with its
   durable source keys.
 
   Durable handling runs in one supervised task at a time. The owner keeps
@@ -18,7 +18,11 @@ defmodule Ankole.Plugins.DiscordAdapter.ConnectionOwner do
   use GenServer
 
   alias Ankole.Logging
-  alias Ankole.Plugins.DiscordAdapter.{Client, Config, Dispatcher, Gateway, Socket}
+  alias Ankole.Plugins.DiscordAdapter.Client
+  alias Ankole.Plugins.DiscordAdapter.Config
+  alias Ankole.Plugins.DiscordAdapter.Dispatcher
+  alias Ankole.Plugins.DiscordAdapter.Gateway
+  alias Ankole.Plugins.DiscordAdapter.Socket
 
   @registry Ankole.Plugins.DiscordAdapter.ConnectionRegistry
   @task_supervisor Ankole.Plugins.DiscordAdapter.EventTaskSupervisor

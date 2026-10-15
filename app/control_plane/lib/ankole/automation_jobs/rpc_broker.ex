@@ -5,25 +5,25 @@ defmodule Ankole.AutomationJobs.RPCBroker do
 
   alias Ankole.AutomationJobs
   alias Ankole.RuntimeFabric.V1, as: FabricProto
-  alias Ankole.SignalsGateway.ActorRuntime.Common
-  alias Ankole.SignalsGateway.ActorRuntime.ReplyRoute
-  alias Ankole.SignalsGateway.ActorRuntime.RPCWire
-  alias Ankole.Conversations.RunRef
+  alias Ankole.Sessions.Common
+  alias Ankole.Conversations.Route
+  alias Ankole.AgentWorkers.RPCWire
+  alias Ankole.Sessions.RunRef
 
   @spec handle_create(RunRef.t(), FabricProto.AutomationJobCreateRequest.t(), map()) ::
           {:ok, map()} | {:error, map()}
   def handle_create(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
       with {:ok, %{source: source, owner_session_id: owner_session_id, reply_route: route}} <-
-             ReplyRoute.long_lived_source(turn_ref),
+             Route.long_lived_source(turn_ref),
            {:ok, drive_prefix} <- required_text(request.drive_prefix, :drive_prefix),
            {:ok, label} <- required_text(request.label, :label),
            {:ok, job} <-
              AutomationJobs.create_job(%{
                agent_uid: turn_ref.agent_uid,
                owner_session_id: owner_session_id,
-               source_actor_event_id: source.actor_event_id,
-               source_entry_id: source.source_entry_id,
+               source_signal_id: source.signal_id,
+               provider_message_id: source.provider_message_id,
                source_provenance: %{
                  "rpc_request_id" => ctx.request_id,
                  "transport_route" => ctx.route
@@ -46,7 +46,7 @@ defmodule Ankole.AutomationJobs.RPCBroker do
           {:ok, map()} | {:error, map()}
   def handle_list(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      with {:ok, owner} <- ReplyRoute.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id) do
+      with {:ok, owner} <- Route.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id) do
         jobs =
           AutomationJobs.list_jobs(turn_ref.agent_uid, owner.session_id,
             limit: list_limit(request.limit)
@@ -65,7 +65,7 @@ defmodule Ankole.AutomationJobs.RPCBroker do
           {:ok, map()} | {:error, map()}
   def handle_show(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      with {:ok, owner} <- ReplyRoute.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id),
+      with {:ok, owner} <- Route.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id),
            {:ok, job_id} <- positive_integer(request.automation_job_id, :automation_job_id),
            {:ok, %{automation_job: job, runs: runs}} <-
              AutomationJobs.show_job(turn_ref.agent_uid, owner.session_id, job_id,
@@ -84,7 +84,7 @@ defmodule Ankole.AutomationJobs.RPCBroker do
           {:ok, map()} | {:error, map()}
   def handle_cancel(%{agent_uid: _} = turn_ref, request, ctx) do
     respond(ctx, fn ->
-      with {:ok, owner} <- ReplyRoute.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id),
+      with {:ok, owner} <- Route.long_lived_owner(turn_ref.agent_uid, turn_ref.session_id),
            {:ok, job_id} <- positive_integer(request.automation_job_id, :automation_job_id),
            {:ok, %{status: status, automation_job: job}} <-
              AutomationJobs.cancel_job(turn_ref.agent_uid, owner.session_id, job_id) do
@@ -110,7 +110,7 @@ defmodule Ankole.AutomationJobs.RPCBroker do
              positive_integer(request.automation_job_run_id, :automation_job_run_id),
            {:ok, attempt_id} <- uuid(request.attempt_id, :attempt_id),
            payload <- Common.decode_json_bytes(request.payload_json),
-           {:ok, _actor_event} <-
+           {:ok, _signal} <-
              AutomationJobs.emit_event(agent_uid, run_id, attempt_id, payload) do
         {:ok, %FabricProto.AutomationJobEmitResponse{}}
       end

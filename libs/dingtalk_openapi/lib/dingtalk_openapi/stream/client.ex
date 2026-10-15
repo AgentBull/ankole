@@ -22,17 +22,9 @@ defmodule DingTalkOpenAPI.Stream.Client do
   dispatch is not acked at all, so the platform re-delivers — ingress idempotency
   keeps that safe.
 
-  Design note: `Mint.WebSocket` is process-less by design — it covers the
-  upgrade handshake and frame codec and deliberately leaves the process model,
-  RFC 6455 pong replies, reconnection, and backoff to its caller, so the
-  GenServer plumbing here is that contract, not accidental complexity.
-  Higher-level clients (WebSockex, Fresh, Slipstream) auto-reconnect to a
-  fixed URI, while a Stream reconnect must first re-register for a fresh
-  single-use ticket, so their reconnect layers cannot be used as-is.
-  `FeishuOpenAPI.WS.Client` shares this skeleton on purpose: only the Mint
-  plumbing overlaps, and everything above it (JSON vs pbbp2 Protobuf frames,
-  ack envelopes, registration vs discovery) diverges, so no shared
-  abstraction is extracted.
+  A reconnect must re-register for a fresh single-use ticket.
+  `FeishuOpenAPI.WS.Client` shares only the Mint plumbing; the frames and
+  acks diverge, so there is no shared abstraction.
   """
 
   use GenServer
@@ -192,8 +184,6 @@ defmodule DingTalkOpenAPI.Stream.Client do
     :ok
   end
 
-  # --- connection ----------------------------------------------------------
-
   defp connect(state) do
     with {:ok, endpoint, ticket} <- register_connection(state),
          {:ok, scheme, host, port, path} <- parse_url(connect_url(endpoint, ticket)),
@@ -277,8 +267,6 @@ defmodule DingTalkOpenAPI.Stream.Client do
   defp http_scheme(:ws), do: :http
   defp http_scheme(:wss), do: :https
 
-  # --- upgrade / decode ----------------------------------------------------
-
   defp handle_responses([], state), do: {:noreply, state}
 
   defp handle_responses([{:status, ref, status} | rest], %{request_ref: ref} = state) do
@@ -357,8 +345,6 @@ defmodule DingTalkOpenAPI.Stream.Client do
 
   defp handle_frame(_frame, state), do: state
 
-  # --- frame routing -------------------------------------------------------
-
   defp route_frame(
          %{"type" => "SYSTEM", "headers" => %{"topic" => "ping"} = headers} = frame,
          state
@@ -406,8 +392,6 @@ defmodule DingTalkOpenAPI.Stream.Client do
   defp decoded_data(%{"data" => data}) when is_map(data), do: data
   defp decoded_data(_frame), do: %{}
 
-  # --- ack -----------------------------------------------------------------
-
   defp apply_ack({:reply, code, data}, message_id, duration, state) do
     send_response_frame(%{"messageId" => message_id}, code, data, state, duration)
   end
@@ -440,8 +424,6 @@ defmodule DingTalkOpenAPI.Stream.Client do
   defp ack_kind({:reply, code, _data}), do: code
   defp ack_kind({:withhold, _reason}), do: :withheld
   defp ack_kind(_other), do: :unknown
-
-  # --- send / reconnect ----------------------------------------------------
 
   defp send_ws_frame(_frame, %{websocket: nil} = state), do: state
 
@@ -485,8 +467,7 @@ defmodule DingTalkOpenAPI.Stream.Client do
     end
   end
 
-  # Exponential backoff from 1s, capped at 60s. The ticket is always re-fetched,
-  # so every retry runs a fresh registration.
+  # Every retry re-registers. The ticket is single-use.
   defp backoff_seconds(attempt) do
     min(Bitwise.bsl(1, min(attempt, 6)), @reconnect_cap_s)
   end
@@ -528,8 +509,6 @@ defmodule DingTalkOpenAPI.Stream.Client do
         status: :disconnected
     }
   end
-
-  # --- helpers -------------------------------------------------------------
 
   defp subscriptions(opts, dispatcher) do
     case Keyword.get(opts, :subscriptions) do

@@ -10,7 +10,7 @@ import {
   type JobTurnRef,
   type TurnStart,
   type TurnSteerUpdate
-} from '../lanes/actor_lane'
+} from '../lanes/session_lane'
 import { type RuntimeRPCClient } from '../lanes/rpc_lane'
 import type { BrowserRuntime } from '../browser-runtime'
 import type { WorkerConfig } from './config'
@@ -59,8 +59,8 @@ export class ActiveTurn {
 
   /** Stores each journaled steer update once. */
   pushSteering(update: TurnSteerUpdate): void {
-    if (!update.actorEvent || this.steeringIDs.has(update.actorEvent.actor_event_id)) return
-    this.steeringIDs.add(update.actorEvent.actor_event_id)
+    if (!update.signal || this.steeringIDs.has(update.signal.signal_id)) return
+    this.steeringIDs.add(update.signal.signal_id)
     this.steeringUpdates.push(update)
   }
 
@@ -113,14 +113,14 @@ export class ActiveTurns {
    *
    * The acceptance envelope is sent before the async task starts so the control
    * plane can fence duplicate deliveries and observe that this Worker took
-   * responsibility for the actor event.
+   * responsibility for the Signal.
    */
   async start(envelope: Envelope): Promise<void> {
     const turnStart = turnStartFromEnvelope(envelope)
     workerLogger.info('worker.turn_start_received', 'worker turn start received', {
-      actor_event_id: turnStart.turn.actor_event_id,
+      signal_id: turnStart.turn.signal_id,
       input_count: 1,
-      operation: turnOperation(turnStart.turn.actor_event_id, { first: true })
+      operation: turnOperation(turnStart.turn.signal_id, { first: true })
     })
 
     const activeKey = turnKey(turnStart.turn)
@@ -186,7 +186,7 @@ export class ActiveTurns {
     this.drain.track(
       task.catch(error => {
         workerLogger.error('worker.turn_acceptance_error', 'worker turn acceptance failed', {
-          actor_event_id: active.turnStart.turn.actor_event_id,
+          signal_id: active.turnStart.turn.signal_id,
           error: toError(error)
         })
       })
@@ -206,7 +206,7 @@ export class ActiveTurns {
             (error.reason === 'background_agent_job_attempt_changed' || error.reason === 'run_closed')
           ) {
             workerLogger.info('worker.turn_acceptance_rejected', 'control plane refused this Job attempt', {
-              actor_event_id: active.turnStart.turn.actor_event_id,
+              signal_id: active.turnStart.turn.signal_id,
               reason: error.reason
             })
             active.requestControlledStop('stop', error.reason)
@@ -214,7 +214,7 @@ export class ActiveTurns {
           }
           if (!isRuntimeFabricTransportError(error) || !error.retryable) throw error
           workerLogger.warning('worker.turn_acceptance_reconfirm', 'worker waits to confirm the same Job attempt', {
-            actor_event_id: active.turnStart.turn.actor_event_id,
+            signal_id: active.turnStart.turn.signal_id,
             reason: error.code
           })
           for (;;) {
@@ -236,9 +236,9 @@ export class ActiveTurns {
       this.drain.track(
         this.run(active).catch(error => {
           workerLogger.error('worker.turn_completion_error', 'worker turn completion task failed', {
-            actor_event_id: active.turnStart.turn.actor_event_id,
+            signal_id: active.turnStart.turn.signal_id,
             error: toError(error),
-            operation: turnOperation(active.turnStart.turn.actor_event_id, { last: true })
+            operation: turnOperation(active.turnStart.turn.signal_id, { last: true })
           })
         })
       )
@@ -273,7 +273,7 @@ export class ActiveTurns {
     this.drain.track(
       abortTurnWithAck(this.rpcClient, turn, failure).catch(error => {
         workerLogger.error('worker.turn_rejection_error', 'worker turn rejection failed', {
-          actor_event_id: turn.actor_event_id,
+          signal_id: turn.signal_id,
           error: toError(error)
         })
       })
@@ -283,7 +283,7 @@ export class ActiveTurns {
   /**
    * Adds a journaled mailbox update to its matching active Turn.
    *
-   * The Worker accepts only the ActorEvent already present in the mailbox
+   * The Worker accepts only the Signal already present in the mailbox
    * update. It does not synthesize steer text locally.
    */
   async mailboxUpdated(envelope: Envelope): Promise<void> {
@@ -294,14 +294,14 @@ export class ActiveTurns {
     if (!active) return
 
     active.pushSteering({
-      actorEvent: update.actor_event
+      signal: update.signal
     })
   }
 
   /**
    * Applies Skill disablement to active handlers. `retry` and `stop` cancel only
    * local execution. The control plane owns the next lifecycle decision, so this
-   * path does not call actor_turn.abort.
+   * path does not call session_turn.abort.
    */
   async control(envelope: Envelope): Promise<void> {
     const control = turnControlFromEnvelope(envelope)
@@ -336,38 +336,38 @@ export class ActiveTurns {
       await executeActiveTurn(this.config, this.browserRuntime, this.rpcClient, active)
       if (active.controlledStopRequested) {
         workerLogger.info('worker.turn_controlled_stop', 'worker turn controlled stop', {
-          actor_event_id: turnStart.turn.actor_event_id,
+          signal_id: turnStart.turn.signal_id,
           command: active.controlledStopCommand ?? 'unknown',
           reason: active.controlledStopReason ?? 'controlled_stop',
           duration_ms: Date.now() - startedAt,
-          operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+          operation: turnOperation(turnStart.turn.signal_id, { last: true })
         })
         return
       }
 
       workerLogger.info('worker.turn_completed', 'worker turn completed', {
-        actor_event_id: turnStart.turn.actor_event_id,
+        signal_id: turnStart.turn.signal_id,
         duration_ms: Date.now() - startedAt,
-        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+        operation: turnOperation(turnStart.turn.signal_id, { last: true })
       })
     } catch (error) {
       if (active.controlledStopRequested) {
         workerLogger.info('worker.turn_controlled_stop', 'worker turn controlled stop', {
-          actor_event_id: turnStart.turn.actor_event_id,
+          signal_id: turnStart.turn.signal_id,
           command: active.controlledStopCommand ?? 'unknown',
           reason: active.controlledStopReason ?? 'controlled_stop',
           duration_ms: Date.now() - startedAt,
           error: toError(error),
-          operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+          operation: turnOperation(turnStart.turn.signal_id, { last: true })
         })
         return
       }
 
       if (error instanceof TurnTerminalRejectedError) {
         workerLogger.error('worker.turn_completion_rejected', 'worker turn completion was rejected', {
-          actor_event_id: turnStart.turn.actor_event_id,
+          signal_id: turnStart.turn.signal_id,
           error: toError(error),
-          operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+          operation: turnOperation(turnStart.turn.signal_id, { last: true })
         })
         throw error
       }
@@ -385,7 +385,7 @@ export class ActiveTurns {
         {
           onRetry: (attempt, retryError) => {
             workerLogger.warning('worker.turn_abort_retry', 'worker turn abort acknowledgement missing', {
-              actor_event_id: turnStart.turn.actor_event_id,
+              signal_id: turnStart.turn.signal_id,
               attempt,
               error: toError(retryError)
             })
@@ -393,11 +393,11 @@ export class ActiveTurns {
         }
       )
       workerLogger.error('worker.turn_failed', 'worker turn failed', {
-        actor_event_id: turnStart.turn.actor_event_id,
+        signal_id: turnStart.turn.signal_id,
         duration_ms: Date.now() - startedAt,
         ...turnFailureLogFields(error),
         error: toError(error),
-        operation: turnOperation(turnStart.turn.actor_event_id, { last: true })
+        operation: turnOperation(turnStart.turn.signal_id, { last: true })
       })
     } finally {
       progress.stop()
@@ -452,7 +452,7 @@ async function sendTurnProgress(sendEnvelope: EnvelopeSender, active: ActiveTurn
     await sendEnvelope(workerProgressEnvelope(active.turnStart.turn))
   } catch (error) {
     workerLogger.warning('worker.turn_progress_skipped', 'worker turn progress skipped', {
-      actor_event_id: active.turnStart.turn.actor_event_id,
+      signal_id: active.turnStart.turn.signal_id,
       reason: isRuntimeFabricTransportError(error) ? error.code : 'send_error',
       error: toError(error)
     })
@@ -464,14 +464,14 @@ function stringFromDetails(source: JSONObject | undefined, key: string): string 
   return typeof value === 'string' ? value : undefined
 }
 
-/** Keys one local Turn across mailbox revisions of the same actor event. */
+/** Keys one local Turn across mailbox revisions of the same Signal. */
 function turnKey(turn: JobTurnRef): string {
-  return `${turn.job_id}:${turn.attempt}:${turn.actor_event_id}`
+  return `${turn.job_id}:${turn.attempt}:${turn.signal_id}`
 }
 
-function turnOperation(actorEventID: string, flags: { first?: boolean; last?: boolean } = {}): JSONObject {
+function turnOperation(signalID: string, flags: { first?: boolean; last?: boolean } = {}): JSONObject {
   return {
-    id: actorEventID,
+    id: signalID,
     producer: 'ankole-worker/turn',
     ...flags
   }

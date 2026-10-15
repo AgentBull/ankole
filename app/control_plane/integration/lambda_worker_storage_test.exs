@@ -3,12 +3,14 @@ defmodule Ankole.LambdaWorkerStorageIntegrationTest do
   import Ankole.PrincipalsFixtures
   import Ankole.WorkerStorageFixtures
   alias Ankole.Principals
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.AgentWorkers
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Config, Providers, Lambda}
+  alias Ankole.AgentWorkers.Config
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Lambda
 
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
+  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.WorkerBootstrap
 
   @moduletag cloud: true, sandbox: false, timeout: 1_800_000
 

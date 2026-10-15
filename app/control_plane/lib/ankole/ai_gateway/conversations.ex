@@ -139,9 +139,6 @@ defmodule Ankole.AIGateway.Conversations do
                conversation
                |> Ecto.Changeset.change(ended_at: now)
                |> repo.update() do
-          # Brain learns from channel slices when their conversation ends;
-          # the trigger commits atomically with ended_at.
-          :ok = Ankole.Brain.SignalsTriggers.conversation_ended_in_tx(repo, conversation_key)
           {:ok, ended}
         end
 
@@ -175,6 +172,15 @@ defmodule Ankole.AIGateway.Conversations do
       |> repo.update_all(set: [ended_at: now, updated_at: now])
 
     {:ok, count}
+  end
+
+  @doc "Checks whether the subject has retained model history for a key, including ended histories."
+  def conversation_exists_by_key?(repo, subject_uid, conversation_key) do
+    repo.exists?(
+      from c in Conversation,
+        where:
+          c.subject_uid == ^normalize_uid(subject_uid) and c.conversation_key == ^conversation_key
+    )
   end
 
   @doc """

@@ -1,10 +1,7 @@
-//! CommonMark code ranges in the original UTF-8 source.
-
 use comrak::nodes::NodeValue;
 use comrak::{Arena, Options, parse_document};
 
-/// Returns sorted, disjoint zero-based byte offsets and lengths, including
-/// code delimiters. Source text is never reconstructed from normalized AST text.
+/// Offsets include code delimiters. Source text is never reconstructed from AST text.
 pub fn code_ranges(source: &str) -> Vec<(usize, usize)> {
     let arena = Arena::new();
     let root = parse_document(&arena, source, &Options::default());

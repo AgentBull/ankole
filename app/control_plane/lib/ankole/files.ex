@@ -10,7 +10,7 @@ defmodule Ankole.Files do
   A write has two steps. `store/1` makes the bytes durable and returns their
   digest; `commit/4` then names digests at paths in one transaction. The
   collection job (`Ankole.Files.Jobs.CollectUnreferenced`) removes contents
-  with no drive or uncompleted Outbox reference, after the one-day grace. The order of the steps and the
+  with no drive or uncompleted Delivery reference, after the one-day grace. The order of the steps and the
   `deleting` mark keep the two from racing:
 
     * `store/1` inserts or refreshes the `files` row first, which clears
@@ -49,8 +49,8 @@ defmodule Ankole.Files do
           required(:source) => String.t(),
           optional(:content_type) => String.t() | nil,
           optional(:mode) => non_neg_integer() | nil,
-          optional(:signal_channel_id) => String.t() | nil,
-          optional(:source_entry_id) => String.t() | nil
+          optional(:conversation_id) => String.t() | nil,
+          optional(:message_id) => String.t() | nil
         }
 
   @doc """
@@ -148,7 +148,7 @@ defmodule Ankole.Files do
   @doc """
   Reads one content by its SHA-256 digest.
 
-  An outbox attachment names its content this way, so the provider receives
+  An intent attachment names its content this way, so the provider receives
   the bytes that the Agent attached even if the drive path changed since.
   """
   @spec read_content(sha256_hex()) :: {:ok, binary()} | {:error, term()}
@@ -434,8 +434,6 @@ defmodule Ankole.Files do
 
   def file_name(_name), do: "file"
 
-  # Writing
-
   defp validate_path_tree(repo, agent_uid, upserts) do
     paths =
       from(file in AgentFile, where: file.agent_uid == ^agent_uid, select: file.path)
@@ -529,8 +527,8 @@ defmodule Ankole.Files do
          source: source,
          mode: mode,
          content_type: content_type(Map.get(upsert, :content_type), path),
-         signal_channel_id: Map.get(upsert, :signal_channel_id),
-         source_entry_id: Map.get(upsert, :source_entry_id)
+         conversation_id: Map.get(upsert, :conversation_id),
+         message_id: Map.get(upsert, :message_id)
        }}
     end
   end
@@ -595,8 +593,8 @@ defmodule Ankole.Files do
       mode: upsert.mode,
       content_type: upsert.content_type,
       source: upsert.source,
-      signal_channel_id: upsert.signal_channel_id,
-      source_entry_id: upsert.source_entry_id,
+      conversation_id: upsert.conversation_id,
+      message_id: upsert.message_id,
       inserted_at: now,
       updated_at: now
     }
@@ -609,8 +607,8 @@ defmodule Ankole.Files do
            :mode,
            :content_type,
            :source,
-           :signal_channel_id,
-           :source_entry_id,
+           :conversation_id,
+           :message_id,
            :updated_at
          ]},
       conflict_target: [:agent_uid, :path],
@@ -651,8 +649,8 @@ defmodule Ankole.Files do
     :mode,
     :content_type,
     :source,
-    :signal_channel_id,
-    :source_entry_id,
+    :conversation_id,
+    :message_id,
     :inserted_at
   ]
 
@@ -692,8 +690,6 @@ defmodule Ankole.Files do
     end
   end
 
-  # Reading
-
   defp files_query(agent_uid) do
     from(file in AgentFile,
       join: blob in assoc(file, :blob),
@@ -719,8 +715,6 @@ defmodule Ankole.Files do
     do: {:ok, where(query, [file], file.path > ^after_path)}
 
   defp after_query(_query, after_path), do: {:error, {:invalid_path, after_path}}
-
-  # Shapes
 
   defp valid_segment?(segment),
     do: segment not in ["", ".", ".."] and byte_size(segment) <= @max_segment_bytes

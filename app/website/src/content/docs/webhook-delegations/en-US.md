@@ -46,7 +46,7 @@ One live GitHub delegation has one repository, one exact event set, one expiry, 
 2. It creates a durable checkback before it creates the GitHub hook. This records the cleanup and reconciliation obligation.
 3. It creates the repository hook with the callback URL. GitHub sends a `ping`.
 4. It reads the GitHub delivery log and confirms that the `ping` succeeded.
-5. When a matching delivery arrives, Ankole commits the endpoint decision and either the `webhook.received` ActorEvent or the bound automation job run in one PostgreSQL transaction before it returns success.
+5. When a matching delivery arrives, Ankole commits the endpoint decision and either the `webhook.received` Signal or the bound automation job run in one PostgreSQL transaction before it returns success.
 6. On the direct path, the woken Agent treats the receipt as untrusted input. A bound automation job must apply the same rule before it emits an event.
 7. Reconciliation checks the hook, event set, failed deliveries, current GitHub objects, expiry, and next check time.
 8. Teardown removes the GitHub hook before it cancels the Ankole endpoint and checkback.
@@ -72,7 +72,7 @@ The receipt remains untrusted input. The script must verify consequential facts 
 
 Open **Webhooks** in the Console to inspect endpoints by Agent and session. The page shows the label, mode, state, expiry, and source route. It does not show the callback URL, plaintext token, or stored digest.
 
-The Console can list and cancel endpoints. It cannot create one. Creation needs the current conversation route, so it belongs to an active Agent turn.
+The Console lists and cancels Agent-created raw callback endpoints. The Agent creates these endpoints during an active turn with its current reply route. For CloudEvents, create an event source and its Signal Routing Rules on the Console **Signals** page; see [Signals](../signals/).
 
 Cancel from the Console when you need emergency credential revocation. This does not delete the external GitHub hook. Remove that hook separately. For normal teardown, ask the Agent to remove the GitHub hook first.
 
@@ -89,9 +89,9 @@ Cancel from the Console when you need emergency credential revocation. This does
 
 - **The Agent cannot find the GitHub Skill:** confirm that the GitHub Agent Plugin and Skills are enabled for this Agent, then start a new turn.
 - **GitHub cannot reach the callback:** check the public HTTPS certificate, DNS, ingress route, and `/webhooks/v1/event-callbacks/*` forwarding.
-- **The hook exists but no Agent reply appears:** inspect the GitHub delivery log, the endpoint state in Console, Worker readiness, the durable actor event, and outbound chat delivery.
+- **The hook exists but no Agent reply appears:** inspect the GitHub delivery log, the endpoint state in Console, Worker readiness, the durable Signal, and outbound chat delivery.
 - **GitHub reports `413`:** the selected event payload is larger than 1 MiB. Narrow the event shape at GitHub or use another detector.
 - **The same event wakes the Agent twice:** this is valid for a standing endpoint. The Agent must re-read current GitHub state and make repeated handling safe.
 - **The callback URL was lost during setup:** remove any matching GitHub hook, cancel the old endpoint and checkback, then create one replacement.
 
-For the ingress owner and transaction boundary, read [SignalsGateway](../signals-gateway/). For capability settings, read [Agent Library](../skills/) and [Environment variables](../worker-env/).
+For the ingress owner and transaction boundary, read [Signals](../signals/). For capability settings, read [Agent Library](../skills/) and [Environment variables](../worker-env/).

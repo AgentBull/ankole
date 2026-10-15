@@ -1,8 +1,10 @@
 defmodule Ankole.WorkAccessTest do
-  use Ankole.SignalsGateway.ActorRuntimeCase
+  use Ankole.SessionsCase
   alias Ankole.{AuthZ, AutomationJobs, Schedule, Workflow}
-  alias Ankole.Principals.{HumanAccess, WorkAccess, WorkCleanup}
-  alias Ankole.Conversations.Admission
+  alias Ankole.Principals.HumanAccess
+  alias Ankole.Principals.WorkAccess
+  alias Ankole.Principals.WorkCleanup
+  alias Ankole.Sessions.Admission
 
   test "suspension allows stopping and finishing existing work", %{tenant: tenant} do
     %{principal: agent} = agent_fixture()
@@ -11,7 +13,7 @@ defmodule Ankole.WorkAccessTest do
 
     assert {:ok, %{cron_schedule: cron}} =
              Schedule.create_cron_schedule(cron(source),
-               created_by: %{"kind" => "turn", "actor_event_id" => source.id}
+               created_by: %{"kind" => "turn", "signal_id" => source.id}
              )
 
     assert {:ok, %{run: run}} = Workflow.create_with_dispatch(workflow(source))
@@ -39,7 +41,7 @@ defmodule Ankole.WorkAccessTest do
     assert {:ok, admitted} = Admission.admit(key, source)
     assert {:ok, disabled} = HumanAccess.disable(human.uid, "Offboarding", nil, "disable")
     assert {:ok, %{running: 1}} = WorkCleanup.cleanup(human.uid, disabled.access_version)
-    assert Repo.get!(ActorEvent, source.id).input_state == "open"
+    assert Repo.get!(Signal, source.id).input_state == "open"
 
     assert {:error, :human_access_revoked} =
              Repo.transact(fn repo -> WorkAccess.check_in_tx(repo, source) end)
@@ -47,7 +49,7 @@ defmodule Ankole.WorkAccessTest do
     assert {:error, :human_access_revoked} = Schedule.create_check_back_later(checkback(source))
 
     assert {:ok, _} = complete_turn_silent(admitted)
-    assert Repo.get!(ActorEvent, source.id).completed_at
+    assert Repo.get!(Signal, source.id).completed_at
     next = source_event(agent.uid, human.uid)
     assert {:ok, %{status: :access_revoked}} = Admission.admit(next, next)
     assert Repo.reload!(next).input_state == "dead_letter"
@@ -91,7 +93,7 @@ defmodule Ankole.WorkAccessTest do
 
     assert {:ok, %{cron_schedule: cron}} =
              Schedule.create_cron_schedule(cron(source),
-               created_by: %{"kind" => "turn", "actor_event_id" => source.id}
+               created_by: %{"kind" => "turn", "signal_id" => source.id}
              )
 
     Ankole.FilesFixtures.drive_file_fixture(agent.uid, "automation/check/main.ts")
@@ -171,7 +173,7 @@ defmodule Ankole.WorkAccessTest do
     attrs = %{
       "agent_uid" => agent.uid,
       "owner_session_id" => source.session_id,
-      "source_actor_event_id" => source.id,
+      "source_signal_id" => source.id,
       "source_tool_call_id" => "background-test",
       "title" => "Review status",
       "task" => "Read status",
@@ -213,7 +215,7 @@ defmodule Ankole.WorkAccessTest do
 
     assert {:ok, %{authorization_kind: "service"}} =
              WorkAccess.classify(
-               "actor_event",
+               "signal",
                source.id,
                nil,
                Ankole.ActorRef.from_principal(reviewer),
@@ -224,7 +226,7 @@ defmodule Ankole.WorkAccessTest do
 
     assert {:error, :work_review_changed} =
              WorkAccess.classify(
-               "actor_event",
+               "signal",
                source.id,
                reviewer.uid,
                Ankole.ActorRef.from_principal(reviewer),
@@ -235,31 +237,38 @@ defmodule Ankole.WorkAccessTest do
   end
 
   defp source_event(agent_uid, sender_uid) do
+    original =
+      Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid, binding_name: "bot")
+
     id = Ecto.UUID.generate()
 
-    {:ok, event} =
+    {:ok, signal} =
       Repo.transact(fn repo ->
-        SignalsGateway.append_actor_event_in_tx(repo, %{
-          agent_uid: agent_uid,
-          sender_key: sender_uid,
-          binding_name: "bot",
-          session_id: "work:#{id}",
-          source_event_id: id,
-          type: "im.message.addressed",
-          available_at: DateTime.utc_now(),
-          payload: %{"data" => %{"text" => "Check status"}}
+        Ankole.Signals.accept_in_tx(repo, %{
+          source: "test://work-access",
+          id: id,
+          type: "conversation.message.addressed",
+          time: DateTime.utc_now(),
+          sender: sender_uid,
+          target: %{agent_uid: agent_uid, session_id: "work:#{id}"},
+          data: %{"text" => "Check status"},
+          reply_route: %{
+            binding_name: original.reply_binding_name,
+            conversation_id: original.conversation_id,
+            provider_message_id: original.provider_message_id
+          }
         })
       end)
 
-    event
+    signal
   end
 
   defp checkback(source),
     do: %{
       "agent_uid" => source.agent_uid,
       "session_id" => source.session_id,
-      "binding_name" => source.binding_name,
-      "source_actor_event_id" => source.id,
+      "binding_name" => source.reply_binding_name,
+      "source_signal_id" => source.id,
       "tool_call_id" => "check-#{source.id}",
       "idempotency_key" => source.id,
       "schedule" => %{"after" => %{"value" => 5, "unit" => "minute"}, "timezone" => "Etc/UTC"},
@@ -271,13 +280,16 @@ defmodule Ankole.WorkAccessTest do
     do: %{
       "agent_uid" => source.agent_uid,
       "owner_session_id" => source.session_id,
-      "binding_name" => source.binding_name,
+      "binding_name" => source.reply_binding_name,
       "name" => "check-status",
       "idempotency_key" => source.id,
       "payload" => %{"task" => "Check status"},
       "delivery" => %{
         "targets" => [
-          %{"binding_name" => source.binding_name, "signal_channel_id" => "work-access-test"}
+          %{
+            "binding_name" => source.reply_binding_name,
+            "conversation_id" => source.conversation_id
+          }
         ]
       },
       "schedule" => %{
@@ -291,9 +303,9 @@ defmodule Ankole.WorkAccessTest do
     do: %{
       agent_uid: source.agent_uid,
       owner_session_id: source.session_id,
-      source_actor_event_id: source.id,
+      source_signal_id: source.id,
       source_provenance: %{"kind" => "turn"},
-      reply_route: %{"binding_name" => source.binding_name},
+      reply_route: %{"binding_name" => source.reply_binding_name},
       drive_prefix: "automation/check",
       label: "Check status"
     }
@@ -311,9 +323,9 @@ defmodule Ankole.WorkAccessTest do
     do: %{
       "agent_uid" => source.agent_uid,
       "owner_session_id" => source.session_id,
-      "source_actor_event_id" => source.id,
+      "source_signal_id" => source.id,
       "source_tool_call_id" => "workflow-#{source.id}",
-      "reply_route" => %{"binding_name" => source.binding_name},
+      "reply_route" => %{"binding_name" => source.reply_binding_name},
       "title" => "Check status",
       "script" => "return await agent('Check status');",
       "concurrency" => 4,

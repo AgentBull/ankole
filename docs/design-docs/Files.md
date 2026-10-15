@@ -3,7 +3,7 @@
 Drive references and grants belong to the Agent's tenant. Content-addressed blob
 bytes and their storage configuration belong to the site. Tenant deletion removes
 its references; the garbage collector deletes only bytes without drive or
-uncompleted Outbox references.
+uncompleted Delivery references.
 A blob still referenced by another tenant remains.
 
 Each Agent has a drive in the control plane. The drive holds received
@@ -23,7 +23,7 @@ content. An object store keeps the bytes.
 | Table | Columns | Meaning |
 | --- | --- | --- |
 | `files` | `sha256` (primary key), `size`, `deleting`, `created_at`, `last_referenced_at` | One distinct byte content |
-| `agent_files` | `agent_uid`, `path`, `sha256`, `mode`, `content_type`, `source`, `signal_channel_id`, `source_entry_id`, timestamps; primary key `(agent_uid, path)` | One file in one Agent's drive |
+| `agent_files` | `tenant_id`, `agent_uid`, `path`, `sha256`, `mode`, `content_type`, `source`, `conversation_id`, `message_id`, timestamps; primary key `(tenant_id, agent_uid, path)` | One file in one Agent's drive |
 
 - A path identifies a file. A folder is only a path prefix; there are no folder
   rows. A path is relative, uses `/`, has at most 1024 bytes, and has no empty,
@@ -32,9 +32,9 @@ content. An object store keeps the bytes.
 - One content is stored once. Two Agents that receive the same file, or one
   Agent that saves the same bytes at two paths, add only `agent_files` rows.
 - `source` is `inbound`, `generated`, `sent`, `agent`, or `console`.
-- `signal_channel_id` and `source_entry_id` retain the origin of a projected
+- `conversation_id` and `message_id` retain the public origin of a projected
   attachment. The Console listing and Files RPC return them; moves preserve
-  them. Files with no provider origin have null values in the Console API.
+  them. Files with no Message origin have null values in the Console API.
 - `content_type` is the declared type: the provider MIME type, the
   `reply_attachment` type, the generated image type, or the type for the file
   extension. The file service does not inspect bytes.
@@ -75,7 +75,7 @@ leave other conversations' workspaces and drive directories alone. A DM prompt
 also identifies the conversation as private. A Background Job receives its
 source conversation's drive directory on start and resume.
 
-The control plane checks attachment paths at the common Outbox commit boundary.
+The control plane checks attachment paths at the common Delivery commit boundary.
 A file under `chats/<channel>/` can be delivered only to that channel. This
 applies to final replies, `send_message`, and generated images, including
 schedule delivery targets. A file outside `chats/` can be delivered to any
@@ -173,7 +173,7 @@ tree and rejects file/parent conflicts atomically. Deleting `a` and adding
 `a/b` in one commit is valid, as is the reverse change.
 
 The Oban cron job `Ankole.Files.Jobs.CollectUnreferenced` runs every hour. It
-marks old contents with no drive path or uncompleted Outbox attachment
+marks old contents with no drive path or uncompleted Delivery attachment
 reference, and removes the marked rows in batches of 100: first the row, only if
 it is still unreferenced, then the object. A marked row that has a reference
 again loses its mark. The one-day interval protects a content between its
@@ -207,59 +207,42 @@ returns `next_after`; pass it as `--after` to read the next page.
 
 ## Attachments
 
-Inbound: the adapter downloads the provider bytes once and calls
-`Ingress.store_attachment/3`. The attachment JSON then carries `blob_ref` (the
-SHA-256), an intermediate `inbox/` path, and `size`. An attachment with `blob_ref`
-and `path` needs no other download, whichever Agent received it first. The
-gateway prefixes the path with `chats/<channel>/` when it knows the source
-channel. It names the content in the Agent's drive when it mirrors the entry, and
-again before it delivers an ActorEvent, so every attachment that the model
-sees can be fetched. The model sees the drive path and fetches the file with
-`ankole-files get`. Native image input fetches the image into the workspace
-the same way.
+Inbound adapters record a pending observation before they download bytes.
+`Conversations.Attachments` allocates its stable numeric attachment ID in
+PostgreSQL. The adapter stores bytes through
+`Conversations.Observe.store_attachment/3`, then observes a complete or failed
+result with the same provider identity. A complete attachment carries
+`blob_ref`, drive `path`, and size. Redelivery cannot replace stored bytes with
+a pending or failed result.
 
-Outbound: `reply_attachment` accepts only `drive_path`, with optional display
+The public Conversation UUID scopes the path under
+`chats/<conversation_id>/inbox/<digest>/<filename>`. Provider room and message
+IDs do not serve as drive directories. The same stored bytes can serve several
+Agents; the attachment owner names them separately in each Agent's drive when
+that Agent observes or reads the Message. The model fetches the file with
+`ankole-files get`. Image input uses the same file owner.
+
+Outbound `reply_attachment` accepts only `drive_path`, with optional display
 name and MIME type. Save a local deliverable with `ankole-files put` first.
-The control plane owns the declaration and execution; this tool needs no
-Worker. It records the original drive path and its content digest. It does
-not copy the file to `sent/`. The outbox payload carries `path`,
-`blob_ref`, `name`, `mime_type`, and `size`. The turn commit checks that the
-drive still names that content at that path and checks the destination channel.
-Changing or deleting the drive file before that commit rejects the attachment.
-Adapters read the bytes by
-`blob_ref`; a missing content blocks the delivery with
-`attachment_file_missing`. An Outbox commit locks and refreshes its referenced
-contents in the same transaction. Collection checks attachment references in
-every tenant. A row that has not succeeded retains its bytes even after the
-last drive path is deleted. Successful delivery or deletion of the intent
+The control-plane tool records the drive path and current digest. Delivery
+payloads carry `path`, `blob_ref`, `name`, `mime_type`, and `size`; they do not
+create a second copy under `sent/`.
+
+The terminal commit checks that the drive still names those bytes and that a
+path under `chats/<conversation_id>/` belongs to the destination Conversation.
+Changing or deleting the file before that commit rejects the attachment.
+Adapters read the confirmed bytes by `blob_ref`. Missing bytes block delivery
+with `attachment_file_missing`.
+
+A Delivery commit locks and refreshes referenced content. Collection checks
+attachment references across all tenants. An unsent intent retains its bytes
+after the last drive path is removed. Confirmed delivery or intent deletion
 releases that reference.
 
-Generated images: when a turn completes, the gateway stores each generated
-image artifact and names it under `chats/<channel>/generated/`, or under shared
-`generated/` when the conversation has no source channel.
-
-An inbound attachment from before the drive has no `blob_ref`. The model sees
-its name marked as not available.
-
-## Upgrade From Shared Inbox Paths
-
-The migration moves inbound `inbox/` drive rows with a recorded
-`signal_channel_id` into that channel's directory. It changes paths only;
-content, provenance, and timestamps stay unchanged. It stops on a path conflict
-or a path that exceeds the drive limits, so operators must resolve the conflict
-before retrying the migration.
-
-Rows without a source channel stay at their existing paths, and the migration
-reports their count. Operators must place sensitive files from these rows in
-the correct channel directories before the delivery check can protect them.
-Before this migration, the same bytes and filename could replace one shared
-drive row's source channel. Only the recorded channel can be recovered from
-that row. Other historical uses cannot be inferred from it.
-
-Old ActorEvent payloads can still contain `inbox/` paths. Input rendering and
-attachment linking resolve these references under the event's channel directory
-without changing the stored event. Existing `sent/` rows and committed Outbox
-references remain valid shared paths; new deliveries no longer create them.
+Generated image artifacts belong to AIGateway. Sessions.Presentation stores
+their bytes in the Agent's drive under
+`chats/<conversation_id>/generated/`, or shared `generated/` when there is no
+source Conversation. The renderer does not search model prose for file paths.
 
 ## Skills and Automation Scripts
 
@@ -332,13 +315,13 @@ import copies them into the drives:
   `SKILL.md`;
 - the directory of each Automation Job created before the drive to its
   `drive_prefix`;
-- files named by unsent legacy Outbox attachments from `user-files/` to
+- files named by unsent legacy Delivery attachments from `user-files/` to
   content-addressed `sent/` paths. It updates the attachment with `blob_ref`
   and `path`, retaining provider metadata, attempt counts, and recovery state.
 
 Other user files, Session workspaces, and Job workspaces stay in Home.
 Legacy attachments wait for this conversion before a new provider send.
-The import schedules the converted intent through the existing Outbox owner;
+The import schedules the converted intent through the existing Delivery owner;
 uncertain or manually stopped deliveries keep their existing recovery policy.
 A missing file is reported and its original payload remains available for a
 later import with the correct Home. Symlinks cannot redirect the import
@@ -364,6 +347,6 @@ import.
 Remove `AgentHomeImport`, the import release command, and
 `files.importAgentHomeClaim` when upgrades from pooled Worker releases are
 no longer supported, all old Skills are present in the drives, and no
-Automation Job has `legacy_directory_path`, and no unsent Outbox attachment
+Automation Job has `legacy_directory_path`, and no unsent Delivery attachment
 uses a legacy Home path. Remove the related legacy
 provider assignment and pooled-release e2e at the same release.

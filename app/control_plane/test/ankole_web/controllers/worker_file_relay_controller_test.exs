@@ -1,8 +1,8 @@
 defmodule AnkoleWeb.WorkerFileRelayControllerTest do
   use AnkoleWeb.ConnCase, async: true
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.WorkerFiles.Relay
 
   test "a pull serves the source once to the token of its session", %{conn: conn} do

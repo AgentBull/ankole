@@ -2240,7 +2240,6 @@ def main(argv: list[str] | None = None) -> int:
                 and args.cell_id
                 and args.path
             ):
-                # Auto-fetch cell source from notebook when --cell-id is given without --code
                 model = _load_notebook_model(server, args.path)
                 cells = model["content"].get("cells", [])
                 matched_source = None

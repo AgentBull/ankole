@@ -8,12 +8,15 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Conversations
-  alias Ankole.AIGateway.Schemas.{CompactionArtifact, Message}
+  alias Ankole.AIGateway.Schemas.CompactionArtifact
+  alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.StatefulResponses
-  alias Ankole.Brain.{Claims, Links, Objects, SchemaPacks}
+  alias Ankole.Brain.Claims
+  alias Ankole.Brain.Links
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.SchemaPacks
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
 
   setup do
     %{principal: agent} = agent_fixture()
@@ -90,7 +93,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
       StatefulResponses.start_planned_response_run(%{
         subject_uid: context.agent.uid,
         conversation_id: context.conversation.id,
-        request_items: [text("user", "Earlier work")]
+        request_items: [text("user", "Earlier work ORIGINAL_REPLAY")]
       })
 
     sealed = %{
@@ -195,6 +198,9 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     %{light: [summary], main: [initial, recovered]} = Agent.get(recorded, & &1)
     assert memory_count(initial["input"]) == 1
     assert Ankole.JSON.encode!(initial) =~ "OLD_SEALED_STATE"
+    assert Ankole.JSON.encode!(initial) =~ "ORIGINAL_REPLAY"
+    assert Ankole.JSON.encode!(summary) =~ "ORIGINAL_REPLAY"
+    assert Ankole.JSON.encode!(Repo.get!(Message, previous.id).content) =~ "ORIGINAL_REPLAY"
     refute Ankole.JSON.encode!(recovered) =~ "OLD_SEALED_STATE"
     refute Ankole.JSON.encode!(summary) =~ "AGENT_MEMORY"
     assert memory_count(recovered["input"]) == 1
@@ -620,7 +626,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
           "parameters" => %{"type" => "object", "properties" => %{}}
         }
       ],
-      "metadata" => %{"actor_event_id" => context.event.id}
+      "metadata" => %{"signal_id" => context.event.id}
     }
   end
 
@@ -657,7 +663,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
                           "output" => "Command completed"
                         }
                       ],
-                      metadata: %{"request_metadata" => %{"actor_event_id" => context.event.id}}
+                      metadata: %{"request_metadata" => %{"signal_id" => context.event.id}}
                     }) do
                  {:ok, journal, _} -> {:ok, journal}
                  error -> error
@@ -718,19 +724,19 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
   end
 
   defp event!(agent, conversation) do
-    %ActorEvent{}
-    |> ActorEvent.changeset(%{
-      agent_uid: agent.uid,
-      binding_name: "test-binding",
-      session_id: conversation.conversation_key,
-      source_event_id: Ecto.UUID.generate(),
-      type: "im.message.addressed",
-      available_at: DateTime.utc_now(:microsecond),
-      queue_sequence: System.unique_integer([:positive]),
-      input_state: "open",
-      payload: %{"text" => "Wire Format task"}
-    })
-    |> Repo.insert!()
+    {:ok, event} =
+      Repo.transact(fn repo ->
+        Ankole.Signals.accept_in_tx(repo, %{
+          source: "test://checkpoint",
+          id: Ecto.UUID.generate(),
+          type: "test.source",
+          data: %{"text" => "Wire Format task"},
+          target: %{agent_uid: agent.uid, session_id: conversation.conversation_key},
+          authorization: Ankole.Principals.WorkAccess.service()
+        })
+      end)
+
+    event
   end
 
   defp text(role, body),

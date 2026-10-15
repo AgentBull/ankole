@@ -2,7 +2,9 @@ defmodule Ankole.Brain.RecallRerankTest do
   use Ankole.AIGatewayCase
 
   alias Ankole.AppConfigure
-  alias Ankole.Brain.{Objects, Recall, SchemaPacks}
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.Recall
+  alias Ankole.Brain.SchemaPacks
 
   test "recall sends the configured rerank options through the provider adapter" do
     allow_cache_database_access()

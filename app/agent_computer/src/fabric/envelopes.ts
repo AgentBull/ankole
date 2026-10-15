@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf'
-import type { JobTurnRef } from '../lanes/actor_lane'
-import { jobTurnRefToProto } from '../lanes/actor_lane'
+import type { JobTurnRef } from '../lanes/session_lane'
+import { jobTurnRefToProto } from '../lanes/session_lane'
 import {
   createEnvelope,
   ControlShutdownSchema,

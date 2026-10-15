@@ -4,8 +4,18 @@ The DingTalk Adapter receives messages from one enterprise application and
 sends Agent replies. It also imports DingTalk users and departments. One Stream
 connection can serve both purposes, and the control plane keeps all credentials.
 
-Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
+Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+[Sessions](../Sessions.md), [Principal](../Principal.md), and
 [Plugins](../Plugins.md) for the common message, identity, and Plugin rules.
+
+## Provider and Public Identity
+
+The adapter reports an opaque `provider_conversation_id` and a
+`provider_message_id`. Conversations resolves these to a shared public
+Conversation UUID and Message UUID. All Agent observers of the same provider
+conversation in one tenant read those same public facts. Each participating
+Agent has its own `conversation:<public UUID>` Session; a Binding is its
+observation and delivery route, not the owner of the platform room.
 
 ## Current IDs and Features
 
@@ -14,7 +24,7 @@ Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
 | Plugin ID | `dingtalk-adapter` |
 | API version | `1` |
 | Signal adapter ID | `dingtalk` |
-| Signal configuration | `signals_gateway.dingtalk.bindings.<agent_uid>` |
+| Signal configuration | `signals.dingtalk.bindings.<agent_uid>` |
 | Identity adapter ID | `dingtalk` |
 | Identity configuration | `principals.identity_providers.dingtalk.<id>` |
 | Provider library | `libs/dingtalk_openapi` |
@@ -70,7 +80,7 @@ The robot message callback becomes `entry_receive`, and a card callback becomes
 `action_event`. Direct messages always address the Agent. In a group, a
 DingTalk mention must address the robot.
 
-The stable channel ID is `dingtalk:<encoded_conversation_id>`. DingTalk has no
+The opaque `provider_conversation_id` is `dingtalk:<encoded_conversation_id>`. DingTalk has no
 anchored reply on this path, so provider thread ID and reply target are empty.
 
 The enterprise `senderStaffId` identifies the sender. The adapter ignores a
@@ -86,7 +96,7 @@ robot callback path.
 
 ## Send Replies
 
-The adapter sends only operations already stored in the outbox. It can send
+The adapter sends only operations already stored as Delivery intents. It can send
 text, send one attachment, recall a message that it created, or send a template
 card.
 
@@ -114,15 +124,15 @@ DingTalk owns the card state transition. A stream stays open until the adapter
 sends `isFinalize`, and `isError` selects the failed state. The template does
 not use a custom flow-status variable.
 
-The ActorEvent checkpoint is the durable page ledger. It stores the source
+The Signal checkpoint is the durable page ledger. It stores the source
 text, `outTrackId`, and sealed state for each page. It also stores the last
 presentation that recovery can render and any thought cleanup deadline. Sealed
 pages do not change. Only the open tail page can receive Markdown updates.
 
 Working card updates never send plain text. If the template is missing, the
 provider rejects the content, or an update would change a sealed page, the
-durable final outbox sends plain text. The checkpoint records each delivered
-text chunk, so an outbox retry resumes after the last recorded chunk.
+durable final Delivery sends plain text. The checkpoint records each delivered
+text chunk, so an intent retry resumes after the last recorded chunk.
 
 The operator must build the template described in
 `plugins/dingtalk_adapter/priv/card_template/README.md`.
@@ -151,8 +161,8 @@ restriction clearance and restoration.
 
 ## Restart and Recovery
 
-AppConfigure stores encrypted settings. SignalsGateway records messages, Agent
-work, and replies. Principals and AuthZ store people, groups, memberships, and
+AppConfigure stores encrypted settings. Conversations records public Messages and Delivery intents. Signals stores
+authorized stimuli; Sessions owns Agent execution and recovery. Principals and AuthZ store people, groups, memberships, and
 grants.
 
 A control-plane restart rebuilds Stream connections. Full directory sync
@@ -162,7 +172,7 @@ credentials.
 ## Tests
 
 The repository tests the provider client, Stream dispatch, normalization,
-outbox operations, AI card checkpoints, login, and directory sync. A real
+intent operations, AI card checkpoints, login, and directory sync. A real
 DingTalk acceptance test needs operator credentials and the configured card
 template.
 

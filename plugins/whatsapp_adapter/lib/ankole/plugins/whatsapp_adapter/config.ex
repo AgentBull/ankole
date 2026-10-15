@@ -6,9 +6,9 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Config do
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WhatsAppAdapter.Client
-  alias Ankole.SignalsGateway.Binding
+  alias Ankole.Signals.Binding
 
-  @key_pattern ~r/\Asignals_gateway\.whatsapp\.bindings\.[A-Za-z0-9_.:-]+\z/
+  @key_pattern ~r/\Asignals\.whatsapp\.bindings\.[A-Za-z0-9_.:-]+\z/
   @numeric_id_pattern ~r/\A[0-9]{1,32}\z/
 
   @type t :: %{required(String.t()) => String.t()}
@@ -32,7 +32,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Config do
   def app_config_patterns do
     [
       AppConfigure.define_pattern(
-        id: "signals_gateway.whatsapp.bindings.*",
+        id: "signals.whatsapp.bindings.*",
         console_writable: false,
         key_pattern: @key_pattern,
         encrypted: true,
@@ -57,7 +57,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Config do
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
 
-    "signals_gateway.whatsapp.bindings.#{id}"
+    "signals.whatsapp.bindings.#{id}"
   end
 
   @spec validate_binding_config(term()) :: {:ok, t()} | {:error, term()}

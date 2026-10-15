@@ -1,7 +1,7 @@
 defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
   @moduledoc """
   Workflow lifecycle through the full chain: fake Feishu WS ingress, real
-  Docker worker, real OpenRouter LLM, durable Workflow rows, and real outbox
+  Docker worker, real OpenRouter LLM, durable Workflow rows, and real intent
   HTTP — fanout, sleep/wake, attention escalation, and Job delegation.
 
   Requires `ANKOLE_REAL_LLM_E2E=1` and an OpenRouter API key.

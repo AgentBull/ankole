@@ -215,33 +215,39 @@ end
 
 defmodule Ankole.Plugins.EmailAdapterTest do
   use Ankole.DataCase, async: false
-  import Ankole.SignalsGatewayFixtures, only: [owner_serves?: 4, start_connection_owner: 3]
+  import Ankole.ExternalConversationsFixtures
+  import Ankole.SignalsFixtures, only: [owner_serves?: 4, start_connection_owner: 3]
 
   import Ankole.PrincipalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
   alias Ankole.Plugins.EmailAdapter
-  alias Ankole.Plugins.EmailAdapterTest.{FakeImap, FakeSmtp}
+  alias Ankole.Plugins.EmailAdapterTest.FakeImap
+  alias Ankole.Plugins.EmailAdapterTest.FakeSmtp
 
-  alias Ankole.Plugins.EmailAdapter.{
-    Authentication,
-    Config,
-    ConnectionOwner,
-    ConnectionReconciler,
-    ErrorPolicy,
-    Inbound,
-    MailboxSession,
-    Message,
-    Mime,
-    Outbox,
-    ReplyText
-  }
+  alias Ankole.Plugins.EmailAdapter.Authentication
+  alias Ankole.Plugins.EmailAdapter.Config
+  alias Ankole.Plugins.EmailAdapter.ConnectionOwner
+  alias Ankole.Plugins.EmailAdapter.ConnectionReconciler
+  alias Ankole.Plugins.EmailAdapter.ErrorPolicy
+  alias Ankole.Plugins.EmailAdapter.Inbound
+  alias Ankole.Plugins.EmailAdapter.MailboxSession
+  alias Ankole.Plugins.EmailAdapter.Message
+  alias Ankole.Plugins.EmailAdapter.Mime
+  alias Ankole.Plugins.EmailAdapter.Delivery
+  alias Ankole.Plugins.EmailAdapter.ReplyText
 
   alias Ankole.Plugins.EmailAdapter.Imap.Client
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.{AdapterContext, Channel, Entry, OutboxEntry}
+
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.Message, as: ConversationMessage
+
+  import Ankole.Conversations.Assertions, only: [message_snapshot: 1]
+
+  alias Ankole.Conversations.Delivery.Intent
 
   @mailbox "agent@corp.example"
 
@@ -265,8 +271,8 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert declaration.adapter_category == "email"
       assert declaration.inbound_capabilities == ["entry_receive"]
       assert declaration.outbound_capabilities == ["post_entry", "reply_entry"]
-      refute Map.has_key?(declaration, :reply_preview_module)
-      assert :ok = Ankole.SignalsGateway.Adapters.validate_declaration(declaration)
+      refute Map.has_key?(declaration, :preview_module)
+      assert :ok = Ankole.Signals.Adapters.validate_declaration(declaration)
 
       assert [%{path: "password"}] = Enum.filter(declaration.fields, & &1.encrypted)
       assert Enum.all?(EmailAdapter.app_config_patterns(), & &1.encrypted)
@@ -300,27 +306,27 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       %{principal: second} = agent_fixture()
 
       assert {:ok, %{binding: binding}} =
-               SignalsGateway.put_binding(first.uid, "email", "mail", %{
+               Ankole.Signals.Bindings.put_binding(first.uid, "email", "mail", %{
                  "config" => binding_config()
                })
 
-      assert binding.config_ref =~ ~r/signals_gateway\.email\.bindings\.[a-f0-9]{64}\z/
+      assert binding.config_ref =~ ~r/signals\.email\.bindings\.[a-f0-9]{64}\z/
       {:ok, application} = Config.platform_application(binding_config())
 
       assert {:error, {:platform_application_already_bound, ^application, _agent, "mail"}} =
-               SignalsGateway.put_binding(second.uid, "email", "other", %{
+               Ankole.Signals.Bindings.put_binding(second.uid, "email", "other", %{
                  "config" => binding_config()
                })
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(second.uid, "email", "other", %{
+               Ankole.Signals.Bindings.put_binding(second.uid, "email", "other", %{
                  "config" => Map.put(binding_config(), "username", "other-user")
                })
 
       %{principal: third} = agent_fixture()
 
       assert {:error, {:platform_application_already_bound, ^application, _agent, "mail"}} =
-               SignalsGateway.put_binding(third.uid, "email", "cased", %{
+               Ankole.Signals.Bindings.put_binding(third.uid, "email", "cased", %{
                  "config" => Map.put(binding_config(), "username", "AGENT")
                })
     end
@@ -506,18 +512,18 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event(1, first), [consumer])
 
-      channel_id = Inbound.signal_channel_id(@mailbox, "first@example.com")
+      channel_id = Inbound.provider_conversation_id(@mailbox, "first@example.com")
 
-      assert %Channel{kind: :im_dm, name: "Budget review", reply_mode: :entry} =
-               channel = Repo.get_by(Channel, id: channel_id)
+      assert %Conversation{external_kind: :im_dm, title: "Budget review", reply_mode: :entry} =
+               channel = Repo.get_by(Conversation, provider_conversation_id: channel_id)
 
       assert channel.metadata["participants"] == ["ada@example.com"]
 
-      assert %Entry{} =
+      assert %{} =
                entry =
-               Repo.get_by(Entry,
-                 signal_channel_id: channel_id,
-                 source_entry_id: "first@example.com"
+               message_snapshot(
+                 conversation_id: channel_id,
+                 provider_message_id: "first@example.com"
                )
 
       assert entry.text == "Please review."
@@ -541,18 +547,22 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event(2, reply), [consumer])
 
-      assert %Entry{signal_channel_id: ^channel_id, reply_to_source_entry_id: "first@example.com"} =
-               Repo.get_by(Entry, source_entry_id: "second@example.com")
+      assert %{
+               conversation_id: public_conversation_id,
+               reply_to_provider_message_id: "first@example.com"
+             } =
+               message_snapshot(provider_message_id: "second@example.com")
 
-      assert %Channel{kind: :im_group, name: "Budget review"} =
-               channel = Repo.get_by(Channel, id: channel_id)
+      assert %Conversation{external_kind: :im_group, title: "Budget review"} =
+               channel = Repo.get_by(Conversation, provider_conversation_id: channel_id)
 
+      assert public_conversation_id == channel.id
       assert channel.metadata["participants"] == ["ada@example.com", "bob@example.org"]
 
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event(2, reply), [consumer])
 
-      assert Repo.aggregate(Entry, :count) == 2
+      assert Repo.aggregate(ConversationMessage, :count) == 2
     end
 
     test "strips quoted history only after the thread is mirrored" do
@@ -572,8 +582,8 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event(1, first_join), [consumer])
 
-      assert %Entry{text: ^quoted, metadata: metadata} =
-               Repo.get_by(Entry, source_entry_id: "join@example.com")
+      assert %{text: ^quoted, metadata: metadata} =
+               message_snapshot(provider_message_id: "join@example.com")
 
       refute Map.has_key?(metadata, "quoted_text_removed")
 
@@ -587,8 +597,8 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event(2, followup), [consumer])
 
-      assert %Entry{text: "收到", metadata: %{"quoted_text_removed" => true}} =
-               Repo.get_by(Entry, source_entry_id: "follow@example.com")
+      assert %{text: "收到", metadata: %{"quoted_text_removed" => true}} =
+               message_snapshot(provider_message_id: "follow@example.com")
 
       forwarded_body =
         "请调查下面的问题\n\n---------- Forwarded message ---------\nFrom: ops <ops@example.org>\nDate: Thu, Sep 10, 2026\nSubject: incident\nTo: ada@example.com\n\n生产故障详情"
@@ -603,8 +613,8 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event(3, forwarded), [consumer])
 
-      assert %Entry{text: ^forwarded_body} =
-               Repo.get_by(Entry, source_entry_id: "fwd@example.com")
+      assert %{text: ^forwarded_body} =
+               message_snapshot(provider_message_id: "fwd@example.com")
 
       outlook_body =
         "请调查\n\n________________________________\nFrom: ops <ops@example.org>\nSent: Thursday\nTo: ada@example.com\nSubject: incident\n\n生产故障详情"
@@ -620,7 +630,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event(4, outlook), [consumer])
 
-      assert %Entry{text: ^outlook_body} = Repo.get_by(Entry, source_entry_id: "fw@example.com")
+      assert %{text: ^outlook_body} = message_snapshot(provider_message_id: "fw@example.com")
     end
 
     test "keeps a leading control command recognizable" do
@@ -634,7 +644,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                )
 
       assert input.text == "/stop"
-      assert {:ok, %{"name" => "stop"}} = Ankole.SignalsGateway.Commands.classify(input.text)
+      assert {:ok, %{"name" => "stop"}} = Ankole.Signals.Commands.classify(input.text)
     end
 
     test "keeps a Cc-only message implicit and ignores own, bulk, and unauthenticated mail" do
@@ -681,7 +691,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                  consumer
                ])
 
-      assert Repo.aggregate(Entry, :count) == 0
+      assert Repo.aggregate(ConversationMessage, :count) == 0
     end
 
     test "manual review holds an unknown sender with a reply notice and admits a known email" do
@@ -699,23 +709,23 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert request.provider == "email"
       assert request.external_id == "ada@example.com"
       assert is_nil(request.email)
-      assert Repo.aggregate(Entry, :count) == 0
+      assert Repo.aggregate(ConversationMessage, :count) == 0
 
-      assert %OutboxEntry{
+      assert %Intent{
                operation: :reply,
-               reply_to_source_entry_id: "held@example.com",
+               reply_to_provider_message_id: "held@example.com",
                fallback_visible_text: notice
              } =
-               Repo.one!(OutboxEntry)
+               Repo.one!(Intent)
 
-      assert notice == Ankole.I18n.t("signals_gateway.reply.unmapped_sender")
+      assert notice == Ankole.I18n.t("conversations.delivery.reply.unmapped_sender")
 
-      notice_row = Repo.one!(OutboxEntry)
+      notice_row = Repo.one!(Intent)
 
       assert notice_row.payload["metadata"]["unmatched_sender"]["platform_subject"] ==
                "ada@example.com"
 
-      drifted = Repo.get_by!(Channel, id: notice_row.signal_channel_id)
+      drifted = Repo.get_by!(Conversation, id: notice_row.conversation_id)
 
       {:ok, _channel} =
         drifted
@@ -724,7 +734,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
         )
         |> Repo.update()
 
-      assert {:ok, notice_email} = Outbox.build(notice_row, Config.runtime(validated_config()))
+      assert {:ok, notice_email} = Delivery.build(notice_row, Config.runtime(validated_config()))
       assert notice_email.recipients == ["ada@example.com"]
       assert notice_email.headers["In-Reply-To"] == "<held@example.com>"
       assert notice_email.headers["References"] == "<held@example.com>"
@@ -785,8 +795,8 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       refute external.uid == local.uid
 
-      assert %Entry{author: %{"principal_uid" => uid}} =
-               Repo.get_by(Entry, source_entry_id: "owner1@corp.example")
+      assert %{author: %{"principal_uid" => uid}} =
+               message_snapshot(provider_message_id: "owner1@corp.example")
 
       assert uid == external.uid
       assert Repo.get!(Ankole.Principals.HumanUser, local.uid).email == "owner@corp.example"
@@ -811,17 +821,20 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event, [consumer])
 
-      assert %Entry{
+      assert %{
                text: text,
                metadata: %{"size_limit_exceeded" => true, "subject" => "Huge"},
                attachments: []
              } =
-               Repo.get_by(Entry, source_entry_id: "big@example.com")
+               message_snapshot(provider_message_id: "big@example.com")
 
       assert text =~ "exceeds the 25 MB limit"
 
-      assert %Channel{name: "Huge"} =
-               Repo.get_by(Channel, id: Inbound.signal_channel_id(@mailbox, "big@example.com"))
+      assert %Conversation{title: "Huge"} =
+               Repo.get_by(Conversation,
+                 provider_conversation_id:
+                   Inbound.provider_conversation_id(@mailbox, "big@example.com")
+               )
     end
   end
 
@@ -923,7 +936,11 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert %{uidvalidity: 7, idle?: true, address: @mailbox} = ConnectionOwner.status(running)
 
       FakeImap.add_message(server, 1, raw)
-      assert eventually(fn -> Repo.get_by(Entry, source_entry_id: "owner@example.com") != nil end)
+
+      assert eventually(fn ->
+               message_snapshot(provider_message_id: "owner@example.com") != nil
+             end)
+
       assert eventually(fn -> received_store?(1) end)
 
       assert :ok = ConnectionReconciler.stop(key)
@@ -948,27 +965,27 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event(1, inbound), [consumer])
 
-      channel_id = Inbound.signal_channel_id(@mailbox, "q@example.com")
+      channel_id = Inbound.provider_conversation_id(@mailbox, "q@example.com")
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: agent.uid,
         binding_name: "mail",
         outbound_key: "reply-1",
         operation: :reply,
-        signal_channel_id: channel_id,
-        reply_to_source_entry_id: "q@example.com",
+        conversation_id: external_conversation_id(channel_id),
+        reply_to_provider_message_id: "q@example.com",
         payload: %{},
         fallback_visible_text: "Looks good.\n\n谢谢"
       }
 
       runtime = Config.runtime(validated_config())
-      assert {:ok, email} = Outbox.build(outbox, runtime)
+      assert {:ok, email} = Delivery.build(intent, runtime)
       assert email.recipients == ["ada.replies@example.com", "bob@example.org"]
       assert email.headers["Subject"] == "Re: Budget review"
       assert email.headers["In-Reply-To"] == "<q@example.com>"
       assert email.headers["References"] == "<root@example.com> <q@example.com>"
       assert email.message_id =~ ~r/\Aank-[a-f0-9]{40}@corp\.example\z/
-      assert Outbox.message_id(outbox, runtime) == email.message_id
+      assert Delivery.message_id(intent, runtime) == email.message_id
       assert email.headers["From"] == "Ankole Agent <#{@mailbox}>"
 
       port = start_fake_smtp()
@@ -979,11 +996,11 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       assert {:ok,
               %{
-                created_source_entry_id: created,
+                created_provider_message_id: created,
                 provider_thread_id: ^channel_id,
                 raw_payload: raw_payload
               }} =
-               Outbox.send(outbox)
+               Delivery.deliver(intent)
 
       assert created == email.message_id
       assert raw_payload["to"] == Enum.map(email.recipients, &%{"address" => &1})
@@ -995,10 +1012,10 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert sent.text == "Looks good.\n\n谢谢"
       assert sent.in_reply_to == ["q@example.com"]
 
-      assert {:ok, %OutboxEntry{status: :succeeded}} = commit_and_dispatch(outbox)
+      assert {:ok, %Intent{status: :sent}} = commit_and_dispatch(intent)
 
-      assert %Entry{author: %{"agent_uid" => _agent}} =
-               mirror = Repo.get_by(Entry, source_entry_id: email.message_id)
+      assert %{author: %{"agent_uid" => _agent}} =
+               mirror = message_snapshot(provider_message_id: email.message_id)
 
       assert mirror.raw_payload["message_id"] == email.message_id
 
@@ -1013,8 +1030,10 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_message_receive("message", event(2, human_reply), [consumer])
 
-      assert %Entry{signal_channel_id: ^channel_id} =
-               Repo.get_by(Entry, source_entry_id: "r@example.com")
+      assert %{conversation_id: public_conversation_id} =
+               message_snapshot(provider_message_id: "r@example.com")
+
+      assert public_conversation_id == external_conversation_id(channel_id)
     end
 
     test "verifies the server certificate on an implicit TLS submission" do
@@ -1028,13 +1047,14 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                  [consumer]
                )
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: agent.uid,
         binding_name: "mail",
         outbound_key: "reply-tls",
         operation: :reply,
-        signal_channel_id: Inbound.signal_channel_id(@mailbox, "tls@example.com"),
-        reply_to_source_entry_id: "tls@example.com",
+        conversation_id:
+          external_conversation_id(Inbound.provider_conversation_id(@mailbox, "tls@example.com")),
+        reply_to_provider_message_id: "tls@example.com",
         payload: %{},
         fallback_visible_text: "over tls"
       }
@@ -1062,7 +1082,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
         smtp_opts: [relay: ~c"127.0.0.1", port: port, ssl: true, tls: :never, sockopts: trusted]
       )
 
-      assert {:ok, %{created_source_entry_id: _created}} = Outbox.send(outbox)
+      assert {:ok, %{created_provider_message_id: _created}} = Delivery.deliver(intent)
       assert_receive {:smtp_data, @mailbox, ["ada@example.com"], _data}, 5_000
 
       Application.put_env(:ankole, Config,
@@ -1078,7 +1098,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:error,
               {:reply_delivery, :operator_action_required,
                %{"code" => "smtp_session_failed", "failure" => failure}}} =
-               Outbox.send(outbox)
+               Delivery.deliver(intent)
 
       assert failure =~ "tls_alert"
     end
@@ -1096,13 +1116,16 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                  ]
                )
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: agent.uid,
         binding_name: "mail",
         outbound_key: "reply-big",
         operation: :reply,
-        signal_channel_id: Inbound.signal_channel_id(@mailbox, "big-att@example.com"),
-        reply_to_source_entry_id: "big-att@example.com",
+        conversation_id:
+          external_conversation_id(
+            Inbound.provider_conversation_id(@mailbox, "big-att@example.com")
+          ),
+        reply_to_provider_message_id: "big-att@example.com",
         payload: %{
           "attachments" => [
             %{
@@ -1117,10 +1140,10 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       }
 
       assert {:error, {:reply_delivery, :permanent, %{"code" => "email_attachments_too_large"}}} =
-               Outbox.send(outbox)
+               Delivery.deliver(intent)
     end
 
-    test "classifies SMTP failures for the outbox" do
+    test "classifies SMTP failures for the intent" do
       %{principal: agent} = agent_fixture()
       consumer = bound_consumer(agent.uid, "mail", "create_standalone")
 
@@ -1136,13 +1159,14 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                  ]
                )
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: agent.uid,
         binding_name: "mail",
         outbound_key: "reply-2",
         operation: :reply,
-        signal_channel_id: Inbound.signal_channel_id(@mailbox, "f@example.com"),
-        reply_to_source_entry_id: "f@example.com",
+        conversation_id:
+          external_conversation_id(Inbound.provider_conversation_id(@mailbox, "f@example.com")),
+        reply_to_provider_message_id: "f@example.com",
         payload: %{},
         fallback_visible_text: "hello"
       }
@@ -1155,7 +1179,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:error,
               {:reply_delivery, :permanent,
                %{"code" => "smtp_delivery_failed", "failure" => failure}}} =
-               Outbox.send(outbox)
+               Delivery.deliver(intent)
 
       assert failure =~ "550"
 
@@ -1165,7 +1189,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
       assert {:error,
               {:reply_delivery, :operator_action_required, %{"code" => "smtp_session_failed"}}} =
-               Outbox.send(outbox)
+               Delivery.deliver(intent)
 
       {:ok, closed} = :gen_tcp.listen(0, [:binary])
       {:ok, closed_port} = :inet.port(closed)
@@ -1173,7 +1197,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       Application.put_env(:ankole, Config, smtp_opts: Keyword.put(smtp_opts, :port, closed_port))
 
       assert {:error, {:reply_delivery, :retryable, %{"code" => "smtp_session_failed"}}} =
-               Outbox.send(outbox)
+               Delivery.deliver(intent)
 
       assert {:error, {:reply_delivery, :permanent, %{"code" => "email_no_recipients"}}} =
                ErrorPolicy.normalize_delivery_result({:error, :no_recipients})
@@ -1195,7 +1219,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
   defp bound_consumer(agent_uid, binding_name, policy) do
     assert {:ok, _binding} =
-             SignalsGateway.put_binding(agent_uid, "email", binding_name, %{
+             Ankole.Signals.Bindings.put_binding(agent_uid, "email", binding_name, %{
                "config" => binding_config(),
                "unmatched_sender_policy" => policy
              })
@@ -1340,27 +1364,27 @@ defmodule Ankole.Plugins.EmailAdapterTest do
     {:ranch.get_port(name), data[:client_config][:cacerts]}
   end
 
-  defp commit_and_dispatch(%OutboxEntry{} = outbox) do
+  defp commit_and_dispatch(%Intent{} = intent) do
     attrs =
-      outbox
+      intent
       |> Map.take([
         :agent_uid,
         :binding_name,
         :outbound_key,
         :operation,
-        :signal_channel_id,
-        :reply_to_source_entry_id,
+        :conversation_id,
+        :reply_to_provider_message_id,
         :payload,
         :fallback_visible_text
       ])
       |> Map.put(:delivery_class, :generic)
-      |> Map.put(:idempotency_key, outbox.outbound_key)
+      |> Map.put(:idempotency_key, intent.outbound_key)
 
-    with {:ok, _outbox} <- SignalsGateway.commit_outbox(attrs) do
-      SignalsGateway.dispatch_outbox_by_key(
-        outbox.agent_uid,
-        outbox.binding_name,
-        outbox.outbound_key
+    with {:ok, _intent} <- Ankole.Conversations.Delivery.commit(attrs) do
+      Ankole.Conversations.Delivery.dispatch_by_key(
+        intent.agent_uid,
+        intent.binding_name,
+        intent.outbound_key
       )
     end
   end

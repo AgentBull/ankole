@@ -37,9 +37,9 @@ The Agent creates one directory in its workspace, adds `main.ts`, checks its set
 
 Each attempt receives the latest Agent WorkerEnv and an invocation-scoped `MCPORTER_CONFIG` generated from the current enabled Skills. The Worker does not predict which server the script will use. The script can call one selected MCP tool with mcporter and stdin JSON. Automation does not read Skill instructions, and it does not use a persistent Agent Home mcporter config.
 
-The run SDK provides `context()` and `emitEvent(payload)`. `context().event` is the same CloudEvents envelope that a direct trigger would append as an ActorEvent. A script can finish without an emission for a silent success, or call `emitEvent` one or more times to append durable `automation_job.emitted` events to the owner session.
+The run SDK provides `context()` and `emitEvent(payload)`. `context().event` is the same CloudEvents envelope that a direct trigger would append as a Signal. A script can finish without an emission for a silent success, or call `emitEvent` one or more times to append durable `automation_job.emitted` events to the owner session.
 
-`context()` and `emitEvent` exist only inside a platform run. A direct `bun main.ts` run can check the setup and branches that do not call these functions. After registration, use a test trigger for every SDK branch and inspect its durable run. `emitEvent` does not fall back to stdout: its promise resolves only after the ActorEvent is durable.
+`context()` and `emitEvent` exist only inside a platform run. A direct `bun main.ts` run can check the setup and branches that do not call these functions. After registration, use a test trigger for every SDK branch and inspect its durable run. `emitEvent` does not fall back to stdout: its promise resolves only after the Signal is durable.
 
 Every trigger consumption creates a durable run in the same PostgreSQL transaction that claims the checkback, advances the cron schedule, or accepts the webhook. Script exceptions, non-zero exits, and timeouts are terminal script outcomes and do not retry. A Worker loss is an infrastructure failure: the run gets a new fenced attempt through the existing Oban wake edge. Replays can repeat script side effects, so the script must make repetition harmless.
 

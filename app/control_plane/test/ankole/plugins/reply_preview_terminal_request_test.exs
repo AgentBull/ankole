@@ -3,13 +3,14 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
   # Pins the exact terminal `Request` that a durable AI reply row hands to each
   # provider's declared reply-preview module. That request selects the final
   # visible reply, so a changed field here is a changed provider message.
-  # SignalsGateway builds the request once for every provider; the six cases
+  # Conversations.Delivery builds the request once for every provider; the six cases
   # prove that each declared module receives the same shape.
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
 
+  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -20,13 +21,12 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
   alias Ankole.Plugins.TelegramAdapter
   alias Ankole.Plugins.WeComAdapter
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
 
   @subject_uid "human-a"
   @conversation_id "conversation-a"
@@ -137,16 +137,16 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
   end
 
   defp expected_request(fixture) do
-    checkpoint = ReplyPreviewAdapter.adapter_checkpoint(fixture.checkpoint)
+    checkpoint = PreviewAdapter.adapter_checkpoint(fixture.checkpoint)
 
     %Request{
-      actor_event: fixture.event,
+      signal: fixture.event,
       presentation: fixture.presentation,
       previous_presentation: checkpoint["presentation"],
       checkpoint: checkpoint,
       subject_uid: @subject_uid,
       conversation_id: @conversation_id,
-      outbox: fixture.outbox,
+      delivery: fixture.delivery,
       config: fixture.config,
       mode: :terminal
     }
@@ -156,13 +156,13 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
   # preview module. Tracing observes the real call instead of replacing the
   # module.
   defp capture_terminal_request(preview_module, fixture) do
-    {:ok, adapter} = ReplyPreviewAdapter.from_module(preview_module)
-    outbox = fixture.outbox
+    {:ok, adapter} = PreviewAdapter.from_module(preview_module)
+    intent = fixture.delivery
 
     task =
       Task.async(
         Repo.bind_tenant(fn ->
-          receive(do: (:go -> ReplyPreviewAdapter.finalize_outbox(adapter, outbox)))
+          receive(do: (:go -> PreviewAdapter.finalize_intent(adapter, intent)))
         end)
       )
 
@@ -198,7 +198,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
     {:ok, stored_config} = AppConfigure.get_by_key(config_key)
 
     {:ok, _binding} =
-      SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: agent.uid,
         name: binding_name,
         adapter: adapter,
@@ -208,14 +208,14 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
         unmatched_sender_policy: :create_standalone
       })
 
-    %{actor_event: event} =
-      emit_addressed_actor_event(
+    %{signal: event} =
+      emit_addressed_signal(
         agent.uid,
         binding_name,
         group_entry(%{
           source_event_id: unique_uid("#{adapter}-event"),
-          source_entry_id: unique_uid("#{adapter}-trigger"),
-          signal_channel_id: channel,
+          provider_message_id: unique_uid("#{adapter}-trigger"),
+          provider_conversation_id: channel,
           explicit: true
         })
       )
@@ -224,7 +224,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
       ReplyPresentation.new(state: "working") |> ReplyPresentation.replace_answer("draft")
 
     {:ok, _event} =
-      Actors.put_reply_preview_checkpoint(event.id, %{
+      PreviewState.put_checkpoint(event.id, %{
         "schema_version" => 1,
         "adapter" => adapter,
         "subject_uid" => @subject_uid,
@@ -233,22 +233,22 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
         "streaming_state" => "open"
       })
 
-    event = Repo.get!(ActorEvent, event.id)
+    event = PreviewState.load(Repo.get!(Signal, event.id), Repo)
 
     presentation =
       ReplyPresentation.new() |> ReplyPresentation.terminal("completed", "final answer")
 
-    outbox = %OutboxEntry{
+    intent = %Intent{
       agent_uid: agent.uid,
       binding_name: binding_name,
       outbound_key: "ai-reply:#{event.id}",
       delivery_class: :durable_ai_reply,
       operation: :reply,
       status: :sending,
-      signal_channel_id: channel,
+      conversation_id: channel,
       provider_thread_id: event.provider_thread_id,
-      reply_to_source_entry_id: event.source_entry_id,
-      source_actor_event_id: event.id,
+      reply_to_provider_message_id: event.provider_message_id,
+      source_signal_id: event.id,
       payload: %{
         "reply_presentation" => presentation,
         "metadata" => %{"source" => "ai_reply"}
@@ -261,9 +261,9 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
     %{
       agent: agent,
       event: event,
-      checkpoint: event.reply_preview_checkpoint,
+      checkpoint: Ankole.Conversations.Delivery.PreviewState.get(event).checkpoint,
       presentation: presentation,
-      outbox: outbox,
+      delivery: intent,
       config: stored_config
     }
   end

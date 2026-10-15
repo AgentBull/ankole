@@ -18,11 +18,11 @@ URL (see "Worker Files").
 
 The control plane stores:
 
-- ActorEvents, attempt budgets, and conversation epochs
+- Signals, attempt budgets, and Session epochs
 - Tool receipts until the Response tape records their results
 - AIGateway conversations and messages
 - Agent documents and enabled capabilities
-- copies of provider messages and provider outbox rows
+- copies of provider messages and provider intent rows
 - Background Agent Job state
 
 Each Agent has one Worker, which the control plane creates, starts, and stops
@@ -132,9 +132,9 @@ below `acked_seq`. The unacknowledged commands on one connection stay below
 both the control-plane limit and the worker's last credit; beyond that a send
 is `{:error, :backpressure}`.
 
-`Ankole.SignalsGateway.ActorRuntime.WorkerRoute` is the only module that
+`Ankole.AgentWorkers.WorkerRoute` is the only module that
 sends to a worker. The route directory is
-`Ankole.SignalsGateway.ActorRuntime.WorkerTracker`, a `Phoenix.Tracker`:
+`Ankole.AgentWorkers.WorkerTracker`, a `Phoenix.Tracker`:
 
 - One tracker topic per Worker: `worker/<worker_id>`. Authentication reads the
   Worker row across tenants and gives its tenant to the Channel.
@@ -194,7 +194,7 @@ and does not block the other streams.
 A `command` connection holds at most 64 unacknowledged commands. One WebSocket
 frame contains at most 16 MiB. A channel process closes its connection when its
 mailbox exceeds 10,000 messages; the worker reconnects, and PostgreSQL
-conversation tape, receipts, and Job facts drive recovery.
+AIGateway Response tape, receipts, and Job facts drive recovery.
 
 A telemetry drop does not change turn correctness. Telemetry that must not be
 lost needs a durable spool; RuntimeFabric does not provide one.
@@ -242,7 +242,7 @@ The Bun adapter handles:
 - protocol-version checks after decoding
 - worker drain before shutdown
 
-The adapter does not schedule Actors or decide when a turn ends.
+The adapter does not schedule Sessions or decide when a run ends.
 
 ## Routing State
 
@@ -251,8 +251,8 @@ It also records the connected process's route, incarnation, capacity, and load.
 These rows are logged: loss of a generation credential would disconnect its
 Worker. RuntimeFabric keeps no delivery or activation table.
 
-`Conversations.Driver` has one `:global` name per Agent and Session. PostgreSQL
-stores the inbox and Response tape. `actor_session_workspaces.epoch` serializes
+`Sessions.Driver` has one `:global` name per Agent and Session. PostgreSQL
+stores the signal queue and Response tape. `sessions.epoch` serializes
 control-plane decisions. Control-plane tool transactions hold a shared row
 lock; admission, round recording, and terminal commits hold an exclusive lock.
 An old Driver cannot commit after a new admission changes the epoch.
@@ -261,7 +261,7 @@ A Worker echoes a `RunRef` for environment work. It does not hold the epoch.
 Results belong to their Response and call IDs and can survive Driver replacement.
 A Codex Job uses `JobTurnRef`; the Job owner checks its persisted attempt.
 `WorkerRouteAuth` also checks that the connection belongs to the named Agent.
-AgentWorkers owns Worker placement and capacity, not conversation progress.
+AgentWorkers owns Worker placement and capacity, not Session progress.
 
 ## Authenticate a Worker
 
@@ -376,7 +376,7 @@ tool calls in one workspace use one slot.
 `workspace_open` carries a `RunRef`, the PostgreSQL-owned numeric workspace ID,
 the resolved Agent context, binding, trusted runtime environment, fetch
 configuration as `FetchRuntimeConfig`, and inactivity timeout. `RunRef` contains `session_id` and
-`actor_event_id`; the authenticated connection supplies the Agent.
+`signal_id`; the authenticated connection supplies the Agent.
 
 The workspace ID names `/workspace/sessions/<workspace-id>` and stays stable
 for one Agent and Session. The Worker prepares the current environment and
@@ -419,14 +419,14 @@ the new Driver can adopt the work still on the Worker.
 
 ### Start or Adopt a Codex Attempt
 
-`turn_start` is only for a Codex Job. It contains one ActorEvent, a `JobTurnRef`,
+`turn_start` is only for a Codex Job. It contains one Signal, a `JobTurnRef`,
 model snapshot, request context, typed `HostedTool` values, trusted environment,
 and the same `FetchRuntimeConfig` as `workspace_open`. A start also carries the
 resolved `AgentConversationContext`. The control plane resolves the current
 context outside the claim transaction. The claim freezes the Job runtime
 projection; that projection selects the Skills from the resolved context. An
 adopt carries no context and does not repeat preparation. `JobTurnRef`
-contains ActorEvent ID, Job ID, and attempt. The connection supplies the Agent
+contains Signal ID, Job ID, and attempt. The connection supplies the Agent
 and the Job ID supplies the Session. The Job owns its project directory. Mode `start` starts the claimed attempt; `adopt` finds the
 same local attempt without starting another Codex turn. If it is absent, the
 Worker aborts that attempt and the Job owner applies its retry policy.
@@ -439,19 +439,19 @@ does not launch another execution. The receive loop stays available for stop,
 drain, and generation changes while confirmation is pending.
 
 `mailbox_updated` delivers one persisted input in queue order.
-The Worker keeps the ActorEvent IDs that Codex applied. Terminal
+The Worker keeps the Signal IDs that Codex applied. Terminal
 `background_agent_job.status.update` carries those IDs; the control plane closes
 only the trigger and applied inputs in the Job terminal transaction. Inputs
 that arrived after the last applied event remain open for the next attempt.
 
 `turn_control` interrupts an attempt or withdraws a Skill. A failed Worker
-attempt calls `actor_turn.abort`. Completion and abort use the Job's own
+attempt calls `session_turn.abort`. Completion and abort use the Job's own
 attempt identity, so Driver replacement cannot reject a still-running Codex
 result. Duplicate terminal writes are idempotent at the Job owner.
 
 ### Trusted Runtime Environment
 
-The control plane derives `ANKOLE_RUNTIME_` values from the current ActorEvent.
+The control plane derives `ANKOLE_RUNTIME_` values from the current Signal.
 They are execution facts, separate from operator WorkerEnv settings. An active
 human requester contributes the sender Principal, access version, and derived
 Lark profile. Scheduled and system inputs carry no human requester values.
@@ -697,9 +697,9 @@ The inbound path is:
 2. The control plane assigns a numeric attachment ID and records a pending
    provider observation in PostgreSQL.
 3. The adapter stores the bytes in the file service with
-   `Ingress.store_attachment/3`.
+   `Conversations.Observe.store_attachment/3`.
 4. The adapter replaces the pending observation with `blob_ref` and the drive
-   `path` under `chats/<channel_id>/inbox/`, or with a failed materialization state.
+   `path` under `chats/<conversation_id>/inbox/`, or with a failed materialization state.
 
 The outbound path is:
 
@@ -707,17 +707,17 @@ The outbound path is:
    with `drive_path`.
 2. The control-plane tool owner records the original path and current digest.
 3. The Driver records the structured tool result in the Response tape.
-4. SignalsGateway checks that the drive names each content at its path.
-5. The Run terminal transaction inserts attachment outbox intents. The common
-   Outbox commit check permits a file under `chats/<channel_id>/` only for that
-   destination channel. Paths outside `chats/` are shared.
+4. Conversations.Delivery checks that the drive names each content at its path.
+5. The Run terminal transaction inserts attachment intent intents. The common
+   Delivery commit check permits a file under `chats/<conversation_id>/` only for that
+   destination Conversation UUID. Paths outside `chats/` are shared.
 6. The provider adapter reads the bytes by `blob_ref` and uploads them.
-7. SignalsGateway records the outbound mirror after success.
+7. Conversations records the Agent Message and external reference after provider confirmation.
 
 Hosted tools make an exception for complete `image_generation_call` items.
-AIGateway owns their artifact bytes. SignalsGateway stores those bytes under
-`chats/<channel_id>/generated/` in the Agent's drive during turn adoption. Without
-a source channel, it uses the shared `generated/` prefix.
+AIGateway owns their artifact bytes. Sessions.Presentation stores those bytes under
+`chats/<conversation_id>/generated/` in the Agent's drive during turn adoption. Without
+a source Conversation, it uses the shared `generated/` prefix.
 
 Ankole never searches model prose for file paths. The model must return a
 structured attachment record.
@@ -774,7 +774,7 @@ whose protocol version differs from the control plane at once, and a Worker
 whose image or backend template differs when it is idle (see
 [AgentWorkers](AgentWorkers.md)).
 
-The first upgrade to conversation drivers requires a maintenance window.
+The first upgrade to Session drivers requires a maintenance window.
 Stop all old control-plane nodes before the migration. Old Workers use an
 incompatible protocol; their open inputs resume under the new driver and can
 repeat one interrupted operation. Later planned restarts adopt retained

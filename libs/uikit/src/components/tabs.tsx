@@ -25,7 +25,9 @@ const tabsListVariants = cva(
     variants: {
       variant: {
         default: 'border-b border-border bg-transparent',
-        line: 'border-b border-border bg-transparent'
+        line: 'border-b border-border bg-transparent',
+        // Tabs on the ground: a ghost control for each tab and a paper object for the active tab.
+        object: 'gap-0.5 bg-transparent group-data-horizontal/tabs:h-7'
       }
     },
     defaultVariants: {
@@ -58,6 +60,7 @@ function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
         'group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent',
         'data-active:text-foreground',
         'after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-1px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 data-active:after:opacity-100',
+        'group-data-[variant=object]/tabs-list:flex-none group-data-[variant=object]/tabs-list:gap-1.5 group-data-[variant=object]/tabs-list:rounded-control group-data-[variant=object]/tabs-list:px-2 group-data-[variant=object]/tabs-list:text-[13px] group-data-[variant=object]/tabs-list:text-fg-tertiary group-data-[variant=object]/tabs-list:after:hidden group-data-[variant=object]/tabs-list:focus-visible:outline-offset-1 group-data-[variant=object]/tabs-list:hover:bg-accent group-data-[variant=object]/tabs-list:hover:text-foreground group-data-[variant=object]/tabs-list:data-active:border-control-edge group-data-[variant=object]/tabs-list:data-active:border-b-control-base group-data-[variant=object]/tabs-list:data-active:bg-control group-data-[variant=object]/tabs-list:data-active:font-medium group-data-[variant=object]/tabs-list:data-active:text-foreground group-data-[variant=object]/tabs-list:data-active:hover:bg-control',
         className
       )}
       {...props}

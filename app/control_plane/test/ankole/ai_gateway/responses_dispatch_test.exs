@@ -23,7 +23,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Ecto.UUIDv7
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.Repo
 
   setup do
@@ -2728,7 +2728,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "previous_response_id" => "resp_#{first.id}",
                "prompt_cache_key" => "cache-ws",
                "metadata" => %{
-                 "actor_event_id" => "internal-event-id",
+                 "signal_id" => "internal-event-id",
                  "kept" => "public"
                }
              })
@@ -2754,7 +2754,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     refute Map.has_key?(provider_request, "conversation")
 
     assert provider_request["metadata"] == %{
-             "actor_event_id" => "internal-event-id",
+             "signal_id" => "internal-event-id",
              "kept" => "public"
            }
 
@@ -2775,7 +2775,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => "next user as a string",
                "store" => true,
                "previous_response_id" => "resp_#{first.id}",
-               "metadata" => %{"actor_event_id" => "internal-event-id-string"}
+               "metadata" => %{"signal_id" => "internal-event-id-string"}
              })
 
     assert string_request.response_context.request["input"] ==
@@ -3218,7 +3218,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     conversation = seed_checkpoint_memory!(agent, conversation, "memory-recovery-seed")
 
     failed_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "replay-recovery-failed")
+      signal_fixture(agent.uid, conversation.conversation_key, "replay-recovery-failed")
 
     failed_input = [text_message("user", "Wire Format: current request that retries once")]
 
@@ -3228,7 +3228,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => failed_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => failed_event.id}
+               "metadata" => %{"signal_id" => failed_event.id}
              })
 
     %{light_requests: [summary_request], primary_requests: [first_request, retry_request]} =
@@ -3281,7 +3281,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert artifact_json =~ "tail assistant response"
 
     next_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "replay-recovery-next")
+      signal_fixture(agent.uid, conversation.conversation_key, "replay-recovery-next")
 
     next_input = [text_message("user", "continue from the repaired checkpoint")]
 
@@ -3291,7 +3291,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => next_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => next_event.id}
+               "metadata" => %{"signal_id" => next_event.id}
              })
 
     assert {:ok, events} = collect_sse_chunks(stream, [])
@@ -3368,7 +3368,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         }
       ])
 
-    event = actor_event_fixture(agent.uid, conversation.conversation_key, "late-rejection-run")
+    event = signal_fixture(agent.uid, conversation.conversation_key, "late-rejection-run")
 
     assert {:ok, stream, _meta} =
              AIGateway.open_websocket_stream(agent.uid, %{
@@ -3376,7 +3376,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => [text_message("user", "current request")],
                "store" => true,
                "previous_response_id" => "resp_#{prior.id}",
-               "metadata" => %{"actor_event_id" => event.id}
+               "metadata" => %{"signal_id" => event.id}
              })
 
     assert {:ok, events} = collect_sse_chunks(stream, [])
@@ -3448,7 +3448,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                  "input" => retry_input,
                  "store" => true,
                  "conversation" => "conv_#{conversation.id}",
-                 "metadata" => %{"actor_event_id" => "interrupted-tool-retry-#{label}"}
+                 "metadata" => %{"signal_id" => "interrupted-tool-retry-#{label}"}
                })
 
       [recovered_output | persisted_retry_input] = run.content
@@ -3495,7 +3495,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => retry_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "interrupted-nested-tool-retry"}
+               "metadata" => %{"signal_id" => "interrupted-nested-tool-retry"}
              })
 
     assert run.content == retry_input
@@ -3566,7 +3566,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "orphan-projection-retry"}
+               "metadata" => %{"signal_id" => "orphan-projection-retry"}
              })
 
     projected_input = prepared.response_context.request["input"]
@@ -3657,7 +3657,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => [text_message("user", "continue safely")],
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "malformed-call-projection-retry"}
+               "metadata" => %{"signal_id" => "malformed-call-projection-retry"}
              })
 
     projected_input = prepared.response_context.request["input"]
@@ -3708,8 +3708,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     {:ok, conversation} =
       Conversations.ensure_conversation(agent.uid, "dispatch-instructions-scope")
 
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "instructions-a")
+    signal =
+      signal_fixture(agent.uid, conversation.conversation_key, "instructions-a")
 
     {:ok, first} =
       start_response_run(%{
@@ -3717,7 +3717,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         conversation_id: conversation.id,
         request_items: [text_message("user", "first user")],
         metadata: %{
-          "request_metadata" => %{"actor_event_id" => actor_event.id},
+          "request_metadata" => %{"signal_id" => signal.id},
           "instructions" => "old instruction"
         }
       })
@@ -3733,7 +3733,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "previous_response_id" => "resp_#{first.id}",
-               "metadata" => %{"actor_event_id" => "instructions-event"}
+               "metadata" => %{"signal_id" => "instructions-event"}
              })
 
     provider_request = request.response_context.request
@@ -3756,7 +3756,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                  "store" => true,
                  "conversation" => "conv_#{conversation.id}",
                  "max_tool_calls" => invalid_value,
-                 "metadata" => %{"actor_event_id" => "invalid-max-tool-calls-event"}
+                 "metadata" => %{"signal_id" => "invalid-max-tool-calls-event"}
                })
     end
   end
@@ -3794,8 +3794,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     {:ok, first} = ResponseCommit.commit_complete(first, [])
 
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "conversation-anchor-b")
+    signal =
+      signal_fixture(agent.uid, conversation.conversation_key, "conversation-anchor-b")
 
     current_input = [text_message("user", "second user")]
 
@@ -3805,20 +3805,18 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => actor_event.id}
+               "metadata" => %{"signal_id" => signal.id}
              })
 
     [run] =
       Repo.all(Message)
-      |> Enum.filter(
-        &(get_in(&1.metadata, ["request_metadata", "actor_event_id"]) == actor_event.id)
-      )
+      |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
     assert run.previous_message_id == first.id
     assert run.status == "error"
     assert run.content == current_input
     assert run.metadata["error"]["stage"] == "socket_open"
-    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+    assert is_nil(Repo.get!(Signal, signal.id).completed_at)
   end
 
   test "socket-open errors persist stable failure facts without provider text" do
@@ -3993,8 +3991,8 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
              compaction.id
            ]
 
-    actor_event =
-      actor_event_fixture(agent.uid, conversation.conversation_key, "compaction-anchor-d")
+    signal =
+      signal_fixture(agent.uid, conversation.conversation_key, "compaction-anchor-d")
 
     current_input = [text_message("user", "fourth user")]
 
@@ -4004,20 +4002,18 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => actor_event.id}
+               "metadata" => %{"signal_id" => signal.id}
              })
 
     [run] =
       Repo.all(Message)
-      |> Enum.filter(
-        &(get_in(&1.metadata, ["request_metadata", "actor_event_id"]) == actor_event.id)
-      )
+      |> Enum.filter(&(get_in(&1.metadata, ["request_metadata", "signal_id"]) == signal.id))
 
     assert run.previous_message_id == compaction.id
     assert run.status == "error"
     assert run.content == current_input
     assert run.metadata["error"]["stage"] == "socket_open"
-    assert is_nil(Repo.get!(ActorEvent, actor_event.id).completed_at)
+    assert is_nil(Repo.get!(Signal, signal.id).completed_at)
   end
 
   test "compaction threshold follows model context ratio with a configurable cap" do
@@ -4157,7 +4153,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "auto-compact-event"}
+               "metadata" => %{"signal_id" => "auto-compact-event"}
              })
 
     assert_receive {:gateway_request, %{path: "models"} = models_request}
@@ -4340,7 +4336,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "client-search-compaction-event"}
+               "metadata" => %{"signal_id" => "client-search-compaction-event"}
              })
 
     assert_receive {:gateway_request, _summarizer_request}
@@ -4409,7 +4405,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "short-history-next-event"}
+               "metadata" => %{"signal_id" => "short-history-next-event"}
              })
 
     assert_receive {:gateway_request, summarizer_request}
@@ -4492,7 +4488,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "checkpoint-short-tail-next-event"}
+               "metadata" => %{"signal_id" => "checkpoint-short-tail-next-event"}
              })
 
     assert_receive {:gateway_request, summarizer_request}
@@ -4765,7 +4761,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "auto-compact-tool-tail-event"}
+               "metadata" => %{"signal_id" => "auto-compact-tool-tail-event"}
              })
 
     assert_receive {:gateway_request, summarizer_request}
@@ -4906,7 +4902,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "tools" => programmatic_tools(),
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "program-batch-compaction-event"}
+               "metadata" => %{"signal_id" => "program-batch-compaction-event"}
              })
 
     assert_receive {:gateway_request, summarizer_request}
@@ -4990,7 +4986,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => [text_message("user", "new current request")],
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "reasoning-redaction-event"}
+               "metadata" => %{"signal_id" => "reasoning-redaction-event"}
              })
 
     assert_receive {:gateway_request, summarizer_request}
@@ -5041,7 +5037,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => [text_message("user", "new current request")],
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "context-retry-event"}
+               "metadata" => %{"signal_id" => "context-retry-event"}
              })
 
     assert_receive {:gateway_request, first_request}
@@ -5079,7 +5075,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => [text_message("user", "new current request")],
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "high-reasoning-event"}
+               "metadata" => %{"signal_id" => "high-reasoning-event"}
              })
 
     assert_receive {:gateway_request, primary_request}
@@ -5134,7 +5130,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => [text_message("user", "new request")],
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "overflow-disabled-event"}
+               "metadata" => %{"signal_id" => "overflow-disabled-event"}
              })
 
     assert history_usage_tokens > 10
@@ -5265,7 +5261,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "input" => current_input,
                "store" => true,
                "previous_response_id" => "resp_#{anchor.id}",
-               "metadata" => %{"actor_event_id" => "production-usage-shape-event"}
+               "metadata" => %{"signal_id" => "production-usage-shape-event"}
              })
 
     provider_input = request.response_context.request["input"]
@@ -5449,7 +5445,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
                "truncation" => "auto",
-               "metadata" => %{"actor_event_id" => "truncation-stable-tail-event"}
+               "metadata" => %{"signal_id" => "truncation-stable-tail-event"}
              })
 
     provider_request = request.response_context.request
@@ -5579,7 +5575,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
                "truncation" => "auto",
-               "metadata" => %{"actor_event_id" => "program-truncation-boundary-event"}
+               "metadata" => %{"signal_id" => "program-truncation-boundary-event"}
              })
 
     provider_input = request.response_context.request["input"]
@@ -5672,7 +5668,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
                "truncation" => "auto",
-               "metadata" => %{"actor_event_id" => "truncation-checkpoint-event"}
+               "metadata" => %{"signal_id" => "truncation-checkpoint-event"}
              })
 
     provider_request = request.response_context.request
@@ -5713,7 +5709,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
                "truncation" => "auto",
-               "metadata" => %{"actor_event_id" => "truncation-checkpoint-next-event"}
+               "metadata" => %{"signal_id" => "truncation-checkpoint-next-event"}
              })
 
     next_provider_input = next_request.response_context.request["input"]
@@ -5787,7 +5783,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
                "truncation" => "auto",
-               "metadata" => %{"actor_event_id" => "truncate-auto-event"}
+               "metadata" => %{"signal_id" => "truncate-auto-event"}
              })
 
     provider_request = request.response_context.request
@@ -5917,7 +5913,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
                "truncation" => "auto",
-               "metadata" => %{"actor_event_id" => "truncate-orphan-fco-event"}
+               "metadata" => %{"signal_id" => "truncate-orphan-fco-event"}
              })
 
     assert_receive {:gateway_request, _summarizer_request}
@@ -5999,7 +5995,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
                "truncation" => "auto",
-               "metadata" => %{"actor_event_id" => "truncate-summary-fail-event"}
+               "metadata" => %{"signal_id" => "truncate-summary-fail-event"}
              })
 
     assert_receive {:gateway_request, _summarizer_request}
@@ -6098,7 +6094,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                "store" => true,
                "conversation" => "conv_#{conversation.id}",
                "truncation" => "auto",
-               "metadata" => %{"actor_event_id" => "retry-summary-event"}
+               "metadata" => %{"signal_id" => "retry-summary-event"}
              })
 
     assert [first_cap, retry_cap] = Agent.get(caps, & &1)
@@ -6223,6 +6219,85 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
       )
 
     assert Enum.map(raw, & &1.id) == [m1.id, m2.id, m3.id]
+  end
+
+  test "a stored compaction trigger follows its explicit anchor instead of the latest leaf" do
+    %{principal: agent} = agent_fixture()
+    with_compaction_config(tail_rows: 1)
+
+    base_url =
+      start_recording_upstream(self(), fn request ->
+        {:sse, 200,
+         openai_response_stream_events(
+           "resp_explicit_compaction",
+           request.body["model"],
+           "## Active Task\nContinue the requested branch."
+         )}
+      end)
+
+    create_openai_compaction_provider!(agent, "explicit-compaction-branch", base_url)
+    {conversation, anchor} = compactable_conversation!(agent, "explicit-compaction-branch")
+
+    {:ok, newer} =
+      start_linked_stateful_message(agent.uid, conversation, anchor, "newer-branch", [
+        text_message("user", "UNRELATED_NEWER_BRANCH")
+      ])
+
+    {:ok, _newer} = ResponseCommit.commit_complete(newer, [], usage(100))
+
+    request =
+      Ankole.JSON.encode!(%{
+        "type" => "response.create",
+        "model" => "primary",
+        "store" => true,
+        "previous_response_id" => "resp_#{anchor.id}",
+        "input" => [%{"type" => "compaction_trigger"}]
+      })
+
+    assert {:push, pushed, _state} =
+             AnkoleWeb.AIGatewayResponsesSocket.handle_in({request, [opcode: :text]}, %{
+               subject_uid: agent.uid,
+               subject_type: "agent"
+             })
+
+    body =
+      pushed
+      |> socket_frames()
+      |> Enum.find(&(&1["type"] == "response.completed"))
+      |> Map.fetch!("response")
+
+    assert [%{"type" => "compaction", "id" => "cmp_" <> artifact_id}] = body["output"]
+    assert body["id"] == "resp_#{artifact_id}"
+    assert Repo.get!(Message, artifact_id).previous_message_id == anchor.id
+
+    assert_receive {:gateway_request, summary_request}
+    summary_input = Ankole.JSON.encode!(summary_request.body["input"])
+    assert summary_input =~ "first user message"
+    refute summary_input =~ "UNRELATED_NEWER_BRANCH"
+
+    artifact = Repo.get!(CompactionArtifact, artifact_id)
+    refute Ankole.JSON.encode!(artifact.content) =~ "UNRELATED_NEWER_BRANCH"
+    assert Repo.get!(Message, newer.id).status == "complete"
+  end
+
+  test "a stored compaction trigger rejects an anchor from another owned conversation" do
+    %{principal: agent} = agent_fixture()
+    {conversation, _anchor} = compactable_conversation!(agent, "compaction-selected-conversation")
+
+    {_other_conversation, other_anchor} =
+      compactable_conversation!(agent, "compaction-other-chain")
+
+    assert {:error, :invalid_anchor} =
+             CompactionRequests.compact_from_trigger(agent.uid, %{
+               "model" => "primary",
+               "store" => true,
+               "conversation" => "conv_#{conversation.id}",
+               "previous_response_id" => "resp_#{other_anchor.id}",
+               "input" => [%{"type" => "compaction_trigger"}]
+             })
+
+    assert Repo.all(CompactionArtifact) == []
+    refute_receive {:gateway_request, _request}
   end
 
   test "the WebSocket transport answers a compaction trigger without a Provider stream" do
@@ -6623,7 +6698,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
           level: :error,
           metadata: [
             :event,
-            :actor_event_id,
+            :signal_id,
             :model,
             :api_resolver,
             :upstream_host,
@@ -6657,7 +6732,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
                    AIGateway.open_sse_stream(agent.uid, %{
                      "model" => "primary",
                      "stream" => true,
-                     "metadata" => %{"actor_event_id" => "actor-event-diagnostics"},
+                     "metadata" => %{"signal_id" => "actor-event-diagnostics"},
                      "input" => [
                        %{
                          "type" => "function_call",
@@ -6724,7 +6799,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
            end)
 
     assert log =~ "event=ai_gateway.response_failed"
-    assert log =~ "actor_event_id=actor-event-diagnostics"
+    refute log =~ "signal_id=actor-event-diagnostics"
     assert log =~ "model=openai/gpt-5.5"
     assert log =~ "api_resolver=openai_chat_completions"
     assert log =~ "upstream_host=127.0.0.1"
@@ -7876,96 +7951,162 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     assert Repo.all(CompactionArtifact) == []
   end
 
-  test "stateful compaction replays native output and replaces it locally after a binding change" do
-    %{principal: agent} = agent_fixture()
-    prefer_provider_compaction!(agent.uid)
-    # The history here is a few items, so the retained tail must be pinned below
-    # it; this test is about replacing native output, not about the row floor.
-    with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
+  for path <- [:automatic, :manual],
+      fallback <- [:binding_change, :upstream_disabled, :provider_fallback] do
+    @tag compaction_path: path, native_fallback: fallback
+    test "#{path} compaction rebuilds native history after #{fallback}", %{
+      compaction_path: path,
+      native_fallback: fallback
+    } do
+      %{principal: agent} = agent_fixture()
+      prefer_provider_compaction!(agent.uid)
+      # The history here is a few items, so the retained tail must be pinned below
+      # it; this test is about replacing native output, not about the row floor.
+      with_compaction_config(threshold: 0.50, max_threshold_tokens: 10, tail_rows: 1)
 
-    native_output = [
-      %{"type" => "message", "role" => "user", "content" => "provider-retained"},
-      %{
-        "type" => "compaction",
-        "encrypted_content" => "provider-opaque-state",
-        "provider_extension" => %{"preserve" => true}
-      }
-    ]
+      native_output = [
+        %{"type" => "message", "role" => "user", "content" => "provider-retained"},
+        %{
+          "type" => "compaction",
+          "encrypted_content" => "provider-opaque-state",
+          "provider_extension" => %{"preserve" => true}
+        }
+      ]
 
-    base_url =
-      start_recording_upstream(self(), fn request ->
-        if compaction_trigger_request?(request) do
-          {:sse, 200,
-           openai_compaction_stream_events("resp_native_stateful", native_output, %{
-             "total_tokens" => 41
-           })}
-        else
-          {:sse, 200,
-           openai_response_stream_events(
-             "resp_binding_fallback_summary",
-             request.body["model"],
-             "## Active Task\nRebuilt from the raw predecessor chain."
-           )}
-        end
-      end)
+      native_requests = start_supervised!({Agent, fn -> 0 end})
 
-    create_openai_compaction_provider!(agent, "openai-native-stateful", base_url)
-    {conversation, _tail} = compactable_conversation!(agent, "native-stateful")
-    first_input = [text_message("user", "continue after native compaction")]
+      base_url =
+        start_recording_upstream(self(), fn request ->
+          if compaction_trigger_request?(request) do
+            attempt = Agent.get_and_update(native_requests, &{&1 + 1, &1 + 1})
 
-    assert {:ok, first_request, first_context} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
-               "model" => "primary",
-               "input" => first_input,
-               "store" => true,
-               "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "native-stateful-first"}
-             })
+            if fallback == :provider_fallback and attempt > 1 do
+              {:json, 404, %{"error" => %{"message" => "Compaction is unsupported."}}}
+            else
+              {:sse, 200,
+               openai_compaction_stream_events("resp_native_stateful", native_output, %{
+                 "total_tokens" => 41
+               })}
+            end
+          else
+            {:sse, 200,
+             openai_response_stream_events(
+               "resp_binding_fallback_summary",
+               request.body["model"],
+               "## Active Task\nRebuilt from the raw predecessor chain."
+             )}
+          end
+        end)
 
-    assert_receive {:gateway_request, %{path: "v1/responses"}}
-    replayed_input = first_request.response_context.request["input"]
-    assert Enum.any?(replayed_input, &(Map.get(&1, "type") == "compaction"))
-    assert Enum.take(replayed_input, -length(first_input)) == first_input
+      create_openai_compaction_provider!(agent, "openai-native-stateful", base_url)
 
-    assert {:ok, _completed} =
-             ResponseCommit.commit_complete(
-               first_context.message,
-               [text_message("assistant", "native continuation complete")],
-               camel_usage(320_010)
-             )
+      {conversation, _tail} =
+        compactable_conversation!(agent, "native-stateful", "RAW_PREDECESSOR_ONLY")
 
-    assert {:ok, _profile} =
-             ModelProfiles.put_model_profile(agent.uid, "primary", %{
-               provider_id: "openai-native-stateful",
-               model: "gpt-main-rebound"
-             })
+      conversation = seed_checkpoint_memory!(agent, conversation, "memory-native-rebuild")
 
-    second_input = [text_message("user", "continue after the model change")]
+      first_input = [
+        text_message("user", "continue discussing Wire Format after native compaction")
+      ]
 
-    assert {:ok, second_request, _second_context} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
-               "model" => "primary",
-               "input" => second_input,
-               "store" => true,
-               "conversation" => "conv_#{conversation.id}",
-               "metadata" => %{"actor_event_id" => "native-stateful-rebound"}
-             })
+      first_event = signal_fixture(agent.uid, conversation.conversation_key, "native-first")
 
-    assert_receive {:gateway_request, %{path: "v1/responses"}}
-    refute_receive {:gateway_request, %{path: "v1/responses"}}, 100
+      assert {:ok, first_request, first_context} =
+               StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+                 "model" => "primary",
+                 "input" => first_input,
+                 "store" => true,
+                 "conversation" => "conv_#{conversation.id}",
+                 "metadata" => %{"signal_id" => first_event.id}
+               })
 
-    second_provider_input = second_request.response_context.request["input"]
-    refute Ankole.JSON.encode!(second_provider_input) =~ "provider-opaque-state"
-    assert Enum.any?(second_provider_input, &local_checkpoint_summary/1)
-    assert Enum.take(second_provider_input, -length(second_input)) == second_input
+      assert_receive {:gateway_request, %{path: "v1/responses"}}
+      replayed_input = first_request.response_context.request["input"]
+      assert Enum.any?(replayed_input, &(Map.get(&1, "type") == "compaction"))
+      assert Enum.take(replayed_input, -length(first_input)) == first_input
 
-    versions =
-      Repo.all(CompactionArtifact)
-      |> Enum.filter(&(&1.conversation_id == conversation.id))
-      |> Enum.sort_by(& &1.inserted_at, DateTime)
-      |> Enum.map(& &1.content["version"])
+      assert {:ok, _completed} =
+               ResponseCommit.commit_complete(
+                 first_context.message,
+                 [text_message("assistant", "native continuation complete")],
+                 camel_usage(320_010)
+               )
 
-    assert versions == [3, 2]
+      case fallback do
+        :binding_change ->
+          assert {:ok, _profile} =
+                   ModelProfiles.put_model_profile(agent.uid, "primary", %{
+                     provider_id: "openai-native-stateful",
+                     model: "gpt-main-rebound"
+                   })
+
+        :upstream_disabled ->
+          with_compaction_config(upstream: false)
+
+        :provider_fallback ->
+          :ok
+      end
+
+      visible_anchor = "resp_#{first_context.message.id}"
+
+      case path do
+        :automatic ->
+          second_input = [
+            text_message("user", "continue discussing Wire Format after native rebuild")
+          ]
+
+          second_event =
+            signal_fixture(agent.uid, conversation.conversation_key, "native-rebound")
+
+          assert {:ok, second_request, _second_context} =
+                   StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+                     "model" => "primary",
+                     "input" => second_input,
+                     "store" => true,
+                     "conversation" => "conv_#{conversation.id}",
+                     "metadata" => %{"signal_id" => second_event.id}
+                   })
+
+          second_provider_input = second_request.response_context.request["input"]
+          refute Ankole.JSON.encode!(second_provider_input) =~ "provider-opaque-state"
+          assert Enum.any?(second_provider_input, &local_checkpoint_summary/1)
+          assert Enum.take(second_provider_input, -length(second_input)) == second_input
+
+        :manual ->
+          assert {:ok, %{compaction: checkpoint}} =
+                   CompactionRequests.compact_conversation(agent.uid, conversation.id, %{
+                     "previous_response_id" => visible_anchor
+                   })
+
+          assert checkpoint.previous_message_id == first_context.message.id
+      end
+
+      if fallback == :provider_fallback do
+        assert_receive {:gateway_request, rejected}
+        assert compaction_trigger_request?(rejected)
+      end
+
+      assert_receive {:gateway_request, summary_request}
+      refute compaction_trigger_request?(summary_request)
+      summary_input = Ankole.JSON.encode!(summary_request.body["input"])
+      assert summary_input =~ "RAW_PREDECESSOR_ONLY"
+      refute summary_input =~ "provider-opaque-state"
+      refute_receive {:gateway_request, %{path: "v1/responses"}}, 100
+
+      artifacts =
+        Repo.all(CompactionArtifact)
+        |> Enum.filter(&(&1.conversation_id == conversation.id))
+        |> Enum.sort_by(& &1.inserted_at, DateTime)
+
+      assert Enum.map(artifacts, & &1.content["version"]) == [3, 2]
+      local = List.last(artifacts)
+      assert [pack] = local.content["brain_context_pack"]
+      assert Ankole.JSON.encode!(pack) =~ "MEMORY_ORION"
+      assert Repo.get!(Message, local.id).previous_message_id == first_context.message.id
+
+      assert Agent.get(native_requests, & &1) ==
+               if(fallback == :provider_fallback, do: 2, else: 1)
+    end
   end
 
   test "manual conversation compaction uses the same upstream selector" do
@@ -8155,11 +8296,9 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
     # Handle resolution replays the preserved provider state ahead of the
     # local checkpoint text.
-    handle = CompactionArtifacts.handle(artifact.id)
-
     assert {:ok, resolved} =
              CompactionArtifacts.resolve_input_handles(agent.uid, [
-               %{"type" => "compaction", "encrypted_content" => handle}
+               CompactionArtifacts.compaction_item(artifact.id)
              ])
 
     assert [^retained_message, ^opaque_item, checkpoint_message] = resolved
@@ -8434,7 +8573,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
 
   defp seed_checkpoint_memory!(agent, conversation, event_id) do
     seed_brain_fact!(agent)
-    event = actor_event_fixture(agent.uid, conversation.conversation_key, event_id)
+    event = signal_fixture(agent.uid, conversation.conversation_key, event_id)
     history = ResponseChain.expand_history(conversation.id)
     first = hd(history)
 
@@ -8443,7 +8582,7 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
         agent.uid,
         %{
           "tools" => [%{"type" => "brain", "inject" => true}],
-          "metadata" => %{"actor_event_id" => event.id}
+          "metadata" => %{"signal_id" => event.id}
         },
         conversation,
         [text_message("user", "Wire Format")],
@@ -8587,13 +8726,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
   end
 
   defp start_stateful_message(agent_uid, conversation, source_event_id, request_items) do
-    actor_event = actor_event_fixture(agent_uid, conversation.conversation_key, source_event_id)
+    signal = signal_fixture(agent_uid, conversation.conversation_key, source_event_id)
 
     start_response_run(%{
       subject_uid: agent_uid,
       conversation_id: conversation.id,
       request_items: request_items,
-      metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}}
+      metadata: %{"request_metadata" => %{"signal_id" => signal.id}}
     })
   end
 
@@ -8604,13 +8743,13 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
          source_event_id,
          request_items
        ) do
-    actor_event = actor_event_fixture(agent_uid, conversation.conversation_key, source_event_id)
+    signal = signal_fixture(agent_uid, conversation.conversation_key, source_event_id)
 
     start_response_run(%{
       subject_uid: agent_uid,
       previous_response_id: "resp_#{previous.id}",
       request_items: request_items,
-      metadata: %{"request_metadata" => %{"actor_event_id" => actor_event.id}}
+      metadata: %{"request_metadata" => %{"signal_id" => signal.id}}
     })
   end
 
@@ -8886,24 +9025,23 @@ defmodule Ankole.AIGateway.ResponsesDispatchTest do
     end
   end
 
-  defp actor_event_fixture(agent_uid, session_id, source_event_id) do
+  defp signal_fixture(agent_uid, session_id, source_event_id) do
     now = DateTime.utc_now(:microsecond)
 
-    attrs = %{
-      agent_uid: agent_uid,
-      binding_name: "test-binding",
-      session_id: session_id,
-      source_event_id: "#{source_event_id}-#{System.unique_integer([:positive])}",
-      type: "im.message.addressed",
-      available_at: now,
-      queue_sequence: System.unique_integer([:positive]),
-      input_state: "open",
-      payload: %{"text" => source_event_id}
-    }
+    {:ok, signal} =
+      Repo.transact(fn repo ->
+        Ankole.Signals.accept_in_tx(repo, %{
+          source: "test://gateway-runtime",
+          id: "#{source_event_id}-#{System.unique_integer([:positive])}",
+          type: "test.source",
+          time: now,
+          data: %{"text" => source_event_id},
+          target: %{agent_uid: agent_uid, session_id: session_id},
+          authorization: Ankole.Principals.WorkAccess.service()
+        })
+      end)
 
-    %ActorEvent{}
-    |> ActorEvent.changeset(attrs)
-    |> Repo.insert!()
+    signal
   end
 
   defp collect_gateway_requests(0, requests), do: requests

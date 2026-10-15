@@ -80,7 +80,6 @@ const KNOWN_PROGRAMS = new Set([
   'python3'
 ])
 
-/** Keeps at most the nearest parent directory and basename for user-visible activity. */
 export function compactActivityPath(path: string | undefined): string | undefined {
   const normalized = path?.trim().replaceAll('\\', '/').replace(/\/+$/, '')
   if (!normalized) return undefined

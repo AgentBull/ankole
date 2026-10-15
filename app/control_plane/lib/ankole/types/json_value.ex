@@ -3,7 +3,7 @@ defmodule Ankole.Types.JSONValue do
   Ecto type for a JSONB column whose value may be any JSON shape.
 
   The stock `:map` Ecto type only accepts objects. Several Ankole columns
-  (signal payloads, plugin config blobs, outbox payloads) legitimately store a
+  (signal payloads, plugin config blobs, intent payloads) legitimately store a
   top-level array or scalar, so this type validates the *whole* JSON value tree
   instead. The validation is identical on the way in and out (`cast`, `dump`,
   and `load` all funnel through one check), so a row that fails to load loudly

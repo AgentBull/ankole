@@ -17,6 +17,8 @@
     "entrypoints/**/*.tsx",
     "setup/**/*.ts",
     "setup/**/*.tsx",
+    "workplace/**/*.ts",
+    "workplace/**/*.tsx",
     "vite.config.ts"
   ]
 }

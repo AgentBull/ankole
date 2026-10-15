@@ -2,7 +2,9 @@ defmodule Ankole.OIDC.Sessions do
   @moduledoc false
   import Ecto.Query
   alias Ankole.{BrowserSessions, OIDC, Repo}
-  alias Ankole.OIDC.{Client, LoginPolicy, Session}
+  alias Ankole.OIDC.Client
+  alias Ankole.OIDC.LoginPolicy
+  alias Ankole.OIDC.Session
   alias Ankole.Principals.HumanAccess
 
   def ensure(client_id, auth, scope) do

@@ -1,7 +1,7 @@
 defmodule Ankole.E2E.LarkMainFlowE2ETest do
   @moduledoc """
   Main user-story flow: fake Feishu WS ingress drives the real Docker worker
-  and the real Lark outbox HTTP path. Scenarios run serially against one worker
+  and the real Lark intent HTTP path. Scenarios run serially against one worker
   container; the fake-LLM counters at the end pin the exact upstream traffic.
   """
 
@@ -9,7 +9,7 @@ defmodule Ankole.E2E.LarkMainFlowE2ETest do
   @moduletag sandbox: false
 
   import Ankole.E2E.Harness
-  import Ankole.E2E.Scenarios.Ingress
+  import Ankole.E2E.Scenarios.Observe
 
   alias Ankole.E2E.FakeOpenAIState
 

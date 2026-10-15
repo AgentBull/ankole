@@ -27,6 +27,18 @@ defmodule AnkoleWeb.Plugs.WebhookCallbackBodyReader do
         } = conn,
         _opts
       ) do
+    read_callback_body(conn)
+  end
+
+  def call(
+        %Plug.Conn{method: "POST", path_info: ["signals", "v1", "cloudevents", _token]} = conn,
+        _opts
+      ),
+      do: read_callback_body(conn)
+
+  def call(conn, _opts), do: conn
+
+  defp read_callback_body(conn) do
     case read_body(conn, length: @max_body_bytes, read_length: 64 * 1024) do
       {:ok, body, conn} when byte_size(body) <= @max_body_bytes ->
         conn
@@ -49,8 +61,6 @@ defmodule AnkoleWeb.Plugs.WebhookCallbackBodyReader do
         |> halt()
     end
   end
-
-  def call(conn, _opts), do: conn
 
   @doc false
   @spec body(Plug.Conn.t()) :: binary()

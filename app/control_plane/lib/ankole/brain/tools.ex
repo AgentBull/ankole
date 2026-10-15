@@ -40,19 +40,45 @@ defmodule Ankole.Brain.Tools do
     defstruct querier_uid: nil,
               disclosure: nil,
               default_write_scope: nil,
-              channel_id: nil,
+              conversation_id: nil,
               participant_uids: [],
               parent_fallback: nil,
               holder_default: nil,
               write_fence: nil
 
+    @doc "Builds the subject-only context for a generic authenticated caller."
+    def for_subject(uid) do
+      parent =
+        case Ankole.Brain.Scope.canonical_slug(uid) do
+          {:ok, slug} -> {:page, slug}
+          {:error, _} = error -> error
+        end
+
+      holder =
+        case parent do
+          {:page, slug} -> slug
+          _ -> nil
+        end
+
+      %__MODULE__{
+        querier_uid: uid,
+        disclosure: Ankole.Brain.Access.open_disclosure(),
+        default_write_scope: {:ok, Ankole.Brain.Scope.principal(uid)},
+        conversation_id: nil,
+        participant_uids: [uid],
+        parent_fallback: parent,
+        holder_default: holder,
+        write_fence: nil
+      }
+    end
+
     @type t :: %__MODULE__{
             querier_uid: String.t(),
             disclosure: Ankole.Brain.Access.disclosure(),
             default_write_scope: {:ok, String.t()} | {:error, term()},
-            channel_id: String.t() | nil,
+            conversation_id: String.t() | nil,
             participant_uids: [String.t()],
-            parent_fallback: {:channel, String.t()} | {:page, String.t()} | {:error, term()},
+            parent_fallback: {:conversation, String.t()} | {:page, String.t()} | {:error, term()},
             holder_default: String.t() | nil,
             write_fence: (-> :ok | {:error, term()}) | nil
           }
@@ -145,7 +171,7 @@ defmodule Ankole.Brain.Tools do
       %{
         participant_uids: List.wrap(params[:participant_uids] || []),
         recent_text: params[:recent_text] || "",
-        channel_id: context.channel_id
+        conversation_id: context.conversation_id
       },
       disclosure: context.disclosure
     )
@@ -158,8 +184,6 @@ defmodule Ankole.Brain.Tools do
       disclosure: context.disclosure
     )
   end
-
-  # Operations
 
   defp run("remember", params, context) do
     with {:ok, claim_text} <- required(params, "claim"),
@@ -195,7 +219,7 @@ defmodule Ankole.Brain.Tools do
          "superseded_claim_id" => outcome[:superseded_claim_id],
          "audience_scope" => claim.audience_scope,
          "object_slug" => claim.object_slug,
-         "signal_gateway_channel_id" => claim.signal_gateway_channel_id
+         "conversation_id" => claim.conversation_id
        }}
     end
   end
@@ -264,7 +288,7 @@ defmodule Ankole.Brain.Tools do
               context.disclosure,
               Config.forgetting(),
               DateTime.utc_now(),
-              context.channel_id,
+              context.conversation_id,
               visibility
             )
 
@@ -310,8 +334,6 @@ defmodule Ankole.Brain.Tools do
       |> entity_resolution_payload()
     end
   end
-
-  # remember
 
   # A model that fills every declared property sends an absent date as "",
   # so an empty or blank until_date means no date for every kind.
@@ -392,8 +414,8 @@ defmodule Ankole.Brain.Tools do
       {{:object, slug}, _fallback} ->
         {:ok, Map.put(attrs, :object_slug, slug)}
 
-      {nil, {:channel, channel_id}} ->
-        {:ok, Map.put(attrs, :signal_gateway_channel_id, channel_id)}
+      {nil, {:conversation, conversation_id}} ->
+        {:ok, Map.put(attrs, :conversation_id, conversation_id)}
 
       {nil, {:page, slug}} ->
         {:ok, Map.put(attrs, :object_slug, slug)}
@@ -436,8 +458,6 @@ defmodule Ankole.Brain.Tools do
 
   defp validate_until_date(_value), do: {:error, :invalid_until_date}
 
-  # learn_source
-
   defp validate_learnable_url(url) do
     if Regex.match?(@url_pattern, url), do: :ok, else: {:error, :invalid_url}
   end
@@ -458,8 +478,6 @@ defmodule Ankole.Brain.Tools do
     end
   end
 
-  # forget
-
   defp forget_target(params) do
     case {optional_text(params["claim_id"]), optional_text(params["slug"])} do
       {claim_id, nil} when is_binary(claim_id) -> {:ok, {:claim, claim_id}}
@@ -473,8 +491,6 @@ defmodule Ankole.Brain.Tools do
 
   defp forget({:object, slug}, reason, context),
     do: Forget.forget_object(slug, reason, context.querier_uid)
-
-  # Shared plumbing
 
   defp ensure_enabled do
     if Config.enabled?(), do: :ok, else: {:error, :brain_disabled}
@@ -557,8 +573,6 @@ defmodule Ankole.Brain.Tools do
         end
     end
   end
-
-  # Catalog
 
   defp description("remember") do
     Enum.join(

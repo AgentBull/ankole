@@ -1,17 +1,17 @@
 defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.InboundBatch
+
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.InboundBatch
   alias FeishuOpenAPI.Event
 
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures, only: [finalize_due_inbound_batch_events: 1]
+  import Ankole.SignalsFixtures, only: [finalize_due_inbound_batch_events: 1]
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
   @base_ms DateTime.to_unix(@base_time, :millisecond)
@@ -55,7 +55,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert {:ok, [%{status: :ignored}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      refute Repo.get_by(ActorEvent, source_entry_id: "om_unconfigured_bot_mention")
+      refute Repo.get_by(Signal, provider_message_id: "om_unconfigured_bot_mention")
 
       assert {:ok, %{mentions: [mention], explicit: false}} =
                Inbound.normalize_message_receive(event, consumer)
@@ -94,7 +94,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert {:ok, [%{status: :ignored}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
-      refute Repo.get_by(ActorEvent, source_entry_id: "om_other_bot_mention")
+      refute Repo.get_by(Signal, provider_message_id: "om_other_bot_mention")
 
       assert {:ok, %{mentions: [mention], explicit: false}} =
                Inbound.normalize_message_receive(event, consumer)
@@ -130,11 +130,11 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
           }
         end)
 
-      assert {:ok, [%{status: :accepted, actor_event: input}]} =
+      assert {:ok, [%{status: :accepted, signal: input}]} =
                Inbound.handle_message_receive("im.message.receive_v1", event, [consumer])
 
       assert input.type == "command.retry"
-      assert input.source_entry_id == "om_this_bot_mention"
+      assert input.provider_message_id == "om_this_bot_mention"
 
       assert {:ok, %{mentions: [%{"agent_uid" => agent_uid}], explicit: true, text: "/retry"}} =
                Inbound.normalize_message_receive(event, consumer)
@@ -205,7 +205,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       refute text =~ "_user_1"
     end
 
-    test "mention-only reply resolves its persisted parent file only for the binding that observed it" do
+    test "mention-only reply shares parent facts and keeps file materialization scoped to the observing Agent" do
       %{principal: agent_a} = agent_fixture()
       %{principal: agent_b} = agent_fixture()
       binding_fixture(agent_a.uid, "lark", :ignore)
@@ -259,7 +259,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
       assert [
                %{
-                 "source_entry_id" => "om_parent_file",
+                 "provider_message_id" => "om_parent_file",
                  "attachments" => [
                    %{
                      "provider_ref" => "lark:file:file_parent",
@@ -292,7 +292,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert {:ok,
               %{
                 attachments: [],
-                reply_to_source_entry_id: "om_parent_file",
+                reply_to_provider_message_id: "om_parent_file",
                 explicit: true,
                 text: nil
               }} =
@@ -301,7 +301,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
       assert {:ok,
               %{
                 attachments: [],
-                reply_to_source_entry_id: "om_parent_file",
+                reply_to_provider_message_id: "om_parent_file",
                 explicit: false
               }} =
                Inbound.normalize_message_receive(reply, consumer_b)
@@ -330,20 +330,20 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
       assert [
                %{
-                 actor_event:
-                   %ActorEvent{
+                 signal:
+                   %Signal{
                      agent_uid: agent_a_uid,
-                     source_entry_id: "om_reply_agent_a"
-                   } = actor_event
+                     provider_message_id: "om_reply_agent_a"
+                   } = signal
                }
-             ] = Enum.filter(finalized_reply_results, &Map.has_key?(&1, :actor_event))
+             ] = Enum.filter(finalized_reply_results, &Map.has_key?(&1, :signal))
 
       assert agent_a_uid == agent_a.uid
 
-      assert get_in(actor_event.payload, ["data", "entry", "attachments"]) == []
+      assert get_in(signal.data, ["entry", "attachments"]) == []
 
       assert %{
-               "source_entry_id" => "om_parent_file",
+               "provider_message_id" => "om_parent_file",
                "resolution" => "resolved",
                "attachments" => [
                  %{
@@ -352,11 +352,11 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
                    "name" => "strategy.pdf"
                  }
                ]
-             } = get_in(actor_event.payload, ["data", "entry", "reply_to"])
+             } = get_in(signal.data, ["entry", "reply_to"])
 
-      refute Repo.get_by(ActorEvent,
+      refute Repo.get_by(Signal,
                agent_uid: agent_b.uid,
-               source_entry_id: "om_reply_agent_a"
+               provider_message_id: "om_reply_agent_a"
              )
 
       reply_for_agent_b =
@@ -394,25 +394,23 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
       assert [
                %{
-                 actor_event:
-                   %ActorEvent{
+                 signal:
+                   %Signal{
                      agent_uid: agent_b_uid,
-                     source_entry_id: "om_reply_agent_b"
+                     provider_message_id: "om_reply_agent_b"
                    } = agent_b_event
                }
-             ] = Enum.filter(agent_b_results, &Map.has_key?(&1, :actor_event))
+             ] = Enum.filter(agent_b_results, &Map.has_key?(&1, :signal))
 
       assert agent_b_uid == agent_b.uid
 
       assert %{
-               "source_entry_id" => "om_parent_file",
-               "resolution" => "unresolved"
-             } = get_in(agent_b_event.payload, ["data", "entry", "reply_to"])
-
-      refute Map.has_key?(
-               get_in(agent_b_event.payload, ["data", "entry", "reply_to"]),
-               "attachments"
-             )
+               "provider_message_id" => "om_parent_file",
+               "resolution" => "resolved",
+               "role" => "unknown",
+               "attachments" => [],
+               "links" => []
+             } = get_in(agent_b_event.data, ["entry", "reply_to"])
 
       refute_receive {:materialized, _source_message_ids}, 10
 
@@ -518,7 +516,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
   defp binding_fixture(agent_uid, name, policy) do
     {:ok, binding} =
-      SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: agent_uid,
         name: name,
         adapter: "lark",

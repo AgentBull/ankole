@@ -85,9 +85,20 @@ names.
   operator can open the group and read the current value, and a key that another
   page writes also links to that page.
 - A declared key prefix, such as `observability.traces.`, replaces its member rows with one row
-  and edits every member on one page. The key stays the save unit: the page
-  writes each changed key separately, and it checks every changed value before
-  the first write, so one rejected value does not leave the group part written.
+  and edits every member on one page. The key stays the save unit: its editor
+  model writes each changed key separately and validates all changed drafts locally
+  before the first write. Each successful write updates only that key's saved
+  baseline. A server rejection stops the remaining writes, keeps earlier
+  successful writes, and leaves failed and unsent drafts in the editor.
+
+Decryption applies only to the draft that requested it. A response that arrives
+after the operator selects another setting or changes the draft does not replace
+the current input. Save and restore responses update the saved baseline and keep
+edits made after the request began. Editor models own drafts, validation, write
+bodies, and asynchronous completion checks. They call the request functions that
+the page provides, and only a current completion can close the editor. A group
+model also owns the save batch state. TanStack Query owns individual request
+state and cache refresh.
 
 The generic encrypted-value editor keeps input as an opaque string unless the
 complete input is a valid JSON object or array. Thus, a secret such as `1234`,

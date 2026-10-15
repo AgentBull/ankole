@@ -58,7 +58,8 @@ defmodule Ankole.Plugins.SlackConnectionIdentityTest do
   end
 
   test "failed bot identity lookup does not start or register a Socket Mode client" do
-    alias Ankole.Plugins.SlackAdapter.{Config, ConnectionReconciler}
+    alias Ankole.Plugins.SlackAdapter.Config
+    alias Ankole.Plugins.SlackAdapter.ConnectionReconciler
 
     previous = Application.fetch_env(:ankole, Config)
 

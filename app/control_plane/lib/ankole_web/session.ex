@@ -149,10 +149,10 @@ defmodule AnkoleWeb.Session do
   def safe_return_to(value) when is_binary(value) do
     if String.starts_with?(value, "/") and not String.starts_with?(value, ["//", "/\\"]),
       do: value,
-      else: AnkoleWeb.SiteAdminConsole.path()
+      else: "/workplace"
   end
 
-  def safe_return_to(_), do: AnkoleWeb.SiteAdminConsole.path()
+  def safe_return_to(_), do: "/workplace"
 
   defp put_expiring_session(conn, key, attrs, ttl) do
     now = System.system_time(:second)

@@ -92,23 +92,22 @@ config :tzdata, :autoupdate, :disabled
 config :ankole, Oban,
   repo: Ankole.Repo,
   notifier: Oban.Notifiers.PG,
-  queues: [default: 10, agent_workers: 20, conversations: 20, outbox: 20],
+  queues: [default: 10, agent_workers: 20, conversations: 20, intent: 20],
   plugins: [
     Oban.Plugins.Pruner,
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},
     {Oban.Plugins.Cron,
      crontab: [
-       {"* * * * *", Ankole.SignalsGateway.ActorRuntime.Jobs.EnqueueDailySessionResets},
+       {"* * * * *", Ankole.Sessions.Jobs.EnqueueDailySessionResets},
        {"* * * * *", Ankole.Brain.Jobs.Tick},
-       {"* * * * *", Ankole.Conversations.Reconciler},
+       {"* * * * *", Ankole.Sessions.Reconciler},
        {"*/5 * * * *", Ankole.IdentityProviders.Jobs.EnqueueDirectorySyncs},
-       {"*/15 * * * *", Ankole.SignalsGateway.Jobs.CleanupExpiredState},
+       {"*/15 * * * *", Ankole.Signals.Jobs.CleanupExpiredState},
        {"41 * * * *", Ankole.AIGateway.Jobs.CleanupExpiredArtifacts},
        {"41 * * * *", Ankole.OIDC.Jobs.CleanupExpiredCredentials},
        {"23 * * * *", Ankole.Files.Jobs.CollectUnreferenced},
-       {"* * * * *", Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob},
-       {"*/5 * * * *", Ankole.SignalsGateway.ActorRuntime.AgentWorkers.SweepJob,
-        args: %{objects: true}}
+       {"* * * * *", Ankole.AgentWorkers.SweepJob},
+       {"*/5 * * * *", Ankole.AgentWorkers.SweepJob, args: %{objects: true}}
      ]}
   ]
 

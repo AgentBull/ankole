@@ -20,17 +20,17 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.Signals.Bindings
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.Binding
+  alias Ankole.Signals.Binding
   alias WeComOpenAPI.Corp.Client, as: CorpClient
 
   import Ankole.Plugins.MapHelpers,
     only: [required_string: 2, optional_string: 3, optional_boolean: 3]
 
-  @chat_key_pattern ~r/\Asignals_gateway\.wecom\.bindings\.[A-Za-z0-9_.:-]+\z/
+  @chat_key_pattern ~r/\Asignals\.wecom\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.wecom\.[A-Za-z0-9_.:-]+\z/
   @group_message_modes ["addressed_only"]
 
@@ -46,7 +46,7 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
   def app_config_patterns do
     [
       AppConfigure.define_pattern(
-        id: "signals_gateway.wecom.bindings.*",
+        id: "signals.wecom.bindings.*",
         key_pattern: @chat_key_pattern,
         encrypted: true,
         console_writable: false,
@@ -67,7 +67,7 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
   end
 
   @spec chat_config_key(String.t()) :: String.t()
-  def chat_config_key(id), do: "signals_gateway.wecom.bindings.#{id}"
+  def chat_config_key(id), do: "signals.wecom.bindings.#{id}"
 
   @spec identity_config_key(String.t()) :: String.t()
   def identity_config_key(id), do: "principals.identity_providers.wecom.#{id}"
@@ -96,11 +96,11 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
 
   @doc """
   Returns the Principal subject namespace of one chat config. See
-  `Ankole.SignalsGateway.SubjectNamespace.resolve/3`.
+  `Ankole.Signals.SubjectNamespace.resolve/3`.
   """
   @spec subject_namespace(map()) :: String.t()
   def subject_namespace(config) do
-    Ankole.SignalsGateway.SubjectNamespace.resolve(
+    Ankole.Signals.SubjectNamespace.resolve(
       "wecom",
       Map.get(config, "identityProvider"),
       "wecom-main"
@@ -108,7 +108,7 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
   end
 
   @doc """
-  Validates chat config when used as a SignalsGateway binding. A binding needs
+  Validates chat config when used as a Signal Binding. A binding needs
   no extra input beyond the chat config: the bot's own id arrives on every
   inbound frame (`aibotid`), so operators never supply a bot identity by hand.
   """

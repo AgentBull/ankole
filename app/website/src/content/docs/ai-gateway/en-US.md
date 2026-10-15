@@ -125,7 +125,7 @@ Files are first-class: `POST /files` uploads, `GET /files` lists, `GET /files/:i
 
 ## What AIGateway is not
 
-It is not a public, unauthenticated proxy. It is not a place to send provider credentials — those live in the control plane. And it is not a queue or a job runner; long-running agent work belongs to the Actor Runtime and Background Agent Jobs. AIGateway is the request/response boundary: one call in, one response or one stream out, with selectors resolved and credentials kept inside.
+It is not a public, unauthenticated proxy. It is not a place to send provider credentials — those live in the control plane. And it is not a queue or a job runner; long-running agent work belongs to Sessions and Background Agent Jobs. AIGateway is the request/response boundary: one call in, one response or one stream out, with selectors resolved and credentials kept inside.
 
 ## Next steps
 

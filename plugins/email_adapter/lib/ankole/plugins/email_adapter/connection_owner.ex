@@ -11,7 +11,9 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
   use GenServer
 
   alias Ankole.Logging
-  alias Ankole.Plugins.EmailAdapter.{Config, Inbound, MailboxSession}
+  alias Ankole.Plugins.EmailAdapter.Config
+  alias Ankole.Plugins.EmailAdapter.Inbound
+  alias Ankole.Plugins.EmailAdapter.MailboxSession
 
   @registry Ankole.Plugins.EmailAdapter.ConnectionRegistry
   @task_supervisor Ankole.Plugins.EmailAdapter.SessionTaskSupervisor

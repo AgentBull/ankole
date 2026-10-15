@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import type { JobTurnRef } from '../../lanes/actor_lane'
+import type { JobTurnRef } from '../../lanes/session_lane'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
 import type { RPCRequester, RuntimeSkillSummary } from '../../lanes/rpc_lane'
 import { createSkillLoader, type SkillLoadDetails, type SkillLoader } from '../../skills/skill-loader'
@@ -32,13 +32,8 @@ export function createSkillTools(opts: CreateSkillToolsOptions): WorkerAgentTool
 }
 
 /**
- * `skill_view`: loads a skill's instructions on demand. The system prompt only lists
- * skills as an index (name + one-line description); when the model decides a listed
- * skill covers the task it is about to do, it calls this to pull in the full SOP.
- *
- * It deliberately cannot enable a skill: a missing skill source surfaces as a
- * thrown read error, since enabling/assigning skills is a control-plane decision,
- * not something the model does.
+ * The system prompt lists Skills as an index. A missing Skill source throws:
+ * enabling a Skill is a control-plane decision.
  */
 export function createSkillViewTool(loader: SkillLoader): WorkerAgentTool<typeof SkillViewParams, SkillLoadDetails> {
   return defineWorkerTool({

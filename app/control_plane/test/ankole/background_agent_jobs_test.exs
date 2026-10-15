@@ -5,7 +5,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
   alias Ankole.AIAgent.Library.AgentPlugins
   alias Ankole.AgentHomePaths
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.RuntimeProjection
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -13,9 +13,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorRuntime.TurnErrorClassifier
-
-  require Ankole.BackgroundAgentJobs
+  alias Ankole.Sessions.TurnErrorClassifier
 
   describe "job session identity" do
     test "job_session_id/1 pins the persisted wire format" do
@@ -36,7 +34,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       end
     end
 
-    test "is_job_session_id/1 agrees with parse_job_session_id/1" do
+    test "Session key parsing agrees with numeric Job identity validation" do
       values = [
         BackgroundAgentJobs.job_session_id(1000),
         "job:",
@@ -48,7 +46,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       ]
 
       for value <- values do
-        assert BackgroundAgentJobs.is_job_session_id(value) ==
+        assert match?({:job, _}, Ankole.Sessions.Key.parse(value)) ==
                  match?({:ok, _job_id}, BackgroundAgentJobs.parse_job_session_id(value))
       end
     end
@@ -146,7 +144,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
 
     attrs = %{
-      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+      "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session",
       "source_tool_call_id" => "tool-background-agent-job-1",
@@ -155,13 +153,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
         "\n  Read the source material, write the brief, and verify every acceptance criterion.  \n",
       "reply_route" => %{
         "binding_name" => "lark",
-        "signal_channel_id" => "chat-1",
+        "conversation_id" => external_room!(agent.uid, "chat-1"),
         "provider_thread_id" => "thread-1",
-        "source_entry_id" => "message-1"
+        "provider_message_id" => "message-1"
       }
     }
 
-    assert {:ok, %{job: %Job{} = job, dispatch_event: %ActorEvent{} = event}} =
+    assert {:ok, %{job: %Job{} = job, dispatch_event: %Signal{} = event}} =
              BackgroundAgentJobs.create_with_dispatch(attrs)
 
     assert job.status == "queued"
@@ -173,21 +171,21 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert job.model_profile == "coding"
 
     assert event.agent_uid == agent.uid
-    assert event.binding_name == "lark"
+    assert event.reply_binding_name == "lark"
     assert event.session_id == BackgroundAgentJobs.job_session_id(job.id)
-    assert event.signal_channel_id == "chat-1"
+    assert event.conversation_id == external_room!(agent.uid, "chat-1")
     assert event.provider_thread_id == "thread-1"
-    assert event.source_entry_id == nil
+    assert event.provider_message_id == nil
     assert event.type == "background_agent_job.dispatch"
     assert event.source_event_id == "background_agent_job:#{job.id}:dispatch"
 
-    assert get_in(event.payload, ["data", "job_id"]) == job.id
-    assert get_in(event.payload, ["data", "owner_session_id"]) == "parent-session"
-    refute Map.has_key?(event.payload["data"], "workspace_template_id")
-    refute Map.has_key?(event.payload["data"], "workspace_mounts")
-    assert get_in(event.payload, ["data", "model_profile"]) == "coding"
-    assert get_in(event.payload, ["data", "attempts"]) == 0
-    refute inspect(event.payload) =~ attrs["task"]
+    assert get_in(event.data, ["job_id"]) == job.id
+    assert get_in(event.data, ["owner_session_id"]) == "parent-session"
+    refute Map.has_key?(event.data, "workspace_template_id")
+    refute Map.has_key?(event.data, "workspace_mounts")
+    assert get_in(event.data, ["model_profile"]) == "coding"
+    assert get_in(event.data, ["attempts"]) == 0
+    refute inspect(Ankole.Signals.Signal.envelope(event)) =~ attrs["task"]
 
     assert {:ok, %{job: same_job, dispatch_event: same_event}} =
              BackgroundAgentJobs.create_with_dispatch(attrs)
@@ -195,7 +193,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert same_job.id == job.id
     assert same_event.id == event.id
     assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
+    assert Repo.aggregate(from(e in Signal, where: e.type != "test.work"), :count) == 1
   end
 
   test "a Worker completion arriving after an external completion keeps the stored result" do
@@ -203,7 +201,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: %Job{} = job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session",
                "source_tool_call_id" => "tool-late-worker-completion",
@@ -211,12 +209,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "task" => "Verify the release externally.",
                "reply_route" => %{
                  "binding_name" => "lark",
-                 "signal_channel_id" => "chat-1",
-                 "source_entry_id" => "message-1"
+                 "conversation_id" => external_room!(agent.uid, "chat-1"),
+                 "provider_message_id" => "message-1"
                }
              })
 
-    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+    Ankole.SessionsCase.stub_driver(%{
       agent_uid: agent.uid,
       session_id: job.owner_session_id
     })
@@ -228,8 +226,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "result_summary" => "EXTERNALLY-VERIFIED"
              })
 
-    wakeup_id = wakeup.id
-    assert_receive {:inbox, ^wakeup_id}
+    drain_driver_wakeup!(wakeup)
 
     assert externally_completed.status == "succeeded"
 
@@ -251,7 +248,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "external-completion-rollback")
 
-    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+    Ankole.SessionsCase.stub_driver(%{
       agent_uid: agent.uid,
       session_id: job.owner_session_id
     })
@@ -264,27 +261,26 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:error, :fixture_rollback} =
              Repo.transact(fn _repo ->
-               assert {:ok, %{wakeup_event: %ActorEvent{}}} =
+               assert {:ok, %{wakeup_event: %Signal{}}} =
                         BackgroundAgentJobs.request_complete(job.id, args)
 
-               refute_receive {:inbox, _}, 20
+               refute_receive :reconcile_inbox, 20
                {:error, :fixture_rollback}
              end)
 
     assert Repo.reload!(job).status == "queued"
 
-    refute Repo.get_by(ActorEvent,
+    refute Repo.get_by(Signal,
              session_id: job.owner_session_id,
              type: "background_agent_job.completed"
            )
 
-    refute_receive {:inbox, _}, 20
+    refute_receive :reconcile_inbox, 20
 
     assert {:ok, %{wakeup_event: wakeup}} =
              BackgroundAgentJobs.request_complete(job.id, args)
 
-    wakeup_id = wakeup.id
-    assert_receive {:inbox, ^wakeup_id}
+    drain_driver_wakeup!(wakeup)
   end
 
   test "a skill-lesson reflection job wakes no session and enqueues the apply worker" do
@@ -292,7 +288,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: reflection}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "brain:skill-lessons:" <> agent.uid,
                "source_tool_call_id" => "skill-lessons:9000",
@@ -326,7 +322,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     # No wakeup event reached the synthetic owner session.
     refute Repo.exists?(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.session_id == ^("brain:skill-lessons:" <> agent.uid)
              )
            )
@@ -340,7 +336,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     # An ordinary job's terminal commit still appends its wakeup event.
     assert {:ok, %{job: plain}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "signal-channel:plain-session",
                "source_tool_call_id" => "plain-wakeup-control",
@@ -358,7 +354,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     plain_running = plain_running |> Ecto.Changeset.change(attempts: 1) |> Repo.update!()
     insert_turn!(plain_running, 1, "thread-plain", "turn-plain", "completed")
 
-    assert {:ok, %{job: _plain_done, wakeup_event: %ActorEvent{} = wakeup}} =
+    assert {:ok, %{job: _plain_done, wakeup_event: %Signal{} = wakeup}} =
              BackgroundAgentJobs.commit_status_with_wakeup(plain_running.id, agent.uid, %{
                "status" => "succeeded",
                "result" => %{"output_text" => "done"}
@@ -385,7 +381,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     attrs = %{
-      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+      "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-model-snapshot",
       "source_tool_call_id" => "tool-model-snapshot",
@@ -426,7 +422,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:error, :model_profile_not_configured} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-no-model",
                "source_tool_call_id" => "tool-no-model",
@@ -449,7 +445,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     attrs = %{
-      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+      "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-custom-model",
       "source_tool_call_id" => "tool-custom-model",
@@ -463,7 +459,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              BackgroundAgentJobs.create_with_dispatch(attrs)
 
     assert job.model_profile == "kimi"
-    assert get_in(event.payload, ["data", "model_profile"]) == "kimi"
+    assert get_in(event.data, ["model_profile"]) == "kimi"
 
     assert {:error, :invalid_custom_model_profile} =
              attrs
@@ -482,7 +478,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     %{principal: agent} = background_agent_fixture()
 
     attrs = %{
-      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+      "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-replay",
       "source_tool_call_id" => "tool-replay",
@@ -516,14 +512,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     end
 
     assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
+    assert Repo.aggregate(from(e in Signal, where: e.type != "test.work"), :count) == 1
   end
 
   test "concurrent starts converge on one Job and one dispatch" do
     %{principal: agent} = background_agent_fixture()
 
     attrs = %{
-      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+      "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-concurrent-start",
       "source_tool_call_id" => "tool-concurrent-start",
@@ -546,14 +542,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert results |> Enum.map(& &1.job.id) |> Enum.uniq() |> length() == 1
     assert results |> Enum.map(& &1.dispatch_event.id) |> Enum.uniq() |> length() == 1
     assert Repo.aggregate(Job, :count) == 1
-    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 1
+    assert Repo.aggregate(from(e in Signal, where: e.type != "test.work"), :count) == 1
   end
 
   test "workspace template selection stores one id and idempotent replay ignores later disablement" do
     %{principal: agent} = background_agent_fixture()
 
     attrs = %{
-      "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+      "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
       "agent_uid" => agent.uid,
       "owner_session_id" => "parent-session-research",
       "source_tool_call_id" => "tool-deep-research",
@@ -583,7 +579,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: research}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-trajectory-gate",
                "source_tool_call_id" => "tool-trajectory-gate",
@@ -648,13 +644,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "request_id" => "steer-forwarded"
              })
 
-    assert {:ok, %{wakeup_event: %ActorEvent{} = wake, dispatch_event: successor_dispatch}} =
+    assert {:ok, %{wakeup_event: %Signal{} = wake, dispatch_event: successor_dispatch}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "succeeded",
                "result" => %{"summary" => "Done"}
              })
 
-    successor_id = get_in(wake.payload, ["data", "successor_job_id"])
+    successor_id = get_in(wake.data, ["successor_job_id"])
     assert successor_id
     assert successor_dispatch.session_id == BackgroundAgentJobs.job_session_id(successor_id)
     assert successor_dispatch.type == "background_agent_job.dispatch"
@@ -698,7 +694,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:ok, %{job: manual_successor}} =
              BackgroundAgentJobs.respawn_with_dispatch(job.id, %{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => job.owner_session_id,
                "source_tool_call_id" => "manual-steer-successor-conflict",
@@ -718,7 +714,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "request_id" => "late-steer-successor-conflict"
              })
 
-    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+    Ankole.SessionsCase.stub_driver(%{
       agent_uid: agent.uid,
       session_id: job.owner_session_id
     })
@@ -734,9 +730,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert Repo.reload!(steer).completed_at == nil
     assert Repo.reload!(steer).input_state == "open"
     assert Repo.reload!(manual_successor).task == "Continue with the manual follow-up."
-    refute_receive {:inbox, _}, 20
+    refute_receive :reconcile_inbox, 20
 
-    refute Repo.get_by(ActorEvent,
+    refute Repo.get_by(Signal,
              session_id: job.owner_session_id,
              type: "background_agent_job.completed"
            )
@@ -901,7 +897,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert {:error, {:unsupported_background_agent_job_create_fields, ["workspace_mounts"]}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-invalid-workdir",
                "source_tool_call_id" => "tool-background-agent-job-invalid-workdir",
@@ -918,7 +914,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert Repo.aggregate(Job, :count) == 0
-    assert Repo.aggregate(from(e in ActorEvent, where: e.type != "test.work"), :count) == 0
+    assert Repo.aggregate(from(e in Signal, where: e.type != "test.work"), :count) == 0
   end
 
   test "status commits wake the parent only for waiting and result-bearing terminal states" do
@@ -926,7 +922,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     waiting = create_job!(agent.uid, "waiting")
 
     for session <- ["parent-session-waiting", "parent-session-failed", "parent-session-stopped"] do
-      Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+      Ankole.SessionsCase.stub_driver(%{
         agent_uid: agent.uid,
         session_id: session
       })
@@ -956,19 +952,18 @@ defmodule Ankole.BackgroundAgentJobsTest do
       ]
     }
 
-    assert {:ok, %{job: paused, wakeup_event: %ActorEvent{} = waiting_event}} =
+    assert {:ok, %{job: paused, wakeup_event: %Signal{} = waiting_event}} =
              BackgroundAgentJobs.commit_status_with_wakeup(waiting.id, agent.uid, %{
                "status" => "waiting_on_user",
                "metadata" => %{"pending_user_input" => pending_user_input}
              })
 
     assert paused.status == "waiting_on_user"
-    waiting_event_id = waiting_event.id
-    assert_receive {:inbox, ^waiting_event_id}
+    drain_driver_wakeup!(waiting_event)
     assert waiting_event.session_id == "parent-session-waiting"
     assert waiting_event.type == "background_agent_job.waiting"
     assert waiting_event.source_event_id == "background_agent_job:#{waiting.id}:waiting:1"
-    assert get_in(waiting_event.payload, ["data", "pending_user_input"]) == pending_user_input
+    assert get_in(waiting_event.data, ["pending_user_input"]) == pending_user_input
 
     assert {:ok, %{job: resumed, wakeup_event: nil}} =
              BackgroundAgentJobs.commit_status_with_wakeup(waiting.id, agent.uid, %{
@@ -980,7 +975,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     _completed_turn =
       insert_turn!(resumed, 1, "thread-waiting", "turn-resumed", "completed")
 
-    assert {:ok, %{job: succeeded, wakeup_event: %ActorEvent{} = completed_event}} =
+    assert {:ok, %{job: succeeded, wakeup_event: %Signal{} = completed_event}} =
              BackgroundAgentJobs.commit_status_with_wakeup(waiting.id, agent.uid, %{
                "status" => "succeeded",
                "result" => %{
@@ -1000,18 +995,17 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert succeeded.status == "succeeded"
-    completed_event_id = completed_event.id
-    assert_receive {:inbox, ^completed_event_id}
+    drain_driver_wakeup!(completed_event)
     assert completed_event.type == "background_agent_job.completed"
     assert completed_event.source_event_id == "background_agent_job:#{waiting.id}:succeeded:1"
 
-    assert get_in(completed_event.payload, ["data", "result_summary"]) ==
+    assert get_in(completed_event.data, ["result_summary"]) ==
              "Launch brief written and verified."
 
-    assert get_in(completed_event.payload, ["data", "project_path"]) ==
+    assert get_in(completed_event.data, ["project_path"]) ==
              "/workspace/jobs/#{waiting.id}"
 
-    assert get_in(completed_event.payload, ["data", "artifacts"]) == %{
+    assert get_in(completed_event.data, ["artifacts"]) == %{
              "total_count" => 1,
              "paths" => [
                Path.join("/workspace/jobs/#{waiting.id}", "launch-brief.pdf")
@@ -1027,7 +1021,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "runtime_thread_id" => "thread-failed"
              })
 
-    assert {:ok, %{job: failed, wakeup_event: %ActorEvent{} = failed_event}} =
+    assert {:ok, %{job: failed, wakeup_event: %Signal{} = failed_event}} =
              BackgroundAgentJobs.commit_status_with_wakeup(failed.id, agent.uid, %{
                "status" => "failed",
                "error" => %{
@@ -1038,16 +1032,15 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert failed.status == "failed"
-    failed_event_id = failed_event.id
-    assert_receive {:inbox, ^failed_event_id}
+    drain_driver_wakeup!(failed_event)
     assert failed_event.type == "background_agent_job.failed"
-    assert get_in(failed_event.payload, ["data", "job_id"]) == failed.id
+    assert get_in(failed_event.data, ["job_id"]) == failed.id
 
-    assert get_in(failed_event.payload, ["data", "result_summary"]) ==
+    assert get_in(failed_event.data, ["result_summary"]) ==
              "The provider disconnected (request [internal-id])."
 
-    refute Map.has_key?(failed_event.payload["data"], "workspace_template_id")
-    refute Map.has_key?(get_in(failed_event.payload, ["data"]), "workdir")
+    refute Map.has_key?(failed_event.data, "workspace_template_id")
+    refute Map.has_key?(failed_event.data, "workdir")
 
     stopped = create_job!(agent.uid, "stopped")
 
@@ -1058,11 +1051,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
              })
 
     assert stopped.status == "stopped"
-    refute_receive {:inbox, _}, 20
+    refute_receive :reconcile_inbox, 20
 
     parent_wakeups =
       Repo.all(
-        from(event in ActorEvent,
+        from(event in Signal,
           where:
             event.session_id in [
               "parent-session-waiting",
@@ -1082,19 +1075,79 @@ defmodule Ankole.BackgroundAgentJobsTest do
              ]
   end
 
+  test "a native conversation can dispatch a Job and receive its authorized result stimulus" do
+    %{principal: agent} = background_agent_fixture()
+    %{principal: human} = human_fixture()
+    id = Ecto.UUID.generate()
+
+    assert {:ok, detail} =
+             Repo.transact(fn _ ->
+               Ankole.ConversationsFixtures.create(human.uid, %{
+                 conversation_id: id,
+                 message_id: Ecto.UUID.generate(),
+                 agent_uid: agent.uid,
+                 text: "Inspect the release."
+               })
+             end)
+
+    source = Repo.get_by!(Signal, message_id: hd(detail.messages).id)
+
+    assert {:ok, %{job: job, dispatch_event: dispatch}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "source_signal_id" => source.id,
+               "agent_uid" => agent.uid,
+               "owner_session_id" => source.session_id,
+               "source_tool_call_id" => "native-job-dispatch",
+               "title" => "Inspect the release",
+               "task" => "Inspect the release and report the result.",
+               "reply_route" => %{"conversation_id" => id}
+             })
+
+    assert is_nil(dispatch.reply_binding_name)
+    assert dispatch.source == "control-plane://background-agent-job"
+    assert dispatch.human_uid == human.uid
+
+    assert {:ok, %{job: running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "native-job-thread"
+             })
+
+    running = set_attempts!(running, 1)
+    _turn = insert_turn!(running, 1, "native-job-thread", "native-job-turn", "completed")
+
+    assert {:ok, %{wakeup_event: result}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
+               "status" => "succeeded",
+               "result" => %{"summary" => "The release is ready."}
+             })
+
+    assert result.session_id == source.session_id
+    assert result.human_uid == human.uid
+    assert is_nil(result.reply_binding_name)
+    assert result.data["reply_route"] == %{"conversation_id" => id}
+    drain_driver_wakeup!(result)
+  end
+
   test "a terminal wakeup preserves frozen scheduled delivery targets" do
     %{principal: agent} = background_agent_fixture()
 
     delivery = %{
       "targets" => [
-        %{"binding_name" => "lark", "signal_channel_id" => "chat-primary"},
-        %{"binding_name" => "archive", "signal_channel_id" => "chat-archive"}
+        %{
+          "binding_name" => "lark",
+          "conversation_id" => external_room!(agent.uid, "chat-primary")
+        },
+        %{
+          "binding_name" => "archive",
+          "conversation_id" => external_room!(agent.uid, "chat-archive", "archive")
+        }
       ]
     }
 
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                "agent_uid" => agent.uid,
                "owner_session_id" => "parent-session-scheduled-delivery",
                "source_tool_call_id" => "tool-background-agent-job-scheduled-delivery",
@@ -1102,7 +1155,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "task" => "Complete the scheduled report.",
                "reply_route" => %{
                  "binding_name" => "lark",
-                 "signal_channel_id" => "chat-primary",
+                 "conversation_id" => external_room!(agent.uid, "chat-primary"),
                  "delivery" => delivery
                }
              })
@@ -1124,13 +1177,13 @@ defmodule Ankole.BackgroundAgentJobsTest do
         "completed"
       )
 
-    assert {:ok, %{wakeup_event: %ActorEvent{} = event}} =
+    assert {:ok, %{wakeup_event: %Signal{} = event}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "succeeded",
                "result" => %{"summary" => "Scheduled report complete."}
              })
 
-    assert get_in(event.payload, ["data", "reply_route", "delivery"]) == delivery
+    assert get_in(event.data, ["reply_route", "delivery"]) == delivery
   end
 
   test "failure wakeups omit unrecognized diagnostic maps" do
@@ -1143,7 +1196,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "runtime_thread_id" => "thread-opaque-failure"
              })
 
-    assert {:ok, %{wakeup_event: %ActorEvent{} = wakeup}} =
+    assert {:ok, %{wakeup_event: %Signal{} = wakeup}} =
              BackgroundAgentJobs.commit_status_with_wakeup(job.id, agent.uid, %{
                "status" => "failed",
                "error" => %{
@@ -1151,8 +1204,10 @@ defmodule Ankole.BackgroundAgentJobsTest do
                }
              })
 
-    refute Map.has_key?(wakeup.payload["data"], "result_summary")
-    refute Ankole.JSON.encode!(wakeup.payload) =~ "019f0000-0000-7000-8000-000000000098"
+    refute Map.has_key?(wakeup.data, "result_summary")
+
+    refute Ankole.JSON.encode!(Ankole.Signals.Signal.envelope(wakeup)) =~
+             "019f0000-0000-7000-8000-000000000098"
   end
 
   test "status and parent wakeup roll back together when the frozen reply route is invalid" do
@@ -1182,7 +1237,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert persisted.completed_at == nil
 
     refute Repo.exists?(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.session_id == ^job.owner_session_id,
                where: event.type == "background_agent_job.completed"
              )
@@ -1212,14 +1267,14 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     dispatch =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.session_id == ^BackgroundAgentJobs.job_session_id(queued.id),
           where: event.type == "background_agent_job.dispatch"
         )
       )
 
     assert %DateTime{} = dispatch.completed_at
-    assert %DateTime{} = Repo.get!(ActorEvent, queued_message.id).completed_at
+    assert %DateTime{} = Repo.get!(Signal, queued_message.id).completed_at
 
     assert {:ok, %{job: same_stopped, turn: nil}} =
              BackgroundAgentJobs.request_stop(queued.id, %{
@@ -1242,7 +1297,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     active_running_turn =
       insert_turn!(running, 1, "thread-running-stop", "turn-running-stop", "in_progress")
 
-    Ankole.SignalsGateway.ActorRuntimeCase.stub_driver(%{
+    Ankole.SessionsCase.stub_driver(%{
       agent_uid: agent.uid,
       session_id: BackgroundAgentJobs.job_session_id(running.id)
     })
@@ -1260,7 +1315,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert running_stopped.metadata["cancel_requested_by"] == "agent:#{agent.uid}"
     assert running_stopped.metadata["cancel_reason"] == "Changed priorities"
 
-    refute Repo.get_by(ActorEvent,
+    refute Repo.get_by(Signal,
              session_id: BackgroundAgentJobs.job_session_id(running.id),
              type: "command.stop"
            )
@@ -1305,7 +1360,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     refute Map.has_key?(waiting_stopped.metadata, "pending_user_input")
 
     refute Repo.exists?(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.session_id == ^BackgroundAgentJobs.job_session_id(waiting.id),
                where: event.type == "command.stop"
              )
@@ -1327,7 +1382,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
       running = set_attempts!(running, 1)
 
       event =
-        Repo.get_by!(ActorEvent,
+        Repo.get_by!(Signal,
           session_id: BackgroundAgentJobs.job_session_id(job.id),
           type: "background_agent_job.dispatch"
         )
@@ -1342,12 +1397,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
       assert {:ok, %{job: terminal, turn: turn}} =
                apply(BackgroundAgentJobs, @control_action, [job.id, attrs])
 
-      assert turn.actor_event_id == event.id
+      assert turn.signal_id == event.id
       assert turn.session_id == event.session_id
       assert turn.job_id == running.id
       assert turn.attempt == running.attempts
       assert terminal.status in ["stopped", "succeeded"]
-      refute Repo.get_by(ActorEvent, session_id: event.session_id, type: "command.stop")
+      refute Repo.get_by(Signal, session_id: event.session_id, type: "command.stop")
     end
   end
 
@@ -1364,23 +1419,23 @@ defmodule Ankole.BackgroundAgentJobsTest do
       |> Job.changeset(%{status: "running", runtime_thread_id: "thread-first"})
       |> Repo.update!()
 
-    assert {:ok, %{job: %Job{id: first_id}, command_event: %ActorEvent{} = message_event}} =
+    assert {:ok, %{job: %Job{id: first_id}, command_event: %Signal{} = message_event}} =
              BackgroundAgentJobs.send_message(first.id, %{
                "agent_uid" => agent.uid,
                "message" => "Use the operator audience.",
                "request_id" => "steer-first"
              })
 
-    assert message_event.source_entry_id == nil
+    assert message_event.provider_message_id == nil
 
     assert message_event.type == "command.steer"
 
-    assert get_in(message_event.payload, ["data", "command", "argsText"]) ==
+    assert get_in(message_event.data, ["command", "argsText"]) ==
              "Use the operator audience."
 
-    refute Map.has_key?(get_in(message_event.payload, ["data", "command"]), "answers")
+    refute Map.has_key?(get_in(message_event.data, ["command"]), "answers")
 
-    assert {:ok, %{command_event: %ActorEvent{id: repeated_id}}} =
+    assert {:ok, %{command_event: %Signal{id: repeated_id}}} =
              BackgroundAgentJobs.send_message(first.id, %{
                "agent_uid" => agent.uid,
                "message" => "Use the operator audience.",
@@ -1508,7 +1563,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert BackgroundAgentJobs.get_job_for_agent(succeeded.id, agent.uid).status == "succeeded"
 
     refute Repo.exists?(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.session_id == ^BackgroundAgentJobs.job_session_id(succeeded.id),
                where: event.type == "command.steer"
              )
@@ -1772,12 +1827,12 @@ defmodule Ankole.BackgroundAgentJobsTest do
                }
              })
 
-    summary = get_in(wakeup.payload, ["data", "result_summary"])
+    summary = get_in(wakeup.data, ["result_summary"])
     assert String.valid?(summary)
     assert byte_size(summary) <= 16_384
     assert String.ends_with?(summary, "...[truncated]")
 
-    handoff = get_in(wakeup.payload, ["data", "artifacts"])
+    handoff = get_in(wakeup.data, ["artifacts"])
     assert handoff == succeeded.result["artifacts"]
     assert handoff["total_count"] == 50_000
     assert length(handoff["paths"]) == 32
@@ -1792,7 +1847,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert changed["truncated"]
 
     roots = succeeded.result["artifact_roots"]
-    assert roots == get_in(wakeup.payload, ["data", "artifact_roots"])
+    assert roots == get_in(wakeup.data, ["artifact_roots"])
     assert roots["total_count"] == 2
 
     assert roots["paths"] == [
@@ -1802,8 +1857,8 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     refute roots["truncated"]
 
-    assert get_in(wakeup.payload, ["data", "project_path"]) == project_path
-    assert byte_size(Ankole.JSON.encode!(wakeup.payload)) <= 32_768
+    assert get_in(wakeup.data, ["project_path"]) == project_path
+    assert byte_size(Ankole.JSON.encode!(Ankole.Signals.Signal.envelope(wakeup))) <= 32_768
   end
 
   test "only normalized ankole_chatml headers can be stored as Turns" do
@@ -2271,7 +2326,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert result.ready
     assert result.status == "running"
-    assert result.lifecycle_actor_event_id == nil
+    assert result.lifecycle_signal_id == nil
     assert result.last_turn_trajectory["format"] == "ankole_chatml"
 
     assert result.last_turn_trajectory["metadata"] == %{
@@ -2342,7 +2397,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
     assert owner_result.ready
     assert owner_result.status == "waiting_on_user"
-    assert owner_result.lifecycle_actor_event_id == wakeup_event.id
+    assert owner_result.lifecycle_signal_id == wakeup_event.id
 
     assert {:ok, other_session_result} =
              BackgroundAgentJobs.message_result(
@@ -2352,7 +2407,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
              )
 
     assert other_session_result.ready
-    assert other_session_result.lifecycle_actor_event_id == nil
+    assert other_session_result.lifecycle_signal_id == nil
   end
 
   test "message result returns the causal Turn for succeeded and failed Jobs" do
@@ -2423,7 +2478,7 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
       assert result.ready
       assert result.status == job_status
-      assert result.lifecycle_actor_event_id == wakeup_event.id
+      assert result.lifecycle_signal_id == wakeup_event.id
 
       assert Enum.any?(
                result.last_turn_trajectory["messages"],
@@ -2451,9 +2506,9 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert {:ok, _completed} =
              Repo.transact(fn repo ->
                locked =
-                 Ankole.SignalsGateway.Actors.lock_actor_event_in_tx(repo, command_event.id)
+                 Ankole.Signals.lock_signal_in_tx(repo, command_event.id)
 
-               Ankole.SignalsGateway.mark_actor_event_completed_in_tx(
+               Ankole.Sessions.Queue.mark_event_completed_in_tx(
                  repo,
                  locked,
                  DateTime.utc_now(:microsecond)
@@ -2868,16 +2923,16 @@ defmodule Ankole.BackgroundAgentJobsTest do
 
       # External completion answers open steers with the completion itself and
       # never seeds a successor.
-      assert Repo.get!(ActorEvent, steer.id).completed_at != nil
+      assert Repo.get!(Signal, steer.id).completed_at != nil
       refute Repo.get_by(Job, continued_from_job_id: job.id)
 
       wakeup =
-        Repo.get_by!(ActorEvent,
+        Repo.get_by!(Signal,
           session_id: job.owner_session_id,
           type: "background_agent_job.completed"
         )
 
-      assert get_in(wakeup.payload, ["data", "result_summary"]) ==
+      assert get_in(wakeup.data, ["result_summary"]) ==
                "PDF verified at /agents/jobs/manual.pdf"
     end
 
@@ -3028,10 +3083,33 @@ defmodule Ankole.BackgroundAgentJobsTest do
     end
   end
 
+  defp external_room!(agent_uid, provider_id, binding_name \\ "lark") do
+    binding =
+      Ankole.SignalsFixtures.binding_fixture(agent_uid, binding_name, :record_only,
+        adapter: "mock"
+      )
+
+    {:ok, conversation} =
+      Repo.transact(fn repo ->
+        Ankole.Conversations.External.observe_conversation_in_tx(
+          repo,
+          binding,
+          %{
+            provider_conversation_id: "test:bg-job:#{provider_id}",
+            external_kind: :im_group,
+            reply_mode: :entry
+          },
+          DateTime.utc_now(:microsecond)
+        )
+      end)
+
+    conversation.id
+  end
+
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
-               "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
                "agent_uid" => agent_uid,
                "owner_session_id" => "parent-session-#{suffix}",
                "source_tool_call_id" => "tool-background-agent-job-#{suffix}",
@@ -3039,15 +3117,51 @@ defmodule Ankole.BackgroundAgentJobsTest do
                "task" => "Complete the #{suffix} job.",
                "reply_route" => %{
                  "binding_name" => "lark",
-                 "signal_channel_id" => "chat-#{suffix}",
+                 "conversation_id" => external_room!(agent_uid, "chat-#{suffix}"),
                  "provider_thread_id" => "thread-#{suffix}",
-                 "source_entry_id" => "message-#{suffix}"
+                 "provider_message_id" => "message-#{suffix}"
                }
              })
 
     job
   end
 
+  defp drain_driver_wakeup!(event) do
+    assert_enqueued(
+      worker: Ankole.Sessions.Jobs.EnsureDriver,
+      args: %{agent_uid: event.agent_uid, session_id: event.session_id}
+    )
+
+    for job <-
+          Repo.all(
+            from j in Oban.Job,
+              where: j.worker == "Ankole.Sessions.Jobs.EnsureDriver",
+              where: j.state in ["available", "scheduled", "retryable"],
+              where: fragment("?->>'tenant_id' = ?", j.args, ^Repo.tenant_id!())
+          ) do
+      key = %{agent_uid: job.args["agent_uid"], session_id: job.args["session_id"]}
+
+      if Ankole.Sessions.Driver.whereis(key) == :undefined,
+        do: Ankole.SessionsCase.stub_driver(key)
+    end
+
+    flush_driver_wakeups()
+
+    assert %{failure: 0, success: count} =
+             Oban.drain_queue(queue: :conversations, with_scheduled: true)
+
+    assert count > 0
+    for _ <- 1..count, do: assert_receive(:reconcile_inbox)
+  end
+
+  defp flush_driver_wakeups do
+    receive do
+      :reconcile_inbox -> flush_driver_wakeups()
+    after
+      0 -> :ok
+    end
+  end
+
   defp agent_slot_cap,
-    do: Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobCap.max_running_per_agent()
+    do: Ankole.Sessions.BackgroundAgentJobCap.max_running_per_agent()
 end

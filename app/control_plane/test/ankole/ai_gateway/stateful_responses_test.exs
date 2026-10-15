@@ -67,12 +67,10 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, conversation} =
         Conversations.ensure_conversation(agent.principal.uid, "test-conv-2")
 
-      # First: create an initial message and mark it complete.
       {:ok, first} = start_run(agent, conversation, "event-a")
 
       {:ok, first_complete} = ResponseCommit.commit_complete(first, [%{"type" => "message"}])
 
-      # Now start a second run referencing the first as previous_response_id.
       # The conversation is derived from the stored anchor; callers must not send
       # both previous_response_id and conversation.
       {:ok, second} =
@@ -107,7 +105,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, conversation} =
         Conversations.ensure_conversation(agent.principal.uid, "test-conv-3")
 
-      # Create a generating (not complete) message.
       {:ok, incomplete} = start_run(agent, conversation, "event-c")
 
       assert {:error, :invalid_anchor} =
@@ -917,7 +914,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       {:ok, conversation} =
         Conversations.ensure_conversation(agent.principal.uid, "test-conv-6")
 
-      # Build a 3-message chain.
       {:ok, m1} = start_run(agent, conversation, "event-g")
 
       {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "first"}])
@@ -939,7 +935,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       history = ResponseChain.expand_history(conversation.id)
 
       assert length(history) == 3
-      # Chronological order: oldest first.
       assert hd(history).id == m1.id
       assert List.last(history).id == m3.id
     end
@@ -954,7 +949,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "done"}])
 
-      # Start a second run but don't commit it.
       {:ok, _m2} =
         start_run(agent, conversation, "event-k", %{
           previous_response_id: "resp_#{m1.id}"
@@ -962,7 +956,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
 
       history = ResponseChain.expand_history(conversation.id)
 
-      # Only the complete row should appear.
       assert length(history) == 1
     end
 

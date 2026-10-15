@@ -397,7 +397,7 @@ defmodule Ankole.FilesTest do
         payload: %{"attachments" => [%{"blob_ref" => sha256, "name" => "report.txt"}]}
       }
 
-      assert {:ok, outbox} = Ankole.SignalsGateway.Outbox.commit_outbox(attrs)
+      assert {:ok, intent} = Ankole.Conversations.Delivery.commit(attrs)
       {:ok, _} = Files.commit(uid, [], ["report.txt"])
       digest = Base.decode16!(sha256, case: :lower)
 
@@ -410,16 +410,66 @@ defmodule Ankole.FilesTest do
       assert CollectUnreferenced.remove_marked(0) == 0
 
       assert {:ok, _content} =
-               Ankole.SignalsGateway.Outbox.attachment_content(hd(outbox.payload["attachments"]))
+               Ankole.Conversations.Delivery.attachment_content(hd(intent.payload["attachments"]))
 
-      outbox
-      |> Ankole.SignalsGateway.OutboxEntry.changeset(%{status: :succeeded})
+      intent
+      |> Ankole.Conversations.Delivery.Intent.changeset(%{status: :sent})
       |> Repo.update!()
 
       assert {:ok, 1} = CollectUnreferenced.mark_unreferenced()
       assert CollectUnreferenced.remove_marked(0) == 1
       # Recommitting a completed idempotency key does not require the old bytes.
-      assert {:ok, %{status: :succeeded}} = Ankole.SignalsGateway.Outbox.commit_outbox(attrs)
+      assert {:ok, %{status: :sent}} = Ankole.Conversations.Delivery.commit(attrs)
+    end
+
+    test "shared external attachments keep their bytes after the receiving Agent is deleted", %{
+      agent_uid: uid
+    } do
+      now = DateTime.utc_now(:microsecond)
+      {:ok, %{sha256: sha256}} = Files.store("shared attachment #{uid}")
+
+      {:ok, c} =
+        Repo.transact(fn repo ->
+          Ankole.Conversations.External.observe_conversation_in_tx(
+            repo,
+            %{agent_uid: uid},
+            %{
+              provider_conversation_id: "mock:#{uid}",
+              external_kind: :im_group,
+              title: "Shared",
+              reply_mode: :channel
+            },
+            now
+          )
+        end)
+
+      {:ok, %{message: message}} =
+        Repo.transact(fn repo ->
+          Ankole.Conversations.External.observe_in_tx(
+            repo,
+            c.id,
+            %{
+              agent_uid: uid,
+              provider_message_id: "file",
+              attachments: [%{"name" => "report.txt", "blob_ref" => sha256}]
+            },
+            now
+          )
+        end)
+
+      Repo.delete_all(where(AgentFile, agent_uid: ^uid))
+      Repo.delete!(Repo.get!(Ankole.Principals.Principal, uid))
+      assert Repo.get_by!(Ankole.Conversations.Message, id: message.id).attachments != []
+      digest = Base.decode16!(sha256, case: :lower)
+
+      Repo.update_all(where(Blob, sha256: ^digest),
+        set: [last_referenced_at: DateTime.add(now, -2, :day)]
+      )
+
+      assert {:ok, 0} = CollectUnreferenced.mark_unreferenced()
+      Repo.update_all(where(Blob, sha256: ^digest), set: [deleting: true])
+      assert CollectUnreferenced.remove_marked(0) == 0
+      assert {:ok, "shared attachment " <> ^uid} = ObjectStore.read(Files.object_key(digest))
     end
 
     test "an attachment cannot adopt bytes that collection has already claimed", %{agent_uid: uid} do
@@ -428,7 +478,7 @@ defmodule Ankole.FilesTest do
       Repo.update_all(where(Blob, sha256: ^digest), set: [deleting: true])
 
       assert {:error, {:blob_missing, ^sha256}} =
-               Ankole.SignalsGateway.Outbox.commit_outbox(%{
+               Ankole.Conversations.Delivery.commit(%{
                  agent_uid: uid,
                  binding_name: "test",
                  outbound_key: "missing",
@@ -437,8 +487,8 @@ defmodule Ankole.FilesTest do
                })
 
       refute Repo.exists?(
-               from outbox in Ankole.SignalsGateway.OutboxEntry,
-                 where: outbox.agent_uid == ^uid and outbox.outbound_key == "missing"
+               from intent in Ankole.Conversations.Delivery.Intent,
+                 where: intent.agent_uid == ^uid and intent.outbound_key == "missing"
              )
     end
 

@@ -10,11 +10,14 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.E2E.{DockerWorker, FakeOpenAIState}
+  alias Ankole.E2E.DockerWorker
+  alias Ankole.E2E.FakeOpenAIState
   alias Ankole.RuntimeFabric.V1, as: Proto
-  alias Ankole.SignalsGateway.ActorRuntime.{AgentWorkers, WorkerRoute}
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
-  alias Ankole.SignalsGateway.{ActorEvent, WebhookEndpoint}
+  alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.WorkerRoute
+  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.Signals.Signal
+  alias Ankole.Signals.WebhookEndpoint
 
   @moduletag :q03_production
   @moduletag sandbox: false
@@ -90,7 +93,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     png =
       File.read!(
-        Path.expand("../../../app/control_plane/test/fixtures/conversations/rgba.png", __DIR__)
+        Path.expand("../../../app/control_plane/test/fixtures/sessions/rgba.png", __DIR__)
       )
 
     DockerWorker.exec!(ctx.container, [
@@ -110,7 +113,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                      {:deliver, %Proto.Envelope{body: {:workspace_open, open}}}}},
                    30_000
 
-    assert open.run.actor_event_id == input.id
+    assert open.run.signal_id == input.id
 
     assert_receive {:trace, ^channel, :receive,
                     {:"$gen_call", _from,
@@ -136,7 +139,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert {:ok, reply, _message} =
              wait_for_completed_final_reply(ctx.container, input.id, deadline(90_000))
 
-    assert reply.text =~ "CHAOS_Q03_TRANSPORT_OK"
+    assert reply.message.text =~ "CHAOS_Q03_TRANSPORT_OK"
     assert DockerWorker.exec!(ctx.container, ["cat", "/workspace/q03-call-count"]) == "x"
 
     assert_receive {:trace, ^channel, :receive,
@@ -177,7 +180,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       reply,
       "CHAOS_Q03_TRANSPORT_OK",
       :reply,
-      input.source_entry_id
+      input.provider_message_id
     )
   end
 
@@ -188,7 +191,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert {:ok, _} = ModelProfiles.put_model_profile(uid, "coding", profile)
     input = send!(ctx, "control", "CHAOS_JOB_CREATE_RECONNECT")
     assert {:ok, _, _} = wait_for_completed_final_reply(ctx.container, input.id, deadline(60_000))
-    job = Repo.one!(from(j in Job, where: j.source_actor_event_id == ^input.id))
+    job = Repo.one!(from(j in Job, where: j.source_signal_id == ^input.id))
 
     assert {:ok, true} =
              wait_until(deadline(60_000), fn ->
@@ -214,10 +217,10 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     assert turn.job_id == job.id
     assert turn.attempt == job.attempts
-    assert :ok = Ankole.Conversations.stop_job_turn(stopped, turn)
+    assert :ok = Ankole.Sessions.stop_job_turn(stopped, turn)
 
     refute Repo.exists?(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.session_id == ^BackgroundAgentJobs.job_session_id(job.id),
                where: event.type == "command.stop"
              )
@@ -383,7 +386,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                  worker.capacity["max_slots"]
              end)
 
-    assert :ok = Ankole.Conversations.stop_job_turn(stopped, stopped_turn)
+    assert :ok = Ankole.Sessions.stop_job_turn(stopped, stopped_turn)
     assert {:ok, _, _} = wait_for_completed_final_reply(ctx.container, input.id, deadline(60_000))
     assert Process.alive?(channel)
 
@@ -512,15 +515,15 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert {:ok, %{job: job, dispatch_event: dispatch}} =
              Repo.transact(fn _repo ->
                BackgroundAgentJobs.create_with_dispatch(%{
-                 source_actor_event_id: input.id,
+                 source_signal_id: input.id,
                  agent_uid: uid,
                  owner_session_id: input.session_id,
                  source_tool_call_id: "q23-create",
                  title: "Quota boundary",
                  task: "Q23_QUOTA_JOB Reply once.",
                  reply_route:
-                   Ankole.SignalsGateway.ActorRuntime.ReplyRoute.snapshot(%{
-                     actor_event_id: input.id
+                   Ankole.Conversations.Route.snapshot(%{
+                     signal_id: input.id
                    })
                })
              end)
@@ -540,9 +543,9 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     assert failed.error["code"] == "agent_token_quota_exceeded"
     assert failed.error["summary"] == "The Agent has used its token quota for the current period."
     assert failed.error["details"]["error_code"] == "agent_token_quota_exceeded"
-    assert Repo.get!(Ankole.SignalsGateway.ActorEvent, dispatch.id).input_state == "dead_letter"
+    assert Repo.get!(Ankole.Signals.Signal, dispatch.id).input_state == "dead_letter"
 
-    assert Repo.get_by!(Ankole.SignalsGateway.ActorEvent,
+    assert Repo.get_by!(Ankole.Signals.Signal,
              agent_uid: uid,
              session_id: input.session_id,
              type: "background_agent_job.failed"
@@ -559,23 +562,28 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
     principal_count = Repo.aggregate(Ankole.Principals.Principal, :count)
     before_requests = length(FakeOpenAIState.requests())
 
-    Ankole.E2E.Scenarios.Ingress.run_unaddressed_ignore_guardrail(ctx)
+    Ankole.E2E.Scenarios.Observe.run_unaddressed_ignore_guardrail(ctx)
     assert Repo.all(Ankole.Principals.ExternalIdentity) == identities
     assert Repo.all(Ankole.AuthZ.Membership) == memberships
     assert Repo.aggregate(Ankole.Principals.Principal, :count) == principal_count
     assert length(FakeOpenAIState.requests()) == before_requests
 
+    conversation = Ankole.Conversations.External.get_conversation(Repo, "lark:oc_chaos_ignore")
+    assert conversation
+
     [batch] =
       Repo.all(
-        from(batch in Ankole.SignalsGateway.InboundBatch,
+        from(batch in Ankole.Conversations.InboundBatch,
           where:
             batch.agent_uid == ^ctx.agent.uid and
-              batch.signal_channel_id == "lark:oc_chaos_ignore"
+              batch.conversation_id == ^conversation.id
         )
       )
 
     assert {:ok, %{status: :ignored, inbound_batch: batch}} =
-             Ankole.SignalsGateway.finalize_inbound_batch_by_id(batch.id, now: batch.available_at)
+             Ankole.Conversations.InboundBatches.finalize_inbound_batch_by_id(batch.id,
+               now: batch.available_at
+             )
 
     assert batch.batch_state == "finalized"
     assert [stored] = batch.entries
@@ -593,9 +601,13 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                mentions: [lark_bot_mention()]
              )
 
-    input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_b18_addressed_reference")
+    input = signal_by_provider_message_id!(ctx.agent.uid, "om_b18_addressed_reference")
     retry_until_sent!(input, DateTime.add(input.available_at, 1, :second))
-    assert get_in(input.payload, ["data", "entry", "reply_to", "text"]) == stored["text"]
+    parent = message_observation("lark:oc_chaos_ignore", "om_ignored_unaddressed_1")
+    current = message_observation("lark:oc_chaos_ignore", "om_b18_addressed_reference")
+    assert parent.message.text == stored["text"]
+    assert current.message.reply_to_message_id == parent.message.id
+    assert input.message_id == current.message.id
 
     assert {:ok, reply, _} =
              wait_for_completed_final_reply(
@@ -604,11 +616,11 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                deadline(90_000)
              )
 
-    assert reply.text =~ "CHAOS_DIRECT_OK"
+    assert reply.message.text =~ "CHAOS_DIRECT_OK"
     assert Ankole.JSON.encode!(FakeOpenAIState.requests()) =~ stored["text"]
-    assert Repo.get!(Ankole.SignalsGateway.InboundBatch, batch.id).entries == batch.entries
+    assert Repo.get!(Ankole.Conversations.InboundBatch, batch.id).entries == batch.entries
     assert Repo.aggregate(Ankole.Principals.Principal, :count) > principal_count
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
   end
 
   @tag :webhook_cli
@@ -641,8 +653,8 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                deadline(90_000)
              )
 
-    assert reply.text =~ "CHAOS_WEBHOOK_CLI_OK"
-    messages = ai_messages_for_actor_event(input.id)
+    assert reply.message.text =~ "CHAOS_WEBHOOK_CLI_OK"
+    messages = ai_messages_for_signal(input.id)
     assert command_tool_succeeded?(messages)
     assert [%{"raw" => output}] = successful_tool_results(messages, "command")
     assert [_, result] = Regex.run(~r/^R22_WEBHOOK_RESULT=(.+)$/m, output)
@@ -664,9 +676,9 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       assert byte_size(endpoint.token_digest) == 43
       assert endpoint.tenant_id == Repo.tenant_id!()
       assert endpoint.agent_uid == ctx.agent.uid
-      assert endpoint.source_actor_event_id == input.id
+      assert endpoint.source_signal_id == input.id
       assert endpoint.session_id == input.session_id
-      assert endpoint.binding_name == input.binding_name
+      assert endpoint.binding_name == input.reply_binding_name
       assert endpoint.expires_at == hd(endpoints).expires_at
       assert endpoint.mode == "one_shot"
       assert endpoint.status == "fired"
@@ -680,7 +692,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     receipts =
       Repo.all(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^ctx.agent.uid and event.type == "webhook.received"
         )
       )
@@ -691,14 +703,14 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
       assert [receipt] =
                Enum.filter(
                  receipts,
-                 &(&1.payload["data"]["webhook_endpoint"]["id"] == endpoint.id)
+                 &(&1.data["webhook_endpoint"]["id"] == endpoint.id)
                )
 
       assert receipt.tenant_id == endpoint.tenant_id
       assert receipt.session_id == input.session_id
-      assert receipt.payload["data"]["source_actor_event_id"] == input.id
+      assert receipt.data["source_signal_id"] == input.id
 
-      assert Ankole.JSON.decode!(receipt.payload["data"]["body"]) == %{
+      assert Ankole.JSON.decode!(receipt.data["body"]) == %{
                "marker" => "r22-http-#{index}"
              }
     end
@@ -708,10 +720,10 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     Repo.with_tenant(other_tenant.id, fn ->
       for endpoint <- endpoints, do: assert(is_nil(Repo.get(WebhookEndpoint, endpoint.id)))
-      for receipt <- receipts, do: assert(is_nil(Repo.get(ActorEvent, receipt.id)))
+      for receipt <- receipts, do: assert(is_nil(Repo.get(Signal, receipt.id)))
     end)
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
   end
 
   @tag :b07_long_lived_owner
@@ -740,7 +752,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     input = send!(ctx, "b07-owner", "CHAOS_B07_CREATE")
     assert {:ok, _, _} = wait_for_completed_final_reply(ctx.container, input.id, deadline(90_000))
-    job = Repo.one!(from(j in Job, where: j.source_actor_event_id == ^input.id))
+    job = Repo.one!(from(j in Job, where: j.source_signal_id == ^input.id))
 
     assert {:ok, completed} =
              wait_until(deadline(90_000), fn ->
@@ -765,12 +777,12 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
         )
       )
 
-    dispatch = Repo.get!(ActorEvent, endpoint.source_actor_event_id)
+    dispatch = Repo.get!(Signal, endpoint.source_signal_id)
     assert dispatch.session_id == BackgroundAgentJobs.job_session_id(job.id)
     assert endpoint.session_id == input.session_id
     assert automation.owner_session_id == input.session_id
-    assert automation.source_actor_event_id == dispatch.id
-    assert endpoint.signal_channel_id == input.signal_channel_id
+    assert automation.source_signal_id == dispatch.id
+    assert endpoint.conversation_id == input.conversation_id
     assert automation.authorization_kind == dispatch.authorization_kind
     assert automation.human_uid == dispatch.human_uid
     assert automation.human_access_version == dispatch.human_access_version
@@ -805,18 +817,18 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     receipt =
       Repo.one!(
-        from(e in ActorEvent,
+        from(e in Signal,
           where: e.agent_uid == ^uid and e.type == "webhook.received"
         )
       )
 
     assert receipt.session_id == input.session_id
-    assert receipt.payload["data"]["source_actor_event_id"] == dispatch.id
+    assert receipt.data["source_signal_id"] == dispatch.id
 
     assert {:ok, webhook_reply, _} =
              wait_for_completed_final_reply(ctx.container, receipt.id, deadline(90_000))
 
-    assert webhook_reply.text =~ "B07_OWNER_RECEIVED"
+    assert webhook_reply.message.text =~ "B07_OWNER_RECEIVED"
 
     assert {:ok, %{status: 204}} =
              Req.post("http://127.0.0.1:#{ctx.server_port}#{uri.path}",
@@ -825,7 +837,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
              )
 
     assert Repo.aggregate(
-             from(e in ActorEvent,
+             from(e in Signal,
                where: e.agent_uid == ^uid and e.type == "webhook.received"
              ),
              :count
@@ -835,10 +847,10 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     assert {:ok, %{scheduled_event: scheduled}} =
              Ankole.Schedule.create_check_back_later(%{
-               "source_actor_event_id" => dispatch.id,
+               "source_signal_id" => dispatch.id,
                "agent_uid" => uid,
                "session_id" => input.session_id,
-               "binding_name" => input.binding_name,
+               "binding_name" => input.reply_binding_name,
                "tool_call_id" => "b07-script-trigger",
                "idempotency_key" => "b07-script-trigger",
                "schedule" => %{"at" => DateTime.to_iso8601(due_at), "timezone" => "Etc/UTC"},
@@ -846,9 +858,9 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                "check" => "Run the deterministic fixture.",
                "context_summary" => "B07 long-lived owner",
                "reply_route" => %{
-                 "signal_channel_id" => input.signal_channel_id,
+                 "conversation_id" => input.conversation_id,
                  "provider_thread_id" => input.provider_thread_id,
-                 "source_entry_id" => input.source_entry_id
+                 "provider_message_id" => input.provider_message_id
                },
                "source_provenance" => %{"kind" => "b07-e2e-fixture"},
                "automation_job_id" => automation.id
@@ -868,21 +880,21 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
 
     emitted =
       Repo.one!(
-        from(e in ActorEvent,
+        from(e in Signal,
           where: e.agent_uid == ^uid and e.type == "automation_job.emitted"
         )
       )
 
     assert emitted.session_id == input.session_id
-    assert emitted.payload["data"]["payload"]["path"] == "automation"
+    assert emitted.data["payload"]["path"] == "automation"
 
     assert {:ok, script_reply, _} =
              wait_for_completed_final_reply(ctx.container, emitted.id, deadline(90_000))
 
-    assert script_reply.text =~ "B07_OWNER_RECEIVED"
+    assert script_reply.message.text =~ "B07_OWNER_RECEIVED"
     assert Repo.reload!(job).status == "succeeded"
-    assert_actor_event_completed!(receipt.id)
-    assert_actor_event_completed!(emitted.id)
+    assert_signal_completed!(receipt.id)
+    assert_signal_completed!(emitted.id)
   end
 
   defp send!(ctx, suffix, text) do
@@ -898,7 +910,7 @@ defmodule Ankole.E2E.RuntimeFabricE2ETest do
                mentions: [lark_bot_mention()]
              )
 
-    input = actor_event_by_source_entry_id!(ctx.agent.uid, source_id)
+    input = signal_by_provider_message_id!(ctx.agent.uid, source_id)
     retry_until_sent!(input, DateTime.add(input.available_at, 1, :second))
     input
   end

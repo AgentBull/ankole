@@ -1,6 +1,8 @@
-import { describe, expect, test } from 'bun:test'
-import i18n from '../../common/i18n'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import i18n, { loadLocale } from '../../common/i18n'
 import { providerSettingPresentation, selectControlValue, UNSET_SELECT } from './provider-setting-field'
+
+beforeAll(() => loadLocale('en-US'))
 
 describe('provider setting presentation', () => {
   test('keeps undeclared ProviderDSL keys readable without inventing product copy', () => {

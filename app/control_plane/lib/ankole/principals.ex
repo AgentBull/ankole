@@ -19,7 +19,7 @@ defmodule Ankole.Principals do
   alias Ankole.Principals.Principal
   alias Ankole.AIAgent.Library
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.AgentWorkers
 
   @principal_profile_fields [:display_name, :avatar_url]
   @human_profile_fields [:email, :mobile, :job_title]
@@ -147,7 +147,7 @@ defmodule Ankole.Principals do
           Map.get(attrs, :worker_provider_id, Map.get(attrs, "worker_provider_id"))
 
         with {:ok, provider_id} <-
-               Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.select_in_tx(
+               Ankole.AgentWorkers.Providers.select_in_tx(
                  repo,
                  provider_id
                ),
@@ -241,12 +241,14 @@ defmodule Ankole.Principals do
   def enable_agent(uid) do
     Repo.transact(fn repo ->
       with {:ok, principal} <- fetch_principal_for_update(repo, uid),
-           :ok <- ensure_principal_type(principal, :agent) do
-        principal
-        |> Principal.status_changeset(%{status: :active})
-        |> repo.update()
+           :ok <- ensure_principal_type(principal, :agent),
+           conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
+           {:ok, principal} <-
+             principal |> Principal.status_changeset(%{status: :active}) |> repo.update() do
+        {:ok, {principal, conversation_ids}}
       end
     end)
+    |> publish_agent_conversation_status()
   end
 
   @doc """
@@ -260,31 +262,54 @@ defmodule Ankole.Principals do
     Repo.transact(fn repo ->
       with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid, repo),
            {:ok, principal} <- fetch_principal_for_update(repo, uid),
-           :ok <- ensure_principal_type(principal, :agent) do
-        case principal.status do
-          :active ->
-            principal
-            |> Principal.status_changeset(%{status: :disabled})
-            |> repo.update()
-
-          :disabled ->
-            :ok = AgentWorkers.mark_deleting_in_tx(repo, principal.uid)
-
-            :ok =
-              Ankole.SignalsGateway.Bindings.delete_agent_config_rows_in_tx(repo, principal.uid)
-
-            :ok =
-              Ankole.SignalsGateway.ActorRuntime.WorkerEnv.delete_agent_rows_in_tx(
-                repo,
-                principal.uid
-              )
-
-            repo.delete(principal)
-        end
+           :ok <- ensure_principal_type(principal, :agent),
+           conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
+           {:ok, principal} <- change_agent_status_in_tx(repo, principal) do
+        {:ok, {principal, conversation_ids}}
       end
     end)
+    |> publish_agent_conversation_status()
     |> reconcile_agent_worker()
   end
+
+  defp change_agent_status_in_tx(repo, principal) do
+    case principal.status do
+      :active ->
+        principal
+        |> Principal.status_changeset(%{status: :disabled})
+        |> repo.update()
+
+      :disabled ->
+        :ok = Ankole.Conversations.delete_for_agent_in_tx(repo, principal.uid)
+
+        :ok = AgentWorkers.mark_deleting_in_tx(repo, principal.uid)
+
+        :ok =
+          Ankole.Signals.Bindings.delete_agent_config_rows_in_tx(repo, principal.uid)
+
+        :ok =
+          Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(
+            repo,
+            principal.uid
+          )
+
+        repo.delete(principal)
+    end
+  end
+
+  defp publish_agent_conversation_status({:ok, {%Principal{} = principal, conversation_ids}}) do
+    unless Repo.in_transaction?() do
+      Repo.with_tenant(principal.tenant_id, fn ->
+        Enum.each(conversation_ids, fn id ->
+          Ankole.Conversations.publish_status(%{session_id: Ankole.Sessions.Key.conversation(id)})
+        end)
+      end)
+    end
+
+    {:ok, principal}
+  end
+
+  defp publish_agent_conversation_status(result), do: result
 
   # A disabled Agent's Worker stops when it is idle, and a deleted Agent's
   # Worker objects are deleted; the Worker owner does both after the commit.

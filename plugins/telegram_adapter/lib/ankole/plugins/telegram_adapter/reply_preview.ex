@@ -1,18 +1,22 @@
 defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
   @moduledoc "Telegram transport for the shared crash-recoverable message preview ledger."
 
-  @behaviour Ankole.SignalsGateway.ReplyPreviewAdapter
+  @behaviour Ankole.Conversations.Delivery.PreviewAdapter
   @behaviour Ankole.Plugins.ChunkedMessagePreview
 
   alias Ankole.Plugins.ChunkedMessagePreview
-  alias Ankole.Plugins.TelegramAdapter.{Client, Config, ErrorPolicy, Outbox, Presentation}
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.Plugins.TelegramAdapter.Client
+  alias Ankole.Plugins.TelegramAdapter.Config
+  alias Ankole.Plugins.TelegramAdapter.ErrorPolicy
+  alias Ankole.Plugins.TelegramAdapter.Delivery
+  alias Ankole.Plugins.TelegramAdapter.Presentation
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def update(%Request{} = request), do: deliver(request)
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def finalize(%Request{} = request) do
     case ChunkedMessagePreview.reconcile(%{request | mode: :terminal}, __MODULE__, "telegram") do
       {:error, reason} when reason in [:telegram_partial_delivery, :telegram_send_uncertain] ->
@@ -23,13 +27,13 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
     end
   end
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def refresh(%Request{} = request), do: deliver(request)
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def surface_ids(checkpoint), do: ChunkedMessagePreview.surface_ids(checkpoint)
 
-  @impl Ankole.SignalsGateway.ReplyPreviewAdapter
+  @impl Ankole.Conversations.Delivery.PreviewAdapter
   def surface_open?(checkpoint), do: ChunkedMessagePreview.surface_open?(checkpoint)
 
   defp deliver(request) do
@@ -39,12 +43,12 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
   end
 
   @impl Ankole.Plugins.ChunkedMessagePreview
-  def render_chunks(presentation, %Request{actor_event: event} = request) do
+  def render_chunks(presentation, %Request{signal: event} = request) do
     with {:ok, config} <- Config.validate_binding_config(request.config),
          client <- Config.client(config),
          {:ok, chunks} <- Presentation.render(presentation, event.id),
-         {:ok, channel} <- Outbox.parse_channel(event.signal_channel_id) do
-      {:ok, chunks, {client, channel}, event.signal_channel_id}
+         {:ok, channel} <- Delivery.parse_channel(event.conversation_id) do
+      {:ok, chunks, {client, channel}, event.conversation_id}
     end
   end
 
@@ -57,7 +61,7 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
         index
       )
       when is_binary(message_id) do
-    with {:ok, message_id} <- Outbox.integer_value(message_id) do
+    with {:ok, message_id} <- Delivery.integer_value(message_id) do
       body =
         %{
           "chat_id" => channel.chat_id,
@@ -94,7 +98,7 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
 
   @impl Ankole.Plugins.ChunkedMessagePreview
   def delete_message({client, channel}, _event, %{"message_id" => message_id}) do
-    with {:ok, message_id} <- Outbox.integer_value(message_id) do
+    with {:ok, message_id} <- Delivery.integer_value(message_id) do
       case Client.call(client, "deleteMessage", %{
              "chat_id" => channel.chat_id,
              "message_id" => message_id
@@ -160,11 +164,11 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
     end
   end
 
-  defp maybe_reply(body, %ActorEvent{} = event) do
-    case ActorEvent.reply_anchor_source_entry_id(event) |> Outbox.integer_value() do
-      {:ok, source_entry_id} ->
+  defp maybe_reply(body, %Signal{} = event) do
+    case Signal.reply_anchor_provider_message_id(event) |> Delivery.integer_value() do
+      {:ok, provider_message_id} ->
         Map.put(body, "reply_parameters", %{
-          "message_id" => source_entry_id,
+          "message_id" => provider_message_id,
           "allow_sending_without_reply" => true
         })
 

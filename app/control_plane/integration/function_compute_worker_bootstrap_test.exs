@@ -5,7 +5,7 @@ defmodule Ankole.FunctionComputeWorkerBootstrapIntegrationTest do
   """
   use ExUnit.Case, async: false
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.FunctionCompute.Images
+  alias Ankole.AgentWorkers.FunctionCompute.Images
   @moduletag timeout: 300_000
   # Needs Docker, Kubernetes, or cloud tooling; see CONTRIBUTING.md.
   @moduletag :external

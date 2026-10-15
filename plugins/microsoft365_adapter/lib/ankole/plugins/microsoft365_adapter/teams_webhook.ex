@@ -10,12 +10,14 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
   the gateway's `(agent_uid, binding_name, source_event_id)` idempotency.
   """
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.{Logging, SignalsGateway}
+  alias Ankole.Signals.Bindings
+  alias Ankole.{Logging}
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.Plugins.Microsoft365Adapter.{BotFrameworkAuth, Config, Inbound}
+  alias Ankole.Plugins.Microsoft365Adapter.BotFrameworkAuth
+  alias Ankole.Plugins.Microsoft365Adapter.Config
+  alias Ankole.Plugins.Microsoft365Adapter.Inbound
   alias Ankole.Plugins.Microsoft365Adapter.TeamsChannels
-  alias Ankole.SignalsGateway.AdapterContext
+  alias Ankole.Conversations.AdapterContext
 
   @spec handle_webhook(map()) :: {:ok, map()} | {:error, term()}
   def handle_webhook(%{kind: "messages", instance_id: app_id} = request) do
@@ -81,7 +83,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsWebhook do
   defp find_consumers_for_app(app_id) do
     consumers =
       "teams"
-      |> SignalsGateway.list_enabled_bindings()
+      |> Ankole.Signals.Bindings.list_enabled_bindings()
       |> Enum.flat_map(fn binding ->
         case Bindings.binding_config(binding, Config) do
           {:ok, %{"appID" => ^app_id} = config} ->

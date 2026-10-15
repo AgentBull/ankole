@@ -16,7 +16,7 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
     only: [deadline: 1, wait_for_completed_final_reply: 3, wait_until: 2]
 
   alias Ankole.E2E.DockerWorker
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers.AgentWorker
 
   @chats 6
   @wall_clock_ceiling_ms 240_000
@@ -48,7 +48,7 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
                    to_app: app_id
                  )
 
-        {index, agent, actor_event_by_source_entry_id!(agent.uid, "om_perf_#{index}")}
+        {index, agent, signal_by_provider_message_id!(agent.uid, "om_perf_#{index}")}
       end
 
     for {_index, _agent, input} <- inputs do
@@ -65,8 +65,14 @@ defmodule Ankole.E2E.ConcurrencyPerfE2ETest do
                    deadline(180_000)
                  )
 
-        assert reply.text =~ "CHAOS_DIRECT_OK"
-        assert reply.signal_channel_id == "lark:oc_perf_chat_#{index}"
+        assert reply.message.text =~ "CHAOS_DIRECT_OK"
+
+        assert reply.message.conversation_id ==
+                 Ankole.Conversations.External.get_conversation(
+                   Repo,
+                   "lark:oc_perf_chat_#{index}"
+                 ).id
+
         {index, input, reply}
       end
 

@@ -146,7 +146,7 @@ The full [quick start](https://ankole.agentbull.com/en-US/docs/quickstart/) give
 
 Ankole consists of a control plane, one Worker for each Agent, a shared Rust kernel, and durable storage:
 
-- The **control plane** (Elixir, Phoenix, and OTP) decides and records everything that must outlast a process. That includes identities and permissions, configuration, incoming messages and webhooks, schedules, conversations, jobs, Company Brain, and the AI gateway that calls model providers. It runs the model loop of each conversation as a supervised process.
+- The **control plane** (Elixir, Phoenix, and OTP) decides and records everything that must outlast a process. That includes identities and permissions, configuration, conversations and messages, signals, schedules, jobs, Company Brain, and the AI gateway that calls model providers. Sessions runs each Agent's model loop as a supervised process.
 - Each Agent has one **Agent Computer Worker**, a Bun and TypeScript program in a Linux container. It runs commands, the browser, Codex, MCP servers, Skills, and Automation scripts. The control plane creates the Worker on Docker, Kubernetes, or a cloud platform, and calls it only for work that needs a computer.
 - The **kernel** is a Rust library loaded by Elixir. It provides cryptography, identifiers, permission evaluation, and AI transport.
 - **PostgreSQL** stores every fact that must survive a restart. A file store keeps the drive and attachments of each Agent, and the home directory of each Agent persists on its own storage.
@@ -163,15 +163,16 @@ flowchart TB
   subgraph Control["Control Plane · one logical state and coordination boundary"]
     direction TB
     Platform["Principal / AuthZ / configuration<br/>Control Plane Plugins"]
-    SG["SignalsGateway<br/>channel ingress · webhook admission · delivery"]
+    Convo["Conversations<br/>shared messages · provider observation · delivery"]
+    Signals["Signals<br/>one intake · routing · CloudEvents"]
     Schedule["Schedule<br/>checkbacks · cron"]
-    Runtime["Conversations<br/>Agent loop · admission · recovery"]
+    Runtime["Sessions<br/>Agent loop · admission · recovery"]
     Jobs["Durable work control<br/>Background Agent Jobs · Automation Jobs"]
     Brain["Brain<br/>shared knowledge · recall · dreaming"]
     AI["AIGateway<br/>model routing · conversations · credentials"]
   end
 
-  Fabric["RuntimeFabric<br/>transient actor traffic · bounded RPC · worker files"]
+  Fabric["RuntimeFabric<br/>live session traffic · bounded RPC · worker files"]
   Workers["Agent Computer Workers · one per Agent<br/>environment tools · Codex · Automation scripts<br/>Skills · MCP · browser · terminal"]
   Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
@@ -180,9 +181,11 @@ flowchart TB
   Homes[("Agent Home storage · durability boundary<br/>one per Agent · workspaces · Codex threads")]
 
   External -->|"inputs and administration"| Control
-  SG -->|"ActorEvent"| Runtime
-  Schedule -->|"ActorEvent"| Runtime
-  SG -->|"bound webhook"| Jobs
+  Convo -->|"message stimulus"| Signals
+  Schedule -->|"time stimulus"| Signals
+  Jobs -->|"completion stimulus"| Signals
+  Signals -->|"Signal"| Runtime
+  Signals -->|"bound raw webhook"| Jobs
   Schedule -->|"bound trigger"| Jobs
   Platform --> Runtime
   Runtime --> AI

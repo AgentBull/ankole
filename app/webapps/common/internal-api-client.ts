@@ -23,22 +23,18 @@ export class InternalAPIError extends Error {
   }
 }
 
-/** Sends a same-origin GET request to the session-backed internal SPA API. */
 export async function internalAPIGet<T>(path: string): Promise<T> {
   return internalAPIRequest<T>(path, { method: 'GET' })
 }
 
-/** Sends a same-origin POST request to the session-backed internal SPA API. */
 export async function internalAPIPost<T>(path: string, body?: JSONObject): Promise<T> {
   return internalAPIRequest<T>(path, { method: 'POST', body })
 }
 
-/** Sends a same-origin PUT request to the session-backed internal SPA API. */
 export async function internalAPIPut<T>(path: string, body?: JSONObject): Promise<T> {
   return internalAPIRequest<T>(path, { method: 'PUT', body })
 }
 
-/** Sends a same-origin DELETE request to the internal SPA API. */
 export async function internalAPIDelete<T>(path: string): Promise<T> {
   return internalAPIRequest<T>(path, { method: 'DELETE' })
 }

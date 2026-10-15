@@ -1,6 +1,7 @@
 defmodule Ankole.AIGateway.FailureResponse do
   @moduledoc "Projects normalized failure facts into the public HTTP and Responses contract."
-  alias Ankole.AIGateway.{OpenAIError, ProviderFailure}
+  alias Ankole.AIGateway.OpenAIError
+  alias Ankole.AIGateway.ProviderFailure
 
   import Ankole.AIGateway.FailureDiagnostics,
     only: [classify: 1, quota_exhausted?: 1, provider_validation_failure?: 1]

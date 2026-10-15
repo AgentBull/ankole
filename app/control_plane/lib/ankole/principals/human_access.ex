@@ -7,7 +7,9 @@ defmodule Ankole.Principals.HumanAccess do
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Store
   alias Ankole.Principals
-  alias Ankole.Principals.{AccessEvent, AccessRestriction, Principal}
+  alias Ankole.Principals.AccessEvent
+  alias Ankole.Principals.AccessRestriction
+  alias Ankole.Principals.Principal
   alias Ankole.Repo
 
   def check(uid, version) when is_binary(uid) and is_integer(version) do

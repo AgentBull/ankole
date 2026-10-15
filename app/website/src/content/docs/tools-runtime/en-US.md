@@ -5,13 +5,13 @@ section: Developer guide
 order: 120
 ---
 
-The control plane owns the main Agent's model loop and tool dispatch. `Ankole.Conversations.Driver` calls AIGateway, executes the requested tools, records their results, and continues the turn. Agent Computer executes environment operations and Codex Jobs. See [The agent loop](../agent-loop/) and [Agent Computer Worker](../agent-computer-worker/).
+The control plane owns the main Agent's model loop and tool dispatch. `Ankole.Sessions.Driver` calls AIGateway, executes the requested tools, records their results, and continues the turn. Agent Computer executes environment operations and Codex Jobs. See [The agent loop](../agent-loop/) and [Agent Computer Worker](../agent-computer-worker/).
 
 ## Build the current tool set
 
-`Ankole.Conversations.ToolCatalog.for_run/1` combines the current domain declarations with the exported Worker declarations in `worker_tools.json`. The result depends on the run kind, model capabilities, selected Skills and plugins, and ambient authority. It is built for the run, rather than stored as an Agent's global tool set.
+`Ankole.Sessions.ToolCatalog.for_run/1` combines the current domain declarations with the exported Worker declarations in `worker_tools.json`. The result depends on the run kind, model capabilities, selected Skills and plugins, and ambient authority. It is built for the run, rather than stored as an Agent's global tool set.
 
-`Ankole.Conversations.Tool` records the model-visible schema, executor, execution mode, allowed callers, and read, destructive, and retry metadata. `Ankole.Conversations.Tools.prepare/2` checks the caller, parses the arguments, normalizes them through the owning tool, and validates the JSON Schema before execution.
+`Ankole.Sessions.Tool` records the model-visible schema, executor, execution mode, allowed callers, and read, destructive, and retry metadata. `Ankole.Sessions.Tools.prepare/2` checks the caller, parses the arguments, normalizes them through the owning tool, and validates the JSON Schema before execution.
 
 ## Execute at the owner
 
@@ -20,7 +20,7 @@ The control plane owns the main Agent's model loop and tool dispatch. `Ankole.Co
 - MCP-backed Skills use the computer command tool and mcporter on the Worker.
 - Provider-hosted tools run through AIGateway. The catalog respects the selected model's declared capabilities.
 
-The Driver schedules parallel and sequential calls according to their declarations. Durable effects use `Ankole.Conversations.Receipts` so the domain mutation and its result are committed together. AIGateway stores tool output for the next model iteration. A Worker disconnection leaves the Driver to handle an uncertain environment operation through the declared retry contract.
+The Driver schedules parallel and sequential calls according to their declarations. Durable effects use `Ankole.Sessions.Receipts` so the domain mutation and its result are committed together. AIGateway stores tool output for the next model iteration. A Worker disconnection leaves the Driver to handle an uncertain environment operation through the declared retry contract.
 
 ## Workflow task tools
 

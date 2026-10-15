@@ -28,7 +28,7 @@ order: 1
 |---|---|---|
 | **Agent** | 固有のミッション、アクセス権、ツール、対外 ID を持つ作業主体です。ミッションと納品基準は、編集可能なファイルで定義します。1 つのインスタンスで複数の Agent を運用できます。 | [Agents](../agents/) |
 | **Brain** | 共有の社内知識を保存します。出所、Claim、時点、確信度、矛盾、閲覧範囲を保持し、権限を持つ Agent に現在の知識を提供します。 | [Brain](../brain/) |
-| **Session** | コンテキスト、ワークスペースの状態、実行中の誘導、キャンセル、復旧を管理する実行単位です。 | [Actor runtime](../actor-runtime/) |
+| **Session** | コンテキスト、ワークスペースの状態、実行中の誘導、キャンセル、復旧を管理する実行単位です。 | [Sessions](../sessions/) |
 | **Signal routing rule** | Agent をシグナルの送信元に接続し、その場所で使える権限を設定します。 | [Signal routing rules](../signal-bindings/) |
 | **Background job** | Session から実行する長時間の仕事です。完了した結果は、元のチャネルへ配信します。 | [Background Agent Jobs](../background-agent-jobs/) |
 | **Skill** | 特定の仕事を実行するための確定した手順です。Agent が改善を提案し、人が次の Session で使う変更を承認します。 | [Skills](../skills/) |

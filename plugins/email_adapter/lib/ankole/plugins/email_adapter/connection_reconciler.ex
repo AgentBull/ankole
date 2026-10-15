@@ -7,9 +7,12 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionReconciler do
     supervisor: Ankole.Plugins.EmailAdapter.ConnectionDynamicSupervisor,
     interval_ms: 30_000
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.Plugins.EmailAdapter.{Config, ConnectionOwner, Inbound}
-  alias Ankole.SignalsGateway.{AdapterContext, Binding}
+  alias Ankole.Signals.Bindings
+  alias Ankole.Plugins.EmailAdapter.Config
+  alias Ankole.Plugins.EmailAdapter.ConnectionOwner
+  alias Ankole.Plugins.EmailAdapter.Inbound
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.Binding
 
   @impl true
   def binding_spec(%Binding{} = binding, _opts) do
@@ -35,7 +38,6 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionReconciler do
     end
   end
 
-  # Each binding has its own owner, keyed by its Agent and binding name.
   @impl true
   def connection_key(_config, [%{context: %AdapterContext{} = context}]),
     do: {context.agent_uid, context.binding_name}

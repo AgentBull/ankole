@@ -11,7 +11,6 @@ defmodule Ankole.Plugins.ChannelSync do
   alias Ankole.Logging
   alias Ankole.Repo
   alias Ankole.Tenants
-  alias Ankole.SignalsGateway
 
   @doc """
   Starts a one-time task that enqueues a full sync for every enabled binding.
@@ -47,7 +46,7 @@ defmodule Ankole.Plugins.ChannelSync do
   end
 
   defp enqueue_enabled_bindings(adapter, worker) do
-    Repo.across_tenants(fn -> SignalsGateway.list_enabled_bindings(adapter) end)
+    Repo.across_tenants(fn -> Ankole.Signals.Bindings.list_enabled_bindings(adapter) end)
     |> Enum.reduce_while(:ok, fn binding, :ok ->
       Repo.with_tenant(binding.tenant_id, fn ->
         result =

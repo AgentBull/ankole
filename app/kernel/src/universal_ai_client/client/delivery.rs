@@ -60,7 +60,6 @@ impl Delivery {
         self.seq > 0 || !self.pending.is_empty()
     }
 
-    /// Queues mid-stream events within the pending-byte limit.
     /// `Ok(false)` means that downstream cancellation was already reported.
     pub(in crate::universal_ai_client) async fn push_events_bounded(
         &mut self,
@@ -540,7 +539,6 @@ mod tests {
         let flush = flush_resolver_events(&mut delivery, &resolver, events);
         tokio::pin!(flush);
 
-        // Without credit the batch waits after filling the two-chunk window.
         assert!(
             tokio::time::timeout(Duration::from_millis(50), flush.as_mut())
                 .await

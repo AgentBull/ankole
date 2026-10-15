@@ -152,8 +152,6 @@ defmodule FeishuOpenAPI.Event do
     }
   end
 
-  # --- verification helpers ------------------------------------------------
-
   defp normalize_config(%_{} = struct), do: normalize_config(Map.from_struct(struct))
 
   defp normalize_config(map) when is_map(map) do

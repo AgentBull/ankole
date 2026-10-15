@@ -1,18 +1,25 @@
 defmodule Ankole.E2E.SlackMainFlowTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.E2E.FakeSlack.{Server, State}
-  alias Ankole.Plugins.SlackAdapter.{Config, ConnectionReconciler, Outbox}
-  alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.{ActorEvent, OutboxEntry}
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+  alias Ankole.E2E.FakeSlack.Server
+  alias Ankole.E2E.FakeSlack.State
+  alias Ankole.Plugins.SlackAdapter.Config
+  alias Ankole.Plugins.SlackAdapter.ConnectionReconciler
+  alias Ankole.Plugins.SlackAdapter.Delivery
 
-  import Ankole.E2E.Harness, only: [put_slack_test_client_opts!: 1]
+  alias Ankole.Repo
+  alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
+
+  import Ankole.E2E.Harness,
+    only: [put_slack_test_client_opts!: 1, observe_external_conversation!: 3]
+
   import Ankole.PrincipalsFixtures
 
-  test "durable outbox adapter posts, edits, reacts, and reconciles against Web API" do
+  test "durable intent adapter posts, edits, reacts, and reconciles against Web API" do
     fake = Server.start!()
     put_slack_test_client_opts!(base_url: fake.base_url)
     %{principal: agent} = agent_fixture()
@@ -27,73 +34,74 @@ defmodule Ankole.E2E.SlackMainFlowTest do
     on_exit(fn -> ConnectionReconciler.stop(Config.connection_key(config)) end)
 
     assert {:ok, _binding} =
-             SignalsGateway.Bindings.put_binding(agent.uid, "slack", binding_name, %{
+             Ankole.Signals.Bindings.put_binding(agent.uid, "slack", binding_name, %{
                "config" => config,
                "unmatched_sender_policy" => "create_standalone"
              })
 
-    base = %OutboxEntry{
+    conversation = observe_external_conversation!(agent.uid, binding_name, "slack:C1")
+
+    base = %Intent{
       agent_uid: agent.uid,
       binding_name: binding_name,
       outbound_key: "reply-1",
       operation: :reply,
-      signal_channel_id: "slack:C1",
-      reply_to_source_entry_id: "1699999999.000001",
+      conversation_id: conversation.id,
+      reply_to_provider_message_id: "1699999999.000001",
       fallback_visible_text: "**hello** from Ankole",
       payload: %{}
     }
 
     assert {:ok,
             %{
-              created_source_entry_id: ts,
+              created_provider_message_id: ts,
               provider_thread_id: "slack:C1:1699999999.000001"
-            }} = Outbox.send(base)
+            }} = Delivery.deliver(base)
 
     assert State.messages(fake.state)[ts]["text"] == "*hello* from Ankole"
     assert State.messages(fake.state)[ts]["thread_ts"] == "1699999999.000001"
 
     assert {:ok, %{raw_payload: %{"ok" => true}}} =
-             Outbox.send(%{
+             Delivery.deliver(%{
                base
                | outbound_key: "edit-1",
                  operation: :edit,
-                 target_source_entry_id: ts,
+                 target_provider_message_id: ts,
                  fallback_visible_text: "updated"
              })
 
     assert State.messages(fake.state)[ts]["text"] == "updated"
 
     assert {:ok, _result} =
-             Outbox.send(%{
+             Delivery.deliver(%{
                base
                | outbound_key: "react-1",
                  operation: :reaction_add,
-                 target_source_entry_id: ts,
+                 target_provider_message_id: ts,
                  payload: %{"reaction_key" => "thumbs_up"}
              })
 
-    assert {:ok, %{created_source_entry_id: ^ts, recovery_state: %{"exists" => true}}} =
-             Outbox.reconcile(%{base | created_source_entry_id: ts})
+    assert {:ok, %{created_provider_message_id: ^ts, recovery_state: %{"exists" => true}}} =
+             Delivery.reconcile(%{base | created_provider_message_id: ts})
 
-    actor_event =
-      %ActorEvent{}
-      |> ActorEvent.changeset(%{
-        agent_uid: agent.uid,
-        binding_name: binding_name,
-        session_id: "slack:C1",
-        source_event_id: "reply-preview-source",
-        signal_channel_id: "slack:C1",
-        source_entry_id: "1699999999.000001",
-        type: "im.message.addressed",
-        available_at: DateTime.utc_now(:microsecond),
-        queue_sequence: 1,
-        input_state: "open",
-        payload: %{}
-      })
-      |> Repo.insert!()
+    assert {:ok, %Signal{} = signal} =
+             Ankole.Signals.accept(%{
+               source: "test://slack/preview",
+               id: "reply-preview-source",
+               target: %{agent_uid: agent.uid, conversation_id: conversation.id},
+               authorization: Ankole.Principals.WorkAccess.service(),
+               type: "conversation.message.addressed",
+               time: DateTime.utc_now(:microsecond),
+               data: %{"text" => "Reply preview source"},
+               reply_route: %{
+                 binding_name: binding_name,
+                 conversation_id: conversation.id,
+                 provider_message_id: "1699999999.000001"
+               }
+             })
 
-    preview_adapter = ReplyPreviewAdapter.for_event(actor_event)
-    assert %ReplyPreviewAdapter{} = preview_adapter
+    preview_adapter = PreviewAdapter.for_event(signal)
+    assert %PreviewAdapter{} = preview_adapter
 
     working = %{
       "state" => "working",
@@ -108,7 +116,7 @@ defmodule Ankole.E2E.SlackMainFlowTest do
 
     assert {:ok,
             %{
-              created_source_entry_id: preview_ts,
+              created_provider_message_id: preview_ts,
               provider_thread_id: "slack:C1:1699999999.000001",
               reply_preview_checkpoint: %{
                 "adapter" => "slack",
@@ -116,8 +124,8 @@ defmodule Ankole.E2E.SlackMainFlowTest do
                 "streaming_state" => "open"
               }
             }} =
-             ReplyPreviewAdapter.update(preview_adapter, %Request{
-               actor_event: actor_event,
+             PreviewAdapter.update(preview_adapter, %Request{
+               signal: signal,
                presentation: working,
                subject_uid: "u1",
                conversation_id: Ecto.UUID.generate(),
@@ -128,23 +136,23 @@ defmodule Ankole.E2E.SlackMainFlowTest do
     assert State.messages(fake.state)[preview_ts]["text"] == "draft answer"
     assert is_list(State.messages(fake.state)[preview_ts]["blocks"])
 
-    assert Repo.get!(ActorEvent, actor_event.id).provider_thread_id ==
+    assert Repo.get!(Signal, signal.id).provider_thread_id ==
              "slack:C1:1699999999.000001"
 
     terminal = %{working | "state" => "completed", "revision" => 2, "answer" => "final answer"}
 
-    assert {:ok, %{created_source_entry_id: ^preview_ts}} =
-             ReplyPreviewAdapter.finalize_outbox(preview_adapter, %{
+    assert {:ok, %{created_provider_message_id: ^preview_ts}} =
+             PreviewAdapter.finalize_intent(preview_adapter, %{
                base
                | outbound_key: "terminal-reply",
-                 source_actor_event_id: actor_event.id,
+                 source_signal_id: signal.id,
                  payload: %{"reply_presentation" => terminal},
                  fallback_visible_text: "final answer"
              })
 
     assert State.messages(fake.state)[preview_ts]["text"] == "final answer"
 
-    assert Repo.get!(ActorEvent, actor_event.id).reply_preview_checkpoint["streaming_state"] ==
+    assert PreviewState.get(signal.id).checkpoint["streaming_state"] ==
              "closed"
 
     client = Config.client(config)

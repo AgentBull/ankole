@@ -1,6 +1,5 @@
 export type JSONDraftState = { kind: 'empty' } | { kind: 'valid'; value: unknown } | { kind: 'invalid'; error: string }
 
-/** Parses a JSON draft and annotates native parse errors with a line and column. */
 export function inspectJSONDraft(text: string, parse: (text: string) => unknown = JSON.parse): JSONDraftState {
   if (!text.trim()) return { kind: 'empty' }
 

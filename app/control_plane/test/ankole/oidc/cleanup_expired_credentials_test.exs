@@ -45,7 +45,9 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
 
   test "cleanup removes expired session state but retains recent hints, credentials, and failed delivery" do
     alias Ankole.BrowserSessions
-    alias Ankole.OIDC.{LogoutDelivery, LogoutRequest, Session}
+    alias Ankole.OIDC.LogoutDelivery
+    alias Ankole.OIDC.LogoutRequest
+    alias Ankole.OIDC.Session
     human = human_fixture()
     client_id = create_client!()
     now = DateTime.utc_now(:microsecond)

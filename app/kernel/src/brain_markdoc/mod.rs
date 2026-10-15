@@ -1,5 +1,3 @@
-//! Canonical Brain body analysis over CommonMark block structure.
-//!
 //! Brain bodies use CommonMark, one root-level `audience` block tag, and
 //! comrak wikilinks. Comrak owns code and inline boundaries. This module only
 //! recognizes the deliberately small audience grammar at those boundaries.
@@ -80,9 +78,7 @@ struct TagToken {
     tag: AudienceTag,
 }
 
-/// Analyzes one Brain body and returns either canonical data or one syntax
-/// diagnostic. Grammar errors are data because callers must fail closed without
-/// treating invalid user text as a native implementation failure.
+/// Grammar errors are JSON data, so invalid user text is not a native failure.
 pub fn analyze_json(source: &str) -> Result<String, String> {
     let outcome = match analyze(source) {
         Ok(analysis) => AnalysisOutcome::Success(analysis),

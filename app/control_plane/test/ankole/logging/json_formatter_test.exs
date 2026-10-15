@@ -116,13 +116,13 @@ defmodule Ankole.Logging.JSONFormatterTest do
           "labels" => %{component: "runtime-fabric"},
           "operation" => %{id: "rpc-1", producer: "runtime-fabric"},
           event: "runtime.fabric.started",
-          payload: %{"actor_event_id" => "event-1"}
+          payload: %{"signal_id" => "event-1"}
         }
       })
 
     assert entry["severity"] == "NOTICE"
     assert entry["event"] == "runtime.fabric.started"
-    assert entry["actor_event_id"] == "event-1"
+    assert entry["signal_id"] == "event-1"
     assert entry["labels"]["component"] == "runtime-fabric"
 
     assert entry["operation"] == %{

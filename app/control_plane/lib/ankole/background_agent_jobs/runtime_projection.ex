@@ -8,7 +8,7 @@ defmodule Ankole.BackgroundAgentJobs.RuntimeProjection do
   """
 
   alias Ankole.AIAgent.Library
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
+  alias Ankole.AgentWorkers.WorkerEnv
 
   @version 1
 

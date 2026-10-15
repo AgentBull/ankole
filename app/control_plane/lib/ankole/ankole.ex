@@ -3,9 +3,9 @@ defmodule Ankole do
   Namespace root for the control-plane domain contexts.
 
   Ankole is an AgentOS: this control plane owns Principals/AuthZ, AppConfigure,
-  the plugin registry, SignalsGateway ingress, the actor runtime, and the
+  the plugin registry, Signals intake, the Session runtime, and the
   operator web shell. Each concern lives in its own context module
-  (`Ankole.Principals`, `Ankole.Plugins`, `Ankole.SignalsGateway.Actors`, ...); this bare
+  (`Ankole.Principals`, `Ankole.Plugins`, `Ankole.Sessions.Queue`, ...); this bare
   module only anchors the namespace and carries no behavior.
   """
 end

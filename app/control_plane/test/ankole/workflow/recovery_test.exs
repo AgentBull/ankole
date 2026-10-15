@@ -3,9 +3,9 @@ defmodule Ankole.Workflow.RecoveryTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.Conversations.Reconciler
+  alias Ankole.Sessions.Reconciler
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.Workflow
   alias Ankole.Workflow.Jobs.PokeRun
   alias Ankole.Workflow.RunServer
@@ -38,7 +38,7 @@ defmodule Ankole.Workflow.RecoveryTest do
     assert :ok = perform_job(PokeRun, %{run_id: run.id})
     assert_receive {:replay_started, _}, 1_000
     refute Repo.get_by(AgentCall, run_id: run.id)
-    refute Repo.get_by(ActorEvent, agent_uid: agent.uid)
+    refute Repo.get_by(Signal, agent_uid: agent.uid)
     refute_enqueued(worker: PokeRun, args: %{run_id: run.id})
     stop_server(server)
 
@@ -48,8 +48,8 @@ defmodule Ankole.Workflow.RecoveryTest do
     call = wait_for(fn -> Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) end)
     assert call.status == "queued"
 
-    assert %ActorEvent{input_state: "open"} =
-             Repo.get_by!(ActorEvent, source_event_id: "workflow:call:#{call.id}:dispatch")
+    assert %Signal{input_state: "open"} =
+             Repo.get_by!(Signal, source_event_id: "workflow:call:#{call.id}:dispatch")
   end
 
   test "reconciliation reconstructs a killed server without duplicate tasks" do
@@ -72,7 +72,7 @@ defmodule Ankole.Workflow.RecoveryTest do
     source_event_id = "workflow:call:#{call.id}:dispatch"
 
     assert Repo.aggregate(
-             from(event in ActorEvent, where: event.source_event_id == ^source_event_id),
+             from(event in Signal, where: event.source_event_id == ^source_event_id),
              :count
            ) == 1
   end
@@ -100,8 +100,8 @@ defmodule Ankole.Workflow.RecoveryTest do
       match?(%DateTime{}, Repo.get!(Run, run.id).cleanup_completed_at)
     end)
 
-    assert %ActorEvent{type: "command.stop"} =
-             Repo.get_by!(ActorEvent,
+    assert %Signal{type: "command.stop"} =
+             Repo.get_by!(Signal,
                agent_uid: agent.uid,
                source_event_id: "workflow:call:#{call.id}:stop"
              )
@@ -174,7 +174,7 @@ defmodule Ankole.Workflow.RecoveryTest do
         error: %{}
       })
     )
-    |> Ankole.SignalsGateway.ActorRuntimeCase.stub_workflow_drivers()
+    |> Ankole.SessionsCase.stub_workflow_drivers()
   end
 
   defp terminalize(run, status) do

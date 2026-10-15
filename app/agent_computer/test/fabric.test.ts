@@ -216,7 +216,6 @@ describe('RuntimeFabric channel transport', () => {
     first.reply('error', { reason: 'flow_control', stream: 'durable', acked_seq: 0, message_credit: 0, byte_credit: 0 })
     await Bun.sleep(5)
 
-    // The rejected push kept its sequence number.
     const second = channel.pushes.at(-1)!
     expect(second).not.toBe(first)
     expect(second.event).toBe('durable')
@@ -566,7 +565,6 @@ async function tick(): Promise<void> {
   await Bun.sleep(0)
 }
 
-/** Lets timers that are due now run, such as a reconnect with no delay. */
 async function afterTimers(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0))
   await tick()
@@ -790,7 +788,7 @@ function turnControlEnvelope(messageID: string): Envelope {
         turn: create(JobTurnRefSchema, {
           jobId: 1000n,
           attempt: 1,
-          actorEventId: '00000000-0000-0000-0000-000000000101'
+          signalId: '00000000-0000-0000-0000-000000000101'
         }),
         command: 'retry'
       })

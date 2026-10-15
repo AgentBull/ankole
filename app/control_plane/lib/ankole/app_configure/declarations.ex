@@ -7,12 +7,12 @@ defmodule Ankole.AppConfigure.Declarations do
   alias Ankole.AppConfigure.PatternDefinition
   alias Ankole.IdentityProviders.Config, as: IdentityProviderConfig
   alias Ankole.IdentityProviders.LocalPassword
-  alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Settings, as: AgentWorkerSettings
-  alias Ankole.SignalsGateway.ActorRuntime.BackgroundAgentJobCap
-  alias Ankole.SignalsGateway.ActorRuntime.DeadLetterNoticeConfig
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerAuthKey
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerWebFetchConfig
+  alias Ankole.Sessions.AgentConfig
+  alias Ankole.AgentWorkers.Settings, as: AgentWorkerSettings
+  alias Ankole.Sessions.BackgroundAgentJobCap
+  alias Ankole.Sessions.DeadLetterNoticeConfig
+  alias Ankole.AgentWorkers.WorkerAuthKey
+  alias Ankole.AgentWorkers.WorkerWebFetchConfig
   alias Ankole.Workflow.WorkerConfig, as: WorkflowWorkerConfig
 
   @spec core_definitions() :: [Definition.t()]

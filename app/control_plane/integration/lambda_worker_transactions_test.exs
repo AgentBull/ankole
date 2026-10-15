@@ -4,19 +4,17 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.AgentWorkers
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{
-    Config,
-    Lambda,
-    ProviderKind,
-    Providers,
-    ReconcileJob,
-    SweepJob
-  }
+  alias Ankole.AgentWorkers.Config
+  alias Ankole.AgentWorkers.Lambda
+  alias Ankole.AgentWorkers.ProviderKind
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.ReconcileJob
+  alias Ankole.AgentWorkers.SweepJob
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Lambda.Client
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers.Lambda.Client
+  alias Ankole.AgentWorkers.AgentWorker
 
   @fixtures Path.expand("../test/fixtures/worker_providers/lambda/responses.json", __DIR__)
   @api "/2025-09-09"
@@ -46,6 +44,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
 
     {:ok, provider} = Providers.load(row)
     %{principal: agent} = agent_fixture(%{worker_provider_id: provider.provider_id})
+    assert :ok = AgentWorkers.request(agent.uid)
     %{provider: provider, uid: agent.uid}
   end
 
@@ -201,6 +200,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
       Repo.with_tenant(other_tenant.id, fn ->
         Ankole.E2E.Harness.cleanup_committed_fixtures_on_exit!()
         %{principal: agent} = agent_fixture(%{worker_provider_id: provider.provider_id})
+        assert :ok = AgentWorkers.request(agent.uid)
         assert :ok = reconcile(agent.uid)
         agent.uid
       end)
@@ -223,6 +223,7 @@ defmodule Ankole.LambdaWorkerTransactionsTest do
     api = install_platform(provider, [])
     Agent.update(api, &%{&1 | mode: :hold})
     %{principal: other} = agent_fixture(%{worker_provider_id: provider.provider_id})
+    assert :ok = AgentWorkers.request(other.uid)
     first_args = Ankole.Job.arguments(:tenant, %{agent_uid: uid})
     second_args = Ankole.Job.arguments(:tenant, %{agent_uid: other.uid})
     first = start_database_task(fn -> ReconcileJob.perform(%Oban.Job{args: first_args}) end)

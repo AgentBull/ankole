@@ -1,5 +1,3 @@
-// `analyze structure` — konsistent structural convention gate.
-
 import { repoRootPath, resolveLocalBin, runChildCaptured } from '../../utils'
 import { STRUCTURE_KONSISTENT_CHECK_ARGS, STRUCTURE_KONSISTENT_VALIDATE_ARGS } from './config'
 import type { CheckOptions, CheckResult, ExitCode } from './types'

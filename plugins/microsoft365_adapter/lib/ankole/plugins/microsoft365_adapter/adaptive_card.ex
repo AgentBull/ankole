@@ -2,7 +2,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
   @moduledoc false
 
   alias Ankole.Plugins.MapHelpers
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @content_type "application/vnd.microsoft.card.adaptive"
 

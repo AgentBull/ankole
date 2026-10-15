@@ -1,12 +1,26 @@
 import { LIST_REFRESH_MS } from '../refresh-intervals'
-import { TableCell, TableRow, toast } from '@ankole/uikit'
+import {
+  Button,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Input,
+  TableCell,
+  TableRow,
+  toast
+} from '@ankole/uikit'
 import { RiCloseCircleLine, RiWebhookLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
-  ankoleWebWebhookEndpointControllerDeleteMutation,
+  ankoleWebWebhookEndpointControllerCancelMutation,
+  ankoleWebWebhookEndpointControllerCreateMutation,
   ankoleWebWebhookEndpointControllerIndexOptions
 } from '../api/generated/@tanstack/react-query.gen'
 import type { WebhookEndpointItem } from '../api/generated/types.gen'
@@ -45,12 +59,12 @@ export function WebhooksPage() {
         endpoint.agent_uid,
         endpoint.binding_name,
         endpoint.session_id,
-        endpoint.signal_channel_id
+        endpoint.conversation_id
       )
     )
 
   const cancel = useMutation({
-    ...ankoleWebWebhookEndpointControllerDeleteMutation(),
+    ...ankoleWebWebhookEndpointControllerCancelMutation(),
     onSuccess: () => {
       toast.success(t('console.webhooks.cancelled'))
     },
@@ -61,6 +75,7 @@ export function WebhooksPage() {
     <ResourceListPage
       title={t('console.webhooks.title')}
       description={t('console.webhooks.description')}
+      createAction={<CreateCloudEventEndpoint onCreated={() => scope.selectAgent('')} />}
       columns={[
         t('console.webhooks.label'),
         t('console.agents.agent'),
@@ -107,7 +122,7 @@ export function WebhooksPage() {
           cancelling={cancel.isPending}
           onCancel={() =>
             cancel.mutate({
-              path: { agent_uid: endpoint.agent_uid, webhook_endpoint_id: endpoint.id }
+              path: { webhook_endpoint_id: endpoint.id }
             })
           }
         />
@@ -135,16 +150,17 @@ function WebhookEndpointRow({
           <span className="font-mono text-xs text-muted-foreground">{formatConsoleDate(endpoint.created_at)}</span>
         </div>
       </TableCell>
-      <AgentCell uid={endpoint.agent_uid} />
+      {endpoint.agent_uid ? <AgentCell uid={endpoint.agent_uid} /> : <TableCell>—</TableCell>}
       <TableCell>
-        <span className="block max-w-56 truncate font-mono text-xs" title={endpoint.session_id}>
+        <span className="block max-w-56 truncate font-mono text-xs" title={endpoint.session_id ?? undefined}>
           {endpoint.session_id}
         </span>
       </TableCell>
       <TableCell>
         <div className="grid gap-1 font-mono text-xs">
-          <span>{endpoint.binding_name}</span>
-          <span className="max-w-72 truncate text-muted-foreground">{endpoint.signal_channel_id ?? '—'}</span>
+          <span>{endpoint.binding_name ?? (endpoint.event_format === 'cloudevents' ? 'CloudEvents' : '—')}</span>
+          <span>{endpoint.id}</span>
+          <span className="max-w-72 truncate text-muted-foreground">{endpoint.conversation_id ?? '—'}</span>
         </div>
       </TableCell>
       <TableCell>{t(`console.webhooks.mode_${endpoint.mode}`)}</TableCell>
@@ -169,6 +185,98 @@ function WebhookEndpointRow({
         ) : null}
       </TableCell>
     </TableRow>
+  )
+}
+
+function CreateCloudEventEndpoint({ onCreated }: { onCreated: () => void }) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const [label, setLabel] = useState('')
+  const [expiresAt, setExpiresAt] = useState('')
+  const create = useMutation({
+    ...ankoleWebWebhookEndpointControllerCreateMutation(),
+    onSuccess: onCreated,
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const created = create.data
+  const url = created ? `${window.location.origin}/signals/v1/cloudevents/${created.token}` : ''
+
+  return (
+    <>
+      <Button
+        type="button"
+        onClick={() => {
+          create.reset()
+          setOpen(true)
+        }}>
+        {t('console.webhooks.create')}
+      </Button>
+      <Dialog
+        open={open}
+        onOpenChange={next => {
+          setOpen(next)
+          if (!next) create.reset()
+        }}>
+        <DialogContent closeLabel={t('common.close')}>
+          <DialogHeader>
+            <DialogTitle>{t('console.webhooks.create')}</DialogTitle>
+            <DialogDescription>
+              {t(created ? 'console.webhooks.created_url_description' : 'console.webhooks.create_description')}
+            </DialogDescription>
+          </DialogHeader>
+          {created ? (
+            <div className="grid gap-4">
+              <label className="grid gap-2">
+                {t('console.webhooks.endpoint_id')}
+                <Input readOnly value={created.webhook_endpoint.id} />
+              </label>
+              <label className="grid gap-2">
+                {t('console.webhooks.created_url')}
+                <Input readOnly value={url} />
+              </label>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() =>
+                  navigator.clipboard.writeText(url).catch(error => toast.error(requestErrorMessage(error)))
+                }>
+                {t('common.copy')}
+              </Button>
+              <DialogFooter>
+                <DialogClose render={<Button />}>{t('common.close')}</DialogClose>
+              </DialogFooter>
+            </div>
+          ) : (
+            <form
+              className="grid gap-4"
+              onSubmit={event => {
+                event.preventDefault()
+                create.mutate({ body: { label, expires_at: new Date(expiresAt).toISOString() } })
+              }}>
+              <label className="grid gap-2">
+                {t('console.webhooks.label')}
+                <Input required value={label} onChange={event => setLabel(event.target.value)} />
+              </label>
+              <label className="grid gap-2">
+                {t('console.webhooks.expires_at')}
+                <Input
+                  required
+                  type="datetime-local"
+                  value={expiresAt}
+                  onChange={event => setExpiresAt(event.target.value)}
+                />
+              </label>
+              <DialogFooter>
+                <DialogClose render={<Button type="button" variant="ghost" />}>{t('common.cancel')}</DialogClose>
+                <Button type="submit" disabled={create.isPending}>
+                  {t('console.webhooks.create')}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

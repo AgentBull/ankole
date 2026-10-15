@@ -23,7 +23,7 @@ defmodule Ankole.Brain.Schemas.Source do
     field :last_sync_at, :utc_datetime_usec
     field :archived_at, :utc_datetime_usec
     field :extracted_through_at, :utc_datetime_usec
-    field :extracted_through_entry_id, :string
+    field :extracted_through_seq, :integer
 
     timestamps(inserted_at: :created_at, updated_at: :updated_at)
   end

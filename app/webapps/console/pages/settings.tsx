@@ -35,7 +35,7 @@ import {
   RiSettings3Line
 } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { Fragment, useDeferredValue, useEffect, useRef, useState, type FormEvent } from 'react'
+import { Fragment, useDeferredValue, useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useNavigate, useParams, useSearchParams } from 'react-router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
@@ -51,37 +51,24 @@ import {
   ankoleWebAppConfigurationControllerUpdateMutation,
   ankoleWebAppConfigurationControllerUpdateTenantMutation
 } from '../api/generated/@tanstack/react-query.gen'
-import type { AppConfigurationItem, JsonValue as JSONValue } from '../api/generated/types.gen'
+import type { AppConfigurationItem } from '../api/generated/types.gen'
 import { EditorNavigationGuard, SaveButton, focusFirstInvalidControl, useFormCompleteness } from '../console-form'
 import { ErrorBlock } from '../../common/error-block'
-import { formatJSON, parseJSON } from '../console-primitives'
-import { ENCRYPTED_VALUE_MASK, isEncryptedValueMask } from '../encrypted-value-input'
+import { formatJSON } from '../console-primitives'
+import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
 import { ResourceListPage, ResourceSearch } from '../console-list-page'
-import { settingGroupPrefix, settingOwnerRoute, settingRows, type SettingGroup } from '../state/setting-groups'
-import { encryptedSettingValue, SettingEditorModel, settingDecryptedDraft } from '../state/setting-editor-model'
+import {
+  settingDescription,
+  settingGroup,
+  settingOwnerRoute,
+  settingRows,
+  type SettingGroup
+} from '../state/setting-groups'
+import { SettingEditorModel } from '../state/setting-editor-model'
+import { SettingGroupEditorModel } from '../state/setting-group-editor-model'
 import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/resource-search'
-import { settingDescription } from '../state/setting-description'
 import { useEditorDraft } from '../use-editor-draft'
-import {
-  OBSERVABILITY_TRACE_KEYS,
-  observabilityHeaderRows,
-  observabilityHeadersValidationError,
-  observabilityHeadersValue,
-  observabilityTraceDraft,
-  observabilityTraceValidationError,
-  sameObservabilityHeaderRows,
-  type ObservabilityHeaderRow
-} from '../state/observability-setting-editor'
-import {
-  brainCanonicalDraft,
-  brainModelDraft,
-  brainModelRequiresDimensions,
-  brainModelValue,
-  brainSettingsValidationError,
-  isBrainModelKey,
-  sameBrainModelDraft,
-  type BrainModelDraft
-} from '../state/brain-setting-editor'
+import { OBSERVABILITY_TRACE_KEYS } from '../state/observability-setting-editor'
 import { BrainSettingsEditor } from './brain-settings-editor'
 import { ObservabilitySettingsEditor } from './observability-settings-editor'
 import { SettingValueEditor } from './setting-value-editors'
@@ -349,35 +336,42 @@ export function SettingEditorDrawer() {
   const decrypt = useMutation({
     meta: { invalidates: false },
     ...api.decrypt(),
-    gcTime: 0,
-    onSuccess: response => model.reveal(settingDecryptedDraft(response.decrypted_value.value)),
-    onError: error => toast.error(requestErrorMessage(error))
+    gcTime: 0
   })
-  const finish = (message: string) => {
+  const reveal = () => {
+    if (!item || !initialized) return
+    return model
+      .reveal(async () => (await decrypt.mutateAsync({ path: { key: item.key } })).decrypted_value.value)
+      .catch(error => toast.error(requestErrorMessage(error)))
+  }
+  const finish = (message: string, clean: boolean) => {
     toast.success(message)
+    if (!clean) return
     model.resetSource()
     decrypt.reset()
-
     navigate('/settings')
   }
-  const update = useMutation({
-    ...api.update(),
-    onSuccess: response => finish(t('console.settings.saved', { key: response.app_configuration.key })),
-    onError: error => toast.error(requestErrorMessage(error))
-  })
-  const restoreDefault = useMutation({
-    ...api.remove(),
-    onSuccess: () => {
-      setRestoreDefaultOpen(false)
-      finish(t('console.settings.reset_done', { key }))
-    },
-    onError: error => toast.error(requestErrorMessage(error))
-  })
+  const update = useMutation(api.update())
+  const restoreDefault = useMutation(api.remove())
+  const restore = () => {
+    if (!item?.overridden) return
+    return model
+      .restore(
+        async () => (await restoreDefault.mutateAsync({ path: { key: item.key } })).app_configuration,
+        clean => {
+          setRestoreDefaultOpen(false)
+          finish(t('console.settings.reset_done', { key: item.key }), clean)
+        }
+      )
+      .catch(error => toast.error(requestErrorMessage(error)))
+  }
 
-  // The reveal belongs to the setting the drawer edits, so it resets when the
-  // route's key changes — not when a background refetch hands the same setting
-  // back under a new object identity.
-  useEffect(() => decrypt.reset(), [decrypt.reset, key, scope])
+  useEffect(() => {
+    decrypt.reset()
+    update.reset()
+    restoreDefault.reset()
+    setRestoreDefaultOpen(false)
+  }, [decrypt.reset, update.reset, restoreDefault.reset, key, scope])
 
   const saving = update.isPending || restoreDefault.isPending
   const requestClose = () => {
@@ -398,30 +392,15 @@ export function SettingEditorDrawer() {
       focusFirstInvalidControl(event.currentTarget)
       return
     }
-    model.clearValidation()
     if (!item?.editable || !initialized) return
-    if (item.encrypted && isEncryptedValueMask(model.text.value)) {
-      update.mutate({ body: {}, path: { key: item.key } })
-      return
-    }
-    if (item.encrypted && !model.text.value.trim()) {
-      model.validationError.value = t('common.field_required', { field: t('console.settings.value') })
-      return
-    }
-    if (item.encrypted) {
-      const value = encryptedSettingValue(model.text.value)
-      update.mutate({ body: { value }, path: { key: item.key } })
-      return
-    }
-
-    const parsed = parseJSON(model.text.value, t('console.settings.value'))
-    if (!parsed.ok) {
-      model.validationError.value = parsed.error
-      return
-    }
-    const value = parsed.value
-
-    update.mutate({ body: { value }, path: { key: item.key } })
+    return model
+      .save(
+        item.encrypted,
+        t,
+        body => update.mutateAsync({ body, path: { key: item.key } }),
+        clean => finish(t('console.settings.saved', { key: item.key }), clean)
+      )
+      .catch(error => toast.error(requestErrorMessage(error)))
   }
 
   return (
@@ -506,9 +485,9 @@ export function SettingEditorDrawer() {
                         model.clearValidation()
                       }}
                       decrypt={{
-                        revealed: decrypt.data?.decrypted_value.key === item.key,
+                        revealed: model.revealed.value,
                         revealing: decrypt.isPending,
-                        onReveal: () => decrypt.mutate({ path: { key: item.key } })
+                        onReveal: reveal
                       }}
                     />
                   ) : null}
@@ -554,10 +533,7 @@ export function SettingEditorDrawer() {
             <DialogClose render={<Button variant="outline" />} disabled={restoreDefault.isPending}>
               {t('common.cancel')}
             </DialogClose>
-            <Button
-              disabled={restoreDefault.isPending || !item?.overridden}
-              variant="destructive"
-              onClick={() => item?.overridden && restoreDefault.mutate({ path: { key: item.key } })}>
+            <Button disabled={restoreDefault.isPending || !item?.overridden} variant="destructive" onClick={restore}>
               {restoreDefault.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.settings.restore_default_confirm')}
             </Button>
@@ -578,210 +554,89 @@ export function SettingEditorDrawer() {
  * reports itself by name instead of hiding behind a whole-group error.
  */
 export function SettingGroupDrawer() {
+  useSignals()
   const { t } = useTranslation()
   const formCompleteness = useFormCompleteness()
   const navigate = useNavigate()
+  const model = useModel(SettingGroupEditorModel)
   const params = useParams()
   const [searchParams] = useSearchParams()
   const scope = searchParams.get('scope') === 'global' ? 'global' : 'tenant'
   const api = SETTING_API[scope]
   const groupID = params.group ?? ''
-  const prefix = settingGroupPrefix(groupID)
-  const initializedFor = useRef<string | undefined>(undefined)
-  const [drafts, setDrafts] = useState<Record<string, string>>({})
-  const [initial, setInitial] = useState<Record<string, string>>({})
-  const [editorError, setEditorError] = useState<string>()
+  const group = settingGroup(groupID)
   const [restoreItem, setRestoreItem] = useState<AppConfigurationItem>()
-  const [saving, setSaving] = useState(false)
-  // `undefined` keeps the stored encrypted map opaque. An empty array is an explicit replacement,
-  // so editing another field can never turn an unread secret into an empty header map.
-  const [headerRows, setHeaderRows] = useState<ObservabilityHeaderRow[]>()
-  const [initialHeaderRows, setInitialHeaderRows] = useState<ObservabilityHeaderRow[]>()
-  const [headersEditing, setHeadersEditing] = useState(false)
-  // The brain model keys hold a nullable object; the composed editor edits its
-  // fields plus a raw provider-options text, so the drafts map alone cannot
-  // carry an in-progress edit without losing it or blessing invalid JSON.
-  const [brainModels, setBrainModels] = useState<Record<string, BrainModelDraft>>({})
-  const [initialBrainModels, setInitialBrainModels] = useState<Record<string, BrainModelDraft>>({})
 
   const list = useQuery(api.index())
   const items = (list.data?.app_configurations ?? []).filter(
-    item => item.editable && prefix !== undefined && item.key.startsWith(prefix)
+    item => item.editable && group !== undefined && item.key.startsWith(group.prefix)
   )
-  const signature = items.length ? `${scope}:${items.map(item => item.key).join(',')}` : ''
-  const visualObservabilityEditor = groupID === 'observability'
-  const visualBrainEditor = groupID === 'brain'
+  const draftStatus = useEditorDraft(model, {
+    identity: { resource: 'setting-group', group: groupID, scope },
+    source: group && items.length ? { kind: group.id, items } : undefined,
+    absent: () => list.isSuccess && !list.isFetching && items.length === 0
+  })
+  const saving = model.saving.value
   const headersItem = items.find(item => item.key === OBSERVABILITY_TRACE_KEYS.headers)
-  const headersDirty =
-    visualObservabilityEditor && headersEditing && !sameObservabilityHeaderRows(headerRows, initialHeaderRows)
-  const brainModelsDirty =
-    visualBrainEditor &&
-    Object.entries(brainModels).some(([key, draft]) => {
-      const initialDraft = initialBrainModels[key]
-      return !initialDraft || !sameBrainModelDraft(draft, initialDraft)
-    })
-  const dirty = items.some(item => drafts[item.key] !== initial[item.key]) || headersDirty || brainModelsDirty
-
-  useEffect(() => {
-    if (!signature || initializedFor.current === signature) return
-    initializedFor.current = signature
-    setEditorError(undefined)
-    setRestoreItem(undefined)
-    const next = Object.fromEntries(
-      items.map(item => [
-        item.key,
-        item.key === OBSERVABILITY_TRACE_KEYS.headers && item.present
-          ? ENCRYPTED_VALUE_MASK
-          : (brainCanonicalDraft(item.key, item.value) ?? formatJSON(item.value ?? null))
-      ])
-    )
-    setDrafts(next)
-    setInitial(next)
-    setHeaderRows(undefined)
-    setInitialHeaderRows(undefined)
-    setHeadersEditing(false)
-    const nextModels = Object.fromEntries(
-      items.filter(item => isBrainModelKey(item.key)).map(item => [item.key, brainModelDraft(item.value)])
-    )
-    setBrainModels(nextModels)
-    setInitialBrainModels(nextModels)
-  }, [items, signature])
 
   const update = useMutation(api.update())
   const decrypt = useMutation({
     meta: { invalidates: false },
     ...api.decrypt(),
-    gcTime: 0,
-    onSuccess: response => {
-      const rows = observabilityHeaderRows(response.decrypted_value.value)
-      if (!rows) {
-        setEditorError(t('console.settings.observability_headers_invalid'))
-        return
-      }
-      setHeaderRows(rows)
-      setInitialHeaderRows(rows)
-      setHeadersEditing(false)
-    },
-    onError: error => toast.error(requestErrorMessage(error))
+    gcTime: 0
   })
-  const restoreDefault = useMutation({
-    ...api.remove(),
-    onSuccess: response => {
-      setRestoreItem(undefined)
-      // Rebaseline only the restored key from the response. Re-initializing
-      // every draft would read the still-stale list cache and discard sibling
-      // edits, and the key-only signature would then skip the refetch.
-      const restoredKey = response.app_configuration.key
-      const restoredValue = response.app_configuration.value
-      const restoredDraft = brainCanonicalDraft(restoredKey, restoredValue) ?? formatJSON(restoredValue ?? null)
-      setDrafts(current => ({ ...current, [restoredKey]: restoredDraft }))
-      setInitial(current => ({ ...current, [restoredKey]: restoredDraft }))
-      if (restoredKey === OBSERVABILITY_TRACE_KEYS.headers) {
-        setHeaderRows(undefined)
-        setInitialHeaderRows(undefined)
-        setHeadersEditing(false)
-        decrypt.reset()
-      }
-      if (isBrainModelKey(restoredKey)) {
-        const restoredModel = brainModelDraft(restoredValue)
-        setBrainModels(current => ({ ...current, [restoredKey]: restoredModel }))
-        setInitialBrainModels(current => ({ ...current, [restoredKey]: restoredModel }))
-      }
-      toast.success(t('console.settings.reset_done', { key: restoredKey }))
-    },
-    onError: error => toast.error(requestErrorMessage(error))
-  })
+  const restoreDefault = useMutation(api.remove())
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    decrypt.reset()
+    update.reset()
+    restoreDefault.reset()
+    setRestoreItem(undefined)
+  }, [decrypt.reset, update.reset, restoreDefault.reset, groupID, scope])
+
+  const revealHeaders = () => {
+    if (!headersItem || draftStatus !== 'ready') return
+    return model
+      .revealHeaders(
+        async () => (await decrypt.mutateAsync({ path: { key: headersItem.key } })).decrypted_value.value,
+        t
+      )
+      .catch(error => toast.error(requestErrorMessage(error)))
+  }
+
+  const restore = () => {
+    if (!restoreItem) return
+    return model
+      .restore(
+        restoreItem.key,
+        async () => (await restoreDefault.mutateAsync({ path: { key: restoreItem.key } })).app_configuration,
+        item => {
+          setRestoreItem(undefined)
+          if (item.key === OBSERVABILITY_TRACE_KEYS.headers) decrypt.reset()
+          toast.success(t('console.settings.reset_done', { key: item.key }))
+        }
+      )
+      .catch(error => toast.error(requestErrorMessage(error)))
+  }
+
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!event.currentTarget.reportValidity()) {
       focusFirstInvalidControl(event.currentTarget)
       return
     }
-    setEditorError(undefined)
-
-    const pending: Array<{ key: string; value: JSONValue }> = []
-
-    if (visualObservabilityEditor) {
-      const traceError = observabilityTraceValidationError(observabilityTraceDraft(drafts))
-      if (traceError) {
-        setEditorError(t(`console.settings.observability_error_${traceError}`))
-        return
-      }
-
-      if (headersDirty && headerRows) {
-        const headersError = observabilityHeadersValidationError(headerRows)
-        if (headersError) {
-          setEditorError(t(`console.settings.observability_error_${headersError}`))
-          return
+    if (draftStatus !== 'ready') return
+    return model
+      .save(
+        items,
+        t,
+        (key, value) => update.mutateAsync({ body: { value }, path: { key } }),
+        (count, clean) => {
+          toast.success(t('console.settings.group_saved', { count }))
+          if (clean) navigate('/settings')
         }
-      }
-    }
-
-    if (visualBrainEditor) {
-      const brainError = brainSettingsValidationError(drafts, brainModels)
-      if (brainError) {
-        setEditorError(
-          t(`console.settings.brain_error_${brainError.error}`, { key: brainError.key, field: brainError.field })
-        )
-        return
-      }
-    }
-
-    for (const item of items) {
-      if (item.key === OBSERVABILITY_TRACE_KEYS.headers && visualObservabilityEditor) {
-        if (headersDirty && headerRows) {
-          pending.push({ key: item.key, value: observabilityHeadersValue(headerRows) })
-        }
-        continue
-      }
-      if (visualBrainEditor && isBrainModelKey(item.key)) {
-        const model = brainModels[item.key]
-        const initialModel = initialBrainModels[item.key]
-        if (model && (!initialModel || !sameBrainModelDraft(model, initialModel))) {
-          pending.push({ key: item.key, value: brainModelValue(model, brainModelRequiresDimensions(item.key)) })
-        }
-        continue
-      }
-      if (drafts[item.key] === initial[item.key]) continue
-
-      const parsed = parseJSON(drafts[item.key] ?? '', item.key)
-      if (!parsed.ok) {
-        setEditorError(parsed.error)
-        return
-      }
-
-      pending.push({ key: item.key, value: parsed.value })
-    }
-
-    if (pending.length === 0) return
-
-    setSaving(true)
-
-    for (const entry of pending) {
-      try {
-        await update.mutateAsync({ body: { value: entry.value }, path: { key: entry.key } })
-        setInitial(current => ({ ...current, [entry.key]: drafts[entry.key] ?? '' }))
-        if (entry.key === OBSERVABILITY_TRACE_KEYS.headers && headerRows) {
-          setInitialHeaderRows(headerRows)
-        }
-        const savedModel = brainModels[entry.key]
-        if (savedModel) {
-          setInitialBrainModels(current => ({ ...current, [entry.key]: savedModel }))
-        }
-      } catch (error) {
-        setSaving(false)
-        setEditorError(t('console.settings.group_save_failed', { key: entry.key, reason: requestErrorMessage(error) }))
-
-        return
-      }
-    }
-
-    toast.success(t('console.settings.group_saved', { count: pending.length }))
-
-    // Navigate while `saving` still reads true, so the draft guard stands down
-    // for this save's own exit; the drawer unmounts with the navigation.
-    navigate('/settings')
+      )
+      .catch(error => toast.error(requestErrorMessage(error)))
   }
 
   const busy = saving || restoreDefault.isPending
@@ -828,7 +683,7 @@ export function SettingGroupDrawer() {
             </DrawerHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
-              {list.isLoading || (Boolean(signature) && initializedFor.current !== signature) ? (
+              {list.isLoading || (items.length > 0 && draftStatus === 'loading') ? (
                 <div className="grid gap-4">
                   <Skeleton className="h-24 w-full" />
                   <Skeleton className="h-64 w-full" />
@@ -836,94 +691,52 @@ export function SettingGroupDrawer() {
               ) : (
                 <div className="grid gap-8">
                   <ErrorBlock
-                    error={editorError ?? list.error ?? (prefix ? undefined : t('console.settings.not_found'))}
+                    error={
+                      model.validationError.value ??
+                      restoreDefault.error ??
+                      decrypt.error ??
+                      list.error ??
+                      (draftStatus === 'absent' ? t('console.settings.not_found') : undefined)
+                    }
                   />
 
-                  {visualBrainEditor ? (
+                  {group?.id === 'brain' ? (
                     <BrainSettingsEditor
-                      drafts={drafts}
+                      drafts={model.drafts.value}
                       items={items}
-                      models={brainModels}
+                      models={model.brainModels.value}
                       saving={saving || restoreDefault.isPending}
-                      onDraftChange={(key, value) => {
-                        setDrafts(current => ({ ...current, [key]: value }))
-                        setEditorError(undefined)
-                      }}
-                      onModelChange={(key, draft) => {
-                        setBrainModels(current => ({ ...current, [key]: draft }))
-                        setEditorError(undefined)
-                      }}
+                      onDraftChange={model.setDraft}
+                      onModelChange={model.setBrainModel}
                       onRestore={setRestoreItem}
                     />
-                  ) : visualObservabilityEditor ? (
+                  ) : group?.id === 'observability' ? (
                     <ObservabilitySettingsEditor
-                      drafts={drafts}
-                      headerRows={headerRows}
+                      drafts={model.drafts.value}
+                      headerRows={model.headerRows.value}
                       headerRevealing={decrypt.isPending}
                       items={items}
                       saving={saving || restoreDefault.isPending}
-                      onDraftChange={(key, value) => {
-                        setDrafts(current => ({ ...current, [key]: value }))
-                        setEditorError(undefined)
-                      }}
-                      onHeaderRowsChange={rows => {
-                        setHeaderRows(rows)
-                        setHeadersEditing(true)
-                        setEditorError(undefined)
-                      }}
-                      onReplaceHeaders={() => {
-                        setHeaderRows([])
-                        setHeadersEditing(true)
-                        setEditorError(undefined)
-                      }}
+                      onDraftChange={model.setDraft}
+                      onHeaderRowsChange={model.setHeaderRows}
+                      onReplaceHeaders={() => model.setHeaderRows([])}
                       onRestore={setRestoreItem}
-                      onRevealHeaders={() => headersItem && decrypt.mutate({ path: { key: headersItem.key } })}
+                      onRevealHeaders={revealHeaders}
                     />
-                  ) : (
-                    items.map(item => (
-                      <section key={item.key} className="grid gap-4">
-                        <div className="flex items-start justify-between gap-3 border-b border-border pb-2">
-                          <div className="grid gap-1">
-                            <h2 className="font-mono text-sm text-foreground">{item.key}</h2>
-                            <p className="text-xs leading-5 text-muted-foreground">{settingDescription(t, item)}</p>
-                          </div>
-                          {item.overridden ? (
-                            <Button
-                              disabled={saving || restoreDefault.isPending}
-                              size="sm"
-                              type="button"
-                              variant="ghost"
-                              onClick={() => setRestoreItem(item)}>
-                              <RiResetLeftLine />
-                              {t('console.settings.restore_default')}
-                            </Button>
-                          ) : null}
-                        </div>
-
-                        <SettingValueEditor
-                          item={item}
-                          value={drafts[item.key] ?? ''}
-                          onChange={value => {
-                            setDrafts(current => ({ ...current, [item.key]: value }))
-                            setEditorError(undefined)
-                          }}
-                        />
-                      </section>
-                    ))
-                  )}
+                  ) : null}
                 </div>
               )}
             </div>
 
             <DrawerFooter className="flex-row items-center justify-end gap-2 border-t border-border p-4">
-              {dirty ? (
+              {model.dirty.value ? (
                 <span className="mr-auto text-xs text-muted-foreground">{t('console.settings.unsaved')}</span>
               ) : null}
               <Button disabled={busy} type="button" variant="ghost" onClick={requestClose}>
                 {t('common.cancel')}
               </Button>
               <SaveButton
-                disabled={saving || initializedFor.current !== signature || (!dirty && !formCompleteness.incomplete)}
+                disabled={busy || draftStatus !== 'ready' || (!model.dirty.value && !formCompleteness.incomplete)}
                 incomplete={formCompleteness.incomplete && !saving}
                 loading={saving}
                 type="submit">
@@ -952,10 +765,7 @@ export function SettingGroupDrawer() {
             <DialogClose render={<Button variant="outline" />} disabled={restoreDefault.isPending}>
               {t('common.cancel')}
             </DialogClose>
-            <Button
-              disabled={restoreDefault.isPending}
-              variant="destructive"
-              onClick={() => restoreItem && restoreDefault.mutate({ path: { key: restoreItem.key } })}>
+            <Button disabled={restoreDefault.isPending} variant="destructive" onClick={restore}>
               {restoreDefault.isPending ? <RiLoaderLine className="animate-spin" data-icon="inline-start" /> : null}
               {t('console.settings.restore_default_confirm')}
             </Button>
@@ -963,7 +773,7 @@ export function SettingGroupDrawer() {
         </DialogContent>
       </Dialog>
 
-      <EditorNavigationGuard blocked={dirty && !saving} />
+      <EditorNavigationGuard blocked={model.dirty.value && !saving} />
     </>
   )
 }

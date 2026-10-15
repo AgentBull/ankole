@@ -26,7 +26,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   alias Ankole.Brain.Tools
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
-  alias Ankole.SignalsGateway.BrainContext
+  alias Ankole.Brain.Tools.Context
 
   @tool_type "brain"
   @call_type "brain_call"
@@ -84,7 +84,9 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   subject's Brain context.
   """
   @spec split(String.t(), map()) :: {:ok, Plan.t() | nil, map()} | {:error, term()}
-  def split(subject_uid, %{} = request) when is_binary(subject_uid) do
+  def split(subject_uid, request, opts \\ [])
+
+  def split(subject_uid, %{} = request, opts) when is_binary(subject_uid) do
     tools = ToolSearch.list_tools(request)
 
     case Enum.split_with(tools, &declaration?/1) do
@@ -93,7 +95,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
 
       {[declaration], plain} ->
         with {:ok, spec} <- validate_declaration(declaration),
-             {:ok, context} <- build_context(subject_uid, Map.get(request, "metadata")) do
+             {:ok, context} <- build_context(subject_uid, opts) do
           plan = %Plan{
             subject_uid: subject_uid,
             operations: spec.operations,
@@ -273,11 +275,12 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
         request,
         %Conversation{} = _conversation,
         current_input,
-        history
+        history,
+        opts \\ []
       )
       when is_list(current_input) do
     with {:ok, %{inject?: true}} <- declaration(request),
-         {:ok, context} <- build_context(subject_uid, Map.get(request, "metadata")) do
+         {:ok, context} <- build_context(subject_uid, opts) do
       recent_text = recent_user_text(current_input)
 
       opening? =
@@ -353,7 +356,8 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
         %Conversation{} = conversation,
         request,
         input,
-        history_items
+        history_items,
+        opts \\ []
       )
       when is_list(input) and is_function(history_items, 0) do
     enabled? =
@@ -364,7 +368,7 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
         )
 
     if enabled? do
-      with {:ok, context} <- build_context(subject_uid, request["metadata"]) do
+      with {:ok, context} <- build_context(subject_uid, opts) do
         recent_text =
           case recent_user_text(input) do
             "" -> recent_user_text(history_items.())
@@ -396,8 +400,6 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
 
     []
   end
-
-  # Declaration
 
   defp declaration?(%{"type" => @tool_type}), do: true
   defp declaration?(_tool), do: false
@@ -438,16 +440,15 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
   defp validate_inject(inject?) when is_boolean(inject?), do: {:ok, inject?}
   defp validate_inject(_inject), do: {:error, {:invalid_brain_tool, :invalid_inject}}
 
-  defp build_context(subject_uid, metadata) do
-    case BrainContext.build(subject_uid, metadata) do
-      {:ok, context} -> {:ok, context}
-      {:error, reason} -> {:error, {:invalid_brain_tool, reason}}
+  defp build_context(subject_uid, opts) do
+    case Keyword.get(opts, :brain_context) do
+      nil -> {:ok, Context.for_subject(subject_uid)}
+      %Context{querier_uid: ^subject_uid} = context -> {:ok, context}
+      _invalid -> {:error, {:invalid_brain_tool, :invalid_context}}
     end
   end
 
   defp root_call?(item), do: ToolContract.default_namespace?(Map.get(item, "namespace"))
-
-  # Execution
 
   defp job(plan, call) do
     base = %{
@@ -546,8 +547,6 @@ defmodule Ankole.AIGateway.HostedTools.Brain do
 
   defp format_reason(reason) when is_binary(reason), do: reason
   defp format_reason(reason), do: inspect(reason)
-
-  # Injection rendering
 
   defp pack_messages(pack) do
     entity_lines = pack |> field(:entities) |> List.wrap() |> Enum.flat_map(&entity_card_lines/1)

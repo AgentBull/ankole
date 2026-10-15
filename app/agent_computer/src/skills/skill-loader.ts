@@ -1,5 +1,5 @@
 import type { AgentToolResult } from '../core'
-import type { JobTurnRef } from '../lanes/actor_lane'
+import type { JobTurnRef } from '../lanes/session_lane'
 import type { RPCRequester, RuntimeSkillSummary } from '../lanes/rpc_lane'
 import { enabledSkillByName } from './effective-skill'
 import { readTool } from '../core/read-tools'

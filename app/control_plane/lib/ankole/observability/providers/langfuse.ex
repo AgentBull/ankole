@@ -14,7 +14,7 @@ defmodule Ankole.Observability.Providers.Langfuse do
     |> put_present("langfuse.trace.metadata.tenant_slug", Map.get(context, :tenant_slug))
     |> put_present("langfuse.trace.metadata.principal_uid", context.principal_uid)
     |> put_present("langfuse.trace.metadata.principal_type", context.principal_type)
-    |> put_present("langfuse.trace.metadata.actor_event_id", context.actor_event_id)
+    |> put_present("langfuse.trace.metadata.signal_id", Map.get(context, :signal_id))
     |> put_present("langfuse.trace.metadata.originator", context.originator)
     |> put_present("langfuse.trace.metadata.caller", context.caller)
     |> put_present("langfuse.trace.metadata.job_id", context.job_id)

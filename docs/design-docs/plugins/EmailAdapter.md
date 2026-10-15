@@ -5,11 +5,21 @@ receives mail over IMAP and sends mail over SMTP. Email has its own adapter
 category, because its senders are neither directory members nor users of one
 platform: anyone on the internet can write to the mailbox. The category
 changes catalog and Console presentation only; the adapter uses the same
-SignalsGateway contracts as every other Signal adapter.
+Signals and Conversations contracts as every other Signal adapter.
 
-Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
+Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+[Sessions](../Sessions.md), [Principal](../Principal.md), and
 [Local Password Identity Provider](../LocalPasswordIdentityProvider.md) for the
 common message and identity rules.
+
+## Provider and Public Identity
+
+The adapter reports an opaque `provider_conversation_id` and a
+`provider_message_id`. Conversations resolves these to a shared public
+Conversation UUID and Message UUID. All Agent observers of the same provider
+conversation in one tenant read those same public facts. Each participating
+Agent has its own `conversation:<public UUID>` Session; a Binding is its
+observation and delivery route, not the owner of the platform room.
 
 ## Current IDs and Features
 
@@ -18,7 +28,7 @@ common message and identity rules.
 | Plugin ID | `email-adapter` |
 | Signal adapter ID | `email` |
 | Adapter category | `email` |
-| Signal configuration | `signals_gateway.email.bindings.<id>` |
+| Signal configuration | `signals.email.bindings.<id>` |
 | IMAP client | Project `:ssl` client |
 | SMTP client | `gen_smtp_client` |
 | MIME decoder | Project decoder with `codepagex` charset conversion |
@@ -40,8 +50,8 @@ The outbound capabilities are `post_entry` and `reply_entry`. The adapter does
 not declare `edit_entry`, `delete_entry`, `add_reaction`, `remove_reaction`,
 `divider`, `card`, or `outbound_reconciliation`, and it does not declare a
 reply-preview module. Because the adapter cannot edit a sent message,
-SignalsGateway shows no streaming preview on an email channel and sends the
-final Agent reply through the durable outbox, so an Agent reply is one
+Conversations shows no streaming preview on an email channel and sends the
+final Agent reply through durable Delivery, so an Agent reply is one
 immutable email. A clarification
 prompt goes out as plain text; the human answers with a normal reply, which
 supersedes the pending interaction and enters the Agent as ordinary input.
@@ -55,7 +65,7 @@ this cycle:
 1. `UID SEARCH UNSEEN` lists the messages that Ankole has not confirmed.
 2. For each UID in ascending order, `UID FETCH` reads the size and the full
    message with `BODY.PEEK[]`, so the fetch itself does not change flags.
-3. The adapter decodes the message and calls SignalsGateway ingress.
+3. The adapter decodes the message and calls Conversations.Observe.
 4. Only after ingress durably accepts the message, or the adapter explicitly
    ignores it, the owner sets `\Seen` with `UID STORE`.
 5. The owner waits in `IDLE` for new mail, or polls on a fixed interval when
@@ -63,7 +73,7 @@ this cycle:
 
 The `\Seen` flag is the provider-side confirmation, in the same way that the
 Telegram `offset` is. A control-plane crash between ingress and the flag write
-delivers the same message again. SignalsGateway deduplicates it with its
+delivers the same message again. Signals deduplicates it with its
 durable source keys, so the adapter keeps no cursor table.
 
 This makes the mailbox an Agent-owned resource: a person must not read the same
@@ -81,16 +91,16 @@ binding repair takes effect at the next reconciliation.
 
 ## Receive Messages
 
-The source entry ID is the `Message-ID` header without its angle brackets. A
+The provider message ID is the `Message-ID` header without its angle brackets. A
 message without a usable `Message-ID` uses `uid:<uidvalidity>:<uid>`. The
 source event ID is the same value.
 
-The signal channel is the email thread. The channel ID is
+The provider conversation is the email thread. Its provider_conversation_id is
 `email:<mailbox address>:thread:<root message id>`. To place a message, the
 adapter collects the IDs in its `In-Reply-To` and `References` headers and
 looks them up in the binding's mirrored entries. A hit joins that entry's
 channel. A miss starts a new thread whose root is the message's own ID. This
-lookup also finds the replies that Ankole sent, because SignalsGateway mirrors
+lookup also finds the replies that Ankole sent, because Conversations mirrors
 every successful outbound send. The adapter does not group messages by
 subject.
 
@@ -170,10 +180,10 @@ has three sources:
 The display name from `From` is a display hint.
 
 The binding owns `unmatched_sender_policy`. With `manual_review`, an unmatched
-sender receives the fixed mapping notice as a reply email, and SignalsGateway
+sender receives the fixed mapping notice as a reply email, and Conversations
 records a mapping request under provider `email`. The held message is never
 mirrored, so the adapter addresses the notice to the sender that
-SignalsGateway recorded on the notice row, with `In-Reply-To` set to the held
+Conversations recorded on the notice row, with `In-Reply-To` set to the held
 message; a `Reply-To` header on the held message is not honored. With
 `create_standalone`, the gateway creates a standalone human Principal. Because
 the DMARC rule refuses unauthenticated senders first, the standalone policy
@@ -186,7 +196,7 @@ to an existing Human instead.
 
 ## Materialize Attachments
 
-SignalsGateway first commits the admitted message with a pending attachment
+Conversations first commits the admitted message with a pending attachment
 projection. The adapter then stores each MIME part that carries a filename, or
 that is not text, in the file service under `inbox/<digest>/<name>`
 ([Files](../Files.md)) and updates the same entry. An unmatched
@@ -206,7 +216,7 @@ references, bounded to the newest twenty IDs. A `post` sends to the channel's
 current participants with the thread subject and `References` to the thread
 root.
 
-The adapter derives the outbound `Message-ID` from the outbox key, so a resend
+The adapter derives the outbound `Message-ID` from the intent key, so a resend
 after an uncertain result carries the same ID and mail clients thread or
 deduplicate it. The body is `text/plain` in UTF-8. Attachments come from the
 file service as `multipart/mixed` parts; a message whose attachments exceed

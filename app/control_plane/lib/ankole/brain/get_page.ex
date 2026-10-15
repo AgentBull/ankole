@@ -171,8 +171,6 @@ defmodule Ankole.Brain.GetPage do
     end)
   end
 
-  # Rendering
-
   defp render_page(%Object{} = object, access, disclosure, visibility) do
     keep = fn scope ->
       Access.scope_reachable?(access, scope) and Access.disclosable?(scope, disclosure)

@@ -423,4 +423,17 @@ defmodule Ankole.Repo do
             other -> other
           end)
     }
+
+  @doc "Rejects a publishing entry point before any nested transaction can write."
+  def assert_outside_transaction! do
+    if in_transaction?(),
+      do: raise(ArgumentError, "use the _in_tx entry point and publish after commit")
+
+    :ok
+  end
+
+  @doc "Checks a caller-owned transaction boundary for an _in_tx entry point."
+  def require_transaction(repo) do
+    if repo.in_transaction?(), do: :ok, else: {:error, :transaction_required}
+  end
 end

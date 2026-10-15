@@ -25,7 +25,7 @@ Ankole의 자동화는 세 가지 트리거 중 하나와 두 가지 소비자 �
 
 | 소비자 | 사용 시점 | 트리거 결과 |
 |---|---|---|
-| **Agent session** | 각 전달에 판단, memory, 런타임에 선택되는 도구 또는 사용자 대상 응답이 필요할 때. | 트리거가 ActorEvent를 추가하고 conversation을 깨웁니다. |
+| **Agent session** | 각 전달에 판단, memory, 런타임에 선택되는 도구 또는 사용자 대상 응답이 필요할 때. | 트리거가 Signal를 추가하고 conversation을 깨웁니다. |
 | **Automation job** | 처리가 결정적 fetch, 비교, 파싱 또는 사전 결정된 작업일 때. | 트리거가 지속 가능한 스크립트 실행을 생성합니다. 스크립트는 조용히 끝나거나 소유자 session에 이벤트를 발행할 수 있습니다. |
 
 처리 방식이 불분명한 동안에는 직접 Agent 깨우기로 시작하세요. 입증된 기계적인 부분만 automation job으로 옮기세요. 이렇게 하면 스크립트를 작게 유지하고 model을 유휴 폴링 루프에 빠뜨리지 않습니다.
@@ -50,7 +50,7 @@ curl -X POST https://ankole.example.com/api/v1/agents/<agent_uid>/cron-schedules
     "idempotency_key": "daily-digest-1",
     "schedule": { "kind": "cron", "expression": "0 9 * * *" },
     "timezone": "Asia/Shanghai",
-    "delivery": { "targets": [{ "binding_name": "main", "signal_channel_id": "<signal_channel_id>" }] },
+    "delivery": { "targets": [{ "binding_name": "main", "conversation_id": "<conversation_uuid>" }] },
     "payload": { "task": "Produce today'\''s digest of the topics in your mission." }
   }'
 ```

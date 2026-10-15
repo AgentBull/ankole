@@ -28,9 +28,9 @@ The logs are not PostgreSQL — they are whatever your log ingester receives. If
 
 See [Environment variables](../environment-variables/) for log settings and [Read Ankole logs](../log-reading/) for a diagnostic method.
 
-## The actor-event and delivery rows
+## The Signal and delivery rows
 
-Every actor event (the durable inbox that drives sessions) and every delivery attempt is a row in PostgreSQL. These are not typically read for audit — they are operational state — but they form a record of what the system was asked to do and whether it was delivered. The Console's `/background-agent-jobs/:id` route shows a job's `attempts` and `error`; the `/ai-gateway/conversations` route shows the model calls a turn made.
+Every Signal (the durable inbox that drives sessions) and every delivery attempt is a row in PostgreSQL. These are not typically read for audit — they are operational state — but they form a record of what the system was asked to do and whether it was delivered. The Console's `/background-agent-jobs/:id` route shows a job's `attempts` and `error`; the `/ai-gateway/conversations` route shows the model calls a turn made.
 
 ## Using them together
 

@@ -305,8 +305,6 @@ defmodule Ankole.AIGateway.ToolSearch do
     end
   end
 
-  # Request planning
-
   defp build_plan(
          request,
          declaration,
@@ -660,8 +658,6 @@ defmodule Ankole.AIGateway.ToolSearch do
     end
   end
 
-  # Input item rewriting (history replay)
-
   defp collect_loaded_spec_groups(%ResponseItems.History{entries: entries}) do
     Enum.reduce_while(entries, {:ok, [], [], []}, fn
       %{item: %{"type" => "tool_search_output"} = item} = entry, {:ok, all, client, server} ->
@@ -816,8 +812,6 @@ defmodule Ankole.AIGateway.ToolSearch do
       status -> {:error, {:incomplete_tool_search_output, Map.get(item, "call_id"), status}}
     end
   end
-
-  # Synthesized search tool
 
   defp synthesized_search_tool(tool_name, declaration, execution, deferred, loaded_tools) do
     %{
@@ -977,8 +971,6 @@ defmodule Ankole.AIGateway.ToolSearch do
           else: take_graphemes(rest, budget, [grapheme | acc], bytes + cost)
     end
   end
-
-  # Wire value helpers
 
   defp public_search_call_id(%Plan{execution: :client}, item) do
     case Map.get(item, "call_id") do

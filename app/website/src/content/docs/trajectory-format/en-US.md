@@ -9,6 +9,8 @@ Ankole records what an agent did in two places, for two kinds of work: AIGateway
 
 The decisive property, stated up front: the model never sees raw storage rows. Both shapes project to a model-visible form that strips protocol identities and replaces them with turn-local call aliases — the model sees "tool call 1 → tool result 1," not internal UUIDs or wire protocol fields. The stored form is for durability and audit; the projected form is for the model.
 
+Here, an AIGateway conversation is a Session's model history. It is separate from the shared Conversation and Messages owned by `Ankole.Conversations`. Public history can supply current background context; it does not replace the stored model chain or its tool journal.
+
 ## AIGateway conversation messages
 
 AIGateway owns the live conversation transcript. Each message is a row in `ai_gateway_messages`:
@@ -26,7 +28,7 @@ AIGateway owns the live conversation transcript. Each message is a row in `ai_ga
 
 The `previous_message_id` is the continuation anchor: each message points at its predecessor, producing a linked chain. On the API, this renders as `previous_response_id`, so a caller or a compaction can resume from any anchor. The `metadata` field carries facts AIGateway owns — the model and provider used, the token usage, the provider's raw response id — alongside opaque caller metadata. It must not carry a second item list.
 
-A compaction (see [Context compression](../context-compression-and-caching/)) replaces the old messages with a summary message that becomes the new anchor. The old messages are no longer in the model's visible context; the summary is the new starting point.
+A compaction (see [Context compression](../context-compression-and-caching/)) writes a summary checkpoint as the new visible anchor. Previous rows remain stored for recovery and audit. The projected model context starts at the summary rather than replaying those earlier messages.
 
 ## Background Agent Job trajectories
 
@@ -48,7 +50,7 @@ This is a separate storage shape from the AIGateway conversation messages, becau
 
 ## The model-visible projection
 
-The control plane projects stored Job items with `Ankole.Conversations.Tools.Jobs.visible_trajectory/1`. The model-visible projection contains:
+The control plane projects stored Job items with `Ankole.Sessions.Tools.Jobs.visible_trajectory/1`. The model-visible projection contains:
 
 - **Strips stored protocol identities** — internal message ids, wire-protocol fields, anything the model should not act on.
 - **Replaces tool-call ids with turn-local aliases** — `call_1`, `call_2`, and so on. The model sees which tool result belongs to which tool call (the only useful relationship), without the internal UUIDs that wire them.
@@ -64,7 +66,7 @@ The control plane projects stored Job items with `Ankole.Conversations.Tools.Job
 | Who owns it | AIGateway | Background Agent Jobs |
 | Canonical format | AIGateway's message schema | semantic items projected to ChatML |
 | Model sees it through | the stateful Responses API | `visible_trajectory/1` projection |
-| Compaction | AIGateway compaction replaces old messages | not compacted (jobs are bounded by retry budget) |
+| Compaction | AIGateway writes a new visible checkpoint; earlier rows remain | not compacted (jobs are bounded by retry budget) |
 
 The two do not mix. A conversation's messages are AIGateway's; a job's trajectory is the job's. The job reports its result back to the owning conversation through a wakeup event (see [Background Agent Jobs](../background-agent-jobs/)), not by writing into the conversation's message store.
 
@@ -76,5 +78,5 @@ It is not a ChatML specification — the canonical ChatML format is a standard, 
 
 - For the conversation message store, read [AIGateway](../ai-gateway/).
 - For the job trajectory store, read [Background Agent Jobs](../background-agent-jobs/).
-- For compaction (which replaces old messages), read [Context compression](../context-compression-and-caching/).
+- For compaction and visible checkpoints, read [Context compression](../context-compression-and-caching/).
 - For the Console routes that read these, read the [Console API reference](../console-api/).

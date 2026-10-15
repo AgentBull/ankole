@@ -39,7 +39,7 @@ message JSONPassthroughResponse {
 // loop; it is empty when the turn produced no gateway Response.
 
 
-// An abort ends one worker attempt without consuming any ActorEvent input.
+// An abort ends one worker attempt without consuming any Signal input.
 message ActorTurnAbortRequest {
   string code = 1;
   string message = 2;
@@ -93,8 +93,8 @@ message DriveFile {
   string source = 5; // inbound | generated | sent | agent | console
   uint32 mode = 6;
   string updated_at = 7;
-  string signal_channel_id = 8;
-  string source_entry_id = 9;
+  string conversation_id = 8;
+  string message_id = 9;
 }
 
 message FilesListRequest {
@@ -242,7 +242,7 @@ message BackgroundAgentJobStatusUpdateRequest {
   bytes result_json = 4;
   bytes error_json = 5;
   bytes metadata_json = 6;
-  repeated string applied_actor_event_ids = 7;
+  repeated string applied_signal_ids = 7;
 }
 
 message BackgroundAgentJobAttemptHistoryEntry {

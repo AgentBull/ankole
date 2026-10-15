@@ -10,9 +10,9 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
   import Ankole.E2E.WaitHelpers,
     only: [
-      ai_messages_for_actor_event: 1,
+      ai_messages_for_signal: 1,
       deadline: 1,
-      wait_for_actor_event_completed: 3,
+      wait_for_signal_completed: 3,
       wait_until: 2
     ]
 
@@ -22,9 +22,9 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.E2E.DockerWorker
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
-  alias Ankole.SignalsGateway.Bindings
+  alias Ankole.Signals.Signal
+  alias Ankole.Sessions.AgentConfig
+  alias Ankole.Signals.Bindings
 
   @base_time ~U[2026-07-15 00:00:00.000000Z]
   @default_real_coding_model "minimax/minimax-m2.7"
@@ -94,16 +94,16 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
                  )
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, message_id)
+    input = signal_by_provider_message_id!(agent.uid, message_id)
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))
 
-    assert {:ok, %ActorEvent{}} =
-             wait_for_actor_event_completed(container, input.id, deadline(300_000))
+    assert {:ok, %Signal{}} =
+             wait_for_signal_completed(container, input.id, deadline(300_000))
 
     assert [start_tool_result] =
-             ai_messages_for_actor_event(input.id) |> tool_results("create_background_job")
+             ai_messages_for_signal(input.id) |> tool_results("create_background_job")
 
     # The contract is that the model forwards the task we gave it, not that it
     # reproduces trailing whitespace: models routinely drop or add a final
@@ -115,7 +115,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
       Repo.one!(
         from(job in Job,
           where: job.agent_uid == ^agent.uid,
-          where: job.source_actor_event_id == ^input.id
+          where: job.source_signal_id == ^input.id
         )
       )
 
@@ -124,7 +124,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
     dispatch_event =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^BackgroundAgentJobs.job_session_id(job.id),
           where: event.type == "background_agent_job.dispatch"
@@ -143,7 +143,7 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
         deadline(@job_completion_timeout_ms)
       )
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
     completed
   end
 
@@ -185,11 +185,11 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
     process_if_open!(wakeup)
 
-    assert {:ok, %ActorEvent{}} =
-             wait_for_actor_event_completed(container, wakeup.id, deadline(300_000))
+    assert {:ok, %Signal{}} =
+             wait_for_signal_completed(container, wakeup.id, deadline(300_000))
 
     assert [details_result] =
-             ai_messages_for_actor_event(wakeup.id)
+             ai_messages_for_signal(wakeup.id)
              |> tool_results("show_background_job_details")
 
     assert details_result.arguments == %{"job_id" => job_id, "result_offset" => 0}
@@ -236,10 +236,10 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
 
     source_event_id = "background_agent_job:#{job_id}:#{status}:#{attempt}"
 
-    assert {:ok, %ActorEvent{} = event} =
+    assert {:ok, %Signal{} = event} =
              wait_until(overall_deadline, fn ->
                Repo.one(
-                 from(event in ActorEvent,
+                 from(event in Signal,
                    where: event.agent_uid == ^agent_uid,
                    where: event.session_id == ^session_id,
                    where: event.type == ^event_type,
@@ -251,15 +251,15 @@ defmodule Ankole.E2E.Scenarios.DeepResearchRealLLM do
     event
   end
 
-  defp process_if_open!(%ActorEvent{id: id}),
+  defp process_if_open!(%Signal{id: id}),
     do: process_if_open!(id, deadline(@worker_recovery_timeout_ms))
 
   defp process_if_open!(id, _worker_recovery_deadline) do
-    case Repo.get!(ActorEvent, id) do
-      %ActorEvent{completed_at: %DateTime{}} ->
+    case Repo.get!(Signal, id) do
+      %Signal{completed_at: %DateTime{}} ->
         :ok
 
-      %ActorEvent{} = event ->
+      %Signal{} = event ->
         assert {:ok, %{status: :driving}} =
                  ensure_input_driver!(
                    event,

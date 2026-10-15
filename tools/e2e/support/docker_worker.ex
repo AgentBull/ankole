@@ -13,9 +13,12 @@ defmodule Ankole.E2E.DockerWorker do
   import ExUnit.Callbacks, only: [on_exit: 1]
 
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Config, Docker, ProviderKind, Providers}
+  alias Ankole.AgentWorkers.Config
+  alias Ankole.AgentWorkers.Docker
+  alias Ankole.AgentWorkers.ProviderKind
+  alias Ankole.AgentWorkers.Providers
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers.AgentWorker
 
   @doc """
   Makes the control plane create Workers with the Docker provider for this
@@ -143,8 +146,16 @@ defmodule Ankole.E2E.DockerWorker do
     Config.put(
       image: image,
       runtime_fabric_endpoint: endpoint,
-      installation: installation
+      installation: installation,
+      internal_skills_root: internal_skills_root()
     )
+  end
+
+  defp internal_skills_root do
+    case System.get_env("ANKOLE_INTERNAL_SKILLS_ROOT") do
+      value when is_binary(value) and value != "" -> Path.expand(value)
+      _unset -> nil
+    end
   end
 
   @doc """
@@ -328,11 +339,31 @@ defmodule Ankole.E2E.DockerWorker do
     targets = Enum.map(inspection["Mounts"] || [], & &1["Destination"])
     assert "/workspace" in targets
     assert "/var/cache/ankole" in targets
-    assert targets -- ["/workspace", "/var/cache/ankole", "/repo/app/agent_computer/src"] == []
+
+    allowed_targets = ["/workspace", "/var/cache/ankole", "/repo/app/agent_computer/src"]
+
+    allowed_targets =
+      if internal_skills_root(),
+        do: ["/repo/internals/skills" | allowed_targets],
+        else: allowed_targets
+
+    assert targets -- allowed_targets == []
     mounts = Map.new(inspection["Mounts"], &{&1["Destination"], &1})
     assert mounts["/workspace"]["Type"] == "volume"
     assert mounts["/var/cache/ankole"]["Type"] == "volume"
     refute mounts["/workspace"]["Name"] == mounts["/var/cache/ankole"]["Name"]
+
+    if root = internal_skills_root() do
+      assert mounts["/repo/internals/skills"]["Type"] == "bind"
+
+      source = mounts["/repo/internals/skills"]["Source"]
+      # Docker Desktop reports the host path through its Linux VM mount.
+      assert source == root or
+               (:os.type() == {:unix, :darwin} and source == "/host_mnt" <> root)
+
+      assert mounts["/repo/internals/skills"]["RW"] == false
+      assert "ANKOLE_INTERNAL_SKILLS_ROOT=/repo/internals/skills" in env
+    end
 
     assert exec!(container(agent_uid), [
              "sh",

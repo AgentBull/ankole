@@ -26,7 +26,7 @@ This file applies to all files under `app/webapps/`. It supplements the root `AG
 
 ## UI and API boundaries
 
-- Put cross-webapp providers and browser integration in `common/`. Keep product-specific pages and state in `console/` or `setup/`.
+- Put cross-webapp providers and browser integration in `common/`. Keep product-specific pages and state in `console/`, `setup/`, or `workplace/`.
 - Treat `openapi/*.json` and `console/api/generated/` as generated artifacts. Change the owning control-plane API declaration, regenerate the OpenAPI document, and then run `bun run --filter @ankole/webapps openapi:generate`. Do not patch generated artifacts to change behavior.
 
 ## Validation

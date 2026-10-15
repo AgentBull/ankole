@@ -2,8 +2,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   use Ankole.DataCase, async: false
 
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
 
+  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
@@ -11,20 +12,19 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.ReplyPresentation
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
+
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias FeishuOpenAPI.Error
 
   defmodule CardKitHarness do
     @moduledoc false
 
     alias Ankole.Plugins.LarkAdapter.CardKit
-    alias Ankole.SignalsGateway.ReplyPreviewAdapter
+    alias Ankole.Conversations.Delivery.PreviewAdapter
     alias FeishuOpenAPI.Error
 
     for operation <- [:update, :finalize, :refresh] do
@@ -42,8 +42,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         plug: fn conn -> dispatch(conn, request_fun) end
       )
 
-      {:ok, adapter} = ReplyPreviewAdapter.from_module(CardKit)
-      apply(ReplyPreviewAdapter, operation, [adapter, request])
+      {:ok, adapter} = PreviewAdapter.from_module(CardKit)
+      apply(PreviewAdapter, operation, [adapter, request])
     end
 
     defp dispatch(%{request_path: "/open-apis/auth/v3/tenant_access_token/internal"} = conn, _fun) do
@@ -130,7 +130,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _binding} =
-             SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: agent.uid,
                name: "lark-cardkit",
                adapter: "lark",
@@ -140,13 +140,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                unmatched_sender_policy: :create_standalone
              })
 
-    %{actor_event: event} =
-      emit_addressed_actor_event(
+    %{signal: event} =
+      emit_addressed_signal(
         agent.uid,
         "lark-cardkit",
         group_entry(%{
           source_event_id: unique_uid("cardkit-event"),
-          source_entry_id: unique_uid("cardkit-trigger"),
+          provider_message_id: unique_uid("cardkit-trigger"),
           explicit: true
         })
       )
@@ -174,7 +174,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "refresh_reason" => "thought_cleanup"
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn _client, :patch, "im/v1/messages/:message_id", opts ->
@@ -185,7 +187,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.refresh(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: presentation,
                  previous_presentation: checkpoint["presentation"],
                  checkpoint: checkpoint,
@@ -205,23 +207,37 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     refute_receive {:cardkit_request, :post, "cardkit/v1/cards", _opts}
     refute_receive {:cardkit_request, :post, "cardkit/v1/cards/:card_id/batch_update", _opts}
 
-    assert result.created_source_entry_id == "message-recovered"
-    assert result.reply_preview_checkpoint["card_id"] == "card-recovered"
-    assert result.reply_preview_checkpoint["message_id"] == "message-recovered"
+    assert result.created_provider_message_id == "message-recovered"
 
-    assert get_in(result.reply_preview_checkpoint, ["cards", Access.at(0), "transport"]) ==
+    assert result.reply_preview_checkpoint["card_id"] ==
+             "card-recovered"
+
+    assert result.reply_preview_checkpoint["message_id"] ==
+             "message-recovered"
+
+    assert get_in(result.reply_preview_checkpoint, [
+             "cards",
+             Access.at(0),
+             "transport"
+           ]) ==
              "inline_message"
 
-    assert result.reply_preview_checkpoint["streaming_state"] == "closed"
-    assert result.reply_preview_checkpoint["stream_deadline_at"] == nil
+    assert result.reply_preview_checkpoint["streaming_state"] ==
+             "closed"
+
+    assert result.reply_preview_checkpoint["stream_deadline_at"] ==
+             nil
+
     refute result.reply_preview_checkpoint["refresh_pending"]
     refute result.reply_preview_checkpoint["cleanup_at"]
 
-    persisted = Repo.get!(ActorEvent, event.id)
-    assert persisted.reply_preview_checkpoint["streaming_state"] == "closed"
+    persisted = Repo.get!(Signal, event.id)
+
+    assert Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint["streaming_state"] ==
+             "closed"
   end
 
-  test "terminal recovery uses the durable outbox presentation instead of the stale checkpoint",
+  test "terminal recovery uses the durable intent presentation instead of the stale checkpoint",
        %{event: event} do
     working = ReplyPresentation.new() |> ReplyPresentation.append_answer("正在理解请求")
 
@@ -252,7 +268,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         )
       )
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn
@@ -269,7 +287,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.refresh(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: terminal,
                  previous_presentation: checkpoint["presentation"],
                  checkpoint: checkpoint,
@@ -284,8 +302,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     card = Ankole.JSON.decode!(patch_opts[:body][:content])
     answer = Enum.find(card["body"]["elements"], &(&1["element_id"] == "answer"))
     assert answer["content"] == "AI 服务返回了错误，请重试。"
-    assert result.reply_preview_checkpoint["presentation"]["state"] == "failed"
-    assert result.reply_preview_checkpoint["streaming_state"] == "closed"
+
+    assert result.reply_preview_checkpoint["presentation"][
+             "state"
+           ] == "failed"
+
+    assert result.reply_preview_checkpoint["streaming_state"] ==
+             "closed"
   end
 
   test "terminal recovery returns a non-retry fallback when the provider rejects a card reference",
@@ -315,7 +338,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         )
       )
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
 
     request_fun = fn _client, :post, path, _opts
                      when path in ["im/v1/messages", "im/v1/messages/:message_id/reply"] ->
@@ -336,7 +360,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
              }}} =
              CardKit.refresh(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: terminal,
                  previous_presentation: checkpoint["presentation"],
                  checkpoint: checkpoint,
@@ -371,7 +395,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "refresh_reason" => "terminal_recovery"
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn
@@ -395,7 +421,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, _result} =
              CardKit.refresh(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: presentation,
                  previous_presentation: checkpoint["presentation"],
                  checkpoint: checkpoint,
@@ -419,8 +445,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     refreshed =
       event.id
-      |> then(&Repo.get!(ActorEvent, &1).reply_preview_checkpoint)
-      |> ReplyPreviewAdapter.adapter_checkpoint()
+      |> then(&Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, &1)).checkpoint)
+      |> PreviewAdapter.adapter_checkpoint()
 
     cards = CardChain.cards(refreshed)
     assert length(cards) == 2
@@ -445,7 +471,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
             "type" => "button",
             "label" => "路径 A",
             "interaction_id" => "clarify:missing-actions",
-            "source_actor_event_id" => event.id,
+            "source_signal_id" => event.id,
             "control_id" => "path",
             "selected_option_id" => "path-a",
             "option_value" => "A",
@@ -456,7 +482,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
             "type" => "form",
             "label" => "其他",
             "interaction_id" => "clarify:missing-actions",
-            "source_actor_event_id" => event.id,
+            "source_signal_id" => event.id,
             "control_id" => "path-other",
             "revision" => 1,
             "fields" => [
@@ -493,7 +519,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "refresh_reason" => "interaction_answered"
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn _client, :patch, "im/v1/messages/:message_id", opts ->
@@ -504,7 +532,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.refresh(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: answered,
                  previous_presentation: pending,
                  checkpoint: checkpoint,
@@ -526,14 +554,27 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
              receipt["columns"]
 
     refute result.reply_preview_checkpoint["refresh_pending"]
-    assert result.reply_preview_checkpoint["card_id"] == "card-missing-actions"
-    assert result.reply_preview_checkpoint["message_id"] == "message-missing-actions"
 
-    assert get_in(result.reply_preview_checkpoint, ["cards", Access.at(0), "transport"]) ==
+    assert result.reply_preview_checkpoint["card_id"] ==
+             "card-missing-actions"
+
+    assert result.reply_preview_checkpoint["message_id"] ==
+             "message-missing-actions"
+
+    assert get_in(result.reply_preview_checkpoint, [
+             "cards",
+             Access.at(0),
+             "transport"
+           ]) ==
              "inline_message"
 
-    assert "interaction_answer" in result.reply_preview_checkpoint["element_ids"]
-    refute "actions" in result.reply_preview_checkpoint["element_ids"]
+    assert "interaction_answer" in result.reply_preview_checkpoint[
+             "element_ids"
+           ]
+
+    refute "actions" in result.reply_preview_checkpoint[
+             "element_ids"
+           ]
   end
 
   test "a consumed UUID acknowledges an ambiguous CardKit mutation retry", %{event: event} do
@@ -559,7 +600,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         "label" => "读取网页"
       })
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     attempts = :counters.new(1, [])
     parent = self()
 
@@ -575,7 +618,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     end
 
     request = %Request{
-      actor_event: stored,
+      signal: stored,
       presentation: current,
       previous_presentation: checkpoint["presentation"],
       checkpoint: checkpoint,
@@ -632,7 +675,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "answer_content" => previous["answer"]
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     latest_checkpoint = %{
@@ -644,7 +689,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     request_fun = fn
       _client, :post, "cardkit/v1/cards/:card_id/batch_update", _opts ->
         assert {:ok, _event} =
-                 Actors.put_reply_preview_checkpoint(event.id, latest_checkpoint)
+                 PreviewState.put_checkpoint(
+                   event.id,
+                   latest_checkpoint
+                 )
 
         send(parent, :topology_conflict)
         {:error, %Error{code: 300_301, msg: "ElementID separator: Duplicate ID"}}
@@ -657,7 +705,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.update(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: current,
                  previous_presentation: previous,
                  checkpoint: checkpoint,
@@ -670,23 +718,31 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert_receive :topology_conflict
     assert_receive {:live_message_rebuilt, patch_opts}
     assert patch_opts[:path_params] == %{message_id: "message-latest"}
-    assert result.created_source_entry_id == "message-latest"
-    assert result.reply_preview_checkpoint["card_id"] == "card-latest"
-    assert result.reply_preview_checkpoint["message_id"] == "message-latest"
+    assert result.created_provider_message_id == "message-latest"
 
-    assert get_in(result.reply_preview_checkpoint, ["cards", Access.at(0), "transport"]) ==
+    assert result.reply_preview_checkpoint["card_id"] ==
+             "card-latest"
+
+    assert result.reply_preview_checkpoint["message_id"] ==
+             "message-latest"
+
+    assert get_in(result.reply_preview_checkpoint, [
+             "cards",
+             Access.at(0),
+             "transport"
+           ]) ==
              "inline_message"
 
     refute_receive {:cardkit_request, :post, "im/v1/messages", _opts}
     refute_receive {:cardkit_request, :post, "im/v1/messages/:message_id/reply", _opts}
 
     continued = ReplyPresentation.append_answer(current, "\n恢复后继续输出")
-    recovered_event = Repo.get!(ActorEvent, event.id)
+    recovered_event = Repo.get!(Signal, event.id)
 
     assert {:ok, continued_result} =
              CardKit.update(
                %Request{
-                 actor_event: recovered_event,
+                 signal: recovered_event,
                  presentation: continued,
                  previous_presentation: current,
                  checkpoint: result.reply_preview_checkpoint,
@@ -700,7 +756,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     continued_card = Ankole.JSON.decode!(continued_opts[:body][:content])
     answer = Enum.find(continued_card["body"]["elements"], &(&1["element_id"] == "answer"))
     assert answer["content"] =~ "恢复后继续输出"
-    assert continued_result.reply_preview_checkpoint["answer_content"] =~ "恢复后继续输出"
+
+    assert continued_result.reply_preview_checkpoint[
+             "answer_content"
+           ] =~ "恢复后继续输出"
+
     refute_receive {:cardkit_request, :post, "cardkit/v1/cards/:card_id/batch_update", _opts}
   end
 
@@ -730,7 +790,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "answer_content" => previous["answer"]
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
 
     request_fun = fn _client, :post, "cardkit/v1/cards/:card_id/batch_update", _opts ->
       {:error, :timeout}
@@ -739,7 +800,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:error, {:reply_delivery, :retryable, _provider_error}} =
              CardKit.update(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: current,
                  previous_presentation: previous,
                  checkpoint: checkpoint,
@@ -749,8 +810,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                request_fun: request_fun
              )
 
-    persisted = Repo.get!(ActorEvent, event.id)
-    checkpoint = ReplyPreviewAdapter.adapter_checkpoint(persisted.reply_preview_checkpoint)
+    persisted = Repo.get!(Signal, event.id)
+
+    checkpoint =
+      PreviewAdapter.adapter_checkpoint(
+        Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint
+      )
+
     assert "thought" in checkpoint["element_ids"]
     assert is_binary(checkpoint["cleanup_at"])
   end
@@ -783,7 +849,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.update(
                %Request{
-                 actor_event: event,
+                 signal: event,
                  presentation: presentation,
                  subject_uid: event.agent_uid,
                  conversation_id: Ecto.UUID.generate(),
@@ -793,7 +859,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                request_fun: request_fun
              )
 
-    assert result.created_source_entry_id == "message-new"
+    assert result.created_provider_message_id == "message-new"
     assert_receive {:card_send_attempt, first_uuid}
     assert_receive {:card_send_attempt, second_uuid}
     assert first_uuid == second_uuid
@@ -813,7 +879,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
       _client, :post, "im/v1/messages/:message_id/reply", _opts ->
         :counters.add(requests, 2, 1)
-        assert :ok = Actors.record_reply_preview_source_entry(event.id, "first-source-wins")
+
+        assert :ok =
+                 PreviewState.record_provider_message(
+                   event.id,
+                   "first-source-wins"
+                 )
+
         {:ok, %{"data" => %{"message_id" => "message-source-conflict"}}}
 
       _client, :post, "cardkit/v1/cards/:card_id/batch_update", _opts ->
@@ -821,7 +893,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     end
 
     request = %Request{
-      actor_event: event,
+      signal: event,
       presentation: presentation,
       subject_uid: event.agent_uid,
       conversation_id: Ecto.UUID.generate(),
@@ -832,21 +904,30 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
              CardKit.update(request, client: :recording_client, request_fun: request_fun)
 
     persisted = Repo.reload!(event)
-    checkpoint = ReplyPreviewAdapter.adapter_checkpoint(persisted.reply_preview_checkpoint)
-    assert persisted.reply_preview_source_entry_id == "first-source-wins"
+
+    checkpoint =
+      PreviewAdapter.adapter_checkpoint(
+        Ankole.Conversations.Delivery.PreviewState.get(persisted).checkpoint
+      )
+
+    assert Ankole.Conversations.Delivery.PreviewState.get(persisted).provider_message_id ==
+             "first-source-wins"
+
     assert checkpoint["card_id"] == "card-source-conflict"
     assert checkpoint["message_id"] == "message-source-conflict"
 
     assert {:ok, _result} =
              CardKit.update(
-               %{request | actor_event: persisted, checkpoint: checkpoint},
+               %{request | signal: persisted, checkpoint: checkpoint},
                client: :recording_client,
                request_fun: request_fun
              )
 
     assert :counters.get(requests, 1) == 1
     assert :counters.get(requests, 2) == 1
-    assert Repo.reload!(event).reply_preview_source_entry_id == "first-source-wins"
+
+    assert Ankole.Conversations.Delivery.PreviewState.get(Repo.reload!(event)).provider_message_id ==
+             "first-source-wins"
   end
 
   test "a withdrawn reply target posts the same CardKit reference as a new message", %{
@@ -871,7 +952,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.update(
                %Request{
-                 actor_event: event,
+                 signal: event,
                  presentation: presentation,
                  subject_uid: event.agent_uid,
                  conversation_id: Ecto.UUID.generate(),
@@ -887,7 +968,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert_receive {:target_fallback_post, post_opts}
     assert post_opts[:body][:msg_type] == "interactive"
     assert post_opts[:body][:receive_id]
-    assert result.created_source_entry_id == "message-target-fallback"
+    assert result.created_provider_message_id == "message-target-fallback"
     assert result.delivered_operation == :post
   end
 
@@ -907,7 +988,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "answer_content" => previous["answer"]
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn _client, method, path, opts ->
@@ -918,7 +1001,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.update(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: current,
                  previous_presentation: previous,
                  checkpoint: checkpoint,
@@ -936,7 +1019,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert is_integer(opts[:body][:sequence])
     assert is_binary(opts[:body][:uuid])
     refute_receive {:content_request, :post, "cardkit/v1/cards/:card_id/batch_update", _opts}
-    assert result.reply_preview_checkpoint["answer_content"] == current["answer"]
+
+    assert result.reply_preview_checkpoint["answer_content"] ==
+             current["answer"]
   end
 
   test "a consumed UUID acknowledges an ambiguous content-stream retry", %{event: event} do
@@ -955,7 +1040,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "answer_content" => previous["answer"]
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     attempts = :counters.new(1, [])
     parent = self()
 
@@ -972,7 +1059,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     end
 
     request = %Request{
-      actor_event: stored,
+      signal: stored,
       presentation: current,
       previous_presentation: previous,
       checkpoint: checkpoint,
@@ -995,7 +1082,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert_receive {:content_retry, second_sequence, second_uuid}
     assert first_sequence == second_sequence
     assert first_uuid == second_uuid
-    assert result.reply_preview_checkpoint["answer_content"] == current["answer"]
+
+    assert result.reply_preview_checkpoint["answer_content"] ==
+             current["answer"]
+
     refute result.reply_preview_checkpoint["pending_mutation"]
   end
 
@@ -1039,7 +1129,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       |> CardChain.initialize(first_card)
       |> CardChain.append(tail_card)
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
 
     request_fun = fn _client,
                      :put,
@@ -1052,7 +1143,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.update(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: current,
                  previous_presentation: previous,
                  checkpoint: checkpoint,
@@ -1087,7 +1178,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "answer_content" => working["answer"]
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn _client, :patch, "im/v1/messages/:message_id", opts ->
@@ -1098,7 +1191,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.finalize(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: terminal,
                  previous_presentation: working,
                  checkpoint: checkpoint,
@@ -1118,10 +1211,18 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
            ]
 
     refute_receive {:terminal_patch, _opts}
-    assert result.reply_preview_checkpoint["streaming_state"] == "closed"
-    assert result.reply_preview_checkpoint["answer_content"] == "最终答案"
 
-    assert get_in(result.reply_preview_checkpoint, ["cards", Access.at(0), "transport"]) ==
+    assert result.reply_preview_checkpoint["streaming_state"] ==
+             "closed"
+
+    assert result.reply_preview_checkpoint["answer_content"] ==
+             "最终答案"
+
+    assert get_in(result.reply_preview_checkpoint, [
+             "cards",
+             Access.at(0),
+             "transport"
+           ]) ==
              "inline_message"
   end
 
@@ -1149,7 +1250,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
             "type" => "button",
             "label" => "路径 A",
             "interaction_id" => "clarify-ambiguous",
-            "source_actor_event_id" => event.id,
+            "source_signal_id" => event.id,
             "control_id" => "path",
             "selected_option_id" => "path-a",
             "option_value" => "A",
@@ -1170,7 +1271,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "answer_content" => " "
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn _client, :patch, "im/v1/messages/:message_id", opts ->
@@ -1181,7 +1284,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.finalize(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: terminal,
                  previous_presentation: previous,
                  checkpoint: checkpoint,
@@ -1197,11 +1300,22 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert Enum.any?(get_in(card, ["body", "elements"]), &(&1["element_id"] == "actions"))
     refute Enum.any?(get_in(card, ["body", "elements"]), &(&1["element_id"] == "activity"))
 
-    assert result.reply_preview_checkpoint["streaming_state"] == "closed"
-    assert result.reply_preview_checkpoint["presentation"]["state"] == "awaiting_input"
-    assert result.reply_preview_checkpoint["presentation"]["actions"] != []
+    assert result.reply_preview_checkpoint["streaming_state"] ==
+             "closed"
 
-    assert get_in(result.reply_preview_checkpoint, ["cards", Access.at(0), "transport"]) ==
+    assert result.reply_preview_checkpoint["presentation"][
+             "state"
+           ] == "awaiting_input"
+
+    assert result.reply_preview_checkpoint["presentation"][
+             "actions"
+           ] != []
+
+    assert get_in(result.reply_preview_checkpoint, [
+             "cards",
+             Access.at(0),
+             "transport"
+           ]) ==
              "inline_message"
   end
 
@@ -1221,7 +1335,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "answer_content" => working["answer"]
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn _client, method, path, opts ->
@@ -1232,7 +1348,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.finalize(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: terminal,
                  previous_presentation: working,
                  checkpoint: checkpoint,
@@ -1243,7 +1359,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
              )
 
     assert_receive {:terminal_request, :patch, "im/v1/messages/:message_id", _opts}
-    assert result.reply_preview_checkpoint["presentation"]["answer"] == "最终答案"
+
+    assert result.reply_preview_checkpoint["presentation"][
+             "answer"
+           ] == "最终答案"
   end
 
   test "a durable terminal CardKit edit limit falls back to one new text message", %{
@@ -1264,7 +1383,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "answer_content" => working["answer"]
     }
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn
@@ -1277,9 +1398,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         {:ok, %{"data" => %{"message_id" => "message-fallback"}}}
     end
 
-    outbox = %OutboxEntry{
+    intent = %Intent{
       agent_uid: event.agent_uid,
-      binding_name: event.binding_name,
+      binding_name: event.reply_binding_name,
       outbound_key: "ai-reply:terminal-edit-limit",
       idempotency_key: "ai-reply:terminal-edit-limit",
       operation: :edit,
@@ -1290,11 +1411,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.finalize(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: terminal,
                  previous_presentation: working,
                  checkpoint: checkpoint,
-                 outbox: outbox,
+                 delivery: intent,
                  mode: :terminal
                },
                client: :recording_client,
@@ -1304,7 +1425,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert_receive {:fallback_request, _path, opts}
     assert opts[:body][:msg_type] == "text"
     assert Ankole.JSON.decode!(opts[:body][:content]) == %{"text" => "最终答案"}
-    assert result.created_source_entry_id == "message-fallback"
+    assert result.created_provider_message_id == "message-fallback"
   end
 
   test "a provider page-binding limit posts only the unsent tail as plain text", %{
@@ -1353,7 +1474,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         "message_uuid" => tail_card["message_uuid"]
       })
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn
@@ -1376,9 +1499,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         end
     end
 
-    outbox = %OutboxEntry{
+    intent = %Intent{
       agent_uid: event.agent_uid,
-      binding_name: event.binding_name,
+      binding_name: event.reply_binding_name,
       outbound_key: "ai-reply:binding-limit",
       idempotency_key: "ai-reply:binding-limit",
       operation: :reply,
@@ -1389,10 +1512,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.finalize(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: terminal,
                  checkpoint: checkpoint,
-                 outbox: outbox,
+                 delivery: intent,
                  mode: :terminal
                },
                client: :recording_client,
@@ -1409,7 +1532,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert %{"text" => delivered_tail} = Ankole.JSON.decode!(fallback_opts[:body][:content])
     assert delivered_tail == tail_page.source
     assert first_page.source <> delivered_tail == answer
-    assert result.created_source_entry_id == "message-binding-tail-fallback"
+    assert result.created_provider_message_id == "message-binding-tail-fallback"
     assert result.delivered_operation == :post
   end
 
@@ -1442,7 +1565,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       }
       |> CardChain.initialize(first_card)
 
-    assert {:ok, stored} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    assert {:ok, stored} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
+
     parent = self()
 
     request_fun = fn
@@ -1462,7 +1587,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.update(
                %Request{
-                 actor_event: stored,
+                 signal: stored,
                  presentation: current,
                  previous_presentation: previous,
                  checkpoint: checkpoint,
@@ -1517,7 +1642,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     end
 
     request = %Request{
-      actor_event: event,
+      signal: event,
       presentation: terminal,
       mode: :terminal
     }
@@ -1530,8 +1655,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     interrupted =
       event.id
-      |> then(&Repo.get!(ActorEvent, &1).reply_preview_checkpoint)
-      |> ReplyPreviewAdapter.adapter_checkpoint()
+      |> then(&Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, &1)).checkpoint)
+      |> PreviewAdapter.adapter_checkpoint()
 
     assert interrupted["pending_rollover"]["phase"] == "send"
     assert interrupted["active_card_index"] == 1
@@ -1550,7 +1675,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert first_tail_uuid == second_tail_uuid
     assert :counters.get(card_creates, 1) == 2
     refute result.reply_preview_checkpoint["pending_rollover"]
-    assert result.reply_preview_checkpoint["message_id"] == "message-resume-2"
+
+    assert result.reply_preview_checkpoint["message_id"] ==
+             "message-resume-2"
   end
 
   test "a long terminal answer stays in an ordered CardKit chain without loss", %{
@@ -1578,9 +1705,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         {:ok, %{"data" => %{"message_id" => "message-page-#{index}"}}}
     end
 
-    outbox = %OutboxEntry{
+    intent = %Intent{
       agent_uid: event.agent_uid,
-      binding_name: event.binding_name,
+      binding_name: event.reply_binding_name,
       outbound_key: "ai-reply:oversized",
       idempotency_key: "ai-reply:oversized",
       operation: :reply,
@@ -1591,9 +1718,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     assert {:ok, result} =
              CardKit.finalize(
                %Request{
-                 actor_event: event,
+                 signal: event,
                  presentation: terminal,
-                 outbox: outbox,
+                 delivery: intent,
                  mode: :terminal
                },
                client: :recording_client,
@@ -1617,8 +1744,10 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     assert cards |> Enum.map(&elem(&1, 0)) |> Enum.join() == answer
     assert cards |> Enum.map(&elem(&1, 1)) |> Enum.uniq() |> length() == page_count
-    assert result.created_source_entry_id == "message-page-1"
-    assert length(result.reply_preview_checkpoint["cards"]) == page_count
+    assert result.created_provider_message_id == "message-page-1"
+
+    assert length(result.reply_preview_checkpoint["cards"]) ==
+             page_count
 
     assert result.reply_preview_checkpoint["cards"]
            |> Enum.map_join(& &1["answer_source"]) == answer
@@ -1655,9 +1784,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       end)
     end
 
-    outbox = %OutboxEntry{
+    intent = %Intent{
       agent_uid: event.agent_uid,
-      binding_name: event.binding_name,
+      binding_name: event.reply_binding_name,
       outbound_key: "ai-reply:golden",
       idempotency_key: "ai-reply:golden",
       operation: :reply,
@@ -1698,7 +1827,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
             "type" => "button",
             "label" => "Yes",
             "interaction_id" => "golden",
-            "source_actor_event_id" => event.id,
+            "source_signal_id" => event.id,
             "control_id" => "choice",
             "selected_option_id" => "yes",
             "option_value" => "yes",
@@ -1765,7 +1894,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
               checkpoint
           end
 
-        {:ok, _} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+        {:ok, _} = PreviewState.put_checkpoint(event.id, checkpoint)
 
         {result, record} =
           golden_cardkit_step(
@@ -1774,7 +1903,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
             presentation,
             previous,
             checkpoint,
-            outbox,
+            intent,
             recorder,
             request_fun
           )
@@ -1782,32 +1911,34 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         assert {:ok, delivered} = result
         checkpoint = delivered.reply_preview_checkpoint
 
-        persisted = Repo.get!(ActorEvent, event.id).reply_preview_checkpoint
+        persisted =
+          Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, event.id)).checkpoint
+
         assert persisted["schema_version"] == 2
         assert is_integer(persisted["sequence_high_water"])
 
         assert persisted
-               |> ReplyPreviewAdapter.adapter_checkpoint()
+               |> PreviewAdapter.adapter_checkpoint()
                |> Map.drop(["schema_version", "sequence_high_water"]) ==
                  Map.drop(checkpoint, ["schema_version", "sequence_high_water"])
 
         {checkpoint, presentation, records ++ [record]}
       end)
 
-    %{actor_event: action_event} =
-      emit_addressed_actor_event(
+    %{signal: action_event} =
+      emit_addressed_signal(
         event.agent_uid,
-        event.binding_name,
+        event.reply_binding_name,
         group_entry(%{
           source_event_id: unique_uid("golden-actions"),
-          source_entry_id: unique_uid("golden-actions-trigger"),
+          provider_message_id: unique_uid("golden-actions-trigger"),
           explicit: true
         })
       )
 
     action_presentation =
       Map.update!(metadata, "actions", fn actions ->
-        Enum.map(actions, &Map.put(&1, "source_actor_event_id", action_event.id))
+        Enum.map(actions, &Map.put(&1, "source_signal_id", action_event.id))
       end)
 
     {result, action_record} =
@@ -1817,20 +1948,20 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         action_presentation,
         nil,
         %{},
-        outbox,
+        intent,
         recorder,
         request_fun
       )
 
     assert {:ok, _} = result
 
-    %{actor_event: overflow_event} =
-      emit_addressed_actor_event(
+    %{signal: overflow_event} =
+      emit_addressed_signal(
         event.agent_uid,
-        event.binding_name,
+        event.reply_binding_name,
         group_entry(%{
           source_event_id: unique_uid("golden-overflow"),
-          source_entry_id: unique_uid("golden-overflow-trigger"),
+          provider_message_id: unique_uid("golden-overflow-trigger"),
           explicit: true
         })
       )
@@ -1846,7 +1977,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         oversized,
         nil,
         %{},
-        outbox,
+        intent,
         recorder,
         request_fun
       )
@@ -1860,7 +1991,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         ReplyPresentation.terminal(oversized, "completed", oversized["answer"]),
         nil,
         %{},
-        outbox,
+        intent,
         recorder,
         request_fun
       )
@@ -1897,7 +2028,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
          presentation,
          previous,
          checkpoint,
-         outbox,
+         intent,
          recorder,
          request_fun
        ) do
@@ -1908,12 +2039,12 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     result =
       apply(CardKit, operation, [
         %Request{
-          actor_event: Repo.get!(ActorEvent, event.id),
+          signal: Repo.get!(Signal, event.id),
           presentation: presentation,
           previous_presentation: previous,
           checkpoint: checkpoint,
           mode: if(operation == :finalize, do: :terminal, else: :working),
-          outbox: outbox
+          delivery: intent
         },
         [client: :recording_client, request_fun: request_fun]
       ])
@@ -1922,8 +2053,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
 
     checkpoint =
       case result do
-        {:ok, %{reply_preview_checkpoint: value}} -> value
-        _ -> Repo.get!(ActorEvent, event.id).reply_preview_checkpoint
+        {:ok, %{reply_preview_checkpoint: value}} ->
+          value
+
+        _ ->
+          Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, event.id)).checkpoint
       end
 
     if is_map(checkpoint) and is_binary(checkpoint["stream_deadline_at"]) do
@@ -1944,7 +2078,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       "operation" => to_string(operation),
       "requests" => Agent.get(recorder, & &1.requests),
       "checkpoint" => checkpoint,
-      "persisted_checkpoint" => Repo.get!(ActorEvent, event.id).reply_preview_checkpoint,
+      "persisted_checkpoint" =>
+        Ankole.Conversations.Delivery.PreviewState.get(Repo.get!(Signal, event.id)).checkpoint,
       "result" =>
         case result do
           {:ok, _} -> "ok"
@@ -1984,7 +2119,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
       value
       |> String.replace(event.id, "<event-#{index}>")
       |> String.replace(event.agent_uid, "<agent>")
-      |> String.replace(event.source_entry_id, "<trigger-#{index}>")
+      |> String.replace(event.provider_message_id, "<trigger-#{index}>")
     end)
   end
 

@@ -99,6 +99,21 @@ defmodule Ankole.Ecto.JSONPayload do
   end
 
   @doc """
+  Normalizes and validates any JSON value in an Ecto changeset.
+  """
+  @spec validate_json(Ecto.Changeset.t(), atom(), keyword()) :: Ecto.Changeset.t()
+  def validate_json(changeset, field, opts \\ []) do
+    changeset
+    |> update_change(field, &normalize_change(&1, opts))
+    |> validate_change(field, fn ^field, value ->
+      case normalize(value, opts) do
+        {:ok, _normalized} -> []
+        {:error, reason} -> [{field, "must be JSON-serializable: #{reason_text(reason)}"}]
+      end
+    end)
+  end
+
+  @doc """
   Normalizes and validates a map field in an Ecto changeset.
   """
   @spec validate_map(Ecto.Changeset.t(), atom(), keyword()) :: Ecto.Changeset.t()

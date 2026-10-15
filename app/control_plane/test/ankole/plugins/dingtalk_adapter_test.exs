@@ -1,6 +1,7 @@
 defmodule Ankole.Plugins.DingTalkAdapterTest do
   use Ankole.DataCase, async: false
-  import Ankole.SignalsGatewayFixtures, only: [start_connection_owner: 3]
+  import Ankole.ExternalConversationsFixtures
+  import Ankole.SignalsFixtures, only: [start_connection_owner: 3]
 
   import Ankole.PrincipalsFixtures
 
@@ -15,14 +16,14 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
   alias Ankole.Plugins.DingTalkAdapter.ConnectionReconciler
   alias Ankole.Plugins.DingTalkAdapter.IdentityProvider
   alias Ankole.Plugins.DingTalkAdapter.Inbound
-  alias Ankole.Plugins.DingTalkAdapter.Outbox
+  alias Ankole.Plugins.DingTalkAdapter.Delivery
   alias Ankole.Principals
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.AdapterContext
-  alias Ankole.SignalsGateway.Binding
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.SignalsGateway.OutboxEntry
+
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.Binding
+  alias Ankole.Signals.Bindings
+  alias Ankole.Conversations.Delivery.Intent
   alias DingTalkOpenAPI.Error
   alias DingTalkOpenAPI.Event
 
@@ -38,7 +39,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
       assert [chat, identity] = DingTalkAdapter.adapter_declarations()
 
-      assert chat.contract_id == "signals_gateway.adapter"
+      assert chat.contract_id == "signals.adapter"
       assert chat.id == "dingtalk"
       # DingTalk robots receive only @-mentions and DMs — addressed_only is the
       # sole group message mode this platform can honour.
@@ -146,7 +147,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     claimed_config = dingtalk_config("ding_claimed_while_owner_unknown")
 
     assert {:ok, %Binding{}} =
-             SignalsGateway.upsert_binding(%{
+             Ankole.Signals.Bindings.upsert_binding(%{
                agent_uid: owner.uid,
                name: "dingtalk-main",
                adapter: "dingtalk",
@@ -235,31 +236,30 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
       on_exit(fn -> ConnectionReconciler.stop(key) end)
 
-      assert {:ok, _binding} = SignalsGateway.disable_binding(binding.agent_uid, binding.name)
+      assert {:ok, _binding} =
+               Ankole.Signals.Bindings.disable_binding(binding.agent_uid, binding.name)
 
       assert %{started: 0, stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
     end
   end
 
-  # --- outbox ----------------------------------------------------------------
-
   defp setup_chat_binding(extra_config \\ %{}) do
     setup_dingtalk_config_registry()
 
-    config_id = "dingtalk-outbox-#{System.unique_integer([:positive])}"
+    config_id = "dingtalk-intent-#{System.unique_integer([:positive])}"
 
     config =
-      Map.merge(%{"clientId" => "cli_outbox", "clientSecret" => "secret"}, extra_config)
+      Map.merge(%{"clientId" => "cli_intent", "clientSecret" => "secret"}, extra_config)
 
     {:ok, _config} = AppConfigure.put_global_by_key(Config.chat_config_key(config_id), config)
 
     %{principal: agent} = agent_fixture()
 
     {:ok, binding} =
-      SignalsGateway.upsert_binding(%{
+      Ankole.Signals.Bindings.upsert_binding(%{
         agent_uid: agent.uid,
-        name: "dingtalk-outbox",
+        name: "dingtalk-intent",
         adapter: "dingtalk",
         config_ref: "app-config://#{Config.chat_config_key(config_id)}",
         filters: %{},
@@ -291,13 +291,21 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     |> Repo.insert!()
   end
 
-  defp outbox_entry(binding, attrs) do
+  defp intent_entry(binding, attrs) do
+    attrs = if is_map(attrs), do: Map.to_list(attrs), else: attrs
+
+    attrs =
+      Keyword.update(attrs, :conversation_id, nil, fn id -> external_conversation_id(id) end)
+
+    attrs =
+      if is_nil(attrs[:conversation_id]), do: Keyword.delete(attrs, :conversation_id), else: attrs
+
     struct!(
-      %OutboxEntry{
+      %Intent{
         agent_uid: binding.agent_uid,
         binding_name: binding.name,
         outbound_key: "test-key-#{System.unique_integer([:positive])}",
-        signal_channel_id: "dingtalk:cidG",
+        conversation_id: external_conversation_id("dingtalk:cidG"),
         payload: %{},
         fallback_visible_text: "hello"
       },
@@ -305,7 +313,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     )
   end
 
-  defp stub_outbox_requests(parent, responder) do
+  defp stub_intent_requests(parent, responder) do
     Req.default_options(
       plug: fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -340,7 +348,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     binding = setup_chat_binding()
     counter = :counters.new(1, [])
 
-    stub_outbox_requests(self(), fn conn ->
+    stub_intent_requests(self(), fn conn ->
       :counters.add(counter, 1, 1)
 
       if :counters.get(counter, 1) == 1 do
@@ -353,8 +361,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     end)
 
     assert :unknown =
-             Outbox.send(
-               outbox_entry(binding, %{
+             Delivery.deliver(
+               intent_entry(binding, %{
                  operation: :post,
                  fallback_visible_text: String.duplicate("a", 30_000)
                })
@@ -367,38 +375,39 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     binding = setup_chat_binding()
 
     entry =
-      outbox_entry(binding, %{
+      intent_entry(binding, %{
         operation: :post,
         fallback_visible_text: "# Title\n\nsome **markdown** body"
       })
 
-    stub_outbox_requests(self(), &ok_send_responder/1)
-    assert {:ok, result} = Outbox.send(entry)
+    stub_intent_requests(self(), &ok_send_responder/1)
+    assert {:ok, result} = Delivery.deliver(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/robot/groupMessages/send", body}
     assert body["msgKey"] == "sampleMarkdown"
     assert body["openConversationId"] == "cidG"
-    assert body["robotCode"] == "cli_outbox"
+    assert body["robotCode"] == "cli_intent"
     assert body["msgParam"] =~ "markdown"
-    assert result.created_source_entry_id == "pqk-1"
+    assert result.created_provider_message_id == "pqk-1"
   end
 
   test "per-user flow control surfaces as a retryable rate limit" do
     binding = setup_chat_binding()
-    entry = outbox_entry(binding, %{operation: :post, fallback_visible_text: "plain"})
+    entry = intent_entry(binding, %{operation: :post, fallback_visible_text: "plain"})
 
     responder = fn conn ->
       Req.Test.json(conn, %{"processQueryKey" => "pqk", "flowControlledStaffIdList" => ["u1"]})
     end
 
-    stub_outbox_requests(self(), responder)
+    stub_intent_requests(self(), responder)
 
-    assert {:error, {:reply_delivery, :retryable, %{reason: :rate_limited}}} = Outbox.send(entry)
+    assert {:error, {:reply_delivery, :retryable, %{reason: :rate_limited}}} =
+             Delivery.deliver(entry)
   end
 
   test "a disbanded group classifies as target_gone" do
     binding = setup_chat_binding()
-    entry = outbox_entry(binding, %{operation: :post, fallback_visible_text: "plain"})
+    entry = intent_entry(binding, %{operation: :post, fallback_visible_text: "plain"})
 
     responder = fn conn ->
       conn
@@ -409,34 +418,34 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       )
     end
 
-    stub_outbox_requests(self(), responder)
+    stub_intent_requests(self(), responder)
 
     assert {:error,
             {:reply_delivery, :permanent, %{reason: :target_gone, code: "group.disbanded"}}} =
-             Outbox.send(entry)
+             Delivery.deliver(entry)
   end
 
   test "delete recalls by processQueryKey and rejects entries this adapter never sent" do
     binding = setup_chat_binding()
 
     entry =
-      outbox_entry(binding, %{operation: :delete, target_source_entry_id: "pqk-recall"})
+      intent_entry(binding, %{operation: :delete, target_provider_message_id: "pqk-recall"})
 
-    stub_outbox_requests(self(), &ok_send_responder/1)
-    assert {:ok, _result} = Outbox.send(entry)
+    stub_intent_requests(self(), &ok_send_responder/1)
+    assert {:ok, _result} = Delivery.deliver(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/robot/groupMessages/recall", body}
     assert body["processQueryKeys"] == ["pqk-recall"]
 
     assert {:error, :unsupported_target} =
-             Outbox.send(outbox_entry(binding, %{operation: :delete}))
+             Delivery.deliver(intent_entry(binding, %{operation: :delete}))
   end
 
   test "an unlisted attachment extension fails explicitly before reading the file" do
     binding = setup_chat_binding()
 
     unsupported_entry =
-      outbox_entry(binding, %{
+      intent_entry(binding, %{
         operation: :post,
         payload: %{
           "attachments" => [
@@ -451,8 +460,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     # The sampleFile type list is a strict whitelist: unlisted extensions fail
     # before the file bytes are read.
-    stub_outbox_requests(self(), &ok_send_responder/1)
-    assert {:error, :unsupported_file_type} = Outbox.send(unsupported_entry)
+    stub_intent_requests(self(), &ok_send_responder/1)
+    assert {:error, :unsupported_file_type} = Delivery.deliver(unsupported_entry)
 
     refute_received {:api_call, _method, _path, _body}
   end
@@ -461,7 +470,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     binding = setup_chat_binding(%{"cardTemplateId" => "tpl-1"})
 
     entry =
-      outbox_entry(binding, %{
+      intent_entry(binding, %{
         operation: :card,
         idempotency_key: "card-idem-1",
         fallback_visible_text: "Pick one",
@@ -470,16 +479,16 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
             "body" => "Pick one",
             "interaction_id" => "int-9",
             "control_id" => "choice",
-            "source_actor_event_id" => "evt-9",
+            "source_signal_id" => "evt-9",
             "version" => 3,
             "choices" => [%{"id" => "a", "label" => "A", "value" => "va"}]
           }
         }
       })
 
-    stub_outbox_requests(self(), &ok_send_responder/1)
-    assert {:ok, result} = Outbox.send(entry)
-    assert result.created_source_entry_id == "ankole:outbox:card-idem-1"
+    stub_intent_requests(self(), &ok_send_responder/1)
+    assert {:ok, result} = Delivery.deliver(entry)
+    assert result.created_provider_message_id == "ankole:outbox:card-idem-1"
 
     assert_receive {:api_call, "POST", "/v1.0/card/instances/createAndDeliver", body}
     assert body["outTrackId"] == "ankole:outbox:card-idem-1"
@@ -488,7 +497,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
 
     actions = body |> get_in(["cardData", "cardParamMap", "actions"]) |> Torque.decode!()
 
-    assert [%{"value" => %{"interactionId" => "int-9", "sourceActorEventId" => "evt-9"}}] =
+    assert [%{"value" => %{"interactionId" => "int-9", "sourceSignalId" => "evt-9"}}] =
              actions
 
     assert_receive {:api_call, "PUT", "/v1.0/card/streaming", stream_body}
@@ -504,7 +513,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     binding = setup_chat_binding(%{"cardTemplateId" => "tpl-1"})
 
     entry =
-      outbox_entry(binding, %{
+      intent_entry(binding, %{
         operation: :card,
         idempotency_key: "card-idem-retry",
         fallback_visible_text: "Pick one",
@@ -524,16 +533,16 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       end
     end
 
-    stub_outbox_requests(self(), responder)
+    stub_intent_requests(self(), responder)
 
     assert {:error, {:reply_delivery, :retryable, %{reason: "internal.error"}}} =
-             Outbox.send(entry)
+             Delivery.deliver(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/card/instances/createAndDeliver", first_create}
     assert_receive {:api_call, "PUT", "/v1.0/card/streaming", first_stream}
 
-    stub_outbox_requests(self(), &ok_send_responder/1)
-    assert {:ok, _result} = Outbox.send(entry)
+    stub_intent_requests(self(), &ok_send_responder/1)
+    assert {:ok, _result} = Delivery.deliver(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/card/instances/createAndDeliver", retry_create}
     assert_receive {:api_call, "PUT", "/v1.0/card/streaming", retry_stream}
@@ -547,21 +556,19 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     binding = setup_chat_binding()
 
     entry =
-      outbox_entry(binding, %{
+      intent_entry(binding, %{
         operation: :card,
         fallback_visible_text: "Pick one",
         payload: %{"interactive_output" => %{"body" => "Pick one"}}
       })
 
-    stub_outbox_requests(self(), &ok_send_responder/1)
-    assert {:ok, _result} = Outbox.send(entry)
+    stub_intent_requests(self(), &ok_send_responder/1)
+    assert {:ok, _result} = Delivery.deliver(entry)
 
     assert_receive {:api_call, "POST", "/v1.0/robot/groupMessages/send", body}
     assert body["msgParam"] =~ "Pick one"
     refute_received {:api_call, _method, "/v1.0/card/instances/createAndDeliver", _body}
   end
-
-  # --- identity provider -------------------------------------------------------
 
   defp stub_identity_requests(parent, users) do
     Req.default_options(
@@ -969,7 +976,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       }
 
       assert {:error, {:reply_delivery, :retryable, detail}} =
-               Outbox.normalize_delivery_result({:error, error})
+               Delivery.normalize_delivery_result({:error, error})
 
       assert detail.reason == :rate_limited
       assert detail.retry_after_seconds == 5
@@ -979,7 +986,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       error = %Error{reason: :auth, code: "token.notExisted", message: "invalid token"}
 
       assert {:error, {:reply_delivery, :operator_action_required, detail}} =
-               Outbox.normalize_delivery_result({:error, error})
+               Delivery.normalize_delivery_result({:error, error})
 
       assert detail.reason == :auth
     end
@@ -988,14 +995,14 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       error = %Error{reason: :target_gone, code: "group.disbanded", message: "chat gone"}
 
       assert {:error, {:reply_delivery, :permanent, detail}} =
-               Outbox.normalize_delivery_result({:error, error})
+               Delivery.normalize_delivery_result({:error, error})
 
       assert detail.reason == :target_gone
     end
 
     test "passes through a non-Error reason unchanged" do
-      assert {:error, :actor_event_not_found} =
-               Outbox.normalize_delivery_result({:error, :actor_event_not_found})
+      assert {:error, :signal_not_found} =
+               Delivery.normalize_delivery_result({:error, :signal_not_found})
     end
   end
 end

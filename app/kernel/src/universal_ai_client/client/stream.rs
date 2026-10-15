@@ -609,9 +609,6 @@ pub(super) fn websocket_initial_messages(spec: &StreamSpec) -> Vec<String> {
     }
 }
 
-// The AWS SDK reads an event frame as one member of the event union: the
-// `:event-type` header names the member, and the JSON payload holds the fields
-// of that member. The resolver gets the same `{event_type: payload}` object.
 fn eventstream_event(message: wire::EventStreamMessage) -> Result<Value, StreamError> {
     let Some(event_type) = message.event_type else {
         return Err(StreamError::new(
@@ -630,9 +627,6 @@ fn eventstream_event(message: wire::EventStreamMessage) -> Result<Value, StreamE
     Ok(json!({ event_type: payload }))
 }
 
-// The frame header names the Provider error: `:exception-type` for a modeled
-// exception, with its members as the JSON payload, or `:error-code` and
-// `:error-message` for an unmodeled error.
 fn eventstream_provider_error(
     message: &wire::EventStreamMessage,
     resolver: &api_resolver::APIResolver,

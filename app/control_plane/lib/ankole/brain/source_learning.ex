@@ -182,8 +182,6 @@ defmodule Ankole.Brain.SourceLearning do
 
   defp ensure_extraction_written(_items, _written), do: :ok
 
-  # Extraction
-
   # Extraction covers every window of the content when the object type is
   # extractable. A model failure aborts the run instead of counting as an
   # empty result: recording `learned` with zero claims would freeze the
@@ -353,8 +351,6 @@ defmodule Ankole.Brain.SourceLearning do
   defp default_subtype("url"), do: "article"
   defp default_subtype("file"), do: "book"
 
-  # Content fetch
-
   defp fetch_content(%Source{kind: "file", upstream_id: path}) do
     with {:ok, %File.Stat{size: size}} <- File.stat(path),
          true <- size <= @max_content_bytes,
@@ -428,8 +424,6 @@ defmodule Ankole.Brain.SourceLearning do
         {:error, :source_content_too_large}
     end
   end
-
-  # Validation and lookups
 
   defp validate_kind(kind) when kind in ["file", "url"], do: :ok
   defp validate_kind(kind), do: {:error, {:unsupported_source_kind, kind}}

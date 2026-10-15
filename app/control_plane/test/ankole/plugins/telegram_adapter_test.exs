@@ -2,44 +2,40 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   use Ankole.DataCase, async: false
 
   import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
+  import Ankole.ExternalConversationsFixtures
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
+  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Plugins.TelegramAdapter
 
-  alias Ankole.Plugins.TelegramAdapter.{
-    Client,
-    Config,
-    ConnectionOwner,
-    ConnectionReconciler,
-    Dispatcher,
-    ErrorPolicy,
-    Inbound,
-    Outbox,
-    Presentation,
-    ReplyPreview
-  }
+  alias Ankole.Plugins.TelegramAdapter.Client
+  alias Ankole.Plugins.TelegramAdapter.Config
+  alias Ankole.Plugins.TelegramAdapter.ConnectionOwner
+  alias Ankole.Plugins.TelegramAdapter.ConnectionReconciler
+  alias Ankole.Plugins.TelegramAdapter.Dispatcher
+  alias Ankole.Plugins.TelegramAdapter.ErrorPolicy
+  alias Ankole.Plugins.TelegramAdapter.Inbound
+  alias Ankole.Plugins.TelegramAdapter.Delivery
+  alias Ankole.Plugins.TelegramAdapter.Presentation
+  alias Ankole.Plugins.TelegramAdapter.ReplyPreview
 
   alias Ankole.Plugins.UTF16Text
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ReplyActionToken
-  alias Ankole.SignalsGateway.Actors
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter
-  alias Ankole.SignalsGateway.ReplyPreviewAdapter.Request
 
-  alias Ankole.SignalsGateway.{
-    ActorEvent,
-    Actors,
-    AdapterContext,
-    Entry,
-    InboundBatch,
-    OutboxEntry,
-    ReplyInteractionState,
-    ReplyPresentation
-  }
+  alias Ankole.Conversations.Delivery.ActionToken
+  alias Ankole.Conversations.Delivery.PreviewAdapter
+  alias Ankole.Conversations.Delivery.PreviewAdapter.Request
+
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Message
+  alias Ankole.Conversations.InboundBatch
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.InteractionState
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   setup do
     Req.Test.set_req_test_to_shared()
@@ -100,27 +96,27 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
     test "keeps two Agents' same-name bindings on distinct config keys" do
       key = Config.binding_config_key("agent-a", "main")
-      assert key =~ ~r/\Asignals_gateway\.telegram\.bindings\.[a-f0-9]{64}\z/
+      assert key =~ ~r/\Asignals\.telegram\.bindings\.[a-f0-9]{64}\z/
       refute key == Config.binding_config_key("agent-b", "main")
 
       %{principal: first} = agent_fixture()
       %{principal: second} = agent_fixture()
 
       assert {:ok, %{binding: first_binding}} =
-               SignalsGateway.put_binding(first.uid, "telegram", "main", %{
+               Ankole.Signals.Bindings.put_binding(first.uid, "telegram", "main", %{
                  "config" => %{"botToken" => "111:first-secret"}
                })
 
       assert {:ok, %{binding: second_binding}} =
-               SignalsGateway.put_binding(second.uid, "telegram", "main", %{
+               Ankole.Signals.Bindings.put_binding(second.uid, "telegram", "main", %{
                  "config" => %{"botToken" => "222:second-secret"}
                })
 
       assert {:ok, %{"botToken" => "111:first-secret"}} =
-               SignalsGateway.Bindings.stored_binding_config(first_binding)
+               Ankole.Signals.Bindings.stored_binding_config(first_binding)
 
       assert {:ok, %{"botToken" => "222:second-secret"}} =
-               SignalsGateway.Bindings.stored_binding_config(second_binding)
+               Ankole.Signals.Bindings.stored_binding_config(second_binding)
     end
 
     test "validates the one required secret and redacts it from client inspection" do
@@ -359,7 +355,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                )
 
       assert dm.explicit
-      assert dm.signal_channel_id == "telegram:77:chat:501"
+      assert dm.provider_conversation_id == "telegram:77:chat:501"
       assert dm.author["provider"] == "telegram"
       assert dm.author["platform_subject"] == "100"
       refute Map.has_key?(dm.author, "email")
@@ -397,8 +393,8 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert {:ok, normalized_topic} =
                Inbound.normalize_message_receive(telegram_update(3, topic, bot), consumer)
 
-      assert normalized_topic.signal_channel_id == "telegram:77:chat:-100501:topic:9001"
-      assert normalized_topic.provider_thread_id == normalized_topic.signal_channel_id
+      assert normalized_topic.provider_conversation_id == "telegram:77:chat:-100501:topic:9001"
+      assert normalized_topic.provider_thread_id == normalized_topic.provider_conversation_id
     end
 
     test "rejects channels, bots, anonymous senders, and Business messages" do
@@ -453,14 +449,14 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       binding_fixture(agent.uid, "telegram-limit", :ignore, adapter: "telegram")
       stub_data_api(fn _conn -> flunk("over-limit media must not be downloaded") end)
 
-      assert {:ok, [%{signal_entry: %Entry{attachments: [stored]}}]} =
+      assert {:ok, [%{message_observation: %{message: %Message{attachments: [stored]}}}]} =
                Inbound.handle_message_receive("message", telegram_update(1, message, bot), [
                  consumer(agent.uid, "telegram-limit")
                ])
 
       assert stored["materialization_state"] == attachment["materialization_state"]
       assert stored["restriction"] == attachment["restriction"]
-      refute Ankole.SignalsGateway.Projection.stored_attachment?(stored)
+      refute Ankole.Conversations.Attachments.stored?(stored)
     end
 
     test "assigns the durable attachment ID before storing an admitted file" do
@@ -487,7 +483,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-media", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-media", %{
                  "config" => %{"botToken" => "606:media-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -513,7 +509,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                  ]
                )
 
-      assert %Entry{attachments: [attachment]} = result.signal_entry
+      assert %Message{attachments: [attachment]} = result.message_observation.message
       assert_received {:telegram_request, "/bot606:media-secret/getFile"}
       assert_received {:telegram_request, "/file/bot606:media-secret/documents/report.txt"}
       assert is_integer(attachment["attachment_id"])
@@ -521,7 +517,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
       assert_stored_attachment!(
         agent.uid,
-        "telegram:606:chat:501",
+        external_conversation_id(result.conversation.id),
         attachment,
         "attachment",
         "report.txt"
@@ -537,7 +533,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       )
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-media", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-media", %{
                  "config" => %{"botToken" => "606:media-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -546,7 +542,8 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         Repo.get_by!(InboundBatch,
           agent_uid: agent.uid,
           binding_name: "telegram-media",
-          signal_channel_id: "telegram:606:chat:501",
+          conversation_id:
+            external_conversation_id(external_conversation_id("telegram:606:chat:501")),
           batch_state: "open"
         )
       end
@@ -576,7 +573,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
           "file_size" => 10
         })
 
-      assert {:ok, [%{signal_entry: %Entry{} = entry}]} =
+      assert {:ok, [%{message_observation: %{message: %Message{}, external_ref: ref}}]} =
                Inbound.handle_message_receive(
                  "message",
                  telegram_update(1, message, %{id: "606", username: "AnkoleBot"}),
@@ -592,7 +589,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       {:ok, observed_at, 0} = DateTime.from_iso8601(observed_at_text)
       assert pending_batch.available_at == DateTime.add(observed_at, 4_000, :millisecond)
 
-      assert entry.metadata["attachment_materialization"] == %{
+      assert ref.metadata["attachment_materialization"] == %{
                "state" => "failed",
                "observed_at" => observed_at_text
              }
@@ -605,10 +602,15 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-redelivery", %{
-                 "config" => %{"botToken" => "707:redelivery-secret"},
-                 "unmatched_sender_policy" => "create_standalone"
-               })
+               Ankole.Signals.Bindings.put_binding(
+                 agent.uid,
+                 "telegram",
+                 "telegram-redelivery",
+                 %{
+                   "config" => %{"botToken" => "707:redelivery-secret"},
+                   "unmatched_sender_policy" => "create_standalone"
+                 }
+               )
 
       update =
         telegram_update(
@@ -625,14 +627,14 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert {:ok, [_duplicate]} =
                Inbound.handle_message_receive("message", update, [telegram_consumer])
 
-      assert Repo.aggregate(Entry, :count) == 1
+      assert Repo.aggregate(Message, :count) == 1
     end
 
     test "folds Telegram reaction deltas into the mirrored entry" do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-reactions", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-reactions", %{
                  "config" => %{"botToken" => "505:reaction-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -661,14 +663,11 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         }
       }
 
-      assert {:ok, [%{added: [%{status: :mirrored}], removed: []}]} =
+      assert {:ok, [%{added: [%{status: :recorded}], removed: []}]} =
                Inbound.handle_reaction_update("message_reaction", update, [consumer])
 
       entry =
-        Repo.get_by!(Entry,
-          signal_channel_id: "telegram:505:chat:501",
-          source_entry_id: Integer.to_string(message["message_id"])
-        )
+        external_message("telegram:505:chat:501", Integer.to_string(message["message_id"])).external_ref
 
       assert entry.reactions == %{"👍" => ["9001"]}
       assert entry.raw_reaction_keys == %{"👍" => "👍"}
@@ -678,7 +677,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-chat-ids", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-chat-ids", %{
                  "config" => %{"botToken" => "505:chat-id-secret"},
                  "unmatched_sender_policy" => "create_standalone"
                })
@@ -712,10 +711,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                Inbound.handle_reaction_update("message_reaction", update, [consumer])
 
       entry =
-        Repo.get_by!(Entry,
-          signal_channel_id: "telegram:505:chat:5012",
-          source_entry_id: Integer.to_string(message["message_id"])
-        )
+        external_message("telegram:505:chat:5012", Integer.to_string(message["message_id"])).external_ref
 
       assert entry.reactions == %{}
     end
@@ -726,7 +722,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-main", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-main", %{
                  "config" => %{"botToken" => "101:manual-review-secret"},
                  "unmatched_sender_policy" => "manual_review"
                })
@@ -745,17 +741,17 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert [request] = MappingRequests.list_requests()
       assert request.provider == "telegram"
       assert request.external_id == "7001"
-      assert Repo.aggregate(Entry, :count) == 0
+      assert Repo.aggregate(Message, :count) == 0
 
-      assert %OutboxEntry{
+      assert %Intent{
                operation: :reply,
-               reply_to_source_entry_id: reply_to_source_entry_id,
+               reply_to_provider_message_id: reply_to_provider_message_id,
                fallback_visible_text: notice
-             } = Repo.one!(OutboxEntry)
+             } = Repo.one!(Intent)
 
-      assert reply_to_source_entry_id == private_message_source_entry_id(first_update)
+      assert reply_to_provider_message_id == private_message_provider_message_id(first_update)
 
-      assert notice == Ankole.I18n.t("signals_gateway.reply.unmapped_sender")
+      assert notice == Ankole.I18n.t("conversations.delivery.reply.unmapped_sender")
 
       %{principal: local_human} = human_fixture()
 
@@ -801,10 +797,15 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       %{principal: agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-standalone", %{
-                 "config" => %{"botToken" => "202:standalone-secret"},
-                 "unmatched_sender_policy" => "create_standalone"
-               })
+               Ankole.Signals.Bindings.put_binding(
+                 agent.uid,
+                 "telegram",
+                 "telegram-standalone",
+                 %{
+                   "config" => %{"botToken" => "202:standalone-secret"},
+                   "unmatched_sender_policy" => "create_standalone"
+                 }
+               )
 
       bot = %{id: "202", username: "AnkoleBot"}
 
@@ -826,18 +827,33 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       attrs = %{"config" => %{"botToken" => "303:exclusive-secret"}}
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(first_agent.uid, "telegram", "telegram-one", attrs)
+               Ankole.Signals.Bindings.put_binding(
+                 first_agent.uid,
+                 "telegram",
+                 "telegram-one",
+                 attrs
+               )
 
       assert {:error, {:telegram_bot_token_already_bound, first_uid, "telegram-one"}} =
-               SignalsGateway.put_binding(second_agent.uid, "telegram", "telegram-two", attrs)
+               Ankole.Signals.Bindings.put_binding(
+                 second_agent.uid,
+                 "telegram",
+                 "telegram-two",
+                 attrs
+               )
 
       assert first_uid == first_agent.uid
 
       assert {:ok, _disabled} =
-               SignalsGateway.disable_binding(first_agent.uid, "telegram-one")
+               Ankole.Signals.Bindings.disable_binding(first_agent.uid, "telegram-one")
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(second_agent.uid, "telegram", "telegram-two", attrs)
+               Ankole.Signals.Bindings.put_binding(
+                 second_agent.uid,
+                 "telegram",
+                 "telegram-two",
+                 attrs
+               )
     end
 
     test "the reconciler stops the owner after its binding is disabled" do
@@ -865,7 +881,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       )
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-disabled", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-disabled", %{
                  "config" => config
                })
 
@@ -875,7 +891,10 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                ])
 
       assert eventually(fn -> ConnectionOwner.status(owner).state == :blocked end)
-      assert {:ok, _binding} = SignalsGateway.disable_binding(agent.uid, "telegram-disabled")
+
+      assert {:ok, _binding} =
+               Ankole.Signals.Bindings.disable_binding(agent.uid, "telegram-disabled")
+
       assert %{stopped: 1, errors: []} = ConnectionReconciler.reconcile_once()
       refute Process.alive?(owner)
     end
@@ -920,18 +939,18 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-preview", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-preview", %{
                  "config" => %{"botToken" => "909:preview-secret"}
                })
 
-      %{actor_event: %ActorEvent{} = event} =
-        emit_addressed_actor_event(
+      %{signal: %Signal{} = event} =
+        emit_addressed_signal(
           agent.uid,
           "telegram-preview",
           %{
             source_event_id: "preview-event",
-            signal_channel_id: "telegram:909:chat:501",
-            source_entry_id: "50",
+            provider_conversation_id: "telegram:909:chat:501",
+            provider_message_id: "50",
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
@@ -945,7 +964,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         |> ReplyPresentation.replace_answer("draft")
 
       request = %Request{
-        actor_event: event,
+        signal: event,
         presentation: presentation,
         checkpoint: nil,
         subject_uid: human_uid,
@@ -954,7 +973,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       }
 
       assert {:ok, first} = preview_update(request)
-      assert first.created_source_entry_id == "900"
+      assert first.created_provider_message_id == "900"
 
       assert first.reply_preview_checkpoint["messages"] == [
                %{"index" => 0, "message_id" => "900"}
@@ -971,7 +990,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                    checkpoint: first.reply_preview_checkpoint
                })
 
-      assert second.created_source_entry_id == "900"
+      assert second.created_provider_message_id == "900"
       assert_received {:telegram_request, "/bot909:preview-secret/editMessageText"}
     end
 
@@ -1006,18 +1025,18 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-repost", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-repost", %{
                  "config" => %{"botToken" => "909:repost-secret"}
                })
 
-      %{actor_event: %ActorEvent{} = event} =
-        emit_addressed_actor_event(
+      %{signal: %Signal{} = event} =
+        emit_addressed_signal(
           agent.uid,
           "telegram-repost",
           %{
             source_event_id: "repost-event",
-            signal_channel_id: "telegram:909:chat:501",
-            source_entry_id: "50",
+            provider_conversation_id: "telegram:909:chat:501",
+            provider_message_id: "50",
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
@@ -1027,13 +1046,13 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         )
 
       {:ok, event} =
-        Actors.put_reply_preview_checkpoint(event.id, %{
+        PreviewState.put_checkpoint(event.id, %{
           "message_id" => "900",
           "messages" => [%{"index" => 0, "message_id" => "900"}]
         })
 
       request = %Request{
-        actor_event: event,
+        signal: event,
         presentation:
           ReplyPresentation.new(state: "working")
           |> ReplyPresentation.replace_answer("recovered draft"),
@@ -1043,7 +1062,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       }
 
       assert {:ok, result} = preview_update(request)
-      assert result.created_source_entry_id == "901"
+      assert result.created_provider_message_id == "901"
 
       assert_received {:telegram_request, "/bot909:repost-secret/editMessageText", _edit_body}
       assert_received {:telegram_request, "/bot909:repost-secret/sendMessage", send_body}
@@ -1059,14 +1078,14 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "telegram-action", :ignore, adapter: "telegram")
 
-      %{actor_event: %ActorEvent{} = event} =
-        emit_addressed_actor_event(
+      %{signal: %Signal{} = event} =
+        emit_addressed_signal(
           agent.uid,
           "telegram-action",
           %{
             source_event_id: "event-1",
-            signal_channel_id: "telegram:77:chat:501",
-            source_entry_id: "50",
+            provider_conversation_id: "telegram:77:chat:501",
+            provider_message_id: "50",
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
@@ -1085,7 +1104,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
               "id" => "approve",
               "label" => "Approve",
               "interaction_id" => "interaction-1",
-              "source_actor_event_id" => event.id,
+              "source_signal_id" => event.id,
               "control_id" => "approve",
               "selected_option_id" => "yes",
               "option_value" => "approved",
@@ -1099,12 +1118,13 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
           "message_id" => "900",
           "messages" => [%{"index" => 0, "message_id" => "900"}]
         }
-        |> ReplyInteractionState.initialize(presentation, base_time())
+        |> InteractionState.initialize(presentation, base_time())
 
-      assert {:ok, _event} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+      assert {:ok, _event} =
+               PreviewState.put_checkpoint(event.id, checkpoint)
 
       assert {:ok, token} =
-               ReplyActionToken.encode(event.id, 0, hd(presentation["actions"]),
+               ActionToken.encode(event.id, 0, hd(presentation["actions"]),
                  prefix: "tg1",
                  max_bytes: 64,
                  too_long_error: :callback_token_too_long
@@ -1113,16 +1133,16 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert byte_size(token) < 64
 
       assert {:ok, value} =
-               ReplyActionToken.resolve(token, agent.uid, "telegram-action", "900", prefix: "tg1")
+               ActionToken.resolve(token, agent.uid, "telegram-action", "900", prefix: "tg1")
 
       assert value["version"] == "ankole.interactive_output.action.v1"
-      assert value["sourceActorEventId"] == event.id
+      assert value["sourceSignalId"] == event.id
       assert value["optionValue"] == "approved"
 
       # A forged event id must fail as an invalid token, not raise in the
       # event lookup: a raise would wedge the poll loop on the same update.
       assert {:error, :invalid_callback_token} =
-               ReplyActionToken.resolve(
+               ActionToken.resolve(
                  "tg1:not-a-uuid:0:AAAAAAAAAAA",
                  agent.uid,
                  "telegram-action",
@@ -1138,14 +1158,19 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         )
 
       assert {:ok, _event} =
-               Actors.put_reply_preview_checkpoint(event.id, changed_checkpoint)
+               PreviewState.put_checkpoint(
+                 event.id,
+                 changed_checkpoint
+               )
 
       assert {:error, :invalid_callback_action} =
-               ReplyActionToken.resolve(token, agent.uid, "telegram-action", "900", prefix: "tg1")
+               ActionToken.resolve(token, agent.uid, "telegram-action", "900", prefix: "tg1")
 
-      assert {:ok, _event} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+      assert {:ok, _event} =
+               PreviewState.put_checkpoint(event.id, checkpoint)
 
-      assert {:ok, [%{"reply_markup" => markup}]} = Presentation.render(presentation, event.id)
+      assert {:ok, [%{"reply_markup" => markup}]} =
+               Presentation.render(presentation, event.id)
 
       assert get_in(markup, ["inline_keyboard", Access.at(0), Access.at(0), "callback_data"]) ==
                token
@@ -1172,7 +1197,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
         }
       }
 
-      assert {:ok, [%{status: :accepted, actor_event: action_event}]} =
+      assert {:ok, [%{status: :accepted, signal: action_event}]} =
                Inbound.handle_card_action("callback_query", callback, [
                  consumer(agent.uid, "telegram-action")
                ])
@@ -1181,12 +1206,12 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     end
 
     test "builds every declared outbound operation against the original adapter channel" do
-      base = %OutboxEntry{
+      base = %Intent{
         agent_uid: "agent-a",
         binding_name: "telegram-main",
         outbound_key: "out-1",
         operation: :post,
-        signal_channel_id: "telegram:77:chat:-100501:topic:9001",
+        conversation_id: external_conversation_id("telegram:77:chat:-100501:topic:9001"),
         payload: %{},
         fallback_visible_text: "hello"
       }
@@ -1201,11 +1226,11 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
             :divider,
             :card
           ] do
-        outbox =
+        intent =
           %{base | operation: operation}
-          |> Map.put(:reply_to_source_entry_id, if(operation == :reply, do: "42"))
+          |> Map.put(:reply_to_provider_message_id, if(operation == :reply, do: "42"))
           |> Map.put(
-            :target_source_entry_id,
+            :target_provider_message_id,
             if(operation in [:edit, :delete, :reaction_add, :reaction_remove], do: "42")
           )
           |> Map.put(
@@ -1216,23 +1241,23 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
             )
           )
 
-        assert {:ok, [_request | _rest]} = Outbox.requests_for_outbox(outbox)
+        assert {:ok, [_request | _rest]} = Delivery.requests_for_intent(intent)
       end
 
-      assert {:ok, [%{body: body}]} = Outbox.requests_for_outbox(base)
+      assert {:ok, [%{body: body}]} = Delivery.requests_for_intent(base)
       assert body["chat_id"] == "-100501"
       assert body["message_thread_id"] == 9001
       assert body["text"] == "hello"
     end
 
     test "sends a reply attachment without adding an empty text message" do
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: "agent-a",
         binding_name: "telegram-main",
         outbound_key: "attachment-1",
         operation: :reply,
-        signal_channel_id: "telegram:77:chat:501",
-        reply_to_source_entry_id: "42",
+        conversation_id: external_conversation_id("telegram:77:chat:501"),
+        reply_to_provider_message_id: "42",
         payload: %{
           "attachments" => [
             %{
@@ -1246,7 +1271,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       }
 
       assert {:ok, [%{method: "sendDocument", body: body}]} =
-               Outbox.requests_for_outbox(outbox)
+               Delivery.requests_for_intent(intent)
 
       assert body["document"] == "telegram-file-id"
       assert body["reply_parameters"] == %{"message_id" => 42}
@@ -1254,12 +1279,12 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
     end
 
     test "sends a canonical image attachment as a Telegram photo" do
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: "agent-a",
         binding_name: "telegram-main",
         outbound_key: "attachment-image-1",
         operation: :post,
-        signal_channel_id: "telegram:77:chat:501",
+        conversation_id: external_conversation_id("telegram:77:chat:501"),
         payload: %{
           "attachments" => [
             %{
@@ -1273,7 +1298,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       }
 
       assert {:ok, [%{method: "sendPhoto", body: body}]} =
-               Outbox.requests_for_outbox(outbox)
+               Delivery.requests_for_intent(intent)
 
       assert body["photo"] == "telegram-image-id"
     end
@@ -1288,17 +1313,17 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       stub_data_api(fn conn -> Req.Test.transport_error(conn, :timeout) end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-unknown", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-unknown", %{
                  "config" => %{"botToken" => "404:uncertain-secret"}
                })
 
       assert :unknown =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: "telegram-unknown",
                  outbound_key: "unknown-1",
                  operation: :post,
-                 signal_channel_id: "telegram:404:chat:501",
+                 conversation_id: external_conversation_id("telegram:404:chat:501"),
                  payload: %{},
                  fallback_visible_text: "hello"
                })
@@ -1326,17 +1351,17 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       end)
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(agent.uid, "telegram", "telegram-partial", %{
+               Ankole.Signals.Bindings.put_binding(agent.uid, "telegram", "telegram-partial", %{
                  "config" => %{"botToken" => "405:partial-secret"}
                })
 
       assert :unknown =
-               Outbox.send(%OutboxEntry{
+               Delivery.deliver(%Intent{
                  agent_uid: agent.uid,
                  binding_name: "telegram-partial",
                  outbound_key: "partial-1",
                  operation: :post,
-                 signal_channel_id: "telegram:405:chat:501",
+                 conversation_id: external_conversation_id("telegram:405:chat:501"),
                  payload: %{},
                  fallback_visible_text: String.duplicate("x", 4_001)
                })
@@ -1380,7 +1405,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   defp telegram_update(update_id, message, bot),
     do: %{"update_id" => update_id, "message" => message, "bot" => bot}
 
-  defp private_message_source_entry_id(%{"message" => %{"message_id" => message_id}}),
+  defp private_message_provider_message_id(%{"message" => %{"message_id" => message_id}}),
     do: Integer.to_string(message_id)
 
   defp private_message(user_id, text) do
@@ -1435,7 +1460,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
   end
 
   defp preview_update(request) do
-    {:ok, adapter} = ReplyPreviewAdapter.from_module(ReplyPreview)
-    ReplyPreviewAdapter.update(adapter, request)
+    {:ok, adapter} = PreviewAdapter.from_module(ReplyPreview)
+    PreviewAdapter.update(adapter, request)
   end
 end

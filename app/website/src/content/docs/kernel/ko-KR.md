@@ -16,13 +16,13 @@ Rust Kernel은 Control Plane의 네이티브 라이브러리입니다. Elixir가
 - **`universal_ai_client/`**: 업스트림 HTTP SSE/EventStream 및 WebSocket 통신, 응답 정규화, 다운스트림 JSON 텍스트 청크 인코딩, 수요 크레딧, 취소, 시간 초과.
 - **`object_store/`**: 로컬 디렉터리 또는 S3 호환 버킷을 사용하는 파일 서비스 저장소.
 - **`program_runner/`**, **`brain_markdoc/`**, **`model_image/`**: 프로그램 방식의 도구 실행, Brain 본문 분석, 모델 이미지 변환.
-- **`signals_gateway/`**: 전달된 컨텍스트를 기반으로 한 라우팅 정책 평가.
+- **`signals/`**: 전달된 컨텍스트를 기반으로 한 라우팅 정책 평가.
 
 ## 소유권
 
 Control Plane은 영속 상태, 권한 데이터, 공급자 선택, 자격 증명, 도메인 커밋을 소유합니다. Kernel은 준비된 입력을 받으며 PostgreSQL 조회, Agent 스케줄링, Worker socket 소유를 담당하지 않습니다.
 
-RuntimeFabric 구조와 프로토콜 버전 9는 `proto/ankole/runtime_fabric/v1/envelope.proto`에서 선언합니다. Elixir는 Protox를, Worker는 protobuf-es를 사용합니다. 양쪽은 전송할 때 선언된 버전을 기록하고 수신할 때 확인합니다. 도메인 수신자는 실행 권한을 확인하며 언어 간 golden fixture는 코덱 일치 여부를 검증합니다.
+RuntimeFabric 구조와 프로토콜 버전 10는 `proto/ankole/runtime_fabric/v1/envelope.proto`에서 선언합니다. Elixir는 Protox를, Worker는 protobuf-es를 사용합니다. 양쪽은 전송할 때 선언된 버전을 기록하고 수신할 때 확인합니다. 도메인 수신자는 실행 권한을 확인하며 언어 간 golden fixture는 코덱 일치 여부를 검증합니다.
 
 ## 빌드와 통신
 
@@ -30,4 +30,4 @@ RuntimeFabric 구조와 프로토콜 버전 9는 `proto/ankole/runtime_fabric/v1
 
 공유 reqwest client는 모든 환경에서 HTTP/1.1과 aws-lc-rs TLS를 사용합니다. 업스트림 WebSocket 호출은 별도 연결을 사용합니다. 공급자 정책과 transcript 커밋은 [AIGateway](../ai-gateway/)가 소유합니다.
 
-Worker 수명 주기와 메시지 라우팅은 [Actor Runtime](../actor-runtime/) 및 [Agent Computer Worker](../agent-computer-worker/)를 참조하세요.
+Worker 수명 주기와 메시지 라우팅은 [Sessions](../sessions/) 및 [Agent Computer Worker](../agent-computer-worker/)를 참조하세요.

@@ -36,7 +36,7 @@ An entry can also have these top-level fields:
 | `trace_sampled` | A trace sampling flag |
 
 Put other structured data in the JSON payload. Common examples include worker
-IDs, ActorEvent IDs, routes, request IDs, and durations.
+IDs, Signal IDs, routes, request IDs, and durations.
 
 The logger does not emit numeric Pino levels or Erlang Logger levels. It also does not emit `severity_text` or `severity_number`.
 
@@ -85,7 +85,7 @@ domain ID when one exists.
 
 Examples include:
 
-- `actor_event_id` for an Actor turn
+- `signal_id` for an Actor turn
 - `rpc_request_id` for a RuntimeFabric RPC
 - `transfer_id` for a file transfer
 
@@ -107,7 +107,7 @@ Every request log keeps its duration and Cloud HTTP latency fields. A normal
 long-running AI request stays at `INFO`; duration alone does not make it an
 incident.
 
-RuntimeFabric, ActorRuntime, Worker turns, file transfers, and provider delivery do not use `http_request`.
+RuntimeFabric, Sessions, Worker turns, file transfers, and provider delivery do not use `http_request`.
 
 ## Write Logs in the Bun Worker
 
@@ -120,7 +120,7 @@ workerLogger.notice('worker.ready_sent', 'worker ready sent', {
 
 const turnLogger = workerLogger.child({
   component: 'turn',
-  fields: { actor_event_id: actorEventID }
+  fields: { signal_id: actorEventID }
 })
 ```
 
@@ -186,7 +186,7 @@ Examples include:
 - `worker.ready_sent`
 - `worker.turn_failed`
 - `runtime_fabric.router_decode_failed`
-- `signals_gateway.outbox.mirror_failed_after_provider_send`
+- `conversations.delivery.mirror_failed_after_provider_send`
 - `http.request.completed`
 
 Do not put IDs, status text, or user data in an event name. Put these values in payload fields.

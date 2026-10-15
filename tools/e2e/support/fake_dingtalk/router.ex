@@ -3,7 +3,8 @@ defmodule Ankole.E2E.FakeDingTalk.Router do
 
   use Plug.Router
 
-  alias Ankole.E2E.FakeDingTalk.{State, WebSocketHandler}
+  alias Ankole.E2E.FakeDingTalk.State
+alias Ankole.E2E.FakeDingTalk.WebSocketHandler
 
   plug(:match)
 

@@ -10,8 +10,8 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
   alias Ankole.AppConfigure.Registry
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
-  alias Ankole.SignalsGateway.ActorRuntimeCase
-  alias Ankole.SignalsGateway.Binding
+  alias Ankole.SessionsCase
+  alias Ankole.Signals.Binding
 
   setup do
     allow_cache_database_access()
@@ -112,7 +112,7 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
 
   defp mark_worker_ready!(agent_uid) do
     route = "readiness-route-#{System.unique_integer([:positive])}"
-    {:ok, _worker} = ActorRuntimeCase.admit_worker(route, %{worker_id: agent_uid})
+    {:ok, _worker} = SessionsCase.admit_worker(route, %{worker_id: agent_uid})
   end
 
   defp insert_signal_binding!(agent_uid) do
@@ -121,7 +121,7 @@ defmodule AnkoleWeb.ConsoleReadinessControllerTest do
       agent_uid: agent_uid,
       name: "readiness",
       adapter: "lark",
-      config_ref: "app-config://signals_gateway.lark.bindings.readiness",
+      config_ref: "app-config://signals.lark.bindings.readiness",
       filters: %{},
       enabled: true
     })

@@ -64,12 +64,6 @@ export interface FindCursorState {
   nextOffset: number
 }
 
-/**
- * Owns the warm fff finders and the pagination cursors they hand out.
- *
- * Concurrent `acquire()` calls for one root share one in-flight creation so
- * the native layer never races two scans of the same tree.
- */
 export class FffSearchRuntime {
   private entries: FinderEntry[] = []
   private pending = new Map<string, Promise<FinderEntry>>()
@@ -102,10 +96,7 @@ export class FffSearchRuntime {
     return { finder: entry.finder, root: entry.root }
   }
 
-  /**
-   * Warm the index for a root without blocking the caller: rescan a warm
-   * finder (fff throttles repeats), or start the first scan in the background.
-   */
+  /** fff throttles a rescan of a warm finder. */
   prewarm(root: string): void {
     void (async () => {
       try {
@@ -299,11 +290,6 @@ function joinConstraint(prefix: string, suffix: string): string {
   return [prefix, suffix].filter(Boolean).join('/')
 }
 
-/**
- * Normalize one path constraint into the shape the fff query parser reads:
- * bare directories gain a trailing `/`, trivial recursive globs collapse to
- * the directory prefix, and no-op constraints drop out entirely.
- */
 export function normalizeConstraint(raw: string): string | undefined {
   let trimmed = raw.trim()
   if (!trimmed || trimmed === '.' || trimmed === './') return undefined
@@ -325,10 +311,6 @@ export function normalizeConstraint(raw: string): string | undefined {
   return `${trimmed}/`
 }
 
-/**
- * Normalize `exclude` values into `!` constraint tokens. Callers may pass one
- * string with comma or space separators, an array, and already-negated forms.
- */
 export function normalizeExcludes(exclude: string | string[] | undefined): string[] {
   if (!exclude) return []
   const list = Array.isArray(exclude) ? exclude : [exclude]
@@ -362,10 +344,6 @@ export function buildSearchQuery(input: {
 const HOT_FRECENCY = 25
 const WARM_FRECENCY = 20
 
-/**
- * At most one tag per result line so output stays scannable. Git-dirty (the
- * file is changing right now) outranks frecency (historically often touched).
- */
 export function fileAnnotation(item: {
   gitStatus?: string
   totalFrecencyScore?: number
@@ -383,7 +361,6 @@ export function fileAnnotation(item: {
 
 export const SEARCH_MAX_LINE_LENGTH = 500
 
-/** Clip one match or context line so grep output stays compact. */
 export function clipSearchLine(line: string): { text: string; wasClipped: boolean } {
   const trimmed = line.trimEnd()
   if (trimmed.length <= SEARCH_MAX_LINE_LENGTH) return { text: trimmed, wasClipped: false }

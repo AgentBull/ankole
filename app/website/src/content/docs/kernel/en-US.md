@@ -16,13 +16,13 @@ The library in `app/kernel` provides:
 - **`universal_ai_client/`**: upstream HTTP SSE/EventStream and WebSocket transport, response normalization, downstream JSON text chunk encoding, demand credit, cancellation, and timeouts.
 - **`object_store/`**: file-service storage over a local directory or an S3-compatible bucket.
 - **`program_runner/`**, **`brain_markdoc/`**, and **`model_image/`**: programmatic tool execution, Brain body analysis, and model image conversion.
-- **`signals_gateway/`**: routing-policy evaluation over a supplied context.
+- **`signals/`**: routing-policy evaluation over a supplied context.
 
 ## Ownership
 
 The control plane owns durable state, authorization data, provider selection, credentials, and domain commits. The kernel receives prepared inputs. It does not query PostgreSQL, schedule Agents, or own Worker sockets.
 
-RuntimeFabric structures and protocol version 9 are declared in `proto/ankole/runtime_fabric/v1/envelope.proto`. Elixir uses Protox; the Worker uses protobuf-es. Each host sets the declared version on send and checks it on receive. Domain consumers check execution authority. Cross-language golden fixtures verify codec agreement.
+RuntimeFabric structures and protocol version 10 are declared in `proto/ankole/runtime_fabric/v1/envelope.proto`. Elixir uses Protox; the Worker uses protobuf-es. Each host sets the declared version on send and checks it on receive. Domain consumers check execution authority. Cross-language golden fixtures verify codec agreement.
 
 ## Build and Transport
 
@@ -30,4 +30,4 @@ One Cargo feature, `nif`, serves development, tests, and production. Rustler tra
 
 The shared reqwest client uses HTTP/1.1 and aws-lc-rs TLS in each environment. Upstream WebSocket calls use separate connections. Provider policy and transcript commits stay in [AIGateway](../ai-gateway/).
 
-For Worker lifecycle and message routing, read [Actor Runtime](../actor-runtime/) and [Agent Computer Worker](../agent-computer-worker/).
+For Worker lifecycle and message routing, read [Sessions](../sessions/) and [Agent Computer Worker](../agent-computer-worker/).

@@ -10,7 +10,7 @@ defmodule Ankole.Files.AgentHomeImport do
     * `installed-skills/<name>/<path>` to `skills/<name>/<path>`, for each
       `<name>` that has a `SKILL.md`.
 
-  Files named by unsent legacy Outbox attachments also enter `sent/`. The
+  Files named by unsent legacy Delivery attachments also enter `sent/`. The
   import adds content references without changing the delivery state. Other
   user files, Job workspaces, and session files stay in the Agent Home.
 
@@ -39,7 +39,7 @@ defmodule Ankole.Files.AgentHomeImport do
   alias Ankole.Files
   alias Ankole.Principals.Principal
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.Conversations.Delivery.Intent
   alias Ankole.WorkerFiles
 
   @commit_batch 500
@@ -83,8 +83,8 @@ defmodule Ankole.Files.AgentHomeImport do
         end)
 
       report =
-        Enum.reduce(legacy_outboxes(), report, fn outbox, report ->
-          Repo.with_tenant(outbox.tenant_id, fn -> import_attachments(root, outbox, report) end)
+        Enum.reduce(legacy_intents(), report, fn intent, report ->
+          Repo.with_tenant(intent.tenant_id, fn -> import_attachments(root, intent, report) end)
         end)
 
       {:ok,
@@ -104,7 +104,7 @@ defmodule Ankole.Files.AgentHomeImport do
     lines =
       [
         "Imported #{report.files} files for #{report.agents} Agents and #{report.jobs} Automation Job scripts.",
-        "Migrated #{report.attachments} pending outbox attachments."
+        "Migrated #{report.attachments} pending intent attachments."
       ] ++
         Enum.map(
           report.jobs_without_script,
@@ -159,53 +159,53 @@ defmodule Ankole.Files.AgentHomeImport do
     %{report | agents: report.agents + 1}
   end
 
-  defp legacy_outboxes do
+  defp legacy_intents do
     Repo.across_tenants(fn ->
       Repo.all(
-        from outbox in OutboxEntry,
-          where: outbox.status != :succeeded,
+        from intent in Intent,
+          where: intent.status != :sent,
           where:
             fragment(
               "jsonb_path_exists(?, '$.attachments[*].user_files_relative_path') OR jsonb_path_exists(?, '$.attachments[*].agent_computer_path')",
-              outbox.payload,
-              outbox.payload
+              intent.payload,
+              intent.payload
             ),
-          order_by: [outbox.agent_uid, outbox.binding_name, outbox.outbound_key]
+          order_by: [intent.agent_uid, intent.binding_name, intent.outbound_key]
       )
     end)
   end
 
-  defp import_attachments(root, outbox, report) do
+  defp import_attachments(root, intent, report) do
     # The upgrade runs with dispatch stopped. The row lock also makes repeat
     # imports safe and keeps a completed send's audit payload unchanged.
     result =
       with {:ok, attachments, upserts} <-
-             convert_attachments(root, outbox.agent_uid, outbox.payload["attachments"] || []) do
+             convert_attachments(root, intent.agent_uid, intent.payload["attachments"] || []) do
         Repo.transact(fn repo ->
           current =
-            OutboxEntry
+            Intent
             |> where(
               [entry],
-              entry.agent_uid == ^outbox.agent_uid and entry.binding_name == ^outbox.binding_name and
-                entry.outbound_key == ^outbox.outbound_key
+              entry.agent_uid == ^intent.agent_uid and entry.binding_name == ^intent.binding_name and
+                entry.outbound_key == ^intent.outbound_key
             )
             |> lock("FOR UPDATE")
             |> repo.one!()
 
-          if current.status == :succeeded do
+          if current.status == :sent do
             {:ok, 0}
           else
-            with true <- current.payload == outbox.payload || {:error, :outbox_changed},
+            with true <- current.payload == intent.payload || {:error, :intent_changed},
                  {:ok, _result} <-
                    Files.commit(repo, current.agent_uid, Enum.uniq_by(upserts, & &1.path), []),
                  {:ok, _row} <-
                    current
-                   |> OutboxEntry.changeset(%{
+                   |> Intent.changeset(%{
                      payload: Map.put(current.payload, "attachments", attachments)
                    })
                    |> repo.update(),
-                 {:ok, _outbox} <-
-                   Ankole.SignalsGateway.Outbox.commit_outbox_in_tx(repo, %{
+                 {:ok, _intent} <-
+                   Ankole.Conversations.Delivery.commit_in_tx(repo, %{
                      agent_uid: current.agent_uid,
                      binding_name: current.binding_name,
                      outbound_key: current.outbound_key,
@@ -222,7 +222,7 @@ defmodule Ankole.Files.AgentHomeImport do
         %{report | attachments: report.attachments + count}
 
       {:error, reason} ->
-        skip(report, "outbox:#{outbox.agent_uid}/#{outbox.outbound_key}", reason)
+        skip(report, "intent:#{intent.agent_uid}/#{intent.outbound_key}", reason)
     end
   end
 

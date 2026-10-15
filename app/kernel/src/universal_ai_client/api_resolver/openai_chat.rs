@@ -731,7 +731,6 @@ impl APIProtocol for ChatState {
     }
 }
 
-// Shared terminal mapping for the stream and one-shot Chat Completions paths.
 fn chat_terminal(finish_reason: &str) -> (&'static str, Option<&'static str>) {
     match finish_reason {
         "length" => ("incomplete", Some("max_output_tokens")),

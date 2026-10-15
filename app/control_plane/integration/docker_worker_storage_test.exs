@@ -1,9 +1,11 @@
 defmodule Ankole.DockerWorkerStorageIntegrationTest do
   use Ankole.DataCase, async: false
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Docker, ProviderKind}
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.{Configuration, Provider}
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
+  alias Ankole.AgentWorkers.Docker
+  alias Ankole.AgentWorkers.ProviderKind
+  alias Ankole.AgentWorkers.Providers.Configuration
+  alias Ankole.AgentWorkers.Providers.Provider
+  alias Ankole.AgentWorkers.WorkerBootstrap
 
   @moduletag timeout: 180_000
   # Needs Docker, Kubernetes, or cloud tooling; see CONTRIBUTING.md.

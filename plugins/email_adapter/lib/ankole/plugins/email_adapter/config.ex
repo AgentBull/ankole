@@ -15,7 +15,7 @@ defmodule Ankole.Plugins.EmailAdapter.Config do
   alias Ankole.Plugins.EmailAdapter.Address
   alias Ankole.Plugins.MapHelpers
 
-  @key_pattern ~r/\Asignals_gateway\.email\.bindings\.[A-Za-z0-9_.:-]+\z/
+  @key_pattern ~r/\Asignals\.email\.bindings\.[A-Za-z0-9_.:-]+\z/
   @smtp_security_atoms %{"starttls" => :starttls, "tls" => :tls}
   @smtp_security Map.keys(@smtp_security_atoms)
   @sender_authentication_atoms %{"dmarc" => :dmarc, "none" => :none}
@@ -69,7 +69,7 @@ defmodule Ankole.Plugins.EmailAdapter.Config do
   def app_config_patterns do
     [
       AppConfigure.define_pattern(
-        id: "signals_gateway.email.bindings.*",
+        id: "signals.email.bindings.*",
         console_writable: false,
         key_pattern: @key_pattern,
         encrypted: true,
@@ -176,7 +176,7 @@ defmodule Ankole.Plugins.EmailAdapter.Config do
       |> then(&:crypto.hash(:sha256, &1))
       |> Base.encode16(case: :lower)
 
-    "signals_gateway.email.bindings.#{id}"
+    "signals.email.bindings.#{id}"
   end
 
   @spec validate_binding_config(term()) :: {:ok, t()} | {:error, term()}

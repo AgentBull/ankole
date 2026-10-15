@@ -27,13 +27,13 @@ defmodule AnkoleWeb.AuthControllerTest do
   test "return_to keeps local paths and rejects protocol-relative or backslash-relative paths" do
     assert WebSession.safe_return_to("/site-admin-console") == "/site-admin-console"
     assert WebSession.safe_return_to("/site-admin-console/agents") == "/site-admin-console/agents"
-    assert WebSession.safe_return_to("//evil.example/site-admin-console") == "/site-admin-console"
+    assert WebSession.safe_return_to("//evil.example/site-admin-console") == "/workplace"
 
     assert WebSession.safe_return_to("/\\evil.example/site-admin-console") ==
-             "/site-admin-console"
+             "/workplace"
 
     assert WebSession.safe_return_to("https://evil.example/site-admin-console") ==
-             "/site-admin-console"
+             "/workplace"
   end
 
   test "OIDC authorization stores state and redirects in one browser response", %{conn: conn} do
@@ -221,7 +221,7 @@ defmodule AnkoleWeb.AuthControllerTest do
           "returnTo" => "https://evil.example/site-admin-console"
         })
 
-      assert %{"status" => "ok", "returnTo" => "/site-admin-console"} = json_response(conn, 200)
+      assert %{"status" => "ok", "returnTo" => "/workplace"} = json_response(conn, 200)
 
       conn = get(conn, ~p"/.internal-apis/session")
       assert %{"authenticated" => true, "providerID" => "local-main"} = json_response(conn, 200)

@@ -8,9 +8,8 @@ defmodule AnkoleWeb.SignalBindingController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.AmbientCuration
-  alias Ankole.SignalsGateway.Binding
+  alias Ankole.Sessions.AmbientCuration
+  alias Ankole.Signals.Binding
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsoleParams
   alias AnkoleWeb.ConsolePolicy
@@ -21,8 +20,8 @@ defmodule AnkoleWeb.SignalBindingController do
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingUpdateRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalBindingWriteRequest
-  alias AnkoleWeb.Schemas.ConsoleAPI.SignalChannelStandingOrdersResponse
-  alias AnkoleWeb.Schemas.ConsoleAPI.SignalChannelStandingOrdersWriteRequest
+  alias AnkoleWeb.Schemas.ConsoleAPI.ConversationStandingOrdersResponse
+  alias AnkoleWeb.Schemas.ConsoleAPI.ConversationStandingOrdersWriteRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalDeliveryRequeueRequest
   alias AnkoleWeb.Schemas.ConsoleAPI.SignalDeliveryRequeueResponse
 
@@ -119,34 +118,42 @@ defmodule AnkoleWeb.SignalBindingController do
     ]
   )
 
-  operation(:show_channel_standing_orders,
-    summary: "Read the standing orders of one signal channel",
+  operation(:show_conversation_standing_orders,
+    summary: "Read the standing orders of one conversation",
     parameters: [
-      channel_id: [in: :path, type: :string, required: true]
+      conversation_id: [
+        in: :path,
+        type: %OpenAPISpex.Schema{type: :string, format: :uuid},
+        required: true
+      ]
     ],
     responses: [
-      ok: {"Standing orders", "application/json", SignalChannelStandingOrdersResponse},
+      ok: {"Standing orders", "application/json", ConversationStandingOrdersResponse},
       default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
-  operation(:put_channel_standing_orders,
-    summary: "Replace the standing orders of one signal channel",
+  operation(:put_conversation_standing_orders,
+    summary: "Replace the standing orders of one conversation",
     parameters: [
-      channel_id: [in: :path, type: :string, required: true]
+      conversation_id: [
+        in: :path,
+        type: %OpenAPISpex.Schema{type: :string, format: :uuid},
+        required: true
+      ]
     ],
     request_body:
-      {"Standing orders", "application/json", SignalChannelStandingOrdersWriteRequest,
+      {"Standing orders", "application/json", ConversationStandingOrdersWriteRequest,
        required: true},
     responses: [
-      ok: {"Standing orders", "application/json", SignalChannelStandingOrdersResponse},
+      ok: {"Standing orders", "application/json", ConversationStandingOrdersResponse},
       default: {"Error", "application/json", ErrorEnvelope}
     ]
   )
 
   def adapters(conn, _params) do
-    with :ok <- ConsolePolicy.authorize(conn, "signal_gateway_adapters", "read"),
-         {:ok, adapters} <- SignalsGateway.list_adapters() do
+    with :ok <- ConsolePolicy.authorize(conn, "signals_adapters", "read"),
+         {:ok, adapters} <- Ankole.Signals.Bindings.list_adapters() do
       json(conn, %{signal_adapters: adapters})
     else
       {:error, reason} -> error(conn, reason)
@@ -154,10 +161,10 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   def index(conn, params) do
-    with :ok <- ConsolePolicy.authorize(conn, "signal_gateway_bindings", "read"),
+    with :ok <- ConsolePolicy.authorize(conn, "signal_bindings", "read"),
          agent_uid = ConsoleParams.agent_filter_param(params),
-         {:ok, bindings} <- SignalsGateway.list_bindings(agent_uid),
-         {:ok, failures} <- SignalsGateway.list_stopped_deliveries(agent_uid) do
+         {:ok, bindings} <- Ankole.Signals.Bindings.list_bindings(agent_uid),
+         {:ok, failures} <- Ankole.Conversations.Delivery.list_stopped_deliveries(agent_uid) do
       json(conn, %{
         signal_bindings: Enum.map(bindings, &signal_binding_json/1),
         delivery_failures: Enum.map(failures, &signal_delivery_json/1)
@@ -171,9 +178,9 @@ defmodule AnkoleWeb.SignalBindingController do
     with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          {:ok, binding_name} <- ConsoleParams.text(params, :binding_name),
          :ok <-
-           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "update"),
          {:ok, result} <-
-           SignalsGateway.get_binding_configuration(agent_uid, binding_name) do
+           Ankole.Signals.Bindings.get_binding_configuration(agent_uid, binding_name) do
       json(conn, %{
         signal_binding: signal_binding_json(result.binding),
         config: result.config,
@@ -189,9 +196,14 @@ defmodule AnkoleWeb.SignalBindingController do
          {:ok, adapter_id} <- ConsoleParams.text(params, :adapter_id),
          {:ok, binding_name} <- ConsoleParams.text(params, :binding_name),
          :ok <-
-           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "update"),
          {:ok, result} <-
-           SignalsGateway.put_binding(agent_uid, adapter_id, binding_name, conn.body_params) do
+           Ankole.Signals.Bindings.put_binding(
+             agent_uid,
+             adapter_id,
+             binding_name,
+             conn.body_params
+           ) do
       json(conn, %{signal_binding: signal_binding_json(result)})
     else
       {:error, reason} -> error(conn, reason)
@@ -204,7 +216,7 @@ defmodule AnkoleWeb.SignalBindingController do
          {:ok, binding_name} <- ConsoleParams.text(params, :binding_name),
          :ok <- authorize_binding_update(conn, source_agent_uid, target_agent_uid),
          {:ok, result} <-
-           SignalsGateway.update_binding(
+           Ankole.Signals.Bindings.update_binding(
              source_agent_uid,
              target_agent_uid,
              binding_name,
@@ -220,8 +232,8 @@ defmodule AnkoleWeb.SignalBindingController do
     with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          {:ok, binding_name} <- ConsoleParams.text(params, :binding_name),
          :ok <-
-           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "delete"),
-         {:ok, binding} <- SignalsGateway.disable_binding(agent_uid, binding_name) do
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "delete"),
+         {:ok, binding} <- Ankole.Signals.Bindings.disable_binding(agent_uid, binding_name) do
       json(conn, %{signal_binding: signal_binding_json(binding)})
     else
       {:error, reason} -> error(conn, reason)
@@ -233,19 +245,19 @@ defmodule AnkoleWeb.SignalBindingController do
          {:ok, binding_name} <- ConsoleParams.text(conn.body_params, :binding_name),
          {:ok, outbound_key} <- ConsoleParams.text(conn.body_params, :outbound_key),
          :ok <-
-           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update"),
-         {:ok, _outbox} <-
-           SignalsGateway.requeue_outbox(agent_uid, binding_name, outbound_key) do
+           ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "update"),
+         {:ok, _intent} <-
+           Ankole.Conversations.Delivery.requeue(agent_uid, binding_name, outbound_key) do
       json(conn, %{requeued: true})
     else
       {:error, reason} -> error(conn, reason)
     end
   end
 
-  def show_channel_standing_orders(conn, params) do
-    with {:ok, channel_id} <- ConsoleParams.text(params, :channel_id),
-         :ok <- ConsolePolicy.authorize(conn, "signal_gateway_channels", "read"),
-         {:ok, standing_orders} <- AmbientCuration.channel_standing_orders(channel_id) do
+  def show_conversation_standing_orders(conn, params) do
+    with {:ok, conversation_id} <- ConsoleParams.text(params, :conversation_id),
+         :ok <- ConsolePolicy.authorize(conn, "conversations", "read"),
+         {:ok, standing_orders} <- AmbientCuration.conversation_standing_orders(conversation_id) do
       json(conn, %{standing_orders: standing_orders_json(standing_orders)})
     else
       {:error, reason} -> error(conn, reason)
@@ -253,12 +265,12 @@ defmodule AnkoleWeb.SignalBindingController do
   end
 
   # An empty `orders` string is a valid value: it clears the standing orders.
-  def put_channel_standing_orders(conn, params) do
-    with {:ok, channel_id} <- ConsoleParams.text(params, :channel_id),
-         :ok <- ConsolePolicy.authorize(conn, "signal_gateway_channels", "update"),
+  def put_conversation_standing_orders(conn, params) do
+    with {:ok, conversation_id} <- ConsoleParams.text(params, :conversation_id),
+         :ok <- ConsolePolicy.authorize(conn, "conversations", "update"),
          {:ok, standing_orders} <-
-           AmbientCuration.put_channel_standing_orders(
-             channel_id,
+           AmbientCuration.put_conversation_standing_orders(
+             conversation_id,
              conn.body_params.orders,
              to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal))
            ) do
@@ -270,8 +282,8 @@ defmodule AnkoleWeb.SignalBindingController do
 
   defp standing_orders_json(standing_orders) do
     %{
-      channel_id: standing_orders.channel_id,
-      channel_name: standing_orders.channel_name,
+      conversation_id: standing_orders.conversation_id,
+      title: standing_orders.title,
       orders: standing_orders.orders,
       set_by: standing_orders.set_by,
       updated_at: standing_orders.updated_at
@@ -284,6 +296,8 @@ defmodule AnkoleWeb.SignalBindingController do
       name: binding.name,
       adapter: binding.adapter,
       config_ref: binding.config_ref,
+      target: binding.target,
+      filters: binding.filters,
       config_key: config_key,
       unaddressed_group_message_policy: Atom.to_string(binding.unaddressed_group_message_policy),
       unmatched_sender_policy: Atom.to_string(binding.unmatched_sender_policy),
@@ -298,6 +312,8 @@ defmodule AnkoleWeb.SignalBindingController do
       name: binding.name,
       adapter: binding.adapter,
       config_ref: binding.config_ref,
+      target: binding.target,
+      filters: binding.filters,
       config_key: config_key_from_ref(binding.config_ref),
       unaddressed_group_message_policy: Atom.to_string(binding.unaddressed_group_message_policy),
       unmatched_sender_policy: Atom.to_string(binding.unmatched_sender_policy),
@@ -306,23 +322,20 @@ defmodule AnkoleWeb.SignalBindingController do
     }
   end
 
-  # An `unsupported` row stops without a recovery state: the route or the
-  # adapter capability, not a provider failure, ended it.
-  defp delivery_state(%{status: :unsupported}), do: "unsupported"
-  defp delivery_state(outbox), do: outbox.recovery_state["state"]
+  defp delivery_state(intent), do: intent.recovery_state["state"]
 
-  defp signal_delivery_json(outbox) do
+  defp signal_delivery_json(intent) do
     %{
-      agent_uid: outbox.agent_uid,
-      binding_name: outbox.binding_name,
-      outbound_key: outbox.outbound_key,
-      status: Atom.to_string(outbox.status),
-      state: delivery_state(outbox),
-      attempt_count: outbox.attempt_count,
-      max_attempts: outbox.max_attempts,
-      possible_duplicate: outbox.recovery_state["possible_duplicate"] == true,
-      can_retry: SignalsGateway.requeueable_outbox?(outbox),
-      updated_at: DateTime.to_iso8601(outbox.updated_at)
+      agent_uid: intent.agent_uid,
+      binding_name: intent.binding_name,
+      outbound_key: intent.outbound_key,
+      status: Atom.to_string(intent.status),
+      state: delivery_state(intent),
+      attempt_count: intent.attempt_count,
+      max_attempts: intent.max_attempts,
+      possible_duplicate: intent.recovery_state["possible_duplicate"] == true,
+      can_retry: Ankole.Conversations.Delivery.requeueable?(intent),
+      updated_at: DateTime.to_iso8601(intent.updated_at)
     }
   end
 
@@ -330,20 +343,20 @@ defmodule AnkoleWeb.SignalBindingController do
   defp config_key_from_ref(config_ref) when is_binary(config_ref), do: config_ref
 
   defp authorize_binding_update(conn, agent_uid, agent_uid) do
-    ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_gateway_bindings", "update")
+    ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "update")
   end
 
   defp authorize_binding_update(conn, source_agent_uid, target_agent_uid) do
     with :ok <-
            ConsolePolicy.authorize(
              conn,
-             "agent:#{source_agent_uid}:signal_gateway_bindings",
+             "agent:#{source_agent_uid}:signal_bindings",
              "delete"
            ),
          :ok <-
            ConsolePolicy.authorize(
              conn,
-             "agent:#{target_agent_uid}:signal_gateway_bindings",
+             "agent:#{target_agent_uid}:signal_bindings",
              "update"
            ) do
       :ok
@@ -381,10 +394,10 @@ defmodule AnkoleWeb.SignalBindingController do
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
   defp error(conn, :agent_not_found), do: error(conn, 404, "not_found", "agent was not found")
   defp error(conn, :binding_not_found), do: error(conn, 404, "not_found", "binding was not found")
-  defp error(conn, :outbox_not_found), do: error(conn, 404, "not_found", "delivery was not found")
+  defp error(conn, :intent_not_found), do: error(conn, 404, "not_found", "delivery was not found")
 
   defp error(conn, reason)
-       when reason in [:outbox_not_requeueable, :outbox_ambiguous_delivery_not_requeueable],
+       when reason in [:intent_not_requeueable, :intent_ambiguous_delivery_not_requeueable],
        do: error(conn, 409, "conflict", "delivery cannot be retried")
 
   defp error(conn, :binding_target_conflict),

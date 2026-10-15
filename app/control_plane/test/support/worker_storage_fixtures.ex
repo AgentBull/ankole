@@ -11,9 +11,10 @@ defmodule Ankole.WorkerStorageFixtures do
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
 
   alias Ankole.{Principals, Repo, WorkerFiles}
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Providers, ReconcileJob}
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.ReconcileJob
+  alias Ankole.AgentWorkers.AgentWorker
 
   @doc "Creates two providers of `kind` and one Agent on each; returns `{uids, provider_ids}`."
   def storage_agents!(kind, suffix, owner_uid, config, credentials) do

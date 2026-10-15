@@ -3,13 +3,16 @@ defmodule Ankole.VercelWorkerStorageIntegrationTest do
   import Ankole.PrincipalsFixtures
   import Ankole.WorkerStorageFixtures
   alias Ankole.Principals
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.AgentWorkers
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{Config, ProviderKind, Providers, Vercel}
+  alias Ankole.AgentWorkers.Config
+  alias Ankole.AgentWorkers.ProviderKind
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Vercel
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Vercel.Client
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerBootstrap
+  alias Ankole.AgentWorkers.Vercel.Client
+  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.WorkerBootstrap
 
   @moduletag cloud: true, sandbox: false, timeout: 1_800_000
 

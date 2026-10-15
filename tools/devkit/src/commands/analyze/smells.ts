@@ -1,5 +1,3 @@
-// `analyze smells` — Ankole boundary / architecture-smell gate.
-//
 // Rules are Ankole-specific. The scanner checks declared subsystem boundaries.
 
 import { readFileSync } from 'node:fs'

@@ -1,8 +1,8 @@
 defmodule Ankole.WorkerFilesTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers
   alias Ankole.WorkerFiles
   alias Ankole.WorkerFiles.Relay
   alias Ankole.WorkerFilesFake
@@ -165,15 +165,15 @@ defmodule Ankole.WorkerFilesTest do
       route: route
     } do
       worker = ready_worker(route)
-      alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
-      alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.Provider
+      alias Ankole.AgentWorkers.Providers
+      alias Ankole.AgentWorkers.Providers.Provider
       config = "network: bridge\nendpoints:\n  relayOrigin: https://worker-files.example.test/\n"
       assert {:ok, provider} = Providers.update(worker.provider_id, %{config: config})
       Ankole.AgentWorkerDockerHTTP.install()
-      assert :ok = Ankole.SignalsGateway.ActorRuntime.AgentWorkers.request(worker.agent_uid)
+      assert :ok = Ankole.AgentWorkers.request(worker.agent_uid)
 
       assert :ok =
-               perform_job(Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ReconcileJob, %{
+               perform_job(Ankole.AgentWorkers.ReconcileJob, %{
                  "agent_uid" => worker.agent_uid
                })
 

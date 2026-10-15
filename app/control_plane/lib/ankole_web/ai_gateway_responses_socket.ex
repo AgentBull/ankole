@@ -13,7 +13,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   @behaviour WebSock
 
   alias Ankole.AIGateway
-  alias Ankole.AIGateway.CodexModelBinding
+  alias Ankole.Sessions.CodexModelBinding
   alias Ankole.AIGateway.OpenAIError
   alias Ankole.AIGateway.ResponseStream
   alias Ankole.Ecto.UUIDv7
@@ -22,8 +22,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
 
   @socket_response_history_limit 32
 
-  # Connection lifecycle
-
   @impl WebSock
   def init(
         %{subject_uid: _subject_uid, subject_type: _subject_type, tenant_id: tenant_id} = state
@@ -31,8 +29,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     Ankole.Repo.put_tenant_id(tenant_id)
     {:ok, state}
   end
-
-  # Incoming: response.create
 
   @impl WebSock
   def handle_in({payload, [opcode: :text]}, state) do
@@ -93,9 +89,16 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       )
 
     with {:ok, authorization} <- authorize_grant(state, request),
+         {:ok, brain_context} <-
+           CodexModelBinding.brain_context(
+             state.subject_uid,
+             Map.get(state, :codex_model_binding)
+           ),
          {:ok, request, socket_context} <- prepare_response_create_request(state, request) do
+      authorization = Keyword.put(authorization, :brain_context, brain_context)
+
       if CompactionRequests.compaction_trigger?(request) do
-        serve_compaction_trigger(state, request)
+        serve_compaction_trigger(state, request, authorization)
       else
         open_response_create_stream(state, request, socket_context, authorization)
       end
@@ -118,8 +121,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   end
 
   defp authorize_grant(_state, _request), do: {:ok, []}
-
-  # AIGateway response stream
 
   @impl WebSock
   def handle_info(
@@ -186,7 +187,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
       "AI Gateway response socket closed with an active stream",
       %{
         subject_uid: subject_uid,
-        actor_event_id: active_stream[:actor_event_id],
+        signal_id: active_stream[:signal_id],
         model: active_stream[:model],
         duration_ms: active_stream_duration_ms(active_stream),
         termination_reason: termination_reason(reason)
@@ -210,7 +211,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
                stream: stream,
                monitor: ResponseStream.monitor(stream),
                request_input: Map.get(request, "input"),
-               actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
+               signal_id: get_in(request, ["metadata", "signal_id"]),
                model: Map.get(request, "model"),
                started_at_ms: System.monotonic_time(:millisecond)
              }}
@@ -242,8 +243,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
     :exit, reason ->
       {:error, {:exit, reason}}
   end
-
-  # Validation helpers
 
   defp ensure_no_active_stream(%{active_stream: _stream} = state) do
     {:error,
@@ -391,10 +390,14 @@ defmodule AnkoleWeb.AIGatewayResponsesSocket do
   # keeps after compaction is the caller's own decision, so AIGateway cannot
   # name that history. A caller that continues from the reply sends its whole
   # input instead.
-  defp serve_compaction_trigger(state, request) do
-    case CompactionRequests.compact_from_trigger(state.subject_uid, request,
-           subject_type: Map.get(state, :subject_type),
-           request_context: Map.get(state, :request_context, %{})
+  defp serve_compaction_trigger(state, request, authorization) do
+    case CompactionRequests.compact_from_trigger(
+           state.subject_uid,
+           request,
+           Keyword.merge(authorization,
+             subject_type: Map.get(state, :subject_type),
+             request_context: Map.get(state, :request_context, %{})
+           )
          ) do
       {:ok, response} ->
         response

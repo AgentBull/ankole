@@ -2,11 +2,21 @@
 
 The Discord Adapter connects one Discord bot to one Agent binding. Discord is a
 consumer IM. The category changes catalog and Console presentation only; the
-adapter uses the same SignalsGateway contracts as every other Signal adapter.
+adapter uses the same Signals and Signals and Conversations contracts as every other Signal adapter.
 
-Read [SignalsGateway](../SignalsGateway.md), [Principal](../Principal.md), and
+Read [Signals](../Signals.md), [Conversations](../Conversations.md),
+[Sessions](../Sessions.md), [Principal](../Principal.md), and
 [Local Password Identity Provider](../LocalPasswordIdentityProvider.md) for the
 common message and identity rules.
+
+## Provider and Public Identity
+
+The adapter reports an opaque `provider_conversation_id` and a
+`provider_message_id`. Conversations resolves these to a shared public
+Conversation UUID and Message UUID. All Agent observers of the same provider
+conversation in one tenant read those same public facts. Each participating
+Agent has its own `conversation:<public UUID>` Session; a Binding is its
+observation and delivery route, not the owner of the platform room.
 
 ## Current IDs and Features
 
@@ -15,7 +25,7 @@ common message and identity rules.
 | Plugin ID | `discord-adapter` |
 | Signal adapter ID | `discord` |
 | Adapter category | `consumer_im` |
-| Signal configuration | `signals_gateway.discord.bindings.<id>` |
+| Signal configuration | `signals.discord.bindings.<id>` |
 | REST client | Project `Req` client against API v10 |
 | Gateway client | Project `Mint.WebSocket` client |
 
@@ -23,7 +33,7 @@ The only setting is the required encrypted `botToken`. One token can belong to
 only one enabled Discord binding. The adapter does not use a Discord library.
 Its narrow client must return Discord message IDs for durable reply
 checkpoints, and its gateway owner must not advance the session sequence before
-SignalsGateway accepts the event.
+Conversations accepts the event.
 
 The adapter supports all three group modes: `addressed_only`, `observe_all`,
 and `may_intervene`. The last two also need the privileged message-content
@@ -56,7 +66,7 @@ owner therefore advances the sequence only after ingress durably accepted the
 event or the adapter explicitly ignored it. Each queued event keeps the gateway
 session that received it, so an old task cannot move a new session's sequence.
 The owner retains received events across a dropped connection and
-SignalsGateway deduplicates a replay with its durable source keys, so Discord
+Signals deduplicates a replay with its durable source keys, so Discord
 needs no second table.
 
 Event handling runs in one supervised task at a time. The owner keeps reading
@@ -105,8 +115,9 @@ never reach Ankole.
 ## Receive Messages
 
 The adapter accepts direct messages and guild channels. A thread has its own
-channel ID, so threads become separate Agent sessions without extra state. The
-channel ID includes the bot user ID and the Discord channel ID. A message
+`provider_conversation_id`, so it resolves to a separate public Conversation.
+That provider identity includes the bot user ID and Discord channel ID. Each
+participating Agent has its own Session in that Conversation. A message
 without `guild_id` is a direct message; every other message is a group message.
 
 A direct message is explicit input. In a guild, these forms are explicit:
@@ -114,7 +125,7 @@ A direct message is explicit input. In a guild, these forms are explicit:
 - a mention of the current bot;
 - a reply to a message from the current bot.
 
-SignalsGateway applies the binding's group mode to other guild messages. The
+Conversations applies the binding's group mode to other guild messages. The
 adapter accepts only Discord `DEFAULT` and `REPLY` message types, and it ignores
 its own messages, other bots, webhook posts, and system notices. A message must
 have visible text after bot mention removal or a real attachment. Sticker-only,
@@ -136,11 +147,11 @@ IM setup uses this sequence:
 1. An administrator signs in through LocalPassword and creates a human
    Principal.
 2. The Discord binding selects `manual_review`.
-3. An unmatched user receives the fixed mapping notice. SignalsGateway creates
+3. An unmatched user receives the fixed mapping notice. Signals.IdentityAdmission creates
    a mapping request and does not store the original message.
 4. The administrator maps the Discord external identity to the existing
    Principal.
-5. The user sends the message again, and SignalsGateway admits it to the Agent.
+5. The user sends the message again, and Signals.IdentityAdmission admits it to the Agent.
 
 This sequence describes a common setup. It is not a dependency between
 LocalPassword and Discord. The mapping target can be any existing human
@@ -148,7 +159,7 @@ Principal and does not need a LocalPassword credential.
 
 ## Materialize Attachments
 
-SignalsGateway first commits the admitted message with a pending attachment
+Conversations first commits the admitted message with a pending attachment
 projection. The adapter then downloads the CDN bytes, stores them in the file
 service ([Files](../Files.md)), and updates the same entry. An unmatched sender
 cannot make Ankole download a file.
@@ -160,7 +171,7 @@ a local path or claim that the Agent can read the file.
 
 ## Send Replies and Actions
 
-The adapter uses Discord message IDs as source entry IDs. It can post, reply,
+The adapter uses Discord message IDs as provider message IDs. It can post, reply,
 edit, delete, add or remove a reaction, send a divider, and render a card. It
 sends file attachments as one multipart request whose `payload_json` part
 carries the message and whose `files[n]` parts carry the bytes, so text and
@@ -171,7 +182,7 @@ parsing, so Agent text cannot notify a user, role, or everyone by accident.
 
 A mutable Agent reply owns one or more Discord messages, split at the 2000
 character limit. After each provider mutation, the adapter stores the current
-message IDs and presentation in the source ActorEvent checkpoint. A restart can
+message IDs and presentation in the source Signal checkpoint. A restart can
 therefore continue by editing the same messages. A terminal reply updates that
 surface instead of posting a second final answer. A checkpointed message that
 Discord no longer has is not an error: the human deleted it, and the reply
@@ -184,7 +195,7 @@ within three seconds. The owner starts the deferred acknowledgement as soon as
 the gateway frame arrives, even when an earlier message is still processing.
 Durable action handling stays in gateway order: it resolves the token, maps the
 Discord user to a Principal, checks the binding and message, and submits the
-standard SignalsGateway action event. A stale token therefore produces no
+standard signal.action.invoked stimulus. A stale token therefore produces no
 visible change, which is the correct outcome for an action the reply already
 replaced.
 
@@ -198,8 +209,8 @@ Discord does not give message creation an idempotency key, and this adapter
 does not reconcile an uncertain send. A transport or server failure can mean
 that Discord accepted a request before the connection failed. The adapter
 returns `unknown` for that case and for a partially sent multi-message reply.
-SignalsGateway does not make an unsafe automatic retry. A delete or an edit of
-a message that is already gone is the outcome the outbox asked for, so `404`
+Conversations does not make an unsafe automatic retry. A delete or an edit of
+a message that is already gone is the outcome the intent asked for, so `404`
 on those two operations is a success.
 
 Edits, deletes, and reaction changes are safe to repeat, so a transport or

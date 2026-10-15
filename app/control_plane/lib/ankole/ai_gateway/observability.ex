@@ -149,7 +149,6 @@ defmodule Ankole.AIGateway.Observability do
               request_context,
               parent_context
             ),
-          actor_event_id: get_in(request, ["metadata", "actor_event_id"]),
           session_id: session_id(request, opts),
           originator: text(Map.get(headers, "originator")),
           caller: string_value(Keyword.get(opts, :caller)),

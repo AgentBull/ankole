@@ -8,7 +8,7 @@ or the operator resets the quota.
 
 The Elixir control plane owns every part of the quota. `Ankole.AIAgent.TokenQuota`
 owns the configuration and the usage query. AIGateway owns the usage ledger and
-the rejection. SignalsGateway owns the user notice. The conversation Driver reads the
+the rejection. Sessions.Notices owns the user notice. The Session Driver reads the
 AIGateway rejection directly. The Worker reports a Codex usage-limit error as pool exhaustion. The control
 plane checks the quota before it settles a Job failure. The Worker keeps no
 usage counters.
@@ -17,7 +17,7 @@ usage counters.
 
 A request counts when it carries an Agent token, so its `subject_type` is
 `agent`, and it uses the `llm` capability. This covers every model call in a
-control-plane conversation, including scheduled, Workflow, and ambient runs, and every request
+control-plane Session, including scheduled, Workflow, and ambient runs, and every request
 of a Background Agent Job. A compaction that such a request starts with the
 `compaction_trigger` item, including the Codex remote compaction call, is that
 request's own model work and counts the same way.
@@ -52,7 +52,7 @@ can therefore end above the limit by its own usage.
 | --- | --- |
 | `id` | UUIDv7 primary key |
 | `subject_uid` | The Agent Principal |
-| `origin` | `agent` for a control-plane conversation, `codex` for a Background Agent Job request |
+| `origin` | `agent` for a control-plane Session, `codex` for a Background Agent Job request |
 | `model` | The resolved `provider_id/model` selector |
 | `input_tokens`, `output_tokens` | Non-negative provider usage of the round |
 | `inserted_at` | Record time; the window query uses it |
@@ -145,13 +145,13 @@ non-streaming request in `AIGateway`. Every transport uses one of them.
 
 ## Tell the User
 
-Before a main or Workflow conversation turn starts, `Conversations.Admission`
+Before a main or Workflow Session turn starts, `Sessions.Admission`
 checks the quota through `Ankole.AIAgent.TokenQuota`. Job admission skips this
-check. At the limit, `Conversations.Notices` closes the input and commits one
-localized Outbox notice for a reply-eligible event. It first restores any
+check. At the limit, `Sessions.Notices` closes the input and commits one
+localized Delivery notice for a reply-eligible event. It first restores any
 existing tool records and applied inputs, so a failed preflight does not erase
-work that already committed. The Outbox keeps the `ai-token-quota-exceeded`
-key prefix. The notice uses `signals_gateway.reply.token_quota_exceeded` and
+work that already committed. The Delivery keeps the `ai-token-quota-exceeded`
+key prefix. The notice uses `conversations.delivery.reply.token_quota_exceeded` and
 states the used tokens, limit, and window end in the installation timezone
 (`system.timezone`). An ambient `im.message.may_intervene` input completes
 without a notice, as for a missing model profile.
@@ -223,7 +223,7 @@ creation through its own route.
 
 ## Rules
 
-- AIGateway is the only enforcement point. The SignalsGateway check only avoids a Worker turn that cannot start.
+- AIGateway is the only enforcement point. The Sessions admission check avoids a model turn that cannot start.
 - The ledger is append-only while the Agent exists and is the only usage source for the quota.
 - Neither the Worker nor the control plane retries a quota rejection.
 - A reset starts a new period. It never deletes ledger rows.

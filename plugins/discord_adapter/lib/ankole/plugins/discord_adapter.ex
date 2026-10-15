@@ -6,7 +6,7 @@ defmodule Ankole.Plugins.DiscordAdapter do
   alias Ankole.Plugins.DiscordAdapter.Config
   alias Ankole.Plugins.DiscordAdapter.ConnectionReconciler
   alias Ankole.Plugins.DiscordAdapter.Inbound
-  alias Ankole.Plugins.DiscordAdapter.Outbox
+  alias Ankole.Plugins.DiscordAdapter.Delivery
   alias Ankole.Plugins.DiscordAdapter.ReplyPreview
 
   @impl true
@@ -30,12 +30,12 @@ defmodule Ankole.Plugins.DiscordAdapter do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "discord",
         adapter_category: "consumer_im",
         plugin_id: plugin_id(),
         display_name: %{"default" => "Discord"},
-        config_key_pattern: "signals_gateway.discord.bindings.<id>",
+        config_key_pattern: "signals.discord.bindings.<id>",
         config_module: Config,
         fields: [
           %{
@@ -53,9 +53,9 @@ defmodule Ankole.Plugins.DiscordAdapter do
           }
         ],
         supported_group_message_modes: ["addressed_only", "observe_all", "may_intervene"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
-        reply_preview_module: ReplyPreview,
+        observe_module: Inbound,
+        deliver_module: Delivery,
+        preview_module: ReplyPreview,
         inbound_capabilities: [
           "entry_receive",
           "reaction_add",

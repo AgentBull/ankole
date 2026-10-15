@@ -2,11 +2,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   @moduledoc """
   Pure CardKit JSON 2.0 renderer for provider-neutral reply presentations.
 
-  The renderer accepts only the closed `ReplyPresentation` shape. It never
+  The renderer accepts only the closed `Presentation` shape. It never
   interprets tool stdout or arbitrary model/provider JSON as a component.
   """
 
-  alias Ankole.SignalsGateway.ReplyPresentation
+  alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Plugins.LarkAdapter.CardKit.I18n, as: CardI18n
   alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
 
@@ -586,11 +586,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp render_choice_action(
          %{
            "type" => "button",
-           "source_actor_event_id" => source_actor_event_id
+           "source_signal_id" => source_signal_id
          } = action
        )
-       when is_binary(source_actor_event_id) do
-    case ReplyPresentation.callback_value(source_actor_event_id, action) do
+       when is_binary(source_signal_id) do
+    case ReplyPresentation.callback_value(source_signal_id, action) do
       {:ok, value} ->
         [
           %{
@@ -621,15 +621,15 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
          %{
            "type" => "form",
            "id" => id,
-           "source_actor_event_id" => source_actor_event_id,
+           "source_signal_id" => source_signal_id,
            "fields" => [%{"type" => "input", "id" => input_name} = field]
          } = action,
          %{"interaction_status" => "pending"},
          index
        )
-       when is_binary(id) and is_binary(source_actor_event_id) and is_binary(input_name) do
+       when is_binary(id) and is_binary(source_signal_id) and is_binary(input_name) do
     with false <- action["disabled"] == true,
-         {:ok, value} <- ReplyPresentation.callback_value(source_actor_event_id, action) do
+         {:ok, value} <- ReplyPresentation.callback_value(source_signal_id, action) do
       [
         %{
           "tag" => "form",

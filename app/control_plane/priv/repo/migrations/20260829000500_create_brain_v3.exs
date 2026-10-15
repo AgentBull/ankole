@@ -43,8 +43,6 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
       message: "the pre-v1 Brain state cannot be restored after the BrainV3 upgrade"
   end
 
-  # Schema pack state
-
   defp create_schema_pack_tables do
     create table(:brain_schema_packs, primary_key: false) do
       add :id, :uuid, primary_key: true
@@ -126,8 +124,6 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
     comment_table(:brain_schema_calibration_domains, "Take calibration domain registry.")
   end
 
-  # Sources
-
   defp create_sources do
     create table(:brain_sources, primary_key: false) do
       add :id, :uuid, primary_key: true
@@ -171,8 +167,6 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
 
     comment_table(:brain_sources, "Upstream learning sources registered for this instance.")
   end
-
-  # Objects
 
   defp create_objects do
     create table(:brain_objects, primary_key: false) do
@@ -332,8 +326,6 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
     comment_table(:brain_chunks, "Rebuildable retrieval projection of current object content.")
   end
 
-  # Claims
-
   defp create_claims do
     create table(:brain_claims, primary_key: false) do
       add :id, :uuid, primary_key: true
@@ -386,7 +378,6 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
       add :resolution_provenance, :text
       add :resolved_by, :text
 
-      # Shared fields.
       add :superseded_by, references(:brain_claims, column: :id, type: :uuid)
       add :provenance, :text, null: false
       add :embedding, :"vector(4096)"
@@ -495,8 +486,6 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
 
     comment_table(:brain_claims, "Atomic facts and calibratable takes in one physical table.")
   end
-
-  # Timelines, links, tags, aliases
 
   defp create_timelines do
     create table(:brain_timelines, primary_key: false) do
@@ -864,8 +853,6 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
     comment_table(:brain_merge_suggestions, "Duplicate-page merge suggestion queue.")
   end
 
-  # Search indexes
-
   # The initial migration always builds with the default icu tokenizer; a
   # brain.search_tokenizer change rebuilds these two recoverable indexes at
   # runtime without touching the base tables.
@@ -925,8 +912,6 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
     execute("DROP INDEX signal_gateway_entries_brain_bm25_index")
     execute("DELETE FROM principals WHERE uid = 'brain-shared'")
   end
-
-  # Data backfills
 
   # Brain owns instance-global model calls (embedding, extraction, dreaming)
   # and needs an accountable system Principal as their AIGateway subject.
@@ -1007,8 +992,6 @@ defmodule Ankole.Repo.Migrations.CreateBrainV3 do
       _blank -> uid
     end
   end
-
-  # SQL helpers
 
   defp scope_shape_sql(column) do
     "#{column} ~ '^(world|group:.+|principal:.+)$'"

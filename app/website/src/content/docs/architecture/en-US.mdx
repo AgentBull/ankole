@@ -1,6 +1,6 @@
 ---
 title: Architecture
-description: See how the control plane, Agent Computer Workers, Actor Runtime, Brain, and Background Agent Jobs form the Ankole Agent Harness.
+description: See how the control plane, Agent Computer Workers, Sessions, Brain, and Background Agent Jobs form the Ankole Agent Harness.
 section: Developer guide
 order: 100
 ---
@@ -19,13 +19,13 @@ The Harness identifies each actor, applies access rules, restores long work, kee
 
 One private deployment instance has one logical control plane and one Agent Computer Worker for each Agent. The control plane manages identity, state, and scheduling, and it creates the Workers. Each Worker provides the compute environment where its Agent works.
 
-External chats, webhooks, and schedules enter through SignalsGateway. Identity Providers supply people and the organization directory. AIGateway provides one boundary for models, embeddings, reranking, images, and web capabilities.
+Workplace and external adapters record conversation messages. Signals admits messages, external events, and schedules; Sessions executes their work. Identity Providers supply people and the organization directory. AIGateway provides one boundary for models, embeddings, reranking, images, and web capabilities.
 
 ## Control plane and Agent Computer Workers
 
 ### The control plane stores state and makes decisions
 
-The Elixir/OTP control plane owns the Console, Principals and access, system configuration, signal routing, Actor sessions, Brain, Background Agent Jobs, AIGateway, and Control Plane Plugins.
+The Elixir/OTP control plane owns the Console, Principals and access, system configuration, signal routing, sessions, Brain, Background Agent Jobs, AIGateway, and Control Plane Plugins.
 
 All these modules use the same rule. State that changes a user-visible result goes to PostgreSQL before it drives execution or external delivery.
 
@@ -55,29 +55,39 @@ Each Worker has its own capacity for environment workspaces and Codex turns. Mai
 
 ## How one message becomes resumable work
 
-### SignalsGateway receives the outside world
+### Conversations preserve messages
 
-Chat adapters, webhooks, and schedules first convert external events into a common signal. A signal routing rule selects the Agent, session, and channel or thread that must receive the reply.
+A conversation is a shared space for people and Agents. `Ankole.Conversations` stores its participants and messages. Workplace writes native messages directly. An adapter observes messages in an external conversation; the external platform remains their authority.
 
-A group chat can process only messages that address the Agent, record unaddressed messages, or let the Agent decide when to intervene. The available modes depend on the chat platform and signal routing rule.
+Conversation messages and Agent work have separate records. Messages belong to participants. Model calls, tool results, and compaction belong to the session's model state in AIGateway. A session does not cross conversations, so one conversation's work cannot enter another conversation.
 
-SignalsGateway stores a received message and its source before it wakes the Agent. It also creates traceable delivery state before an adapter sends a reply.
+### Signals admit every stimulus
 
-A temporary provider failure cannot confuse “what Ankole decided to send” with “what the provider accepted.”
+A message that addresses the Agent creates a signal. Time, external events, check-back, and task completion also create signals. `Ankole.Signals` records the source, source event ID, target, attribution, and authorization before it wakes a session.
 
-### A trigger can wake an Agent or run a script
+Native messages and their signals commit in one transaction. Admission removes duplicates by `(Agent, source, id)`. This does not guarantee that every later action happens once.
 
-Cron, Checkback, and webhook endpoints are the three triggers in one system. Each trigger wakes an Agent conversation by default, and each can instead bind an automation job: a deterministic script that the Agent writes. The trigger event stays the same; only the consumer changes.
+A signal can name a session explicitly. Otherwise, participation or a Signal Routing Rule selects the target. A conversation-host adapter observes messages and delivers replies. An event-source adapter only supplies signals. Automation Jobs can perform mechanical checks and send a signal to the parent session when judgment is needed. See [Automation Jobs](../automation-jobs/).
 
-The script completes mechanical checks silently, and every run leaves an inspectable record. When judgment is needed, it sends an event back to the owner conversation through `emitEvent`, and the Agent verifies and acts. The model therefore never idles in a polling loop. See [Automation Jobs](../automation-jobs/).
+### Sessions execute and recover work
 
-### Actor Runtime manages long-running sessions
+`Ankole.Sessions` owns the queue, Admission, Driver, Run, tools, and recovery. One session runs one Run at a time. Admission checks the tenant, Agent state, authorization, and quota whenever execution starts.
 
-Each active session is an addressable Virtual Actor. It has a mailbox, lifecycle, and recovery position. New messages and schedules can wake it, and it can receive added input, cancellation, or human intervention while it runs.
+Each Agent has its own session in the conversation. All conversation participants can see that work. An addressed turn uses the requester's authorization. An intervention uses the Agent's identity by default. It uses a person's authorization only when the existing intervention policy identifies that person as the current requester.
 
-A conversation Driver owns this long-running work. Its PostgreSQL epoch fences Driver writes, and the stored Response chain preserves completed steps. Worker results use RunRef or JobTurnRef operation identity, so a new Driver can adopt work already in progress.
+Cron rules and background tasks have separate sessions. They publish results into a target conversation. The conversation's next turn reads those new messages without importing the other session's internal work.
 
-Streamed content is progress. Only messages, tool results, and state transitions that the control plane confirms and stores are facts. This keeps “the interface shows work in progress” separate from “the work is complete.”
+AIGateway stores and continues model session state. The runtime selects inputs, instructions, tools, continuation, and compaction. The Driver's PostgreSQL epoch rejects stale writes. Recovery uses committed progress: model calls can repeat, recorded tool results are reused, and uncertain tool operations are reported as interrupted.
+
+### Presentation and Delivery commit visible results
+
+Presentation decides the visible reply once. A native reply becomes a message in the completion transaction. A silent turn creates no message. An external reply creates a durable Delivery intent, which the adapter sends.
+
+A confirmed external send becomes a message in the transaction that records delivery success. A later platform event with the same message ID refers to the same message. Failed, expired, and unknown deliveries do not create messages. An unknown outcome is not sent again blindly.
+
+Streamed text shows current progress. It becomes conversation history only after message commit. A disconnected page reads committed history and execution state; it does not replay a partial stream.
+
+See [Conversations, signals, and sessions](../conversations-signals-sessions/) for the design choices, costs, and source-checked comparison.
 
 ## Brain: a world model that stays current
 
@@ -85,7 +95,7 @@ Brain is not a vector database filled with chat excerpts. It maintains an evolvi
 
 Knowledge can come from conversations with the Agent, eligible group messages that nobody addressed to it, and registered file or URL Sources.
 
-All Agents in one tenant share one knowledge space. Tenants have separate knowledge spaces. Each protected passage, claim, and timeline event uses a `world`, permission-group, or Principal audience scope. A Source or channel records provenance; it does not grant access to the learned knowledge.
+All Agents in one tenant share one knowledge space. Tenants have separate knowledge spaces. Each protected passage, claim, and timeline event uses a `world`, permission-group, or Principal audience scope. A Source or external conversation records provenance; it does not grant access to the learned knowledge.
 
 During a turn, unified recall supplies the long-term context that the current work needs. Offline Dreaming organizes new evidence, finds patterns, grades earlier predictions, and flags conflicts for review.
 
@@ -117,7 +127,7 @@ Agent model profiles select models for Agent execution. Each tenant selects a Br
 
 Agents and Workers receive only the model choices and call results that they can use.
 
-AIGateway supports calls that store no history and stateful conversations that can continue. It owns request conversion, stream events, tool results, context compaction, usage records, and final-result commits.
+AIGateway supports calls that store no history and model session state that can continue. It owns request conversion, stream events, tool results, context compaction, usage records, and final-result commits.
 
 Workers do not implement a separate lifecycle for each Provider.
 

@@ -709,7 +709,7 @@ export function ScheduleCronEditorPage() {
       ) : null}
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        <LabeledField label={t('console.schedules.binding')} required>
+        <LabeledField label={t('console.schedules.binding')}>
           {editing ? (
             <ReadOnlyValue mono>{model.bindingName.value || '—'}</ReadOnlyValue>
           ) : (
@@ -718,6 +718,7 @@ export function ScheduleCronEditorPage() {
                 <SelectValue placeholder={t('console.schedules.binding_placeholder')} />
               </SelectTrigger>
               <SelectContent emptyLabel={t('console.schedules.binding_empty')}>
+                <SelectItem value="">{t('console.schedules.native_delivery')}</SelectItem>
                 {bindingList.map(binding => (
                   <SelectItem key={`${binding.adapter}:${binding.name}`} value={binding.name}>
                     {binding.name}
@@ -831,7 +832,7 @@ export function ScheduleCronEditorPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <LabeledField label={t('console.schedules.binding')} required>
+              <LabeledField label={t('console.schedules.binding')}>
                 {index === 0 ? (
                   <ReadOnlyValue mono>{model.bindingName.value || '—'}</ReadOnlyValue>
                 ) : (
@@ -842,6 +843,7 @@ export function ScheduleCronEditorPage() {
                       <SelectValue placeholder={t('console.schedules.binding_placeholder')} />
                     </SelectTrigger>
                     <SelectContent emptyLabel={t('common.select_empty')}>
+                      <SelectItem value="">{t('console.schedules.native_delivery')}</SelectItem>
                       {bindingList.map(binding => (
                         <SelectItem key={`${binding.adapter}:${binding.name}`} value={binding.name}>
                           {binding.name}
@@ -852,10 +854,10 @@ export function ScheduleCronEditorPage() {
                   </Select>
                 )}
               </LabeledField>
-              <LabeledField label={t('console.schedules.delivery_channel')} required>
+              <LabeledField label={t('console.schedules.delivery_conversation')} required>
                 <Input
-                  value={target.channelId}
-                  onChange={event => model.updateDeliveryTarget(index, { channelId: event.target.value })}
+                  value={target.conversationId}
+                  onChange={event => model.updateDeliveryTarget(index, { conversationId: event.target.value })}
                 />
               </LabeledField>
               <LabeledField label={t('console.schedules.delivery_thread')}>
@@ -899,8 +901,6 @@ export function ScheduleCronEditorPage() {
     </ResourceEditorPage>
   )
 }
-
-// helpers
 
 /** Localized status labels; an unknown token renders as itself instead of a raw i18n key. */
 function scheduleStatusLabel(t: TFunction, status: string): string {
@@ -967,7 +967,7 @@ function draftFromCron(row: CronScheduleItem): ScheduleEditorDraft {
   const { schedule, payload } = row
   return {
     ownerSessionId: row.owner_session_id,
-    bindingName: row.binding_name,
+    bindingName: row.binding_name ?? '',
     name: row.name,
     status: isMutableCronStatus(row.status) ? row.status : '',
     scheduleKind: schedule.kind,
@@ -995,7 +995,7 @@ function emptyDraft(): ScheduleEditorDraft {
     everyMs: '',
     anchorAt: '',
     timezone: '',
-    deliveryTargets: [{ bindingName: '', channelId: '', threadId: '' }],
+    deliveryTargets: [{ bindingName: '', conversationId: '', threadId: '' }],
     task: '',
     payload: '{}',
     hasAutomationJob: false,

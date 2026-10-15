@@ -1,13 +1,17 @@
-import { describe, expect, test } from 'bun:test'
+import { beforeAll, describe, expect, test } from 'bun:test'
+import i18n, { loadLocale } from '../../common/i18n'
+import type { AppConfigurationItem, AppConfigurationUpdateRequest } from '../api/generated/types.gen'
+import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
+import { resolveEditorDraftIdentity, seedEditorDraft } from '../use-editor-draft'
 import { encryptedSettingValue, SettingEditorModel, settingDecryptedDraft } from './setting-editor-model'
 
+beforeAll(() => loadLocale('en-US'))
+const t = i18n.getFixedT('en-US')
+
 describe('SettingEditorModel', () => {
-  test('reveals a string secret without adding JSON quotes', () => {
+  test('reveals string secrets and keeps opaque secrets intact', () => {
     expect(settingDecryptedDraft('secret-token')).toBe('secret-token')
     expect(settingDecryptedDraft({ client_id: 'client' })).toBe('{"client_id":"client"}')
-  })
-
-  test('keeps opaque secrets intact and parses only structured JSON', () => {
     expect(encryptedSettingValue('1234')).toBe('1234')
     expect(encryptedSettingValue('{vault-token')).toBe('{vault-token')
     expect(encryptedSettingValue('"token"')).toBe('"token"')
@@ -16,40 +20,217 @@ describe('SettingEditorModel', () => {
   })
 
   test('only reloads the same setting after an explicit reset', () => {
-    const model = new SettingEditorModel()
-
+    using model = new SettingEditorModel()
     model.initialize('setting:timezone', '"UTC"')
     model.text.value = '"Asia/Singapore"'
     model.initialize('setting:timezone', '"Europe/London"')
     expect(model.text.value).toBe('"Asia/Singapore"')
-
+    expect(model.dirty.value).toBe(true)
     model.resetSource()
     model.initialize('setting:timezone', '"Europe/London"')
     expect(model.text.value).toBe('"Europe/London"')
-    model[Symbol.dispose]()
+    expect(model.dirty.value).toBe(false)
   })
 
-  test('tracks value changes as the drawer draft', () => {
-    const model = new SettingEditorModel()
-
-    model.initialize('setting:timezone', '"UTC"')
-    expect(model.dirty.value).toBe(false)
-
-    model.text.value = '"Asia/Singapore"'
-    expect(model.dirty.value).toBe(true)
-    model.text.value = '"UTC"'
-    expect(model.dirty.value).toBe(false)
-    model[Symbol.dispose]()
-  })
-
-  test('revealing an encrypted value does not create an unsaved change', () => {
-    const model = new SettingEditorModel()
-
-    model.initialize('setting:secret', '••••••••')
-    model.reveal(settingDecryptedDraft('secret'))
-
+  test('revealing an encrypted value does not create an unsaved change', async () => {
+    using model = new SettingEditorModel()
+    model.initialize('setting:secret', ENCRYPTED_VALUE_MASK)
+    await model.reveal(async () => 'secret')
     expect(model.text.value).toBe('secret')
+    expect(model.revealed.value).toBe(true)
     expect(model.dirty.value).toBe(false)
-    model[Symbol.dispose]()
   })
+
+  test('ignores a reveal after selecting another setting and returning to the same setting', async () => {
+    using model = new SettingEditorModel()
+    model.initialize('setting:tenant:A', ENCRYPTED_VALUE_MASK)
+    const response = Promise.withResolvers<string>()
+    const pending = model.reveal(() => response.promise)
+    model.initialize('setting:tenant:B', ENCRYPTED_VALUE_MASK)
+    model.initialize('setting:tenant:A', ENCRYPTED_VALUE_MASK)
+    response.resolve('earlier A secret')
+    await pending
+    expect(model.text.value).toBe(ENCRYPTED_VALUE_MASK)
+    expect(model.revealed.value).toBe(false)
+    expect(model.dirty.value).toBe(false)
+  })
+
+  test('keeps edits made while the same setting is being decrypted', async () => {
+    using model = new SettingEditorModel()
+    model.initialize('setting:tenant:secret', ENCRYPTED_VALUE_MASK)
+    const response = Promise.withResolvers<string>()
+    const pending = model.reveal(() => response.promise)
+    model.text.value = 'replacement secret'
+    response.resolve('stored secret')
+    await pending
+    expect(model.text.value).toBe('replacement secret')
+    expect(model.dirty.value).toBe(true)
+    expect(model.revealed.value).toBe(false)
+  })
+
+  test('returning from an unloaded setting still revokes the earlier reveal', async () => {
+    using model = new SettingEditorModel()
+    const a = resolveEditorDraftIdentity({ resource: 'setting', scope: 'tenant', key: 'A' })
+    const b = resolveEditorDraftIdentity({ resource: 'setting', scope: 'tenant', key: 'B' })
+    seedEditorDraft(model, a, ENCRYPTED_VALUE_MASK, false)
+    const response = Promise.withResolvers<string>()
+    const pending = model.reveal(() => response.promise)
+    seedEditorDraft(model, b, undefined, false)
+    seedEditorDraft(model, a, ENCRYPTED_VALUE_MASK, false)
+    response.resolve('earlier A secret')
+    await pending
+    expect(model.text.value).toBe(ENCRYPTED_VALUE_MASK)
+    expect(model.dirty.value).toBe(false)
+  })
+
+  for (const departure of ['loading selection', 'unmount']) {
+    for (const operation of ['save', 'restore']) {
+      test(`a late ${operation} cannot navigate after ${departure}`, async () => {
+        using model = new SettingEditorModel()
+        const a = resolveEditorDraftIdentity({ resource: 'setting', scope: 'tenant', key: 'A' })
+        const b = resolveEditorDraftIdentity({ resource: 'setting', scope: 'global', key: 'B' })
+        seedEditorDraft(model, a, '"A value"', false)
+        const response = Promise.withResolvers<AppConfigurationItem>()
+        const navigations: string[] = []
+        const onComplete = () => navigations.push('/settings')
+        const pending =
+          operation === 'save'
+            ? model.save(false, t, () => response.promise, onComplete)
+            : model.restore(() => response.promise, onComplete)
+        if (departure === 'unmount') {
+          model.resetSource()
+          model[Symbol.dispose]()
+        } else {
+          seedEditorDraft(model, b, undefined, false)
+        }
+        response.resolve(item('restored A value'))
+        await pending
+        expect(model.sourceKey.value).toBeUndefined()
+        expect(navigations).toEqual([])
+      })
+    }
+  }
+
+  test('preserves the encrypted mask body and rejects a blank replacement before a request', async () => {
+    using model = new SettingEditorModel()
+    const bodies: AppConfigurationUpdateRequest[] = []
+    const request = async (body: AppConfigurationUpdateRequest) => {
+      bodies.push(body)
+    }
+    model.initialize('setting:tenant:secret', ENCRYPTED_VALUE_MASK)
+    await model.save(true, t, request, () => {})
+    expect(bodies).toEqual([{}])
+    model.text.value = '  '
+    await model.save(true, t, request, () => {})
+    expect(bodies).toHaveLength(1)
+    expect(model.validationError.value).toBeTruthy()
+    model.text.value = '{vault-token'
+    await model.save(true, t, request, () => {})
+    model.text.value = '{"Authorization":"secret"}'
+    await model.save(true, t, request, () => {})
+    expect(bodies).toEqual([{}, { value: '{vault-token' }, { value: { Authorization: 'secret' } }])
+    expect(model.validationError.value).toBeUndefined()
+  })
+
+  test('parses ordinary values before a request and retains edits made during a save', async () => {
+    using model = new SettingEditorModel()
+    model.initialize('setting:tenant:number', '10')
+    const bodies: AppConfigurationUpdateRequest[] = []
+    const response = Promise.withResolvers<void>()
+    const request = (body: AppConfigurationUpdateRequest) => {
+      bodies.push(body)
+      return response.promise
+    }
+    const completions: boolean[] = []
+    model.text.value = 'invalid json'
+    await model.save(false, t, request, clean => completions.push(clean))
+    expect(bodies).toEqual([])
+    expect(model.validationError.value).toBeTruthy()
+    model.text.value = '20'
+    const pending = model.save(false, t, request, clean => completions.push(clean))
+    model.text.value = '30'
+    response.resolve()
+    await pending
+    expect(bodies).toEqual([{ value: 20 }])
+    expect(completions).toEqual([false])
+    expect(model.text.value).toBe('30')
+    expect(model.dirty.value).toBe(true)
+    model.text.value = '20'
+    expect(model.dirty.value).toBe(false)
+  })
+
+  test('restoring a setting preserves edits made after the request began', async () => {
+    using model = new SettingEditorModel()
+    model.initialize('setting:tenant:A', '"previous"')
+    const response = Promise.withResolvers<AppConfigurationItem>()
+    const completions: boolean[] = []
+    const pending = model.restore(
+      () => response.promise,
+      clean => completions.push(clean)
+    )
+    model.text.value = '"new draft"'
+    response.resolve(item('restored value'))
+    await pending
+    expect(model.text.value).toBe('"new draft"')
+    expect(model.dirty.value).toBe(true)
+    expect(completions).toEqual([false])
+    model.text.value = '"restored value"'
+    expect(model.dirty.value).toBe(false)
+  })
+
+  test('a restore revokes pending decryption of the previous stored secret', async () => {
+    using model = new SettingEditorModel()
+    model.initialize('setting:tenant:A', ENCRYPTED_VALUE_MASK)
+    const response = Promise.withResolvers<string>()
+    const pending = model.reveal(() => response.promise)
+    const completions: boolean[] = []
+    await model.restore(
+      async () => item(undefined, true),
+      clean => completions.push(clean)
+    )
+    response.resolve('removed secret')
+    await pending
+    expect(model.text.value).toBe(ENCRYPTED_VALUE_MASK)
+    expect(model.revealed.value).toBe(false)
+    expect(model.dirty.value).toBe(false)
+    expect(completions).toEqual([true])
+  })
+
+  for (const operation of ['reveal', 'save', 'restore']) {
+    test(`a failed ${operation} rejects without reporting success or replacing the draft`, async () => {
+      using model = new SettingEditorModel()
+      model.initialize('setting:tenant:A', '"previous"')
+      model.text.value = '"draft"'
+      const failure = new Error('request failed')
+      const request = async (): Promise<never> => {
+        throw failure
+      }
+      const completions: boolean[] = []
+      const pending =
+        operation === 'save'
+          ? model.save(false, t, request, clean => completions.push(clean))
+          : operation === 'restore'
+            ? model.restore(request, clean => completions.push(clean))
+            : model.reveal(request)
+      await expect(pending).rejects.toBe(failure)
+      expect(completions).toEqual([])
+      expect(model.text.value).toBe('"draft"')
+      expect(model.dirty.value).toBe(true)
+    })
+  }
 })
+
+function item(value: unknown, encrypted = false): AppConfigurationItem {
+  return {
+    key: 'A',
+    value,
+    encrypted,
+    present: true,
+    editable: true,
+    default_present: true,
+    overridden: false,
+    kind: 'exact',
+    scope: 'tenant',
+    source: 'default'
+  }
+}

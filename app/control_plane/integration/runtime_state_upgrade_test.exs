@@ -3,12 +3,15 @@ defmodule Ankole.RuntimeStateUpgradeIntegrationTest do
   import Ecto.Query
 
   alias Ankole.AIGateway.HostedTools.Brain
-  alias Ankole.AIGateway.Schemas.{Conversation, Message}
-  alias Ankole.AppConfigure.{AppConfig, Crypto, SiteConfig}
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.AppConfigure.AppConfig
+  alias Ankole.AppConfigure.Crypto
+  alias Ankole.AppConfigure.SiteConfig
   alias Ankole.AuthZ.Grant
-  alias Ankole.Conversations.RoundState
+  alias Ankole.Sessions.RoundState
   alias Ankole.Principals.Principal
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv.SiteEnvVar
+  alias Ankole.AgentWorkers.WorkerEnv.SiteEnvVar
 
   defmodule UpgradeRepo do
     use Ecto.Repo, otp_app: :ankole, adapter: Ecto.Adapters.Postgres

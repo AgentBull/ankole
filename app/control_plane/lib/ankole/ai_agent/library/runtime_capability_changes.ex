@@ -12,11 +12,11 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
 
   alias Ankole.AIAgent.Library
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.Conversations.JobTurnRef
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Sessions.JobTurnRef
+  alias Ankole.Signals.Signal
   alias Ankole.Logging
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorRuntime.TurnControl
+  alias Ankole.Sessions.TurnControl
 
   @type capability :: {:agent_plugin, String.t()} | {:skill, String.t()}
 
@@ -100,10 +100,10 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
   defp dispatch(skill_names, repo, agent_uid) do
     repo.all(from j in Job, where: j.agent_uid == ^agent_uid and j.status == "running")
     |> Enum.flat_map(fn job ->
-      session = "job:#{job.id}"
+      session = Ankole.Sessions.Key.job(job.id)
 
       case repo.one(
-             from e in ActorEvent,
+             from e in Signal,
                where:
                  e.agent_uid == ^agent_uid and e.session_id == ^session and
                    e.input_state == "open" and is_nil(e.completed_at),
@@ -119,7 +119,7 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
               turn_ref: %JobTurnRef{
                 agent_uid: agent_uid,
                 session_id: session,
-                actor_event_id: event.id,
+                signal_id: event.id,
                 job_id: job.id,
                 attempt: job.attempts
               },

@@ -1,4 +1,3 @@
-//! Proxy selection and TCP tunnels shared by upstream transports.
 use super::super::error::StreamError;
 use super::super::spec::UpstreamSpec;
 use super::BoxedIO;

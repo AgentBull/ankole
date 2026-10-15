@@ -5,7 +5,6 @@ defmodule Ankole.Schedule.Fire do
 
   alias Ankole.AutomationJobs
   alias Ankole.AutomationJobs.Schemas.Run, as: AutomationJobRun
-  alias Ankole.SignalsGateway
   alias Ankole.Repo
   alias Ankole.Schedule.Attrs
   alias Ankole.Schedule.Cron
@@ -36,7 +35,6 @@ defmodule Ankole.Schedule.Fire do
       end
     end)
     |> persist_fire_error(scheduled_event_id, opts)
-    |> Ankole.Conversations.deliver_committed(&[Map.get(&1, :actor_event)])
   end
 
   @spec fire_cron(Ecto.UUID.t(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -53,7 +51,6 @@ defmodule Ankole.Schedule.Fire do
       end
     end)
     |> persist_cron_error(cron_schedule_id, now, opts)
-    |> Ankole.Conversations.deliver_committed(&[Map.get(&1, :actor_event)])
   end
 
   defp fire_active_cron_in_tx(repo, schedule, now) do
@@ -303,20 +300,26 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp append_scheduled_actor_event(repo, %ScheduledEvent{} = event, now) do
-    SignalsGateway.append_actor_event_in_tx(repo, %{
-      source_work: event,
-      agent_uid: event.agent_uid,
-      binding_name: event.binding_name,
-      session_id: event.session_id,
-      source_event_id: source_event_id(event),
-      signal_channel_id: event.signal_channel_id,
-      provider_thread_id: event.provider_thread_id,
-      source_entry_id: event.source_entry_id,
-      type: actor_event_type(event),
-      available_at: now,
-      sender_key: nil,
-      payload: actor_event_payload(event, now)
+  defp append_scheduled_signal(repo, %ScheduledEvent{} = event, now) do
+    payload = signal_payload(event, now)
+
+    Ankole.Signals.accept_in_tx(repo, %{
+      producer: :kernel,
+      source: payload["source"],
+      id: source_event_id(event),
+      type: signal_type(event),
+      subject: payload["subject"],
+      time: now,
+      data: payload["data"],
+      target: %{agent_uid: event.agent_uid, session_id: event.session_id},
+      authorization: Ankole.Principals.WorkAccess.fields(event),
+      sender: nil,
+      reply_route: %{
+        binding_name: event.binding_name,
+        conversation_id: event.conversation_id,
+        provider_thread_id: event.provider_thread_id,
+        provider_message_id: event.provider_message_id
+      }
     })
   end
 
@@ -325,8 +328,8 @@ defmodule Ankole.Schedule.Fire do
          %ScheduledEvent{automation_job_id: nil} = event,
          now
        ) do
-    with {:ok, actor_event} <- append_scheduled_actor_event(repo, event, now) do
-      {:ok, {:actor_event, actor_event}}
+    with {:ok, signal} <- append_scheduled_signal(repo, event, now) do
+      {:ok, {:signal, signal}}
     end
   end
 
@@ -340,24 +343,24 @@ defmodule Ankole.Schedule.Fire do
              repo,
              automation_job_id,
              event.agent_uid,
-             actor_event_payload(event, now),
+             signal_payload(event, now),
              now: now
            ) do
-      {:ok, {:automation_job_run, run, Map.get(result, :actor_event)}}
+      {:ok, {:automation_job_run, run, Map.get(result, :signal)}}
     end
   end
 
   defp mark_event_fired(
          repo,
          %ScheduledEvent{} = event,
-         {:actor_event, %{id: actor_event_id}},
+         {:signal, %{id: signal_id}},
          now
        ) do
     event
     |> ScheduledEvent.changeset(%{
       status: "fired",
-      # Source table: actor_event_id stores actor_events.id appended for this fire.
-      actor_event_id: actor_event_id,
+      # Source table: signal_id stores signals.id appended for this fire.
+      signal_id: signal_id,
       fired_at: now,
       last_fire_error: %{}
     })
@@ -367,7 +370,7 @@ defmodule Ankole.Schedule.Fire do
   defp mark_event_fired(
          repo,
          %ScheduledEvent{} = event,
-         {:automation_job_run, %AutomationJobRun{id: run_id}, _actor_event},
+         {:automation_job_run, %AutomationJobRun{id: run_id}, _signal},
          now
        ) do
     event
@@ -380,12 +383,12 @@ defmodule Ankole.Schedule.Fire do
     |> repo.update()
   end
 
-  defp fire_result(event, {:actor_event, actor_event}) do
-    %{status: :fired, scheduled_event: event, actor_event: actor_event}
+  defp fire_result(event, {:signal, signal}) do
+    %{status: :fired, scheduled_event: event, signal: signal}
   end
 
-  defp fire_result(event, {:automation_job_run, run, actor_event}) do
-    %{status: :fired, scheduled_event: event, automation_job_run: run, actor_event: actor_event}
+  defp fire_result(event, {:automation_job_run, run, signal}) do
+    %{status: :fired, scheduled_event: event, automation_job_run: run, signal: signal}
   end
 
   defp mark_event_cancelled(repo, %ScheduledEvent{} = event, now, reason) do
@@ -401,8 +404,8 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp actor_event_type(%ScheduledEvent{kind: "check_back_later"}), do: "check_back_later.wakeup"
-  defp actor_event_type(%ScheduledEvent{kind: "cron_fire"}), do: "cron.fire"
+  defp signal_type(%ScheduledEvent{kind: "check_back_later"}), do: "check_back_later.wakeup"
+  defp signal_type(%ScheduledEvent{kind: "cron_fire"}), do: "cron.fire"
 
   defp source_event_id(%ScheduledEvent{kind: "check_back_later", id: id}),
     do: "check_back_later:#{id}:wakeup"
@@ -420,14 +423,14 @@ defmodule Ankole.Schedule.Fire do
     end
   end
 
-  defp actor_event_payload(%ScheduledEvent{} = event, now) do
+  defp signal_payload(%ScheduledEvent{} = event, now) do
     %{
       "specversion" => "1.0",
       "id" => source_event_id(event),
       "source" => "control-plane://schedule/#{event.kind}",
       "subject" => "schedule:#{event.id}",
       "time" => DateTime.to_iso8601(now),
-      "type" => actor_event_type(event),
+      "type" => signal_type(event),
       "data" => %{
         "scheduled_event_id" => event.id,
         "due_at" => DateTime.to_iso8601(event.due_at),
@@ -439,9 +442,9 @@ defmodule Ankole.Schedule.Fire do
         "reply_route" =>
           Attrs.reject_nil_values(%{
             "binding_name" => event.binding_name,
-            "signal_channel_id" => event.signal_channel_id,
+            "conversation_id" => event.conversation_id,
             "provider_thread_id" => event.provider_thread_id,
-            "source_entry_id" => event.source_entry_id
+            "provider_message_id" => event.provider_message_id
           })
       }
     }

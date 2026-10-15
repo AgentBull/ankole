@@ -3,7 +3,8 @@ defmodule Ankole.E2E.FakeSlack.Server do
 
   import ExUnit.Callbacks, only: [start_supervised!: 1]
 
-  alias Ankole.E2E.FakeSlack.{Router, State}
+  alias Ankole.E2E.FakeSlack.Router
+alias Ankole.E2E.FakeSlack.State
 
   def start!(opts \\ []) do
     state = start_supervised!({State, opts})

@@ -218,7 +218,7 @@ defmodule Ankole.Plugins.LarkAdapter.DriveUpload do
 
       {:error, reason} ->
         Logging.warning(
-          "lark_adapter.outbox.large_file_cleanup_failed",
+          "lark_adapter.delivery.large_file_cleanup_failed",
           "lark adapter could not clean up an undeliverable cloud file",
           log_context(context, %{
             failure_code: error_code(reason)
@@ -259,14 +259,14 @@ defmodule Ankole.Plugins.LarkAdapter.DriveUpload do
     case outcome do
       :success ->
         Logging.info(
-          "lark_adapter.outbox.large_file_upload_completed",
+          "lark_adapter.delivery.large_file_upload_completed",
           "lark adapter uploaded a large file to cloud space",
           fields
         )
 
       :failure ->
         Logging.warning(
-          "lark_adapter.outbox.large_file_upload_failed",
+          "lark_adapter.delivery.large_file_upload_failed",
           "lark adapter could not upload a large file to cloud space",
           fields
         )
@@ -285,7 +285,7 @@ defmodule Ankole.Plugins.LarkAdapter.DriveUpload do
 
   defp log_started(context, size, member_type) do
     Logging.info(
-      "lark_adapter.outbox.large_file_upload_started",
+      "lark_adapter.delivery.large_file_upload_started",
       "lark adapter started a large file cloud upload",
       log_context(context, %{size_bytes: size, member_type: member_type})
     )

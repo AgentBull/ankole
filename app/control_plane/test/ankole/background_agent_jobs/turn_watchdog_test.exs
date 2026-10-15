@@ -1,11 +1,12 @@
 defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
-  use Ankole.SignalsGateway.ActorRuntimeCase
+  use Ankole.SessionsCase
 
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.TurnWatchdog
-  alias Ankole.Conversations.{Admission, CodexJob}
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerRouteAuth
+  alias Ankole.Sessions.Admission
+  alias Ankole.Sessions.CodexJob
+  alias Ankole.AgentWorkers.WorkerRouteAuth
 
   @grace_seconds TurnWatchdog.stall_grace_seconds()
 
@@ -41,7 +42,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
              end)
 
     # The Job keeps its retry budget: the event is still open and rescheduled.
-    reloaded_event = Repo.get!(ActorEvent, event.id)
+    reloaded_event = Repo.get!(Signal, event.id)
     assert reloaded_event.input_state == "open"
     assert DateTime.compare(reloaded_event.available_at, stalled_at) == :gt
     # R1: the stalled attempt returns the Job to `queued` and the stall charges
@@ -53,7 +54,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     assert_receive {:actor_lane, control_envelope}, 200
     control = envelope_body!(control_envelope, :turn_control)
     assert control.command == "retry"
-    assert control.turn.actor_event_id == event.id
+    assert control.turn.signal_id == event.id
   end
 
   test "a stall that marked lead and child Turns counts once toward the retry budget" do
@@ -69,7 +70,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
              Ankole.BackgroundAgentJobs.TurnWatchdog.reconcile_stuck_job(job.id, now: stalled_at)
 
     # One earlier stall left two rows, so this is the second stall, not the third.
-    assert Repo.get!(ActorEvent, event.id).input_state == "open"
+    assert Repo.get!(Signal, event.id).input_state == "open"
     # R1: the stalled attempt returns the Job to `queued` and the stall charges
     # one execution failure. See internals/docs/BackgroundAgentJobReliability.zh.md.
     assert %{status: "queued", execution_failures: 2} =
@@ -92,7 +93,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     failed = BackgroundAgentJobs.get_job_for_agent(job.id, agent.uid)
     assert failed.status == "failed"
     assert failed.error["code"] == TurnWatchdog.stall_code()
-    assert Repo.get!(ActorEvent, event.id).input_state == "dead_letter"
+    assert Repo.get!(Signal, event.id).input_state == "dead_letter"
   end
 
   test "an accepted attempt with no trajectory still has a bounded silence" do
@@ -124,7 +125,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
     assert {:ok, %{job: job, dispatch_event: event}} =
              Repo.transact(fn _repo ->
                BackgroundAgentJobs.create_with_dispatch(%{
-                 "source_actor_event_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+                 "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
                  "agent_uid" => agent.uid,
                  "owner_session_id" => "owner-session-stall-#{suffix}",
                  "source_tool_call_id" => "tool-stall-#{suffix}",
@@ -132,7 +133,10 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
                  "task" => "Keep working on #{suffix}.",
                  "reply_route" => %{
                    "binding_name" => "bot",
-                   "signal_channel_id" => "chat-#{suffix}"
+                   "conversation_id" =>
+                     Ankole.ExternalConversationsFixtures.external_conversation_id(
+                       "chat-#{suffix}"
+                     )
                  }
                })
              end)
@@ -142,9 +146,9 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
       Ecto.Changeset.change(job, attempts: attempt - 1, execution_failures: attempt - 1)
     )
 
-    actor_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
+    session_key = %{agent_uid: agent.uid, session_id: BackgroundAgentJobs.job_session_id(job.id)}
 
-    assert {:ok, run} = Admission.admit(actor_key, event)
+    assert {:ok, run} = Admission.admit(session_key, event)
     assert {:ok, _} = CodexJob.start(run)
     assert_receive {:actor_lane, _envelope}, 200
     turn_ref = run.job_ref

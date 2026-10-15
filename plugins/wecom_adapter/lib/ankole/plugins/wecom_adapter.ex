@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.WeComAdapter do
 
   WeCom splits bot capability across two product lines, so this plugin uses
   both: the AI bot (botId + secret, one WebSocket long connection per bot) is
-  the SignalsGateway chat adapter, and the self-built app (corpid + agentid +
+  the Signals chat adapter, and the self-built app (corpid + agentid +
   secrets) is the Principals login/directory provider. The capability face is
   trimmed to what the platforms actually offer: groups deliver only @-mention
   messages (`addressed_only`), media arrives in DMs only, there is no recall
@@ -20,7 +20,7 @@ defmodule Ankole.Plugins.WeComAdapter do
   alias Ankole.Plugins.WeComAdapter.ConnectionReconciler
   alias Ankole.Plugins.WeComAdapter.IdentityProvider
   alias Ankole.Plugins.WeComAdapter.Inbound
-  alias Ankole.Plugins.WeComAdapter.Outbox
+  alias Ankole.Plugins.WeComAdapter.Delivery
 
   @impl true
   def plugin_id, do: "wecom-adapter"
@@ -49,18 +49,18 @@ defmodule Ankole.Plugins.WeComAdapter do
   def adapter_declarations do
     [
       %{
-        contract_id: "signals_gateway.adapter",
+        contract_id: "signals.adapter",
         id: "wecom",
         adapter_category: "enterprise_im",
         plugin_id: plugin_id(),
         display_name: adapter_display_name(),
-        config_key_pattern: "signals_gateway.wecom.bindings.<agent_uid>",
+        config_key_pattern: "signals.wecom.bindings.<agent_uid>",
         config_module: Config,
         fields: chat_fields(),
         supported_group_message_modes: ["addressed_only"],
-        ingress_module: Inbound,
-        outbox_module: Outbox,
-        reply_preview_module: AIStream,
+        observe_module: Inbound,
+        deliver_module: Delivery,
+        preview_module: AIStream,
         inbound_capabilities: ["entry_receive", "action_event"],
         outbound_capabilities: ["post_entry", "card"]
       },

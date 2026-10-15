@@ -32,11 +32,6 @@ type SocketState = {
   response?: Buffer
 }
 
-/**
- * Starts one bridge listener. `handleLine` owns request decoding and RPC
- * dispatch; its resolved value is written back verbatim, and a thrown error
- * becomes `{ ok: false, error }`.
- */
 export function startSocketLineBridge(opts: {
   socketPath: string
   maxRequestBytes: number
@@ -98,8 +93,6 @@ function writeResponse(socket: Bun.Socket<SocketState>, response: unknown): void
   flushResponse(socket)
 }
 
-// Bun socket writes can be partial. Keep the unsent bytes until drain before
-// closing, so a large CLI response remains one complete JSON line.
 function flushResponse(socket: Bun.Socket<SocketState>): void {
   const response = socket.data.response
   if (!response) return
@@ -116,10 +109,7 @@ function flushResponse(socket: Bun.Socket<SocketState>): void {
   socket.end()
 }
 
-/**
- * Decodes one CLI request line with the command schema of that CLI. The error
- * that this function throws goes back to the CLI as `{ ok: false, error }`.
- */
+/** A thrown error goes back to the CLI as `{ ok: false, error }`. */
 export function parseCLIRequest<Schema extends z.ZodType>(
   line: string,
   schema: Schema,
@@ -136,11 +126,6 @@ export function parseCLIRequest<Schema extends z.ZodType>(
   return parsed.data
 }
 
-/**
- * Sends one JSON line to a CLI bridge and returns the result of the response.
- * An error response throws its error. The bridge answers once and closes, so
- * the response is parsed on close.
- */
 export async function requestSocketLineBridge(
   socketPath: string,
   line: string,

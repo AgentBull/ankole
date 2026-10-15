@@ -2,8 +2,8 @@ import { isRecord } from '@agentbull/active-support'
 import type { JsonValue as JSONValue } from '../api/generated/types.gen'
 
 /**
- * Pure helpers for the `brain.` settings group editor. The drawer owns
- * loading and saving; this module owns the key set, draft parsing, submit
+ * Pure helpers for the `brain.` settings group editor. This module owns
+ * the key set, draft parsing, submit
  * serialization, and validation that mirrors `Ankole.Brain.Config`.
  */
 

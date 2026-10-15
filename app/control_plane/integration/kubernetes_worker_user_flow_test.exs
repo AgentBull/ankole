@@ -9,17 +9,16 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
   alias Ankole.{Principals, WorkerFiles}
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.E2E.Scenarios.ScheduleAndTool
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.AgentWorkers
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.{
-    Config,
-    Kubernetes,
-    Providers,
-    ReconcileJob
-  }
+  alias Ankole.AgentWorkers.Config
+  alias Ankole.AgentWorkers.Kubernetes
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.ReconcileJob
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Kubernetes.Client
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.{ActorSessionWorkspace, AgentWorker}
+  alias Ankole.AgentWorkers.Kubernetes.Client
+  alias Ankole.Sessions.SessionWorkspace
+  alias Ankole.AgentWorkers.AgentWorker
 
   @moduletag sandbox: false, timeout: 240_000
   # Needs Docker, Kubernetes, or cloud tooling; see CONTRIBUTING.md.
@@ -91,7 +90,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
       %{input: write_input, reply: reply} = Task.await(turn, 120_000)
 
       workspace =
-        Repo.get_by!(ActorSessionWorkspace, agent_uid: uid, session_id: write_input.session_id)
+        Repo.get_by!(SessionWorkspace, agent_uid: uid, session_id: write_input.session_id)
 
       home_path = "sessions/#{workspace.id}/chaos/read-file.txt"
 
@@ -123,7 +122,7 @@ defmodule Ankole.KubernetesWorkerUserFlowTest do
                  mentions: [lark_bot_mention()]
                )
 
-      input = actor_event_by_source_entry_id!(uid, "om_kind_after_replace")
+      input = signal_by_provider_message_id!(uid, "om_kind_after_replace")
 
       assert {:ok, %{status: :driving}} =
                ensure_input_driver!(input, DateTime.add(input.available_at, 1, :second))

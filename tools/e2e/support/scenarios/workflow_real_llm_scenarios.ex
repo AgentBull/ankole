@@ -9,7 +9,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
   Oban queues use manual test mode, so each scenario drives
   the durable machine by hand: it pokes the RunServer for replay, processes
-  each dispatch, wake, and owner wakeup ActorEvent, and asserts the durable
+  each dispatch, wake, and owner wakeup Signal, and asserts the durable
   rows between hops. Sleep wakeups use the persisted deadline and real time.
   """
 
@@ -28,8 +28,8 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
   alias Ankole.AppConfigure
   alias Ankole.BackgroundAgentJobs.Schemas.Job, as: BackgroundAgentJob
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.AgentConfig
+  alias Ankole.Signals.Signal
+  alias Ankole.Sessions.AgentConfig
   alias Ankole.Workflow
   alias Ankole.Workflow.RunServer
   alias Ankole.Workflow.Schemas.AgentCall
@@ -61,8 +61,6 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     put_profile!(agent.uid, provider_id, "heavy", @coding_model)
     put_profile!(agent.uid, provider_id, "coding", @coding_model)
   end
-
-  # -- W1: parallel fanout, structured results, one owner wakeup ---------------
 
   def run_real_workflow_fanout(%{fake_feishu: fake_feishu, agent: agent, container: container}) do
     script =
@@ -105,8 +103,6 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     %{input: input, run: run, reply: reply, completion_event: completion}
   end
-
-  # -- W2: sleep on a deadline, wake, submit ------------------------------------
 
   def run_real_workflow_sleep_timer(%{
         fake_feishu: fake_feishu,
@@ -171,8 +167,6 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     %{input: input, run: Repo.get!(Run, run.id), reply: reply}
   end
 
-  # -- W3: attention escalation, owner answer, wake through the message --------
-
   def run_real_workflow_attention(%{
         fake_feishu: fake_feishu,
         agent: agent,
@@ -216,14 +210,14 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     attention_event =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^input.session_id,
           where: event.type == "workflow.run.attention"
         )
       )
 
-    assert attention_event.payload["data"]["run_id"] == run.id
+    assert attention_event.data["run_id"] == run.id
 
     # The owner turn must answer through send_message_to_workflow_task.
     process_ready!(attention_event)
@@ -235,14 +229,14 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     message_event =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.type == "workflow.task.message",
           where: event.session_id == ^Workflow.task_session_id(call.id)
         )
       )
 
-    assert message_event.payload["data"]["message"] =~ "ANKOLE_WF_CODEWORD_7"
+    assert message_event.data["message"] =~ "ANKOLE_WF_CODEWORD_7"
 
     process_ready!(message_event)
 
@@ -258,8 +252,6 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     %{input: input, run: Repo.get!(Run, run.id), reply: reply}
   end
-
-  # -- W4: task delegates a BackgroundAgentJob, sleeps, wakes on its completion -
 
   def run_real_workflow_job_delegation(%{
         fake_feishu: fake_feishu,
@@ -311,7 +303,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     job_dispatch =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^"job:#{job.id}",
           where: event.type == "background_agent_job.dispatch"
@@ -342,7 +334,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     # The lifecycle wakeup must reach the task session, never the owner session.
     job_wakeup =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.type == "background_agent_job.completed",
           where:
@@ -353,7 +345,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     assert job_wakeup.session_id == task_session_id
 
     assert Repo.aggregate(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.session_id == ^input.session_id,
                where: event.type == "background_agent_job.completed"
              ),
@@ -373,8 +365,6 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     %{input: input, run: Repo.get!(Run, run.id), job: job, reply: reply}
   end
-
-  # -- W5: owner cancel stops the run, its sleeping task, and its delegated job -
 
   def run_real_workflow_cancel_with_delegated_job(%{
         fake_feishu: fake_feishu,
@@ -418,7 +408,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     job_dispatch =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.session_id == ^"job:#{job.id}",
           where: event.type == "background_agent_job.dispatch"
@@ -445,7 +435,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
                  DateTime.to_unix(DateTime.add(@base_time, 110, :second), :millisecond)
              )
 
-    cancel_input = actor_event_by_source_entry_id!(agent.uid, "om_wf_cancel_2")
+    cancel_input = signal_by_provider_message_id!(agent.uid, "om_wf_cancel_2")
     process_ready!(cancel_input)
 
     assert {:ok, cancel_reply, _message} =
@@ -468,7 +458,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     # Cancellation sends no completion wakeup.
     assert Repo.aggregate(
-             from(event in ActorEvent,
+             from(event in Signal,
                where:
                  event.source_event_id in ^[
                    "workflow:#{run.id}:completed",
@@ -480,8 +470,6 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     %{input: input, run: run, job: Repo.get!(BackgroundAgentJob, job.id), reply: cancel_reply}
   end
-
-  # -- W6: a failed task resolves to null inside the script ---------------------
 
   def run_real_workflow_task_failure_null(%{
         fake_feishu: fake_feishu,
@@ -534,8 +522,6 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     %{input: input, run: run, call: call, reply: reply}
   end
 
-  # -- W7: a failed run wakes the owner and the failure reply reaches the channel
-
   def run_real_workflow_failed_run_reply(%{
         fake_feishu: fake_feishu,
         agent: agent,
@@ -574,7 +560,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     failure_event =
       Repo.one!(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.source_event_id == ^"workflow:#{run.id}:failed"
         )
@@ -585,8 +571,6 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     %{input: input, run: run, reply: reply, failure_event: failure_event}
   end
-
-  # -- W8: free-form orchestration written by the model itself ------------------
 
   @doc """
   The only steering is the business shape: classify four tickers in one
@@ -623,7 +607,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
                  DateTime.to_unix(DateTime.add(@base_time, 160, :second), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(agent.uid, "om_wf_orch_1")
+    input = signal_by_provider_message_id!(agent.uid, "om_wf_orch_1")
     {run, start_reply} = start_run!(container, agent, input)
     assert reply_text!(start_reply) =~ "ANKOLE_WF_ORCH_STARTED"
 
@@ -665,7 +649,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     # Job lifecycle wakeups belong to the task sessions, never the owner.
     assert Repo.aggregate(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.session_id == ^input.session_id,
                where: event.type == "background_agent_job.completed"
              ),
@@ -706,7 +690,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
 
     events =
       Repo.all(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: is_nil(event.completed_at),
           where: event.input_state == "open",
@@ -721,8 +705,6 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
       ensure_input_driver!(event, now)
     end)
   end
-
-  # -- shared driving helpers ----------------------------------------------------
 
   defp send_workflow_request!(fake_feishu, agent, opts) do
     mention = lark_bot_mention()
@@ -754,7 +736,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
                  )
              )
 
-    actor_event_by_source_entry_id!(agent.uid, opts.message_id)
+    signal_by_provider_message_id!(agent.uid, opts.message_id)
   end
 
   defp start_run!(container, agent, input, expected_terminal \\ nil)
@@ -768,7 +750,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
       Repo.one!(
         from(run in Run,
           where: run.agent_uid == ^agent.uid,
-          where: run.source_actor_event_id == ^input.id
+          where: run.source_signal_id == ^input.id
         )
       )
 
@@ -834,7 +816,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
            "workflow run ended #{run.status}: #{inspect(run.error, limit: 5)}"
 
     Repo.one!(
-      from(event in ActorEvent,
+      from(event in Signal,
         where: event.agent_uid == ^agent.uid,
         where: event.source_event_id == ^"workflow:#{run.id}:completed"
       )
@@ -876,13 +858,13 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
   defp wait_for_event_completion!(event, deadline) do
     result =
       wait_until(deadline, fn ->
-        case Repo.get(ActorEvent, event.id) do
-          %ActorEvent{completed_at: %DateTime{}} = completed -> {:ok, completed}
+        case Repo.get(Signal, event.id) do
+          %Signal{completed_at: %DateTime{}} = completed -> {:ok, completed}
           _event -> nil
         end
       end)
 
-    assert {:ok, %ActorEvent{}} = result
+    assert {:ok, %Signal{}} = result
     :ok
   end
 
@@ -922,7 +904,7 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     session_id = Workflow.task_session_id(call.id)
 
     Repo.one!(
-      from(event in ActorEvent,
+      from(event in Signal,
         where: event.agent_uid == ^call.agent_uid,
         where: event.session_id == ^session_id,
         where: event.source_event_id == ^source_event_id
@@ -930,10 +912,10 @@ defmodule Ankole.E2E.Scenarios.WorkflowRealLLM do
     )
   end
 
-  defp process_ready!(%ActorEvent{} = event),
+  defp process_ready!(%Signal{} = event),
     do: ensure_input_driver!(event, DateTime.utc_now(:microsecond))
 
-  defp reply_text!(reply), do: reply.text || ""
+  defp reply_text!(reply), do: reply.message.text || ""
 
   defp put_profile!(agent_uid, provider_id, profile, model) do
     assert {:ok, _profile} =

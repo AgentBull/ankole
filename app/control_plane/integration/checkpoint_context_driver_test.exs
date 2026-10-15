@@ -1,20 +1,21 @@
-defmodule Ankole.Conversations.CheckpointContextDriverTest do
+defmodule Ankole.Sessions.CheckpointContextDriverTest do
   alias Ankole.AIGateway.ResponseChain
   alias Ankole.AIGateway.CompactionPolicy
   use Ankole.DataCase, async: false
   @moduletag sandbox: false
-
   import Ankole.PrincipalsFixtures, only: [agent_fixture: 0]
   import Ankole.AIGatewayCase, only: [start_upstream_server: 1, openai_response_stream_events: 3]
-
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.{ProviderConfigs}
-  alias Ankole.AIGateway.Schemas.{CompactionArtifact, Message}
-  alias Ankole.Brain.{Claims, Links, Objects, SchemaPacks}
+  alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.AIGateway.Schemas.CompactionArtifact
+  alias Ankole.AIGateway.Schemas.Message
+  alias Ankole.Brain.Claims
+  alias Ankole.Brain.Links
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.SchemaPacks
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntimeCase, as: RuntimeCase
+  alias Ankole.Signals.Signal
+  alias Ankole.SessionsCase, as: RuntimeCase
 
   test "the real Driver journals tools, recovers sealed replay, and continues through consecutive checkpoints" do
     drivers = RuntimeCase.driver_pids()
@@ -134,7 +135,12 @@ defmodule Ankole.Conversations.CheckpointContextDriverTest do
       Repo.bind_tenant(fn ->
         RuntimeCase.stop_new_drivers(drivers)
         CompactionPolicy.delete_config()
-        Ankole.SignalsGateway.ActorRuntime.WorkerEnv.delete_agent_rows_in_tx(Repo, agent.uid)
+
+        Repo.delete_all(
+          from(j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid)
+        )
+
+        Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(Repo, agent.uid)
         Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
         ProviderConfigs.delete_provider(provider_id)
       end)
@@ -143,18 +149,20 @@ defmodule Ankole.Conversations.CheckpointContextDriverTest do
     key = %{agent_uid: agent.uid, session_id: "checkpoint-driver:#{Ecto.UUID.generate()}"}
 
     {:ok, event} =
-      SignalsGateway.append_actor_event(
-        Map.merge(key, %{
-          sender_key: agent.uid,
-          binding_name: "control-plane:test",
-          source_event_id: Ecto.UUID.generate(),
-          type: "im.message.addressed",
-          available_at: DateTime.utc_now(:microsecond),
-          payload: %{"data" => %{"entry" => %{"text" => "Complete the Wire Format task"}}}
-        })
-      )
+      Ankole.Signals.accept(%{
+        producer: :kernel,
+        target: key,
+        sender: agent.uid,
+        authorization: Ankole.Principals.WorkAccess.service(),
+        source: "test://checkpoint-driver",
+        reply_route: %{binding_name: "control-plane:test"},
+        id: Ecto.UUID.generate(),
+        type: "conversation.message.addressed",
+        available_at: DateTime.utc_now(:microsecond),
+        data: %{"entry" => %{"text" => "Complete the Wire Format task"}}
+      })
 
-    assert_receive :final_request, 20_000
+    assert_receive :final_request, 20000
     completed = await_completion(event.id)
     assert completed.turn_outcome == "loop_finished"
 
@@ -174,14 +182,16 @@ defmodule Ankole.Conversations.CheckpointContextDriverTest do
       refute Map.has_key?(request, "model_profile")
     end
 
-    for summary <- summaries, do: refute(Ankole.JSON.encode!(summary) =~ "DRIVER_TASK_MEMORY")
+    for summary <- summaries do
+      refute Ankole.JSON.encode!(summary) =~ "DRIVER_TASK_MEMORY"
+    end
 
     conversation_id =
       Repo.one(
         from(message in Message,
           where:
             message.subject_uid == ^agent.uid and
-              fragment("?->'request_metadata'->>'actor_event_id'", message.metadata) == ^event.id,
+              fragment("?->'request_metadata'->>'signal_id'", message.metadata) == ^event.id,
           select: message.conversation_id,
           distinct: true
         )
@@ -198,7 +208,7 @@ defmodule Ankole.Conversations.CheckpointContextDriverTest do
     assert requests != []
 
     for request <- requests do
-      assert request.metadata["request_metadata"]["actor_event_id"] == event.id
+      assert request.metadata["request_metadata"]["signal_id"] == event.id
 
       assert request.metadata["model_profile"] == "primary",
              inspect(
@@ -264,8 +274,8 @@ defmodule Ankole.Conversations.CheckpointContextDriverTest do
     }
 
     output =
-      if sealed?,
-        do: [
+      if sealed? do
+        [
           %{
             "type" => "reasoning",
             "id" => "rs_driver",
@@ -273,8 +283,10 @@ defmodule Ankole.Conversations.CheckpointContextDriverTest do
             "encrypted_content" => "DRIVER_OLD_SEALED_STATE"
           },
           call
-        ],
-        else: [call]
+        ]
+      else
+        [call]
+      end
 
     response = %{
       "id" => "resp_driver_#{round}",
@@ -318,15 +330,16 @@ defmodule Ankole.Conversations.CheckpointContextDriverTest do
 
   defp await_completion(id, attempts \\ 200)
 
-  defp await_completion(id, 0),
-    do: flunk("Driver input did not complete: #{inspect(Repo.get!(ActorEvent, id))}")
+  defp await_completion(id, 0) do
+    flunk("Driver input did not complete: #{inspect(Repo.get!(Signal, id))}")
+  end
 
   defp await_completion(id, attempts) do
-    case Repo.get!(ActorEvent, id) do
-      %ActorEvent{completed_at: %DateTime{}} = event ->
+    case Repo.get!(Signal, id) do
+      %Signal{completed_at: %DateTime{}} = event ->
         event
 
-      %ActorEvent{input_state: "dead_letter"} = event ->
+      %Signal{input_state: "dead_letter"} = event ->
         flunk("Driver input failed: #{inspect(event)}")
 
       _ ->

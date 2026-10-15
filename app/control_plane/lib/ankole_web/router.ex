@@ -46,6 +46,14 @@ defmodule AnkoleWeb.Router do
     plug AnkoleWeb.Plugs.RequireSiteAdminSession
   end
 
+  pipeline :workplace_api do
+    plug :accepts, ["json", "event-stream"]
+    plug :fetch_session
+    plug :protect_from_forgery
+    plug :put_secure_browser_headers
+    plug AnkoleWeb.Plugs.RequireWorkplaceSession
+  end
+
   pipeline :data_context do
     plug AnkoleWeb.Plugs.PutDataContext
   end
@@ -109,6 +117,17 @@ defmodule AnkoleWeb.Router do
     post "/oauth/userinfo", OIDCController, :userinfo
     options "/oauth/token", OIDCController, :options
     options "/oauth/userinfo", OIDCController, :options
+  end
+
+  scope "/.internal-apis/workplace", AnkoleWeb do
+    pipe_through :workplace_api
+
+    get "/agents", WorkplaceController, :agents
+    get "/conversations", WorkplaceController, :index
+    post "/conversations", WorkplaceController, :create
+    get "/conversations/:id", WorkplaceController, :show
+    post "/conversations/:id/messages", WorkplaceController, :post_message
+    get "/conversations/:id/events", WorkplaceController, :events
   end
 
   # The spec document is public (no bearer token) so tooling can read it without
@@ -438,13 +457,13 @@ defmodule AnkoleWeb.Router do
          SignalBindingController,
          :requeue_delivery
 
-    get "/signal-channels/:channel_id/standing-orders",
+    get "/conversations/:conversation_id/standing-orders",
         SignalBindingController,
-        :show_channel_standing_orders
+        :show_conversation_standing_orders
 
-    put "/signal-channels/:channel_id/standing-orders",
+    put "/conversations/:conversation_id/standing-orders",
         SignalBindingController,
-        :put_channel_standing_orders
+        :put_conversation_standing_orders
 
     get "/agents/:agent_uid/sessions", AgentSessionController, :index
 
@@ -471,6 +490,8 @@ defmodule AnkoleWeb.Router do
            :cancel_checkback
 
     get "/webhook-endpoints", WebhookEndpointController, :index
+    post "/webhook-endpoints", WebhookEndpointController, :create
+    delete "/webhook-endpoints/:webhook_endpoint_id", WebhookEndpointController, :cancel
 
     delete "/agents/:agent_uid/webhook-endpoints/:webhook_endpoint_id",
            WebhookEndpointController,
@@ -518,6 +539,10 @@ defmodule AnkoleWeb.Router do
     post "/:token", WebhookCallbackController, :handle
   end
 
+  scope "/signals/v1/cloudevents", AnkoleWeb do
+    post "/:token", CloudEventController, :create
+  end
+
   # Provider webhook ingress. Not a RESTful API surface, so it lives outside
   # /api/v1 and outside every pipeline: no session, no CSRF, no bearer token,
   # and no Accept negotiation (providers send arbitrary Accept headers).
@@ -532,7 +557,7 @@ defmodule AnkoleWeb.Router do
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own
-  # client-side routing: any deep link under the console mount or /setup returns the same
+  # client-side routing: any deep link under the console mount, /workplace, or /setup returns the same
   # shell, and the React router takes over. SpaController re-checks setup/auth
   # state on every shell request, so the access gate stays server-side rather
   # than trusting the SPA to redirect.
@@ -550,6 +575,8 @@ defmodule AnkoleWeb.Router do
     get "/sessions/oidc/:provider_id/callback", AuthController, :oidc_callback
     get "/site-admin-console", SpaController, :console
     get "/site-admin-console/*path", SpaController, :console
+    get "/workplace", SpaController, :workplace
+    get "/workplace/*path", SpaController, :workplace
     get "/setup", SpaController, :setup
     get "/setup/*path", SpaController, :setup
   end

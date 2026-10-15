@@ -106,7 +106,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
               :subject_type,
               :authorize_run_in_tx,
               :record_response_in_tx,
-              :response_metadata
+              :response_metadata,
+              :brain_context
             ])
           )
         end
@@ -145,7 +146,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
         replay_recovery: %{
           request: request,
           runtime: runtime,
-          request_context: request_context
+          request_context: request_context,
+          brain_context: brain_context
         }
       }) do
     with %Message{status: "generating"} = message <- ResponseChain.get_message(message_id),
@@ -161,7 +163,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              message.content,
              Brain.memory_fields(message.metadata),
              request,
-             runtime
+             runtime,
+             brain_context: brain_context
            ),
          {:ok, %{checkpoint: checkpoint, message: message}} <-
            StatefulResponses.install_replay_recovery_checkpoint(message, plan),
@@ -199,9 +202,16 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              runtime,
              request_for_provider,
              stream?: true,
-             request_context: request_context
+             request_context: request_context,
+             brain_context: brain_context
            ) do
-      recovery = %{request: request, runtime: runtime, request_context: request_context}
+      recovery = %{
+        request: request,
+        runtime: runtime,
+        request_context: request_context,
+        brain_context: brain_context
+      }
+
       {:ok, prepared_request, response_stream_context(message, recovery)}
     else
       false -> {:error, :stateful_replay_recovery_unavailable}
@@ -226,16 +236,17 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              subject_uid,
              request,
              runtime,
-             Keyword.get(opts, :oidc_client_id)
+             Keyword.get(opts, :oidc_client_id),
+             opts
            ),
          {:ok, message} <-
            StatefulResponses.start_planned_response_run(planned_run_attrs(context), opts) do
       stateful_context = response_stream_context(message)
-      context = materialize_admitted_context(context, message)
       request_context = Map.put(request_context, "conversation_id", context.conversation.id)
 
       result =
-        with {:ok, request_for_provider, run_attrs} <-
+        with {:ok, context} <- materialize_admitted_context(context, message),
+             {:ok, request_for_provider, run_attrs} <-
                provider_request_from_stateful_context(context, runtime),
              {:ok, message} <-
                StatefulResponses.merge_generating_response_metadata(
@@ -249,12 +260,14 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
                  request_for_provider,
                  stream?: true,
                  request_context: request_context,
-                 subject_type: Keyword.get(opts, :subject_type)
+                 subject_type: Keyword.get(opts, :subject_type),
+                 brain_context: Keyword.get(opts, :brain_context)
                ) do
           recovery = %{
             request: context.request,
             runtime: runtime,
-            request_context: request_context
+            request_context: request_context,
+            brain_context: Keyword.get(opts, :brain_context)
           }
 
           {:ok, prepared_request, response_stream_context(message, recovery)}
@@ -277,7 +290,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
     |> Map.put("downstream_transport", "websocket")
   end
 
-  defp build_stateful_request_context(subject_uid, request, runtime, oidc_client_id) do
+  defp build_stateful_request_context(subject_uid, request, runtime, oidc_client_id, opts) do
     conversation_id = request["conversation"]
     previous_response_id = request["previous_response_id"]
 
@@ -306,7 +319,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          {current_input, recovered_call_ids} <-
            recover_interrupted_tool_calls(history, current_input, previous_response_id),
          {current_input, injection} <-
-           Brain.inject_stateful(subject_uid, request, conversation, current_input, history),
+           Brain.inject_stateful(subject_uid, request, conversation, current_input, history, opts),
          request <-
            request_with_effective_previous_response_id(request, effective_previous_response_id),
          {:ok, compaction} <-
@@ -317,7 +330,8 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
              current_input,
              injection,
              request,
-             runtime
+             runtime,
+             opts
            ) do
       {:ok,
        %{
@@ -475,7 +489,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
         |> Map.put(:run_metadata, run_metadata)
       end
 
-    %{context | compaction: compaction}
+    {:ok, %{context | compaction: compaction}}
   end
 
   defp response_stream_context(%Message{} = message, recovery \\ nil) do

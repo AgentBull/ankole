@@ -14,14 +14,7 @@ import { join, resolve } from 'node:path'
 import { agentHomePaths, codexSQLiteHome, WORKER_SHARE_ROOT } from '../core/agent-home-paths'
 import type { WorkerConfig } from './config'
 
-/**
- * Runs blocking disk and image checks before ready.
- *
- * The Agent Home of the bound Agent must be a writable directory; the Worker
- * creates it on an empty persistent volume. The turn loop also needs the configured
- * Skill roots, and BackgroundAgentJob execution needs the Codex app server and
- * the private browser data-plane runtime that the worker image ships.
- */
+/** The Worker creates the Agent Home on an empty persistent volume. The image ships the Codex app server and the browser data-plane runtime. */
 export function verifyWorkerReadiness(config: WorkerConfig): void {
   const agentHome = agentHomePaths(config.agentHomeRoot).home
   mkdirSync(agentHome, { recursive: true })

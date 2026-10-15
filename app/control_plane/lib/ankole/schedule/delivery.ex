@@ -5,8 +5,8 @@ defmodule Ankole.Schedule.Delivery do
 
   @type target :: %{required(String.t()) => String.t()}
 
-  @spec normalize(term(), String.t()) :: {:ok, map()} | {:error, term()}
-  def normalize(delivery, binding_name) when is_map(delivery) and is_binary(binding_name) do
+  @spec normalize(term(), String.t() | nil) :: {:ok, map()} | {:error, term()}
+  def normalize(delivery, binding_name) when is_map(delivery) do
     with {:ok, targets} <- normalize_targets(delivery),
          :ok <- validate_primary_binding(targets, binding_name),
          :ok <- validate_unique_targets(targets),
@@ -23,9 +23,9 @@ defmodule Ankole.Schedule.Delivery do
 
   def normalize(_delivery, _binding_name), do: {:error, :cron_delivery_route_required}
 
-  @spec merge_update(term(), term(), String.t()) :: {:ok, map()} | {:error, term()}
+  @spec merge_update(term(), term(), String.t() | nil) :: {:ok, map()} | {:error, term()}
   def merge_update(existing, update, binding_name)
-      when is_map(update) and is_binary(binding_name) do
+      when is_map(update) do
     if route_update?(update) do
       with {:ok, normalized_update} <- normalize(update, binding_name) do
         preserve_existing_quiet_success(existing, normalized_update)
@@ -44,14 +44,14 @@ defmodule Ankole.Schedule.Delivery do
   def merge_update(_existing, _update, _binding_name),
     do: {:error, :cron_delivery_route_required}
 
-  @spec targets(term(), String.t()) :: {:ok, [target()]} | {:error, term()}
+  @spec targets(term(), String.t() | nil) :: {:ok, [target()]} | {:error, term()}
   def targets(delivery, binding_name) do
     with {:ok, normalized} <- normalize(delivery, binding_name) do
       {:ok, normalized["targets"]}
     end
   end
 
-  @spec primary_target(term(), String.t()) :: {:ok, target()} | {:error, term()}
+  @spec primary_target(term(), String.t() | nil) :: {:ok, target()} | {:error, term()}
   def primary_target(delivery, binding_name) do
     with {:ok, [target | _rest]} <- targets(delivery, binding_name) do
       {:ok, target}
@@ -61,8 +61,8 @@ defmodule Ankole.Schedule.Delivery do
   @spec target_key(target()) :: String.t()
   def target_key(target) when is_map(target) do
     [
-      Map.fetch!(target, "binding_name"),
-      Map.fetch!(target, "signal_channel_id"),
+      Map.fetch!(target, "conversation_id"),
+      Map.get(target, "binding_name", ""),
       Map.get(target, "provider_thread_id", "")
     ]
     |> Enum.join(<<0>>)
@@ -86,29 +86,28 @@ defmodule Ankole.Schedule.Delivery do
   end
 
   defp normalize_target(target) when is_map(target) do
-    with {:ok, binding_name} <- Attrs.required_text(target, "binding_name"),
-         {:ok, signal_channel_id} <- Attrs.required_text(target, "signal_channel_id") do
+    with {:ok, id} <- Attrs.required_text(target, "conversation_id"),
+         {:ok, id} <- Ecto.UUID.cast(id) do
       {:ok,
        Attrs.reject_nil_values(%{
-         "binding_name" => binding_name,
-         "signal_channel_id" => signal_channel_id,
+         "conversation_id" => id,
+         "binding_name" => Attrs.map_text(target, "binding_name"),
          "provider_thread_id" => Attrs.map_text(target, "provider_thread_id")
        })}
     else
-      {:error, _reason} -> {:error, :cron_delivery_route_required}
+      _ -> {:error, :cron_delivery_route_required}
     end
   end
 
   defp normalize_target(_target), do: {:error, :cron_delivery_route_required}
 
-  defp validate_primary_binding(
-         [%{"binding_name" => binding_name} | _rest],
-         binding_name
-       ),
-       do: :ok
+  defp validate_primary_binding([%{"binding_name" => binding_name} | _rest], binding_name),
+    do: :ok
 
-  defp validate_primary_binding(_targets, _binding_name),
+  defp validate_primary_binding([%{"binding_name" => _} | _rest], _binding),
     do: {:error, :cron_primary_delivery_binding_mismatch}
+
+  defp validate_primary_binding([%{"conversation_id" => _} | _rest], _binding), do: :ok
 
   defp validate_unique_targets(targets) do
     keys = Enum.map(targets, &target_key/1)

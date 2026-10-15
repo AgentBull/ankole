@@ -1,7 +1,7 @@
 import type { QueryClient } from '@tanstack/react-query'
 import { createBrowserRouter, Navigate, RouterProvider, type RouteObject } from 'react-router'
 import { configureConsoleAPIClient } from './api/client'
-import { applyDataTenantNavigation } from './api/data-context'
+import { applyDataTenantNavigation } from '../common/browser-session'
 import { createConsoleRouteLoaders } from './console-route-loaders'
 import { ConsoleLayout } from './console-shell-chrome'
 import { AgentEditorPage, AgentsListPage } from './pages/agents'

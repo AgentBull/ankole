@@ -1,5 +1,3 @@
-//! One-shot deterministic program execution for AIGateway PTC.
-//!
 //! AIGateway self-implements the official OpenAI Programmatic Tool Calling
 //! semantics. Pause and resume use replay with memoization: every run starts a
 //! fresh bare isolate, replays the program from the top, answers memoized tool
@@ -320,8 +318,7 @@ impl ProgramState {
     }
 }
 
-/// A future that keeps one unanswered tool call pending forever. The stalled
-/// event loop is the pause signal.
+/// The stalled event loop is the pause signal.
 struct EternalPend;
 
 impl Future for EternalPend {
@@ -454,7 +451,6 @@ pub fn run(request: RunRequest) -> RunOutcome {
     guarded_execute(request, Arc::new(RunControl::new()))
 }
 
-/// Registers and runs one cancellable native execution.
 pub fn run_registered(run_id: &str, request: RunRequest) -> RunOutcome {
     let Some(_permit) = RunPermit::acquire() else {
         return failed(
@@ -1076,8 +1072,6 @@ fn run_registry() -> &'static Mutex<HashMap<String, Arc<RunControl>>> {
     RUN_REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Cancels a run that has entered native execution.
-///
 /// A cancellation that races before registration can miss. The BEAM task is
 /// still killed, and the native watchdog bounds the rare late-registration
 /// race to one execution slot for at most the configured timeout.
@@ -1114,7 +1108,6 @@ fn validate_run_id(run_id: &str) -> Result<(), ProgramFailure> {
     Ok(())
 }
 
-/// JSON boundary used by the NIF layer.
 pub fn run_json(run_id: &str, request_json: &str) -> Result<String, String> {
     if request_json.len() > MAX_RUN_REQUEST_BYTES {
         return Err(format!(

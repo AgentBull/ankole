@@ -35,7 +35,7 @@ defmodule Ankole.Kernel do
   @type extra_context :: String.t() | nil
   @type authz_snapshot :: map()
   @type authz_decision :: map()
-  @type signals_gateway_filter_context :: map()
+  @type signals_filter_context :: map()
   @type jwt_claims :: map()
   @type jwt_header :: map()
   @type jwt_validation :: map()
@@ -219,27 +219,27 @@ defmodule Ankole.Kernel do
   def authz_validate_condition(_condition), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Returns `true` when a SignalsGateway CEL admission filter compiles.
+  Returns `true` when a Signals CEL admission filter compiles.
   """
-  @spec signals_gateway_validate_filter(String.t()) :: result(boolean())
-  def signals_gateway_validate_filter(_filter_source), do: :erlang.nif_error(:nif_not_loaded)
+  @spec signals_validate_filter(String.t()) :: result(boolean())
+  def signals_validate_filter(_filter_source), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Evaluates a SignalsGateway CEL admission filter against a normalized context.
+  Evaluates a Signals CEL admission filter against a normalized context.
 
   The context must contain only the host-supplied `binding` and `signal`
   variables. The native layer does not load database or runtime state while
   evaluating the expression.
   """
-  @spec signals_gateway_filter_match(String.t(), signals_gateway_filter_context()) ::
+  @spec signals_filter_match(String.t(), signals_filter_context()) ::
           result(boolean())
-  def signals_gateway_filter_match(filter_source, context)
+  def signals_filter_match(filter_source, context)
       when is_binary(filter_source) and is_map(context) do
-    signals_gateway_filter_match_nif(filter_source, Torque.encode!(context))
+    signals_filter_match_nif(filter_source, Torque.encode!(context))
   end
 
-  @spec signals_gateway_filter_match_nif(String.t(), String.t()) :: result(boolean())
-  defp signals_gateway_filter_match_nif(_filter_source, _context),
+  @spec signals_filter_match_nif(String.t(), String.t()) :: result(boolean())
+  defp signals_filter_match_nif(_filter_source, _context),
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """

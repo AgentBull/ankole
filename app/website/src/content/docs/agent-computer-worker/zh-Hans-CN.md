@@ -9,7 +9,7 @@ Agent Computer Worker 是一个 Agent 自己的电脑。创建 Agent 时只保�
 
 ## 执行与归属
 
-Bun Worker 执行命令、文件与浏览器工具、Skills、MCP 调用、自动化脚本和 Codex Job。控制面的 `Ankole.Conversations` 运行主 Agent loop，提交输入消费与工具结果，拥有最终回复。AIGateway 拥有持久 Response 链与 hosted 工具。
+Bun Worker 执行命令、文件与浏览器工具、Skills、MCP 调用、自动化脚本和 Codex Job。控制面的 `Ankole.Sessions` 运行主 Agent loop，提交输入消费与工具结果，拥有最终回复。AIGateway 拥有持久 Response 链与 hosted 工具。
 
 控制面提供 `WORKER_ID`、RuntimeFabric 地址、generation 凭据与存储设置。Worker 只服务自己的 Agent，从子进程环境中移除凭据，不连接数据库。容器是 Agent 的隔离边界；命令以 uid 1000 执行，没有 sudo。
 
@@ -60,4 +60,4 @@ Driver 拥有主 loop 的流式输出与工具展示；Worker 通过 RuntimeFabr
 
 心跳报告活跃工作区、Codex 回合与空槽位。控制面按 provider YAML 的 `idleReleaseAfter` 回收空闲实例，`never` 保持运行。重连保留进程 incarnation 与在途工作。
 
-写入与操作栅栏见 [Actor Runtime](../actor-runtime/)，Responses 见 [AIGateway](../ai-gateway/)，Skills 见 [Agent Library](../agent-library/)，provider 状态见 [工作节点](../worker-management/)。
+写入与操作栅栏见 [Sessions](../sessions/)，Responses 见 [AIGateway](../ai-gateway/)，Skills 见 [Agent Library](../agent-library/)，provider 状态见 [工作节点](../worker-management/)。

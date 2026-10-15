@@ -15,7 +15,7 @@ defmodule AnkoleWeb.WorkerEnvController do
   use AnkoleWeb, :controller
   use OpenAPISpex.ControllerSpecs
 
-  alias Ankole.SignalsGateway.ActorRuntime.WorkerEnv
+  alias Ankole.AgentWorkers.WorkerEnv
   alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope

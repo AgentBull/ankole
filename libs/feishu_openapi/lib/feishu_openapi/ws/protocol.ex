@@ -1,12 +1,6 @@
 defmodule FeishuOpenAPI.WS.Protocol do
   @moduledoc """
-  Helpers for Feishu's websocket event protocol.
-
-  This module centralizes wire-level quirks that are easy to scatter across the
-  websocket client: handshake failure classification, config extraction from
-  server payloads, response envelope encoding, and the special headers Feishu
-  uses for business-RT and auth errors. It exists so `FeishuOpenAPI.WS.Client`
-  can stay focused on connection lifecycle instead of packet details.
+  Feishu websocket handshake classification, runtime config, and ack envelopes.
   """
 
   @header_biz_rt "biz_rt"
@@ -20,10 +14,7 @@ defmodule FeishuOpenAPI.WS.Protocol do
   @fatal_handshake_codes [403, 514, 1_000_040_350]
 
   @doc """
-  Parse the `service_id` query param Feishu embeds in the WS URL.
-
-  Frames echo this id back to the provider, so we extract it once at connect
-  time. Defaults to `0` for any malformed or missing value.
+  Frames echo this id back to the provider.
   """
   @spec service_id_from_url(String.t()) :: integer()
   def service_id_from_url(url) when is_binary(url) do
@@ -41,13 +32,7 @@ defmodule FeishuOpenAPI.WS.Protocol do
   def service_id_from_url(_), do: 0
 
   @doc """
-  Pull connection-tuning knobs out of a server config map into our atom-keyed
-  shape, ignoring keys we don't recognize.
-
-  Each setting accepts two spellings because the endpoint-discovery response and
-  the in-band `pong` payload disagree on casing (e.g. `PingInterval` vs
-  `ping_interval`). Absent keys are simply left out so the client keeps its
-  current/default value.
+  Endpoint discovery and in-band `pong` payloads disagree on key casing.
   """
   @spec config_from_map(map()) :: map()
   def config_from_map(map) when is_map(map) do
@@ -65,8 +50,6 @@ defmodule FeishuOpenAPI.WS.Protocol do
   interval and reconnect parameters at runtime by attaching JSON to a pong.
   """
   @spec config_from_payload(binary()) :: {:ok, map()} | {:error, term()}
-  # Empty pong payload is the common case (a bare heartbeat ack), so short-circuit
-  # before attempting a JSON decode.
   def config_from_payload(payload) when is_binary(payload) and byte_size(payload) == 0,
     do: {:ok, %{}}
 
@@ -77,10 +60,7 @@ defmodule FeishuOpenAPI.WS.Protocol do
   end
 
   @doc """
-  Upsert a header by key, replacing any existing entry and appending at the end.
-
-  Re-appending (rather than updating in place) keeps the provider's expected
-  header ordering, with our added headers last.
+  Added headers stay last. That is the order Feishu expects.
   """
   @spec put_header([{String.t(), String.t()}], String.t(), String.t()) :: [
           {String.t(), String.t()}
@@ -94,24 +74,13 @@ defmodule FeishuOpenAPI.WS.Protocol do
   end
 
   @doc """
-  Stamp the `biz_rt` (business response time) header on a response frame.
-
-  Feishu reads this back as the handler's processing time in milliseconds for
-  its own latency monitoring. Clamped to non-negative to guard against clock
-  jitter producing a negative duration.
+  Feishu reads `biz_rt` as handler time in milliseconds.
   """
   @spec add_biz_rt([{String.t(), String.t()}], integer()) :: [{String.t(), String.t()}]
   def add_biz_rt(headers, duration_ms) when is_list(headers) and is_integer(duration_ms) do
     put_header(headers, @header_biz_rt, Integer.to_string(max(duration_ms, 0)))
   end
 
-  @doc """
-  Build the JSON payload Feishu expects in the ack frame for an event/card.
-
-  Maps a dispatcher result to the provider's `{code, data}` envelope: success →
-  200, a URL-verification challenge → 200 with the echo, any error → 500. See
-  `response_map/1` for how each shape is rendered.
-  """
   @spec encode_ws_response({:ok, term()} | {:challenge, String.t()} | {:error, term()}) ::
           {:ok, binary()} | {:error, term()}
   def encode_ws_response(dispatch_result) do
@@ -122,19 +91,10 @@ defmodule FeishuOpenAPI.WS.Protocol do
   end
 
   @doc """
-  Decide whether a failed WS upgrade is permanent (`:fatal`) or worth retrying
-  (`:retry`).
-
-  Mint's generic upgrade error rarely says *why* the provider refused, so we
-  prefer Feishu's own `handshake-*` headers when present. The 514 + auth-error
-  pairing and the bare fatal codes mean a misconfigured app (wrong
-  credentials/permissions): retrying would loop forever, so we stop. Anything
-  else is assumed transient and reconnect is scheduled.
+  `:fatal` is a misconfigured app. Retrying it would loop, so the client stops.
   """
   @spec classify_handshake(integer() | nil, map() | list(), term()) :: {:fatal | :retry, term()}
   def classify_handshake(status, headers, fallback_reason) do
-    # Feishu's own handshake-status header is authoritative; fall back to the raw
-    # HTTP status only when it's absent.
     handshake_status = header_int(headers, @header_handshake_status) || status
     handshake_msg = header(headers, @header_handshake_msg)
     auth_err_code = header_int(headers, @header_handshake_autherrcode)
@@ -142,9 +102,6 @@ defmodule FeishuOpenAPI.WS.Protocol do
     reason = {:handshake_error, handshake_status || status, handshake_msg || fallback_reason}
 
     cond do
-      # Spells out the canonical "bad credentials" signal (514 + auth-error code)
-      # for clarity; note 514 is already in @fatal_handshake_codes below, so any
-      # 514 is fatal regardless of the auth-error code.
       handshake_status == 514 and auth_err_code == 1_000_040_350 ->
         {:fatal, reason}
 
@@ -161,8 +118,7 @@ defmodule FeishuOpenAPI.WS.Protocol do
   end
 
   defp response_map({:challenge, challenge}) do
-    # The WS `data` field carries a base64'd JSON blob, so even the challenge echo
-    # is double-encoded: JSON-encode `{"challenge": ...}`, then base64 it.
+    # The WS `data` field is base64-encoded JSON.
     case Torque.encode(%{"challenge" => challenge}) do
       {:ok, data} ->
         {:ok, %{"code" => 200, "data" => Base.encode64(data)}}
@@ -186,8 +142,7 @@ defmodule FeishuOpenAPI.WS.Protocol do
     do: nil
 
   defp encode_response_data(result) do
-    # `data` is base64'd JSON (see the challenge case). On encode failure we drop
-    # the body rather than fail the whole ack — a 200 with no data still acks.
+    # A 200 with no `data` still acks. An encode failure omits the body.
     case Torque.encode(result) do
       {:ok, encoded} -> Base.encode64(encoded)
       {:error, _} -> nil
@@ -224,9 +179,6 @@ defmodule FeishuOpenAPI.WS.Protocol do
 
   defp parse_int(_), do: :error
 
-  # Case-insensitive header lookup over either a map or a `[{k, v}]` list, since
-  # the upgrade-response headers reach us in different shapes. `target` is assumed
-  # already-lowercase.
   defp header(headers, target) when is_map(headers) do
     Enum.find_value(headers, fn {k, v} ->
       if String.downcase(to_string(k)) == target, do: normalize_header_value(v)

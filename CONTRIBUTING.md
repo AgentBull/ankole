@@ -501,7 +501,7 @@ Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implement
 | `app/control_plane` | Phoenix/OTP control plane, Ecto persistence, setup, Console APIs, and durable runtime authority |
 | `app/agent_computer` | Bun/TypeScript Worker, environment tools, Codex, Skills, files, and terminal state |
 | `app/kernel` | Rust library loaded by the control plane through Rustler |
-| `app/webapps` | Vite/React setup, authentication, and Console applications |
+| `app/webapps` | Vite/React setup, authentication, Workplace, and Console applications |
 | `app/library` | Built-in agent skills and starter templates |
 | `app/locales` | Shared translation catalogs |
 | `libs/` | Shared UI, editor, and provider client libraries |
@@ -552,7 +552,7 @@ Use a separate test partition and a resolvable local node name:
 
 ```bash
 cd app/control_plane
-MIX_TEST_PARTITION=conversation_driver elixir --sname conversation_checks@localhost -S mix test integration/conversation_driver_test.exs
+MIX_TEST_PARTITION=session_driver elixir --sname session_checks@localhost -S mix test integration/session_driver_test.exs
 ```
 
 `bun run test:integration` in `app/control_plane` runs every integration file
@@ -659,8 +659,8 @@ are test fakes; the Docker suites check the real Worker separately.
 ```bash
 cd app/control_plane
 MIX_TEST_PARTITION=conversation_loop_cluster \
-  elixir --sname ankole_conversation_checks@localhost -S mix test \
-  integration/conversation_driver_test.exs --trace
+  elixir --sname ankole_session_checks@localhost -S mix test \
+  integration/session_driver_test.exs --trace
 ```
 
 ### Worker provider checks

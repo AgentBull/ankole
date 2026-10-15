@@ -4,14 +4,14 @@ import { createSkillTools } from '../src/tools/library/skill-tools'
 import { jsonBytes, jsonObjectFromBytes } from '../src/fabric/envelope_proto'
 import { RuntimeSkillSummarySchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { RPCRequester } from '../src/lanes/rpc_lane'
-import type { JobTurnRef } from '../src/lanes/actor_lane'
+import type { JobTurnRef } from '../src/lanes/session_lane'
 import { createSkillLoader } from '../src/skills/skill-loader'
 
 const turn: JobTurnRef = {
-  actor: { session_id: 'job:1000' },
+  session: { session_id: 'job:1000' },
   job_id: 1000,
   attempt: 2,
-  actor_event_id: '00000000-0000-0000-0000-000000000000'
+  signal_id: '00000000-0000-0000-0000-000000000000'
 }
 const skill = create(RuntimeSkillSummarySchema, {
   skillName: 'voice-drafting-method',

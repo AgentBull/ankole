@@ -4,7 +4,7 @@ defmodule Ankole.Workflow.RunServerTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.ActorEvent
+  alias Ankole.Signals.Signal
   alias Ankole.Workflow
   alias Ankole.Workflow.RunServer
   alias Ankole.Workflow.Schemas.AgentCall
@@ -68,16 +68,16 @@ defmodule Ankole.Workflow.RunServerTest do
     assert call.status == "queued"
 
     event =
-      Repo.get_by!(ActorEvent,
+      Repo.get_by!(Signal,
         agent_uid: agent.uid,
         source_event_id: "workflow:call:#{call.id}:dispatch"
       )
 
     assert event.session_id == Workflow.task_session_id(call.id)
     assert event.type == "workflow.task.dispatch"
-    assert event.signal_channel_id == nil
-    assert event.payload["data"]["call_id"] == call.id
-    assert event.payload["data"]["schema"] == %{"type" => "boolean"}
+    assert event.conversation_id == nil
+    assert event.data["call_id"] == call.id
+    assert event.data["schema"] == %{"type" => "boolean"}
   end
 
   test "completed replay stores joined output and appends one owner wakeup" do
@@ -95,7 +95,7 @@ defmodule Ankole.Workflow.RunServerTest do
 
     wakeups =
       Repo.all(
-        from(event in ActorEvent,
+        from(event in Signal,
           where: event.agent_uid == ^agent.uid,
           where: event.source_event_id == ^wakeup_source_event_id
         )
@@ -104,9 +104,9 @@ defmodule Ankole.Workflow.RunServerTest do
     assert [wakeup] = wakeups
     assert wakeup.session_id == run.owner_session_id
     assert wakeup.type == "workflow.run.completed"
-    assert wakeup.payload["data"]["result_preview"] == "hello world"
+    assert wakeup.data["result_preview"] == "hello world"
 
-    assert wakeup.payload["data"]["counts"] == %{
+    assert wakeup.data["counts"] == %{
              "total" => 0,
              "succeeded" => 0,
              "failed" => 0
@@ -134,7 +134,7 @@ defmodule Ankole.Workflow.RunServerTest do
 
     assert [wakeup] =
              Repo.all(
-               from(event in ActorEvent,
+               from(event in Signal,
                  where: event.source_event_id == ^wakeup_source_event_id
                )
              )
@@ -181,7 +181,7 @@ defmodule Ankole.Workflow.RunServerTest do
     failed_source_event_id = "workflow:#{run.id}:failed"
 
     refute Repo.exists?(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.source_event_id == ^failed_source_event_id
              )
            )
@@ -282,7 +282,7 @@ defmodule Ankole.Workflow.RunServerTest do
     refute Repo.get_by(AgentCall, run_id: run.id, call_seq: 1)
 
     assert Repo.aggregate(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.agent_uid == ^agent.uid,
                where: event.type == "workflow.task.dispatch"
              ),
@@ -355,7 +355,7 @@ defmodule Ankole.Workflow.RunServerTest do
       failed_source_event_id = "workflow:#{run.id}:failed"
 
       refute Repo.exists?(
-               from(event in ActorEvent,
+               from(event in Signal,
                  where: event.source_event_id == ^failed_source_event_id
                )
              )
@@ -629,7 +629,7 @@ defmodule Ankole.Workflow.RunServerTest do
     completed_source_event_id = "workflow:#{run.id}:completed"
 
     assert Repo.aggregate(
-             from(event in ActorEvent,
+             from(event in Signal,
                where: event.source_event_id == ^completed_source_event_id
              ),
              :count
@@ -717,11 +717,11 @@ defmodule Ankole.Workflow.RunServerTest do
     |> Run.changeset(%{reply_route: %{"binding_name" => "bot"}})
     |> Repo.update!()
 
-    assert :ok = perform_job(Ankole.Conversations.Reconciler, %{})
+    assert :ok = perform_job(Ankole.Sessions.Reconciler, %{})
     assert :ok = perform_job(Ankole.Workflow.Jobs.PokeRun, %{run_id: run.id})
     wait_for(fn -> terminal_run(run.id, "cancelled") end)
 
-    assert Repo.get_by!(ActorEvent, source_event_id: "workflow:call:#{call.id}:stop").type ==
+    assert Repo.get_by!(Signal, source_event_id: "workflow:call:#{call.id}:stop").type ==
              "command.stop"
   end
 
@@ -751,14 +751,14 @@ defmodule Ankole.Workflow.RunServerTest do
     assert Repo.get!(AgentCall, running.id).status == "cancelled"
 
     stop =
-      Repo.get_by!(ActorEvent,
+      Repo.get_by!(Signal,
         agent_uid: agent.uid,
         source_event_id: "workflow:call:#{running.id}:stop"
       )
 
     assert stop.session_id == Workflow.task_session_id(running.id)
     assert stop.type == "command.stop"
-    assert stop.signal_channel_id == nil
+    assert stop.conversation_id == nil
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
   end
 
@@ -766,7 +766,7 @@ defmodule Ankole.Workflow.RunServerTest do
     result =
       Repo.transact(fn repo ->
         with {:ok, result, after_commit} <-
-               Ankole.Conversations.Tools.Workflow.execute_in_tx(
+               Ankole.Sessions.Tools.Workflow.execute_in_tx(
                  repo,
                  %{agent_uid: agent_uid},
                  %{"name" => "cancel_workflow"},
@@ -807,7 +807,7 @@ defmodule Ankole.Workflow.RunServerTest do
 
     # Replay tests claim task rows themselves. Install the passive Driver
     # before dispatch so a real admission cannot consume those fixture rows.
-    Ankole.SignalsGateway.ActorRuntimeCase.stub_workflow_drivers(run)
+    Ankole.SessionsCase.stub_workflow_drivers(run)
   end
 
   defp queue_runner(parent, outcomes) do

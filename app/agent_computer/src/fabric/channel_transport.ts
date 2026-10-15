@@ -900,7 +900,6 @@ class ChannelTransport implements RuntimeFabricHost {
   }
 }
 
-/** Removes a waiter on every wake, deadline and cancellation. */
 function waitForWake(waiters: Array<() => void>, signal?: AbortSignal, timeoutMs?: number): Promise<void> {
   signal?.throwIfAborted()
   return new Promise((resolve, reject) => {

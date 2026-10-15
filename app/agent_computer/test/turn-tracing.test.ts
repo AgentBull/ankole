@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { TurnStart } from '../src/lanes/actor_lane'
+import type { TurnStart } from '../src/lanes/session_lane'
 import {
   configureWorkerTracing,
   finishWorkerSpan,
@@ -313,13 +313,13 @@ function turnStart(agentUID: string, sessionID: string, traceparent?: string, ob
     mode: 'start',
     fetch_runtime_config: { ssrfFilter: true },
     turn: {
-      actor: { session_id: sessionID },
+      session: { session_id: sessionID },
       job_id: 1000,
       attempt: 1,
-      actor_event_id: `event-${agentUID}`
+      signal_id: `event-${agentUID}`
     },
-    actor_event: {
-      actor_event_id: `event-${agentUID}`,
+    signal: {
+      signal_id: `event-${agentUID}`,
       type: 'im.message',
       payload_json: {}
     },

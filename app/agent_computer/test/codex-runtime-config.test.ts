@@ -1,7 +1,7 @@
 import { create } from '@bufbuild/protobuf'
 import { describe, expect, it } from 'bun:test'
 import { AIGatewayAPIKeyResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
-import type { TurnStart } from '../src/lanes/actor_lane'
+import type { TurnStart } from '../src/lanes/session_lane'
 import { resolveCodexRuntimeConfig } from '../src/core/codex-runner/runtime-config'
 
 function turnStart(modelRef: TurnStart['model_ref']): TurnStart {
@@ -9,13 +9,13 @@ function turnStart(modelRef: TurnStart['model_ref']): TurnStart {
     mode: 'start',
     fetch_runtime_config: { ssrfFilter: true },
     turn: {
-      actor: { session_id: 'job:1000' },
+      session: { session_id: 'job:1000' },
       job_id: 1000,
       attempt: 1,
-      actor_event_id: '00000000-0000-0000-0000-000000000001'
+      signal_id: '00000000-0000-0000-0000-000000000001'
     },
-    actor_event: {
-      actor_event_id: '00000000-0000-0000-0000-000000000001',
+    signal: {
+      signal_id: '00000000-0000-0000-0000-000000000001',
       type: 'background_agent_job.turn',
       payload_json: {}
     },

@@ -99,7 +99,7 @@ defmodule AnkoleWeb.APISpec do
         },
         %Tag{
           name: "Sessions",
-          description: "Operator-visible actor sessions for one agent"
+          description: "Operator-visible Sessions for one Agent"
         },
         %Tag{
           name: "Workers",

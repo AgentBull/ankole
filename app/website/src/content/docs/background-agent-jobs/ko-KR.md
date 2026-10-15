@@ -1,6 +1,6 @@
 ---
 title: Background Agent Jobs
-description: Worker 손실을 견디는 durable하고 재개 가능한 작업 — 작업 상태 머신, 입력 대기(wait-for-input), 소유자 wakeup, Actor Runtime과의 경계를 다룹니다.
+description: Worker 손실을 견디는 durable하고 재개 가능한 작업 — 작업 상태 머신, 입력 대기(wait-for-input), 소유자 wakeup, Sessions과의 경계를 다룹니다.
 section: Developer guide
 order: 105
 ---
@@ -9,11 +9,11 @@ Background Agent Job은 어떤 단일 Worker보다 오래 살아남도록 설계
 
 결정적인 속성을 먼저 말하면, Job은 자식 프로세스가 아니라 durable한 작업입니다. 그 상태는 PostgreSQL에 보관되고, 모든 전환은 fencing과 감사 대상이며, 상태가 소유자가 알아야 할 방식으로 바뀌면 Job은 일반 시그널이 사용하는 것과 같은 액터 이벤트 큐를 통해 소유자 세션에 wakeup 이벤트를 추가합니다.
 
-## Actor Runtime과의 경계
+## Sessions과의 경계
 
-세션 turn과 백그라운드 Job은 다른 형태의 작업이며, 런타임은 둘을 분리해 둡니다. Actor Runtime은 라이브하고 fencing된 turn — 세션 깨우기, 모델 루프 한 번 실행, 커밋 — 을 소유합니다. Background Agent Job은 turn이 위임하는 durable하고 재개 가능한 작업을 소유합니다. 인계는 명시적입니다. Job은 `owner_session_id`, `source_actor_event_id`, `source_tool_call_id`를 담고 있으므로, Job을 생성한 turn에서 Job으로, 그리고 다시 돌아오는 연결은 항상 재구성할 수 있습니다.
+세션 turn과 백그라운드 Job은 다른 형태의 작업이며, 런타임은 둘을 분리해 둡니다. Sessions은 라이브하고 fencing된 turn — 세션 깨우기, 모델 루프 한 번 실행, 커밋 — 을 소유합니다. Background Agent Job은 turn이 위임하는 durable하고 재개 가능한 작업을 소유합니다. 인계는 명시적입니다. Job은 `owner_session_id`, `source_signal_id`, `source_tool_call_id`를 담고 있으므로, Job을 생성한 turn에서 Job으로, 그리고 다시 돌아오는 연결은 항상 재구성할 수 있습니다.
 
-실제 의미는 이렇습니다. Job은 두 번째 세션도 아니고 에이전트에 대한 경합 주장도 아닙니다. 소유자 세션이 요청한 작업으로, 고유한 상태 머신, 고유한 재시도 예산, 고유한 보고 방식을 가집니다.
+Job은 같은 Agent의 독립된 `job:<id>` Session에서 실행하고 `owner_session_id`에 보고합니다. 자체 상태 머신, 재시도 예산, 보고 규칙을 가집니다.
 
 ## Job 상태 머신
 
@@ -67,7 +67,7 @@ AIGateway 할당량 소진 시 미래 복구 시간이 알려져 있으면, Job�
 
 ## 디스패치와 에이전트의 플러그인
 
-Job은 선택적 workspace 템플릿 하나를 유지합니다. 첫 실제 execution admission은 프로바이더와 모델 바인딩, Agent Plugin과 Skill 선택을 같은 트랜잭션에서 기록합니다. 재시도와 재개는 이 고정 선택을 에이전트의 현재 유효 집합과 교차해 사용합니다. 선택된 capability를 비활성화하면 제거되고 다시 활성화하면 복원되지만, admission 시 선택되지 않은 capability는 나중에 추가할 수 없습니다. 자격 증명과 변경 가능한 Skill 내용은 계속 현재 owner에서 읽습니다. 디스패치 경로(`BackgroundAgentJobDispatch.process`)는 액터 이벤트에서 Job을 해석하고 turn 런타임에 넘기며, steer 이벤트는 별도로 처리해서 세션에 대한 라이브 전달이 Job steer로 오인되지 않게 합니다. 모든 모델 turn은 기록된 바인딩으로 AIGateway를 거칩니다. 해당 프로바이더에 자격 증명이 여러 개 있으면 선택, 친화성(affinity), 갱신, 재시도는 AIGateway가 소유합니다. Job에는 계정(account) 필드나 계정 동시성 슬롯이 없습니다.
+Job은 선택적 workspace 템플릿 하나를 유지합니다. 첫 실제 execution admission은 프로바이더와 모델 바인딩, Agent Plugin과 Skill 선택을 같은 트랜잭션에서 기록합니다. 재시도와 재개는 이 고정 선택을 에이전트의 현재 유효 집합과 교차해 사용합니다. 선택된 capability를 비활성화하면 제거되고 다시 활성화하면 복원되지만, admission 시 선택되지 않은 capability는 나중에 추가할 수 없습니다. 자격 증명과 변경 가능한 Skill 내용은 계속 현재 owner에서 읽습니다. `Sessions.CodexJob`은 커널 Signal에서 Job 시도를 수용하고 steer 이벤트는 별도로 처리해서 세션에 대한 라이브 전달이 Job steer로 오인되지 않게 합니다. 모든 모델 turn은 기록된 바인딩으로 AIGateway를 거칩니다. 해당 프로바이더에 자격 증명이 여러 개 있으면 선택, 친화성(affinity), 갱신, 재시도는 AIGateway가 소유합니다. Job에는 계정(account) 필드나 계정 동시성 슬롯이 없습니다.
 
 Background Agent Job은 메인 Agent와 같은 Ankole `skill_view` loader를 사용합니다. 일반 호환 Skill은 Job Skill 인덱스에 들어갑니다. `brain-recall-only: true`를 선언한 Skill은 인덱스에 들어가지 않고 Brain을 통해 발견할 수 있습니다. `get_page`가 해당 발견 레코드와 일치하면 `skill_view`에 위임합니다. loader는 `SKILL.md`나 reference 파일을 읽을 때마다 제어 플레인에 현재 Agent Plugin 및 Skill 유효 상태를 확인합니다. 따라서 실행 중인 Job도 Skill이 비활성화된 뒤에는 계속 읽을 수 없습니다. 이 경로는 Codex 네이티브 Skill discovery, `.agents/skills`, `skills/list`에 의존하지 않습니다.
 
@@ -87,10 +87,10 @@ Job이 처음 workspace를 초기화할 때 러너는 프로젝트의 `AGENTS.md
 
 ## Background Agent Jobs가 아닌 것
 
-Job은 자유 형식의 백그라운드 프로세스가 아닙니다. 고정된 전환 테이블, 제한된 재시도 예산, 그리고 보고 대상이 되는 단일 소유자 세션을 가진 상태 머신입니다. 권한 경계 밖에서 작업을 실행하는 방법도 아닙니다. Job은 같은 플러그인과 스킬 아래에서 자신의 에이전트로 실행됩니다. Actor Runtime의 대체물도 아닙니다. 둘은 액터 이벤트 큐와 fencing 메커니즘을 공유하지만, Job은 재개 가능한 작업을 소유하고 런타임은 라이브 turn을 소유합니다. 이 경계는 의도적이며, 경계를 넘는 일은 다른 계층의 내부를 직접 건드리는 것이 아니라 문서화된 전환을 통해 이루어집니다.
+Job은 자유 형식의 백그라운드 프로세스가 아닙니다. 고정된 전환 테이블, 제한된 재시도 예산, 그리고 보고 대상이 되는 단일 소유자 세션을 가진 상태 머신입니다. 권한 경계 밖에서 작업을 실행하는 방법도 아닙니다. Job은 같은 플러그인과 스킬 아래에서 자신의 에이전트로 실행됩니다. Sessions의 대체물도 아닙니다. 둘은 액터 이벤트 큐와 fencing 메커니즘을 공유하지만, Job은 재개 가능한 작업을 소유하고 런타임은 라이브 turn을 소유합니다. 이 경계는 의도적이며, 경계를 넘는 일은 다른 계층의 내부를 직접 건드리는 것이 아니라 문서화된 전환을 통해 이루어집니다.
 
 ## 다음 단계
 
-- Job이 생성되고 보고하는 라이브 turn은 [Actor Runtime](../actor-runtime/) 페이지를 참고하세요.
+- Job이 생성되고 보고하는 라이브 turn은 [Sessions](../sessions/) 페이지를 참고하세요.
 - Job 실행이 수행하는 모델 turn은 [AIGateway API](../ai-gateway/)를 참고하세요.
-- Job의 wakeup이 일반 시그널로 소유자에게 도달하는 방식은 [SignalsGateway](../signals-gateway/) 페이지를 참고하세요.
+- Job의 wakeup이 일반 시그널로 소유자에게 도달하는 방식은 [Signals](../signals/) 페이지를 참고하세요.

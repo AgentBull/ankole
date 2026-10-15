@@ -5,9 +5,10 @@ defmodule Ankole.WorkerProviderTransactionsTest do
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers.Providers.{Provider, Seed}
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Providers.Provider
+  alias Ankole.AgentWorkers.Providers.Seed
+  alias Ankole.AgentWorkers.AgentWorker
 
   setup %{tenant: tenant} do
     suffix = System.unique_integer([:positive])

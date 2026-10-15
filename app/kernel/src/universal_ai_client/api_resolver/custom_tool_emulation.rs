@@ -1,8 +1,5 @@
 use super::*;
 
-/// Custom-tool emulation for OpenAI Responses upstreams that only implement
-/// plain function calling.
-///
 /// The Elixir provider layer marks a request with
 /// `__ankole_emulate_custom_tools` when the connection declares that the
 /// upstream does not support the official OpenAI tool surface. The resolver
@@ -21,9 +18,7 @@ pub(super) fn custom_tool_emulation_requested(context: &ResponseContext) -> bool
         == Some(true)
 }
 
-/// Returns whether the caller's request declares `name` as a top-level custom
-/// tool. Responses tool names reach the upstream unflattened, so the lookup
-/// does not consider namespaces.
+/// Responses tool names stay unflattened, so the lookup ignores namespaces.
 pub(super) fn emulated_custom_tool(context: &ResponseContext, name: &str) -> bool {
     context
         .request
@@ -38,8 +33,6 @@ pub(super) fn emulated_custom_tool(context: &ResponseContext, name: &str) -> boo
         })
 }
 
-/// Builds the `description` and `parameters` fields of the emulating function
-/// tool. A grammar definition survives as prose inside the input description.
 pub(super) fn custom_tool_function_fields(tool: &Map<String, Value>) -> (Value, Value) {
     let format = tool.get("format").and_then(Value::as_object);
     let input_description = format
@@ -70,7 +63,6 @@ pub(super) fn encode_custom_tool_arguments(input: &str) -> Result<String, Stream
     })
 }
 
-/// Rewrites one prepared Responses body into the upstream function-tool space.
 pub(super) fn lower_custom_tools(body: &mut Map<String, Value>) -> Result<(), StreamError> {
     if let Some(tools) = body.get_mut("tools").and_then(Value::as_array_mut) {
         for tool in tools.iter_mut() {
@@ -135,9 +127,7 @@ pub(super) fn lower_custom_tools(body: &mut Map<String, Value>) -> Result<(), St
     Ok(())
 }
 
-/// Restores one output item from the upstream function space. Returns the
-/// item id when the item became a `custom_tool_call`, so the stream state can
-/// route later argument events for it.
+/// Returns the item id after a `custom_tool_call` conversion so later argument events can route to it.
 pub(super) fn lift_custom_tool_item(context: &ResponseContext, item: &mut Value) -> Option<String> {
     if item.get("type").and_then(Value::as_str) != Some("function_call") {
         return None;
@@ -160,7 +150,6 @@ pub(super) fn lift_custom_tool_item(context: &ResponseContext, item: &mut Value)
     item_id
 }
 
-/// Restores every output item embedded in one response resource.
 pub(super) fn lift_custom_tool_response(context: &ResponseContext, response: &mut Value) {
     if let Some(output) = response.get_mut("output").and_then(Value::as_array_mut) {
         for item in output.iter_mut() {

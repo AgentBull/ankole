@@ -2,7 +2,8 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
   use ExUnit.Case, async: false
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
   alias Ankole.E2E.ComposeDeployment, as: Compose
-  alias Ankole.E2E.{FakeOpenAIPlug, FakeOpenAIState}
+  alias Ankole.E2E.FakeOpenAIPlug
+  alias Ankole.E2E.FakeOpenAIState
 
   @moduletag timeout: 600_000
   @moduletag :compose_upgrade
@@ -63,19 +64,45 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
       })
     end
 
+    target_conversation_id = Ecto.UUID.generate()
+
+    assert %{"conversation" => %{"id" => ^target_conversation_id}} =
+             Compose.api!(deployment, :post, "/.internal-apis/workplace/conversations", %{
+               conversationID: target_conversation_id,
+               agentUID: uid,
+               messageID: Ecto.UUID.generate(),
+               text: "CHAOS_DIRECT_OK"
+             })
+
+    # The fake model answers this ordinary native message without a command.
+    # Finish that real first turn before the scheduled command story begins.
+    assert {:ok, true} =
+             wait_until(deadline(120_000), fn ->
+               detail =
+                 Compose.api!(
+                   deployment,
+                   :get,
+                   "/.internal-apis/workplace/conversations/#{target_conversation_id}"
+                 )
+
+               detail["status"]["state"] == "idle" and
+                 Enum.any?(detail["messages"], fn message ->
+                   message["authorType"] == "agent" and message["text"] == "CHAOS_DIRECT_OK"
+                 end)
+             end)
+
     # Scheduled input alone does not need a Worker. Its command must request
     # the migrated Agent's computer through the production tool path.
     assert %{"cron_schedule" => %{"id" => schedule_id}} =
              Compose.api!(deployment, :post, "/api/v1/agents/#{uid}/cron-schedules", %{
-               owner_session_id: "compose-upgrade",
-               binding_name: "compose-test",
+               owner_session_id: "conversation:#{target_conversation_id}",
                name: "read-migrated-work",
                schedule: %{kind: "cron", expression: "* * * * *"},
                timezone: "UTC",
                payload: %{task: "COMPOSE_UPGRADE_READ: read the migrated workspace file."},
                delivery: %{
                  targets: [
-                   %{binding_name: "compose-test", signal_channel_id: "compose-test-result"}
+                   %{conversation_id: target_conversation_id}
                  ]
                },
                idempotency_key: "compose-upgrade"
@@ -84,7 +111,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     assert {:ok, worker} =
              wait_until(deadline(120_000), fn ->
                Enum.find(
-                 Compose.api!(deployment, :get, "/api/v1/agent-computer-workers")["workers"],
+                 Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
                  &(&1["agent_uid"] == uid and &1["state"] == "ready")
                )
              end)
@@ -92,7 +119,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     assert worker["provider_id"] == "docker"
 
     name =
-      Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ProviderKind.instance_name(
+      Ankole.AgentWorkers.ProviderKind.instance_name(
         deployment.project,
         uid,
         worker["generation"]
@@ -124,7 +151,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
         "psql",
         "-Atc",
         "SELECT json_build_object('id', id::text, 'attempt_count', attempt_count) " <>
-          "FROM actor_events WHERE agent_uid = '#{uid}' AND type = 'cron.fire' " <>
+          "FROM signals WHERE agent_uid = '#{uid}' AND type = 'cron.fire' " <>
           "ORDER BY queue_sequence LIMIT 1"
       ])
       |> Ankole.JSON.decode!()
@@ -166,7 +193,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
            ]) == "x"
 
     assert %{"workers" => workers} =
-             Compose.api!(deployment, :get, "/api/v1/agent-computer-workers")
+             Compose.api!(deployment, :get, "/api/v1/agent-workers")
 
     assert Enum.any?(workers, fn current ->
              current["agent_uid"] == uid and current["generation"] == worker["generation"] and
@@ -251,7 +278,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     assert {:ok, true} =
              wait_until(deadline(120_000), fn ->
                Enum.all?(
-                 Compose.api!(deployment, :get, "/api/v1/agent-computer-workers")["workers"],
+                 Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
                  &(&1["agent_uid"] != uid)
                )
              end)
@@ -379,13 +406,13 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     assert {:ok, worker} =
              wait_until(deadline(120_000), fn ->
                Enum.find(
-                 Compose.api!(deployment, :get, "/api/v1/agent-computer-workers")["workers"],
+                 Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
                  &(&1["agent_uid"] == uid and &1["state"] == "ready")
                )
              end)
 
     name =
-      Ankole.SignalsGateway.ActorRuntime.AgentWorkers.ProviderKind.instance_name(
+      Ankole.AgentWorkers.ProviderKind.instance_name(
         deployment.project,
         uid,
         worker["generation"]
@@ -456,7 +483,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
                compose_query!(
                  deployment,
                  "SELECT to_json(EXISTS(SELECT 1 FROM oban_jobs " <>
-                   "WHERE worker = 'Ankole.Conversations.Reconciler' AND state = 'completed' " <>
+                   "WHERE worker = 'Ankole.Sessions.Reconciler' AND state = 'completed' " <>
                    "AND attempted_at >= '#{restarted_at}'::timestamptz))"
                )
              end)
@@ -510,16 +537,16 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     assert [%{"message_id" => sent_file_id, "attachments" => [_attachment]}] =
              compose_query!(
                deployment,
-               "SELECT COALESCE(json_agg(json_build_object('message_id', created_source_entry_id, " <>
+               "SELECT COALESCE(json_agg(json_build_object('message_id', created_provider_message_id, " <>
                  "'attachments', payload->'attachments')), '[]'::json) " <>
-                 "FROM signal_gateway_outbox_entries WHERE source_actor_event_id = '#{input_id}' " <>
+                 "FROM deliveries WHERE source_signal_id = '#{input_id}' " <>
                  "AND status = 'succeeded' AND jsonb_array_length(payload->'attachments') > 0"
              )
 
     assert sent_file_id == file_message.id
 
     assert Enum.any?(
-             Compose.api!(deployment, :get, "/api/v1/agent-computer-workers")["workers"],
+             Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
              &(&1["agent_uid"] == uid and &1["generation"] == worker["generation"] and
                  &1["state"] == "ready")
            )
@@ -530,8 +557,8 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
       deployment,
       "SELECT json_build_object('id', id::text, 'attempt_count', attempt_count, " <>
         "'session_id', session_id, 'input_state', input_state, 'last_attempt_at', last_attempt_at, " <>
-        "'completed', completed_at IS NOT NULL) FROM actor_events " <>
-        "WHERE agent_uid = '#{uid}' AND source_entry_id = '#{message_id}'"
+        "'completed', completed_at IS NOT NULL) FROM signals " <>
+        "WHERE agent_uid = '#{uid}' AND provider_message_id = '#{message_id}'"
     )
   end
 
@@ -546,7 +573,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
       ) ORDER BY inserted_at, id), '[]'::json)
       FROM ai_gateway_messages
       WHERE subject_uid = '#{uid}'
-        AND metadata #>> '{request_metadata,actor_event_id}' = '#{input["id"]}'
+        AND metadata #>> '{request_metadata,signal_id}' = '#{input["id"]}'
       """)
 
     # Read only the Driver's phase and call state. Never inspect its request
@@ -554,7 +581,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     code = """
     key = %{agent_uid: #{inspect(uid)}, session_id: #{inspect(input["session_id"])}}
     snapshot =
-      case Ankole.Conversations.Driver.whereis(key) do
+      case Ankole.Sessions.Driver.whereis(key) do
         :undefined -> %{state: :absent}
         pid ->
           try do
@@ -563,7 +590,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
               state: state,
               stream_open: not is_nil(data.stream),
               run: if(data.run, do: Map.take(data.run,
-                [:actor_event_id, :epoch, :iteration, :workspace_id, :workspace_open?, :recovered?])),
+                [:signal_id, :epoch, :iteration, :workspace_id, :workspace_open?, :recovered?])),
               tasks: Enum.map(data.tasks, fn {_ref, {kind, task}} ->
                 %{kind: kind, current_function: Process.info(task, :current_function)}
               end),
@@ -578,7 +605,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
             :exit, reason -> %{state: :unavailable, reason: inspect(reason)}
           end
       end
-    IO.puts(Ankole.JSON.encode!(Ankole.SignalsGateway.Sanitizer.transport(snapshot,
+    IO.puts(Ankole.JSON.encode!(Ankole.Signals.Sanitizer.transport(snapshot,
       max_depth: 10, max_items: 30, max_string: 2_000)))
     """
 
@@ -619,11 +646,12 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
                  "ai_gateway.",
                  "conversation.",
                  "conversations.",
+                 "sessions.",
                  "actor_runtime."
                ]) or
                  entry["severity"] in ["ERROR", "CRITICAL"] do
               fields =
-                Map.take(entry, ~w(time event severity actor_event_id message_id state status
+                Map.take(entry, ~w(time event severity signal_id message_id state status
                 error_code failure_kind error_stage provider_status upstream_host retryable))
 
               reason = entry["reason"]
@@ -644,7 +672,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
       end)
 
     summary =
-      Ankole.SignalsGateway.Sanitizer.transport(
+      Ankole.Signals.Sanitizer.transport(
         %{event: input, messages: trace, log_events: logs},
         max_depth: 12,
         max_items: 30,

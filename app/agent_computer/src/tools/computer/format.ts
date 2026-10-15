@@ -1,34 +1,19 @@
 // oxlint-disable no-control-regex
-/** Shared formatting helpers for the computer tools (output limits, line numbering). */
 
 import { sanitizeBinaryOutput, truncateUtf16Safe, truncateUtf16SafeTail } from '@/common/text-sanitize'
 
-// Output the model reads (command stdout/stderr) is capped at 50K chars; a single
-// read_file call may return more (100K) since the model asked for that file explicitly.
-// Both exist to keep one tool result from eating the context window.
+// Command output uses the smaller cap. read_file uses the larger one because the model asked for that file.
 export const MAX_OUTPUT_CHARS = 50_000
 export const MAX_READ_CHARS = 100_000
-// Per-line cap in read_file: a single absurdly long line (minified bundle, base64 blob)
-// is truncated so it cannot dominate the output on its own.
+// read_file clips each rendered line to this length.
 const MAX_LINE_LENGTH = 2000
-
-// The four ANSI_* patterns below cover the families of ANSI/VT escape sequences a
-// terminal program emits (string/DCS, OSC title+hyperlink, CSI color/cursor, two-byte
-// charset escapes). They are stripped because the model gains nothing from these control
-// bytes, and they waste context and can interfere with text matching. Each pattern also
-// matches the 8-bit (C1) form, not just the ESC-prefixed form.
 
 const ANSI_STRING_PATTERN = /(?:\u001B[P^_][\s\S]*?(?:\u001B\\|\u009C)|[\u0090\u009E\u009F][\s\S]*?\u009C)/g
 const ANSI_OSC_PATTERN = /(?:\u001B\][^\u0007\u001B]*(?:\u0007|\u001B\\)|\u009D[^\u0007\u009C]*(?:\u0007|\u009C))/g
 const ANSI_CSI_PATTERN = /(?:\u001B\[|\u009B)[0-?]*[ -/]*[@-~]/g
 const ANSI_ESC_PATTERN = /\u001B[()#%*+\-./ ][0-~]/g
 
-/**
- * Removes terminal control sequences from text before it is shown to the model.
- * Order matters: the multi-char string/OSC sequences are removed first so their inner
- * bytes are gone before the broad CSI/ESC passes run, preventing a partial strip that
- * could leave stray fragments behind.
- */
+/** Remove multi-character sequences before the CSI and ESC passes so a partial strip cannot leave fragments. */
 export function stripAnsi(text: string): string {
   return text
     .replace(ANSI_STRING_PATTERN, '')
@@ -56,12 +41,6 @@ export function truncateOutputDetailed(
   }
 }
 
-/**
- * Clips text to a character budget on line boundaries, keeping the head. The
- * head is the right end to keep for ranked or numbered output where the most
- * relevant content comes first. Always keeps at least one line; a first line
- * longer than the whole budget is clipped mid-line as the only exception.
- */
 export function clipLinesToBudget(
   text: string,
   maxChars: number
@@ -94,17 +73,8 @@ export interface NumberedLines {
 }
 
 /**
- * Renders `LINE_NUM|CONTENT` for one pre-sliced page (the read_file format). Line
- * numbers are 1-based to match what an editor shows the user, so the model can refer to
- * a line the same way a person would.
- *
- * @param lines - The window `[startLine, startLine + lines.length)`, already sliced by
- *          the reader process. Each line arrives clipped to its first 8 KB of bytes,
- *          which always covers the 2000-char clip below unless sanitization strips
- *          most of a line's first 8 KB (accepted: such a line renders from its
- *          retained prefix only).
- * @returns The numbered text, the file's total line count, and whether more lines remain
- *          past this page (so read_file can hint that the model should continue).
+ * Line numbers are 1-based so the model can name a line the way an editor does.
+ * Each line arrives already clipped to its first 8 KB by the reader process.
  */
 export function renderNumberedWindow(lines: string[], startLine: number, totalLines: number): NumberedLines {
   const endLine = lines.length === 0 ? startLine - 1 : startLine + lines.length - 1
@@ -112,8 +82,6 @@ export function renderNumberedWindow(lines: string[], startLine: number, totalLi
     .map((line, index) => {
       const lineNumber = startLine + index
       const safeLine = sanitizeBinaryOutput(line)
-      // Over-long single lines are clipped with a marker so one pathological line can't
-      // blow past the read budget while the rest of the page is still useful.
       const rendered =
         safeLine.length > MAX_LINE_LENGTH
           ? `${truncateUtf16Safe(safeLine, MAX_LINE_LENGTH)}... [line truncated]`
@@ -121,17 +89,10 @@ export function renderNumberedWindow(lines: string[], startLine: number, totalLi
       return `${lineNumber}|${rendered}`
     })
     .join('\n')
-  // `truncated` is true when the page stopped short of the end of file (more to read),
-  // computed from where the window ended rather than whether the limit was hit.
   return { endLine, startLine, text, totalLines, truncated: totalLines > startLine - 1 + lines.length }
 }
 
-/**
- * Heuristic binary check: a NUL byte within the first 8 KB. Cheap and good enough to
- * keep read_file/send-file from dumping binary as garbage text; it can miss a binary
- * whose first 8 KB happen to be NUL-free, which is an accepted tradeoff for not scanning
- * the whole file.
- */
+/** A NUL-free prefix can still be binary; callers accept that miss. */
 export function looksBinary(buffer: Buffer): boolean {
   return buffer.subarray(0, 8192).includes(0)
 }

@@ -28,7 +28,7 @@ order: 1
 |---|---|---|
 | **Agent** | 具备明确使命、授权、工具和对外身份的工作主体。可编辑文件定义 Agent 的使命与交付标准。一个部署实例可以包含多个 Agent。 | [Agent](../agents/) |
 | **Brain** | 共享的公司知识层。Brain 保留来源、结论、时间、置信度、冲突和可见范围，让获授权的 Agent 使用同一份当前企业上下文。 | [Brain](../brain/) |
-| **会话（Session）** | 承载上下文、工作区状态、运行中引导、取消和恢复的执行单元。 | [Actor Runtime](../actor-runtime/) |
+| **会话（Session）** | 承载上下文、工作区状态、运行中引导、取消和恢复的执行单元。 | [Sessions](../sessions/) |
 | **信号路由规则** | 将指定 Agent 连接到信号源，并定义 Agent 在该信号源中的操作范围。 | [信号路由规则](../signal-bindings/) |
 | **后台任务** | 独立于发起会话运行数小时的任务。任务完成后，结果会发送到发起任务的频道。 | [Background Agent Jobs](../background-agent-jobs/) |
 | **技能** | 针对特定工作的标准作业程序。Agent 可以提出改进方案，经人工批准后在后续会话中生效。 | [Skills](../skills/) |

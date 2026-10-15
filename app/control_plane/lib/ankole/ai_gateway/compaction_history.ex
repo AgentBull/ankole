@@ -1,18 +1,17 @@
 defmodule Ankole.AIGateway.CompactionHistory do
   alias Ankole.AIGateway.ResponseChain
   @moduledoc "Projects retained history, preserves opaque references and audits dropped items."
-  alias Ankole.AIGateway.{
-    CompactionArtifacts,
-    CompactionRender,
-    ProviderSealedContent,
-    ResponseItems
-  }
+  alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.CompactionRender
+  alias Ankole.AIGateway.ProviderSealedContent
+  alias Ankole.AIGateway.ResponseItems
 
-  alias Ankole.AIGateway.{UpstreamCompaction}
+  alias Ankole.AIGateway.UpstreamCompaction
   alias Ankole.AIGateway.Schemas.Message
 
   @opaque_ref_keys ~w(agent_computer_path blob_ref content_type file_id file_url filename id image_url media_type mime_type name path provider_file_id provider_ref provider_uri storage_ref uri url)
   @max_ref_chars 512
+
   def dropped_opaque_messages(history, truncated_history) do
     kept_ids =
       truncated_history
@@ -74,14 +73,14 @@ defmodule Ankole.AIGateway.CompactionHistory do
 
   defp opaque_message_audit(_message), do: []
 
-  def opaque_item_audit(items) do
+  defp opaque_item_audit(items) do
     items
     |> Enum.with_index()
     |> Enum.flat_map(fn {item, index} -> opaque_item_audit(item, index) end)
   end
 
-  def opaque_item_audit(%{"type" => "message", "content" => content} = item, item_index)
-      when is_list(content) do
+  defp opaque_item_audit(%{"type" => "message", "content" => content} = item, item_index)
+       when is_list(content) do
     content
     |> Enum.with_index()
     |> Enum.reject(fn {part, _part_index} -> text_content_part?(part) end)
@@ -91,7 +90,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
     end)
   end
 
-  def opaque_item_audit(%{} = item, item_index) do
+  defp opaque_item_audit(%{} = item, item_index) do
     if text_compactable_item?(item) do
       []
     else
@@ -99,7 +98,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
     end
   end
 
-  def opaque_item_audit(_item, _item_index), do: []
+  defp opaque_item_audit(_item, _item_index), do: []
 
   defp opaque_ref(%{} = value, item_index, part_index) do
     refs = bounded_refs(value)
@@ -220,19 +219,19 @@ defmodule Ankole.AIGateway.CompactionHistory do
 
   def text_compactable_message?(_message), do: false
 
-  def text_compactable_item?(%{"type" => "message", "content" => content}),
+  defp text_compactable_item?(%{"type" => "message", "content" => content}),
     do: text_compactable_content?(content)
 
-  def text_compactable_item?(%{"role" => role, "content" => content}) when is_binary(role),
+  defp text_compactable_item?(%{"role" => role, "content" => content}) when is_binary(role),
     do: text_compactable_content?(content)
 
-  def text_compactable_item?(%{"type" => type, "text" => text})
-      when type in ["input_text", "output_text", "text"] and is_binary(text),
-      do: true
+  defp text_compactable_item?(%{"type" => type, "text" => text})
+       when type in ["input_text", "output_text", "text"] and is_binary(text),
+       do: true
 
-  def text_compactable_item?(%{"type" => "reasoning"}), do: true
+  defp text_compactable_item?(%{"type" => "reasoning"}), do: true
 
-  def text_compactable_item?(item),
+  defp text_compactable_item?(item),
     do: ResponseItems.call_item?(item) or ResponseItems.output_item?(item)
 
   defp text_compactable_content?(content) when is_binary(content), do: true
@@ -327,7 +326,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
 
   # The checkpoint side is a list so that a caller can prepend it without a
   # separate empty-history branch.
-  def split_last_compaction(history) do
+  defp split_last_compaction(history) do
     case history
          |> Enum.with_index()
          |> Enum.filter(fn {row, _index} -> row.type == "checkpoint" end) do
@@ -376,6 +375,11 @@ defmodule Ankole.AIGateway.CompactionHistory do
     do: not upstream_compaction?
 
   def force_local_checkpoint?(_state, _upstream_compaction?), do: false
+
+  def local_checkpoint_history(conversation_id, history, request, {:native, _state}),
+    do: raw_history(conversation_id, history, request)
+
+  def local_checkpoint_history(_conversation_id, history, _request, _native_state), do: history
 
   def raw_history(conversation_id, history, request) do
     case previous_response_id_for(history, request) do

@@ -5,12 +5,11 @@ defmodule AnkoleWeb.WebhookCallbackControllerTest do
   import Ecto.Query
 
   alias Ankole.Repo
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Webhooks
+
+  alias Ankole.Signals.Signal
+  alias Ankole.Signals.Webhooks
   alias AnkoleWeb.Plugs.WebhookCallbackBodyReader
 
-  @now ~U[2026-07-30 01:00:00.000000Z]
   @token "wh_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
 
   test "callback route accepts an opaque body without browser authentication", %{conn: conn} do
@@ -20,12 +19,12 @@ defmodule AnkoleWeb.WebhookCallbackControllerTest do
     assert {:ok, %{webhook_endpoint: _endpoint, token: token}} =
              Webhooks.create_endpoint(%{
                agent_uid: agent.uid,
-               binding_name: source.binding_name,
+               binding_name: source.reply_binding_name,
                session_id: source.session_id,
-               signal_channel_id: source.signal_channel_id,
+               conversation_id: source.conversation_id,
                provider_thread_id: source.provider_thread_id,
-               source_actor_event_id: source.id,
-               source_entry_id: source.source_entry_id,
+               source_signal_id: source.id,
+               provider_message_id: source.provider_message_id,
                source_provenance: %{},
                label: "GitHub pull requests",
                mode: "standing",
@@ -40,9 +39,9 @@ defmodule AnkoleWeb.WebhookCallbackControllerTest do
 
     assert response(conn, 204) == ""
 
-    assert %ActorEvent{} =
+    assert %Signal{} =
              Repo.with_tenant(agent.tenant_id, fn ->
-               Repo.one(from(event in ActorEvent, where: event.type == "webhook.received"))
+               Repo.one(from(event in Signal, where: event.type == "webhook.received"))
              end)
   end
 
@@ -76,27 +75,9 @@ defmodule AnkoleWeb.WebhookCallbackControllerTest do
   end
 
   defp source_event!(agent_uid) do
-    assert {:ok, event} =
-             SignalsGateway.append_actor_event(%{
-               agent_uid: agent_uid,
-               binding_name: "github",
-               session_id: "callback-controller",
-               source_event_id: "callback-controller-source",
-               signal_channel_id: "lark:chat:callback",
-               provider_thread_id: "thread-callback",
-               source_entry_id: "message-callback",
-               type: "im.message.addressed",
-               available_at: @now,
-               sender_key: nil,
-               payload: %{
-                 "specversion" => "1.0",
-                 "id" => "callback-controller-source",
-                 "source" => "test://webhooks",
-                 "type" => "im.message.addressed",
-                 "data" => %{}
-               }
-             })
-
-    event
+    Ankole.SignalsFixtures.external_session_signal_fixture(agent_uid,
+      binding_name: "github",
+      source: "test://webhook-source"
+    )
   end
 end

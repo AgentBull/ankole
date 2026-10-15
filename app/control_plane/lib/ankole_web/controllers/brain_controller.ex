@@ -728,8 +728,6 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
-  # Helpers
-
   # Brain payloads carry DateTime and Date values in many nested shapes, and
   # Torque cannot encode calendar structs, so every response passes through
   # the JSON-plain transform instead of per-field ISO conversion.
@@ -770,7 +768,7 @@ defmodule AnkoleWeb.BrainController do
       audience_scope: claim.audience_scope,
       author: claim.author && Map.from_struct(claim.author),
       object_slug: claim.object_slug,
-      signal_gateway_channel_id: claim.signal_gateway_channel_id,
+      conversation_id: claim.conversation_id,
       notability: claim.notability,
       confidence: claim.confidence,
       valid_from: claim.valid_from,

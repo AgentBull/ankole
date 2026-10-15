@@ -1,29 +1,36 @@
 defmodule Ankole.Plugins.WhatsAppAdapterTest do
   use Ankole.DataCase, async: false
+  import Ankole.ExternalConversationsFixtures
 
   import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
   import Ankole.PrincipalsFixtures
-  import Ankole.SignalsGatewayFixtures
+  import Ankole.SignalsFixtures
   import Ankole.Eventually, only: [eventually: 1]
 
+  alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Plugins.WhatsAppAdapter
 
-  alias Ankole.Plugins.WhatsAppAdapter.{Config, Inbound, Outbox, Presentation, Signature, Webhook}
+  alias Ankole.Plugins.WhatsAppAdapter.Config
+  alias Ankole.Plugins.WhatsAppAdapter.Inbound
+  alias Ankole.Plugins.WhatsAppAdapter.Delivery
+  alias Ankole.Plugins.WhatsAppAdapter.Presentation
+  alias Ankole.Plugins.WhatsAppAdapter.Signature
+  alias Ankole.Plugins.WhatsAppAdapter.Webhook
 
   alias Ankole.Principals
   alias Ankole.Principals.MappingRequests
-  alias Ankole.SignalsGateway
-  alias Ankole.SignalsGateway.Actors
 
-  alias Ankole.SignalsGateway.{
-    ActorEvent,
-    AdapterContext,
-    Channel,
-    Entry,
-    OutboxEntry,
-    ReplyInteractionState,
-    ReplyPresentation
-  }
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Conversations.Conversation
+  alias Ankole.Conversations.Message
+
+  import Ankole.Conversations.Assertions,
+    only: [message_snapshot: 1, message_snapshot!: 1, observation_snapshot: 1]
+
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Delivery.InteractionState
+  alias Ankole.Conversations.Delivery.ReplyPresentation
 
   @app_id "1009900000001"
   @app_secret "whatsapp-app-secret"
@@ -64,7 +71,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert adapter.id == "whatsapp"
       assert adapter.adapter_category == "consumer_im"
       refute Map.has_key?(adapter, :author_hydrator)
-      refute Map.has_key?(adapter, :reply_preview_module)
+      refute Map.has_key?(adapter, :preview_module)
       assert adapter.supported_group_message_modes == ["addressed_only"]
       assert adapter.inbound_capabilities == ["entry_receive", "action_event"]
       assert adapter.outbound_capabilities == ["post_entry", "reply_entry", "divider", "card"]
@@ -79,7 +86,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert Enum.map(adapter.fields, & &1.encrypted) == [false, true, true, false, true]
 
-      assert handler.contract_id == "signals_gateway.webhook_handler"
+      assert handler.contract_id == "signals.webhook_handler"
       assert handler.id == "whatsapp"
       assert handler.module == Webhook
       assert handler.kinds == ["events"]
@@ -126,18 +133,18 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       attrs = %{"config" => binding_config(), "group_message_mode" => "addressed_only"}
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(first_agent.uid, "whatsapp", "wa-one", attrs)
+               Ankole.Signals.Bindings.put_binding(first_agent.uid, "whatsapp", "wa-one", attrs)
 
       {:ok, application} = Config.platform_application(binding_config())
 
       assert {:error, {:platform_application_already_bound, ^application, first_uid, "wa-one"}} =
-               SignalsGateway.put_binding(second_agent.uid, "whatsapp", "wa-two", attrs)
+               Ankole.Signals.Bindings.put_binding(second_agent.uid, "whatsapp", "wa-two", attrs)
 
       assert first_uid == first_agent.uid
-      assert {:ok, _disabled} = SignalsGateway.disable_binding(first_agent.uid, "wa-one")
+      assert {:ok, _disabled} = Ankole.Signals.Bindings.disable_binding(first_agent.uid, "wa-one")
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(second_agent.uid, "whatsapp", "wa-two", attrs)
+               Ankole.Signals.Bindings.put_binding(second_agent.uid, "whatsapp", "wa-two", attrs)
     end
 
     test "enabled bindings that share one App must share its secret and verify token" do
@@ -145,13 +152,13 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       %{principal: second_agent} = agent_fixture()
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(first_agent.uid, "whatsapp", "wa-one", %{
+               Ankole.Signals.Bindings.put_binding(first_agent.uid, "whatsapp", "wa-one", %{
                  "config" => binding_config(),
                  "group_message_mode" => "addressed_only"
                })
 
       assert {:error, {:whatsapp_app_credentials_mismatch, _uid, "wa-one"}} =
-               SignalsGateway.put_binding(second_agent.uid, "whatsapp", "wa-two", %{
+               Ankole.Signals.Bindings.put_binding(second_agent.uid, "whatsapp", "wa-two", %{
                  "config" =>
                    binding_config()
                    |> Map.put("phoneNumberId", @other_phone_number_id)
@@ -160,7 +167,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                })
 
       assert {:error, {:whatsapp_app_credentials_mismatch, _uid, "wa-one"}} =
-               SignalsGateway.put_binding(second_agent.uid, "whatsapp", "wa-two", %{
+               Ankole.Signals.Bindings.put_binding(second_agent.uid, "whatsapp", "wa-two", %{
                  "config" =>
                    binding_config()
                    |> Map.put("phoneNumberId", @other_phone_number_id)
@@ -169,7 +176,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                })
 
       assert {:ok, _binding} =
-               SignalsGateway.put_binding(second_agent.uid, "whatsapp", "wa-two", %{
+               Ankole.Signals.Bindings.put_binding(second_agent.uid, "whatsapp", "wa-two", %{
                  "config" => Map.put(binding_config(), "phoneNumberId", @other_phone_number_id),
                  "group_message_mode" => "addressed_only"
                })
@@ -214,16 +221,16 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       request = signed_request(value([text_message("hello")]))
 
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(request)
-      assert Repo.aggregate(Entry, :count) == 1
+      assert Repo.aggregate(Message, :count) == 1
 
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(request)
-      assert Repo.aggregate(Entry, :count) == 1
+      assert Repo.aggregate(Message, :count) == 1
 
       forged = %{request | headers: %{"x-hub-signature-256" => Signature.sign("{}", @app_secret)}}
       assert {:ok, %{status: 401}} = Webhook.handle_webhook(forged)
 
       assert {:ok, %{status: 404}} = Webhook.handle_webhook(%{request | instance_id: "999"})
-      assert Repo.aggregate(Entry, :count) == 1
+      assert Repo.aggregate(Message, :count) == 1
     end
 
     test "routes each change by phone number ID and ignores a number it does not serve" do
@@ -252,7 +259,11 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(signed_request(second))
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(signed_request(unknown))
 
-      channels = Entry |> Repo.all() |> Enum.map(& &1.signal_channel_id) |> Enum.sort()
+      channels =
+        Ankole.Conversations.Conversation
+        |> Repo.all()
+        |> Enum.map(& &1.provider_conversation_id)
+        |> Enum.sort()
 
       assert channels == [
                "whatsapp:#{@phone_number_id}:#{@wa_id}",
@@ -276,7 +287,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
         ])
 
       assert {:ok, %{status: 200}} = Webhook.handle_webhook(signed_request(statuses))
-      assert Repo.aggregate(Entry, :count) == 0
+      assert Repo.aggregate(Message, :count) == 0
     end
   end
 
@@ -288,7 +299,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                Inbound.normalize_message_receive(envelope(text_message("hello")), consumer)
 
       assert text.explicit
-      assert text.signal_channel_id == @channel_id
+      assert text.provider_conversation_id == @channel_id
       assert text.channel.kind == :im_dm
       assert text.channel.reply_mode == :entry
       assert is_nil(text.provider_thread_id)
@@ -303,7 +314,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
         text_message("what about this?")
         |> Map.put("context", %{"from" => @phone_number_id, "id" => "wamid.bot-1"})
 
-      assert {:ok, %{reply_to_source_entry_id: "wamid.bot-1"}} =
+      assert {:ok, %{reply_to_provider_message_id: "wamid.bot-1"}} =
                Inbound.normalize_message_receive(envelope(quoted), consumer)
 
       image =
@@ -410,12 +421,12 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert request.external_id == @wa_id
       assert request.display_name == "Ada"
       assert request.mobile == "+#{@wa_id}"
-      assert Repo.aggregate(Entry, :count) == 0
+      assert Repo.aggregate(Message, :count) == 0
 
-      assert %OutboxEntry{operation: :reply, fallback_visible_text: notice} =
-               Repo.one!(OutboxEntry)
+      assert %Intent{operation: :reply, fallback_visible_text: notice} =
+               Repo.one!(Intent)
 
-      assert notice == Ankole.I18n.t("signals_gateway.reply.unmapped_sender")
+      assert notice == Ankole.I18n.t("conversations.delivery.reply.unmapped_sender")
 
       %{principal: human} = human_fixture()
       assert {:ok, _mapping} = MappingRequests.bind_request(request.id, human.uid)
@@ -495,21 +506,21 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       # The webhook answer carries the pending observation; the download runs
       # after it, so the durable ID exists before any bytes move.
-      assert %Entry{attachments: [pending]} = result.signal_entry
+      assert %{attachments: [pending]} = observation_snapshot(result.message_observation)
       assert is_integer(pending["attachment_id"])
       refute pending["materialization_state"] == "complete"
 
       assert eventually(fn -> complete?(@channel_id, photo["id"]) end)
 
-      %Entry{attachments: [attachment]} =
-        Repo.get_by(Entry, signal_channel_id: @channel_id, source_entry_id: photo["id"])
+      %{attachments: [attachment]} =
+        message_snapshot(conversation_id: @channel_id, provider_message_id: photo["id"])
 
       assert attachment["attachment_id"] == pending["attachment_id"]
       assert attachment["mimetype"] == "image/jpeg"
 
       assert_stored_attachment!(
         agent.uid,
-        @channel_id,
+        external_conversation_id(@channel_id),
         attachment,
         "attachment",
         "image-media-photo.jpg"
@@ -529,7 +540,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                  consumer(agent.uid, "wa-media")
                ])
 
-      assert %Entry{attachments: [kept]} = redelivered.signal_entry
+      assert %{attachments: [kept]} = observation_snapshot(redelivered.message_observation)
       assert kept["materialization_state"] == "complete"
       assert kept["blob_ref"] == attachment["blob_ref"]
       refute_received {:whatsapp_request, "/media/media-photo/bytes"}
@@ -562,8 +573,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert eventually(fn -> restricted?(@channel_id, large["id"]) end)
 
-      %Entry{attachments: [attachment]} =
-        Repo.get_by(Entry, signal_channel_id: @channel_id, source_entry_id: large["id"])
+      %{attachments: [attachment]} =
+        message_snapshot(conversation_id: @channel_id, provider_message_id: large["id"])
 
       assert attachment["restriction"] =~ "25 MB"
       refute Map.has_key?(attachment, "blob_ref")
@@ -591,8 +602,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       # The pending observation is already durable, so the redelivery fetches
       # the bytes instead of losing them.
-      assert %Entry{attachments: [pending], metadata: metadata} =
-               Repo.get_by(Entry, signal_channel_id: @channel_id, source_entry_id: photo["id"])
+      assert %{attachments: [pending], metadata: metadata} =
+               message_snapshot(conversation_id: @channel_id, provider_message_id: photo["id"])
 
       assert metadata["attachment_materialization"]["state"] == "pending"
       assert is_integer(pending["attachment_id"])
@@ -609,6 +620,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                Presentation.action_message(presentation, event.id, "Deploy to production?")
 
       assert_valid_interactive!(Presentation.action_message(presentation, event.id, "Deploy?"))
+
       assert [first_button, second_button] = interactive["action"]["buttons"]
       assert first_button["type"] == "reply"
 
@@ -631,8 +643,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       # wrong message cannot pass by accident.
       stub_typed_sends(parent)
 
-      assert {:ok, %{created_source_entry_id: "wamid.text-1", payload: payload}} =
-               Outbox.send(card_row(agent, "wa-buttons", event, presentation))
+      assert {:ok, %{created_provider_message_id: "wamid.text-1", payload: payload}} =
+               Delivery.deliver(card_row(agent, "wa-buttons", event, presentation))
 
       assert payload["whatsapp_message_ids"] == ["wamid.text-1", "wamid.card-1"]
       assert_received {:sent, %{"type" => "text"}}
@@ -640,13 +652,13 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       # The buttons live on the interactive message, so that message is the
       # surface, not the text chunk the gateway records as the created entry.
-      assert %ActorEvent{reply_preview_source_entry_id: "wamid.card-1"} =
-               Repo.get!(ActorEvent, event.id)
+      assert %Ankole.Conversations.Delivery.PreviewState{provider_message_id: "wamid.card-1"} =
+               Ankole.Conversations.Delivery.PreviewState.get(event.id)
 
       bind_operator!()
       consumer = consumer(agent.uid, "wa-buttons")
 
-      assert {:ok, [%{status: :accepted, actor_event: action_event}]} =
+      assert {:ok, [%{status: :accepted, signal: action_event}]} =
                Inbound.handle_card_action(
                  "interactive",
                  envelope(interactive_message("button_reply", token, "wamid.card-1")),
@@ -689,6 +701,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                Presentation.action_message(presentation, event.id, "Deploy to production?")
 
       assert_valid_interactive!(Presentation.action_message(presentation, event.id, "Deploy?"))
+
       assert [%{"rows" => rows}] = list["action"]["sections"]
       assert length(rows) == 5
       assert Enum.map(rows, & &1["title"]) |> Enum.uniq() |> length() == 5
@@ -696,22 +709,24 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       # A cut title keeps its full text in the row description.
       assert List.first(rows)["description"] == "Approve the deployment option 1"
-      assert list["action"]["button"] == Ankole.I18n.t("signals_gateway.reply.choose_option")
+
+      assert list["action"]["button"] ==
+               Ankole.I18n.t("conversations.delivery.reply.choose_option")
 
       stub_typed_sends(parent)
 
-      assert {:ok, %{created_source_entry_id: "wamid.text-1"}} =
-               Outbox.send(card_row(agent, "wa-list", event, presentation))
+      assert {:ok, %{created_provider_message_id: "wamid.text-1"}} =
+               Delivery.deliver(card_row(agent, "wa-list", event, presentation))
 
       assert_received {:sent, %{"type" => "interactive"}}
 
-      assert %ActorEvent{reply_preview_source_entry_id: "wamid.card-1"} =
-               Repo.get!(ActorEvent, event.id)
+      assert %Ankole.Conversations.Delivery.PreviewState{provider_message_id: "wamid.card-1"} =
+               Ankole.Conversations.Delivery.PreviewState.get(event.id)
 
       bind_operator!()
       token = rows |> Enum.at(2) |> Map.fetch!("id")
 
-      assert {:ok, [%{status: :accepted, actor_event: action_event}]} =
+      assert {:ok, [%{status: :accepted, signal: action_event}]} =
                Inbound.handle_card_action(
                  "interactive",
                  envelope(interactive_message("list_reply", token, "wamid.card-1")),
@@ -753,6 +768,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       # Nothing was cut, so the body stays the prompt alone.
       assert interactive["body"]["text"] == "Ship it?"
+
       assert_valid_interactive!(Presentation.action_message(presentation, event_id, "Ship it?"))
     end
   end
@@ -761,17 +777,17 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
     test "splits long text, quotes only a reply, and renders a divider" do
       target = %{phone_number_id: @phone_number_id, wa_id: @wa_id}
 
-      base = %OutboxEntry{
+      base = %Intent{
         agent_uid: "agent-a",
         binding_name: "wa-out",
         outbound_key: "out-1",
         operation: :post,
-        signal_channel_id: @channel_id,
+        conversation_id: external_conversation_id(@channel_id),
         payload: %{},
         fallback_visible_text: "hello"
       }
 
-      assert {:ok, [post]} = Outbox.messages(base, target, [])
+      assert {:ok, [post]} = Delivery.messages(base, target, [])
       assert post["messaging_product"] == "whatsapp"
       assert post["recipient_type"] == "individual"
       assert post["to"] == @wa_id
@@ -780,8 +796,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       refute Map.has_key?(post, "context")
 
       assert {:ok, [reply]} =
-               Outbox.messages(
-                 %{base | operation: :reply, reply_to_source_entry_id: "wamid.human-1"},
+               Delivery.messages(
+                 %{base | operation: :reply, reply_to_provider_message_id: "wamid.human-1"},
                  target,
                  []
                )
@@ -791,13 +807,13 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       long = String.duplicate("あ", 4_097)
 
       assert {:ok, [first, second]} =
-               Outbox.messages(%{base | fallback_visible_text: long}, target, [])
+               Delivery.messages(%{base | fallback_visible_text: long}, target, [])
 
       assert String.length(first["text"]["body"]) == 4_096
       assert String.length(second["text"]["body"]) == 1
 
       assert {:ok, [divider]} =
-               Outbox.messages(
+               Delivery.messages(
                  %{base | operation: :divider, fallback_visible_text: ""},
                  target,
                  []
@@ -805,8 +821,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert divider["text"]["body"] == "────────"
 
-      assert {:error, :unsupported_outbox_operation} =
-               Outbox.messages(%{base | operation: :edit}, target, [])
+      assert {:error, :unsupported_intent_operation} =
+               Delivery.messages(%{base | operation: :edit}, target, [])
     end
 
     test "uploads an attachment and sends it as the typed media message" do
@@ -826,11 +842,11 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
         end
       end)
 
-      outbox =
-        attachment_outbox(agent.uid, "wa-files", "report.pdf", "application/pdf", 12, blob_ref)
+      intent =
+        attachment_intent(agent.uid, "wa-files", "report.pdf", "application/pdf", 12, blob_ref)
 
-      assert {:ok, %{created_source_entry_id: "wamid.file-1", payload: payload}} =
-               Outbox.send(outbox)
+      assert {:ok, %{created_provider_message_id: "wamid.file-1", payload: payload}} =
+               Delivery.deliver(intent)
 
       assert payload["whatsapp_message_ids"] == ["wamid.file-1"]
       assert_received {:request, upload_path, upload_body}
@@ -851,8 +867,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert {:error,
               {:reply_delivery, :permanent, %{"code" => "outbound_attachment_unsupported"}}} =
-               Outbox.send(
-                 attachment_outbox(
+               Delivery.deliver(
+                 attachment_intent(
                    agent.uid,
                    "wa-unsupported",
                    "archive.zip",
@@ -863,8 +879,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       assert {:error,
               {:reply_delivery, :permanent, %{"code" => "outbound_attachment_unsupported"}}} =
-               Outbox.send(
-                 attachment_outbox(
+               Delivery.deliver(
+                 attachment_intent(
                    agent.uid,
                    "wa-unsupported",
                    "huge.jpg",
@@ -878,12 +894,12 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       %{principal: agent} = agent_fixture()
       assert {:ok, _binding} = put_whatsapp_binding(agent.uid, "wa-errors")
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: agent.uid,
         binding_name: "wa-errors",
         outbound_key: "errors-1",
         operation: :post,
-        signal_channel_id: @channel_id,
+        conversation_id: external_conversation_id(@channel_id),
         payload: %{},
         fallback_visible_text: "hello"
       }
@@ -900,39 +916,43 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       stub_error.(401, 190)
 
-      assert {:error, {:reply_delivery, :operator_action_required, detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :operator_action_required, detail}} =
+               Delivery.deliver(intent)
+
       assert detail["code"] == 190
       assert detail["status"] == 401
       refute detail["message"] =~ @access_token
 
       stub_error.(429, 130_429)
-      assert {:error, {:reply_delivery, :retryable, _detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :retryable, _detail}} = Delivery.deliver(intent)
 
       stub_error.(400, 131_056)
-      assert {:error, {:reply_delivery, :retryable, _detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :retryable, _detail}} = Delivery.deliver(intent)
 
       stub_error.(400, 131_000)
-      assert {:error, {:reply_delivery, :retryable, _detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :retryable, _detail}} = Delivery.deliver(intent)
 
       stub_error.(400, 131_016)
-      assert {:error, {:reply_delivery, :retryable, _detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :retryable, _detail}} = Delivery.deliver(intent)
 
       stub_error.(400, 131_048)
-      assert {:error, {:reply_delivery, :operator_action_required, _detail}} = Outbox.send(outbox)
+
+      assert {:error, {:reply_delivery, :operator_action_required, _detail}} =
+               Delivery.deliver(intent)
 
       stub_error.(400, 131_047)
-      assert {:error, {:reply_delivery, :permanent, _detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :permanent, _detail}} = Delivery.deliver(intent)
 
       stub_error.(400, 100)
-      assert {:error, {:reply_delivery, :permanent, _detail}} = Outbox.send(outbox)
+      assert {:error, {:reply_delivery, :permanent, _detail}} = Delivery.deliver(intent)
 
       # A send has no idempotency key and no read-back, so an uncertain answer
       # never becomes a plain retry.
       stub_error.(500, nil)
-      assert :unknown = Outbox.send(outbox)
+      assert :unknown = Delivery.deliver(intent)
 
       Req.Test.stub(__MODULE__, fn conn -> Req.Test.transport_error(conn, :timeout) end)
-      assert :unknown = Outbox.send(outbox)
+      assert :unknown = Delivery.deliver(intent)
     end
 
     test "a failure after one message of a split reply landed is unknown" do
@@ -952,17 +972,17 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
         end
       end)
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: agent.uid,
         binding_name: "wa-partial",
         outbound_key: "partial-1",
         operation: :post,
-        signal_channel_id: @channel_id,
+        conversation_id: external_conversation_id(@channel_id),
         payload: %{},
         fallback_visible_text: String.duplicate("a", 4_097)
       }
 
-      assert :unknown = Outbox.send(outbox)
+      assert :unknown = Delivery.deliver(intent)
       assert Agent.get(counter, & &1) == 2
     end
   end
@@ -983,39 +1003,40 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                  consumer(agent.uid, "wa-window")
                ])
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: agent.uid,
         binding_name: "wa-window",
         outbound_key: "window-1",
         operation: :post,
-        signal_channel_id: @channel_id,
+        conversation_id: external_conversation_id(@channel_id),
         payload: %{},
         fallback_visible_text: "answer"
       }
 
-      assert {:ok, %{created_source_entry_id: "wamid.window-1"}} = Outbox.send(outbox)
+      assert {:ok, %{created_provider_message_id: "wamid.window-1"}} = Delivery.deliver(intent)
       assert_received {:sent, _path}
 
-      entry = Repo.get_by!(Entry, signal_channel_id: @channel_id)
+      entry = message_snapshot!(conversation_id: @channel_id)
 
       Repo.update_all(
-        from(row in Entry, where: row.document_id == ^entry.document_id),
+        from(row in Ankole.Conversations.ExternalMessageRef, where: row.message_id == ^entry.id),
         set: [provider_time: DateTime.add(DateTime.utc_now(:microsecond), -25 * 3600, :second)]
       )
 
       assert {:error,
               {:reply_delivery, :permanent, %{"code" => "customer_service_window_closed"}}} =
-               Outbox.send(%{outbox | outbound_key: "window-2"})
+               Delivery.deliver(%{intent | outbound_key: "window-2"})
 
       refute_received {:sent, _path}
 
       # A channel that holds no human message, such as the one that carries the
       # held-sender notice, never had a window to close.
-      assert {:ok, %{created_source_entry_id: "wamid.window-1"}} =
-               Outbox.send(%{
-                 outbox
+      assert {:ok, %{created_provider_message_id: "wamid.window-1"}} =
+               Delivery.deliver(%{
+                 intent
                  | outbound_key: "window-3",
-                   signal_channel_id: "whatsapp:#{@phone_number_id}:14155550000"
+                   conversation_id:
+                     external_conversation_id("whatsapp:#{@phone_number_id}:14155550000")
                })
 
       assert_received {:sent, _path}
@@ -1026,8 +1047,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       %{agent: agent, event: event, presentation: presentation} = clarification("wa-reopen", 2)
       stub_typed_sends(parent)
 
-      assert {:ok, %{created_source_entry_id: "wamid.text-1"}} =
-               Outbox.send(card_row(agent, "wa-reopen", event, presentation))
+      assert {:ok, %{created_provider_message_id: "wamid.text-1"}} =
+               Delivery.deliver(card_row(agent, "wa-reopen", event, presentation))
 
       token = first_button_token(presentation, event.id)
 
@@ -1035,12 +1056,12 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       # with a platform subject is a human message to the pre-check.
       insert_aged_human_entry!(@channel_id, 25)
 
-      follow_up = %OutboxEntry{
+      follow_up = %Intent{
         agent_uid: agent.uid,
         binding_name: "wa-reopen",
         outbound_key: "reopen-1",
         operation: :post,
-        signal_channel_id: @channel_id,
+        conversation_id: external_conversation_id(@channel_id),
         payload: %{},
         fallback_visible_text: "answer"
       }
@@ -1049,7 +1070,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       # write first.
       assert {:error,
               {:reply_delivery, :permanent, %{"code" => "customer_service_window_closed"}}} =
-               Outbox.send(follow_up)
+               Delivery.deliver(follow_up)
 
       bind_operator!()
 
@@ -1062,13 +1083,13 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
 
       # Meta counts that tap as a user action, and so does the pre-check: the
       # channel now carries the time WhatsApp reported for it.
-      assert %Channel{metadata: %{"last_interactive_reply_at" => tapped_at}} =
-               Repo.get_by(Channel, id: @channel_id)
+      assert %Conversation{metadata: %{"last_interactive_reply_at" => tapped_at}} =
+               Repo.get_by(Conversation, provider_conversation_id: @channel_id)
 
       assert {:ok, _at, _offset} = DateTime.from_iso8601(tapped_at)
 
-      assert {:ok, %{created_source_entry_id: "wamid.text-1"}} =
-               Outbox.send(%{follow_up | outbound_key: "reopen-2"})
+      assert {:ok, %{created_provider_message_id: "wamid.text-1"}} =
+               Delivery.deliver(%{follow_up | outbound_key: "reopen-2"})
     end
 
     test "a redelivered tap keeps the time WhatsApp reported" do
@@ -1076,8 +1097,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       %{agent: agent, event: event, presentation: presentation} = clarification("wa-late", 2)
       stub_typed_sends(parent)
 
-      assert {:ok, %{created_source_entry_id: "wamid.text-1"}} =
-               Outbox.send(card_row(agent, "wa-late", event, presentation))
+      assert {:ok, %{created_provider_message_id: "wamid.text-1"}} =
+               Delivery.deliver(card_row(agent, "wa-late", event, presentation))
 
       # Drain the card's own two messages, so the refutation below can only
       # catch a follow-up the pre-check should have stopped.
@@ -1102,19 +1123,19 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert {:ok, [%{status: :accepted}]} =
                Inbound.handle_card_action("interactive", envelope(tap), [consumer])
 
-      follow_up = %OutboxEntry{
+      follow_up = %Intent{
         agent_uid: agent.uid,
         binding_name: "wa-late",
         outbound_key: "late-1",
         operation: :post,
-        signal_channel_id: @channel_id,
+        conversation_id: external_conversation_id(@channel_id),
         payload: %{},
         fallback_visible_text: "answer"
       }
 
       assert {:error,
               {:reply_delivery, :permanent, %{"code" => "customer_service_window_closed"}}} =
-               Outbox.send(follow_up)
+               Delivery.deliver(follow_up)
 
       refute_received {:sent, %{"type" => "text"}}
 
@@ -1123,14 +1144,14 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert {:ok, [%{status: :duplicate_action}]} =
                Inbound.handle_card_action("interactive", envelope(tap), [consumer])
 
-      assert %Channel{metadata: %{"last_interactive_reply_at" => kept}} =
-               Repo.get_by(Channel, id: @channel_id)
+      assert %Conversation{metadata: %{"last_interactive_reply_at" => kept}} =
+               Repo.get_by(Conversation, provider_conversation_id: @channel_id)
 
       assert {:ok, ^tapped_at, _offset} = DateTime.from_iso8601(kept)
 
       assert {:error,
               {:reply_delivery, :permanent, %{"code" => "customer_service_window_closed"}}} =
-               Outbox.send(%{follow_up | outbound_key: "late-2"})
+               Delivery.deliver(%{follow_up | outbound_key: "late-2"})
     end
 
     test "a redelivered older tap cannot move the window back" do
@@ -1138,8 +1159,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       %{agent: agent, event: event, presentation: presentation} = clarification("wa-monotonic", 2)
       stub_typed_sends(parent)
 
-      assert {:ok, %{created_source_entry_id: "wamid.text-1"}} =
-               Outbox.send(card_row(agent, "wa-monotonic", event, presentation))
+      assert {:ok, %{created_provider_message_id: "wamid.text-1"}} =
+               Delivery.deliver(card_row(agent, "wa-monotonic", event, presentation))
 
       assert_received {:sent, %{"type" => "text"}}
       assert_received {:sent, %{"type" => "interactive"}}
@@ -1156,8 +1177,8 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
                  [consumer]
                )
 
-      assert %Channel{metadata: %{"last_interactive_reply_at" => fresh}} =
-               Repo.get_by(Channel, id: @channel_id)
+      assert %Conversation{metadata: %{"last_interactive_reply_at" => fresh}} =
+               Repo.get_by(Conversation, provider_conversation_id: @channel_id)
 
       # Meta delivers an older tap afterwards. The fact is monotonic, so the
       # window the fresh tap opened stays open.
@@ -1174,20 +1195,20 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       assert {:ok, [%{status: :duplicate_action}]} =
                Inbound.handle_card_action("interactive", envelope(stale_tap), [consumer])
 
-      assert %Channel{metadata: %{"last_interactive_reply_at" => ^fresh}} =
-               Repo.get_by(Channel, id: @channel_id)
+      assert %Conversation{metadata: %{"last_interactive_reply_at" => ^fresh}} =
+               Repo.get_by(Conversation, provider_conversation_id: @channel_id)
 
-      follow_up = %OutboxEntry{
+      follow_up = %Intent{
         agent_uid: agent.uid,
         binding_name: "wa-monotonic",
         outbound_key: "monotonic-1",
         operation: :post,
-        signal_channel_id: @channel_id,
+        conversation_id: external_conversation_id(@channel_id),
         payload: %{},
         fallback_visible_text: "answer"
       }
 
-      assert {:ok, %{created_source_entry_id: "wamid.text-1"}} = Outbox.send(follow_up)
+      assert {:ok, %{created_provider_message_id: "wamid.text-1"}} = Delivery.deliver(follow_up)
       assert_received {:sent, %{"type" => "text"}}
     end
 
@@ -1201,45 +1222,52 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
         Req.Test.json(conn, %{"messages" => [%{"id" => "wamid.moved-1"}]})
       end)
 
-      outbox = %OutboxEntry{
+      intent = %Intent{
         agent_uid: agent.uid,
         binding_name: "wa-moved",
         outbound_key: "moved-1",
         operation: :post,
-        signal_channel_id: Presentation.signal_channel_id(@other_phone_number_id, @wa_id),
+        conversation_id:
+          external_conversation_id(Presentation.conversation_id(@other_phone_number_id, @wa_id)),
         payload: %{},
         fallback_visible_text: "answer"
       }
 
       assert {:error,
               {:reply_delivery, :operator_action_required,
-               %{"code" => "binding_phone_number_mismatch"}}} = Outbox.send(outbox)
+               %{"code" => "binding_phone_number_mismatch"}}} = Delivery.deliver(intent)
 
       refute_received {:sent, _path}
     end
   end
 
-  defp first_button_token(presentation, actor_event_id) do
+  defp first_button_token(presentation, signal_id) do
     presentation
-    |> Presentation.action_message(actor_event_id, "Deploy to production?")
+    |> Presentation.action_message(signal_id, "Deploy to production?")
     |> get_in(["interactive", "action", "buttons"])
     |> List.first()
     |> get_in(["reply", "id"])
   end
 
-  defp insert_aged_human_entry!(signal_channel_id, hours) do
+  defp insert_aged_human_entry!(conversation_id, hours) do
     at = DateTime.add(DateTime.utc_now(:microsecond), -hours * 3600, :second)
 
-    Repo.insert!(%Entry{
-      document_id: "aged-human-#{System.unique_integer([:positive])}",
-      signal_channel_id: signal_channel_id,
-      source_entry_id: "wamid.aged-#{System.unique_integer([:positive])}",
-      author: %{"platform_subject" => @wa_id, "provider" => "whatsapp"},
-      text: "an older question",
-      provider_time: at,
-      first_seen_at: at,
-      last_seen_at: at
-    })
+    {:ok, %{message: message}} =
+      Repo.transact(fn repo ->
+        Ankole.Conversations.External.observe_in_tx(
+          repo,
+          external_conversation_id(conversation_id),
+          %{
+            provider_message_id: "wamid.aged-#{System.unique_integer([:positive])}",
+            author: %{"platform_subject" => @wa_id, "provider" => "whatsapp"},
+            text: "an older question",
+            provider_time: at
+          },
+          at
+        )
+      end)
+
+    message
   end
 
   defp clarification(binding_name, action_count) do
@@ -1248,14 +1276,14 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
     assert {:ok, _binding} = put_whatsapp_binding(agent.uid, binding_name)
     now = DateTime.utc_now(:microsecond)
 
-    %{actor_event: %ActorEvent{} = event} =
-      emit_addressed_actor_event(
+    %{signal: %Signal{} = event} =
+      emit_addressed_signal(
         agent.uid,
         binding_name,
         %{
           source_event_id: "wamid.question-#{binding_name}",
-          signal_channel_id: @channel_id,
-          source_entry_id: "wamid.question-#{binding_name}",
+          provider_conversation_id: @channel_id,
+          provider_message_id: "wamid.question-#{binding_name}",
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "deploy?",
           explicit: true,
@@ -1266,23 +1294,25 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
       )
 
     presentation = pending_presentation(event.id, action_count)
-    checkpoint = ReplyInteractionState.initialize(%{}, presentation, now)
-    assert {:ok, _event} = Actors.put_reply_preview_checkpoint(event.id, checkpoint)
+    checkpoint = InteractionState.initialize(%{}, presentation, now)
+
+    assert {:ok, _event} =
+             PreviewState.put_checkpoint(event.id, checkpoint)
 
     %{agent: agent, event: event, presentation: presentation}
   end
 
   defp card_row(agent, binding_name, event, presentation) do
-    Repo.insert!(%OutboxEntry{
+    Repo.insert!(%Intent{
       agent_uid: agent.uid,
       binding_name: binding_name,
       outbound_key: "ai-reply:clarify-#{binding_name}",
       operation: :reply,
-      status: :created,
+      status: :pending,
       delivery_class: :durable_ai_reply,
-      signal_channel_id: @channel_id,
-      reply_to_source_entry_id: "wamid.question-#{binding_name}",
-      source_actor_event_id: event.id,
+      conversation_id: external_conversation_id(@channel_id),
+      reply_to_provider_message_id: "wamid.question-#{binding_name}",
+      source_signal_id: event.id,
       payload: %{"reply_presentation" => presentation},
       fallback_visible_text: "Deploy to production?"
     })
@@ -1354,7 +1384,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
     end
   end
 
-  defp presentation_with_labels(actor_event_id, labels) do
+  defp presentation_with_labels(signal_id, labels) do
     actions =
       labels
       |> Enum.with_index(1)
@@ -1364,7 +1394,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
           "id" => "option-#{index}",
           "label" => label,
           "interaction_id" => "interaction-1",
-          "source_actor_event_id" => actor_event_id,
+          "source_signal_id" => signal_id,
           "control_id" => "control-#{index}",
           "selected_option_id" => "option-#{index}",
           "option_value" => "value-#{index}",
@@ -1380,7 +1410,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
     })
   end
 
-  defp pending_presentation(actor_event_id, count) do
+  defp pending_presentation(signal_id, count) do
     actions =
       for index <- 1..count do
         %{
@@ -1388,7 +1418,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
           "id" => "option-#{index}",
           "label" => "Approve the deployment option #{index}",
           "interaction_id" => "interaction-1",
-          "source_actor_event_id" => actor_event_id,
+          "source_signal_id" => signal_id,
           "control_id" => "control-#{index}",
           "selected_option_id" => "option-#{index}",
           "option_value" => "value-#{index}",
@@ -1404,7 +1434,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
     })
   end
 
-  defp attachment_outbox(
+  defp attachment_intent(
          agent_uid,
          binding_name,
          name,
@@ -1412,12 +1442,12 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
          size,
          blob_ref \\ String.duplicate("ab", 32)
        ) do
-    %OutboxEntry{
+    %Intent{
       agent_uid: agent_uid,
       binding_name: binding_name,
       outbound_key: "attachment-#{name}",
       operation: :post,
-      signal_channel_id: @channel_id,
+      conversation_id: external_conversation_id(@channel_id),
       payload: %{
         "attachments" => [
           %{
@@ -1433,15 +1463,15 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
     }
   end
 
-  defp complete?(channel_id, source_entry_id),
-    do: attachment_state?(channel_id, source_entry_id, "complete")
+  defp complete?(channel_id, provider_message_id),
+    do: attachment_state?(channel_id, provider_message_id, "complete")
 
-  defp restricted?(channel_id, source_entry_id),
-    do: attachment_state?(channel_id, source_entry_id, "provider_download_limit")
+  defp restricted?(channel_id, provider_message_id),
+    do: attachment_state?(channel_id, provider_message_id, "provider_download_limit")
 
-  defp attachment_state?(channel_id, source_entry_id, state) do
-    case Repo.get_by(Entry, signal_channel_id: channel_id, source_entry_id: source_entry_id) do
-      %Entry{attachments: [%{"materialization_state" => ^state}]} -> true
+  defp attachment_state?(channel_id, provider_message_id, state) do
+    case message_snapshot(conversation_id: channel_id, provider_message_id: provider_message_id) do
+      %{attachments: [%{"materialization_state" => ^state}]} -> true
       _other -> false
     end
   end
@@ -1457,7 +1487,7 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   end
 
   defp put_whatsapp_binding(agent_uid, name, attrs \\ %{}) do
-    SignalsGateway.put_binding(
+    Ankole.Signals.Bindings.put_binding(
       agent_uid,
       "whatsapp",
       name,

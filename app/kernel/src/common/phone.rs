@@ -2,7 +2,6 @@ use rlibphonenumber::{PHONE_NUMBER_UTIL, PhoneNumberFormat};
 
 use super::{KernelError, KernelResult};
 
-/// Parses and validates an international phone number, then returns E.164 text.
 pub fn phone_normalize_e164(phone: &str) -> KernelResult<String> {
     let parsed = PHONE_NUMBER_UTIL
         .parse(phone, None)

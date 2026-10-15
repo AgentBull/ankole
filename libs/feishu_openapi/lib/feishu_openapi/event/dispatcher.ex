@@ -139,10 +139,6 @@ defmodule FeishuOpenAPI.Event.Dispatcher do
     |> route_result(d)
   end
 
-  # --- internals -----------------------------------------------------------
-
-  # verify_*/2 already separated the outcomes; forward challenge/error untouched
-  # and only routing a verified event needs handler lookup.
   defp route_result({:ok, %Event{} = event}, %__MODULE__{} = d), do: route(d, event)
   defp route_result({:challenge, _} = challenge, _d), do: challenge
   defp route_result({:error, _} = err, _d), do: err

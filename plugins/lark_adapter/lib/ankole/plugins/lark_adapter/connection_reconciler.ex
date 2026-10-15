@@ -11,9 +11,13 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     registry: Ankole.Plugins.LarkAdapter.ConnectionRegistry,
     supervisor: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.Plugins.LarkAdapter.{Config, Dispatcher, IdentityProvider, Inbound}
-  alias Ankole.SignalsGateway.{AdapterContext, Binding}
+  alias Ankole.Signals.Bindings
+  alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.Plugins.LarkAdapter.Dispatcher
+  alias Ankole.Plugins.LarkAdapter.IdentityProvider
+  alias Ankole.Plugins.LarkAdapter.Inbound
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.Binding
 
   @impl true
   def binding_spec(%Binding{} = binding, opts) do

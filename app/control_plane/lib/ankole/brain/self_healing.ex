@@ -14,14 +14,14 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
   alias Ankole.Brain.Embeddings
-  alias Ankole.Brain.Jobs.ProcessChannelSlice
+  alias Ankole.Brain.Jobs.ProcessConversationSlice
   alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.Objects
   alias Ankole.Brain.OIDCClientLearning
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.SignalsLearning
+  alias Ankole.Brain.ConversationsLearning
   alias Ankole.Logging
   alias Ankole.Repo
 
@@ -191,8 +191,8 @@ defmodule Ankole.Brain.SelfHealing do
   end
 
   defp sweep_idle_channels do
-    slices = SignalsLearning.idle_pending_slices()
-    Enum.each(slices, &ProcessChannelSlice.enqueue(&1.channel_id))
+    slices = ConversationsLearning.idle_pending_slices()
+    Enum.each(slices, &ProcessConversationSlice.enqueue(&1.conversation_id))
     length(slices)
   end
 end

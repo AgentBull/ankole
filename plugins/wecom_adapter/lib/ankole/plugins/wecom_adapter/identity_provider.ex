@@ -169,8 +169,6 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
     end
   end
 
-  # directory sync
-
   defp ensure_department_groups(provider_id, departments) do
     departments
     |> Enum.reject(&root_department?/1)
@@ -229,8 +227,6 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
     end)
   end
 
-  # department groups
-
   defp ensure_department_group(provider_id, department) when is_map(department) do
     with {:ok, department_id} <- department_id(department),
          {:ok, _group} <-
@@ -281,8 +277,6 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
       _other -> {:error, :missing_department_id}
     end
   end
-
-  # field helpers
 
   defp user_id(user) do
     case optional_text(user, "userid") do

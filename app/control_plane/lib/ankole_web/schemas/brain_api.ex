@@ -540,7 +540,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           audience_scope: %Schema{type: :string},
           author: %Schema{allOf: [ActorRef], nullable: true},
           object_slug: %Schema{type: :string, nullable: true},
-          signal_gateway_channel_id: %Schema{type: :string, nullable: true},
+          conversation_id: %Schema{type: :string, format: :uuid, nullable: true},
           notability: %Schema{type: :string, nullable: true},
           confidence: %Schema{type: :number, nullable: true},
           valid_from: %Schema{type: :string, nullable: true},
@@ -1236,7 +1236,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           since_date: %Schema{type: :string, nullable: true},
           until_date: %Schema{type: :string, nullable: true},
           object_slug: %Schema{type: :string, nullable: true},
-          signal_gateway_channel_id: %Schema{type: :string, nullable: true},
+          conversation_id: %Schema{type: :string, format: :uuid, nullable: true},
           provenance: %Schema{type: :string, nullable: true},
           audience_scope: %Schema{type: :string}
         },

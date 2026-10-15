@@ -11,9 +11,12 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionReconciler do
     supervisor: Ankole.Plugins.WeComAdapter.ConnectionDynamicSupervisor,
     conflict_reason: :conflicting_bot_secret
 
-  alias Ankole.SignalsGateway.Bindings
-  alias Ankole.Plugins.WeComAdapter.{Config, ConnectionOwner, Inbound}
-  alias Ankole.SignalsGateway.{AdapterContext, Binding}
+  alias Ankole.Signals.Bindings
+  alias Ankole.Plugins.WeComAdapter.Config
+  alias Ankole.Plugins.WeComAdapter.ConnectionOwner
+  alias Ankole.Plugins.WeComAdapter.Inbound
+  alias Ankole.Conversations.AdapterContext
+  alias Ankole.Signals.Binding
 
   @impl true
   def binding_spec(%Binding{} = binding, _opts) do

@@ -406,7 +406,6 @@ export function FormSection({
   )
 }
 
-/** Labeled form field with optional helper text and inline validation error. */
 export function LabeledField({
   children,
   description,

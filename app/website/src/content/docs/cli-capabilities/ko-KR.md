@@ -37,9 +37,9 @@ Agent는 작업 공간에 디렉터리 하나를 만들고 `main.ts`를 추가�
 
 각 attempt는 최신 Agent WorkerEnv와, 현재 활성화된 Skill에서 생성된 호출 범위의 `MCPORTER_CONFIG`를 받습니다. Worker는 스크립트가 어떤 server를 쓸지 예측하지 않습니다. 스크립트는 mcporter와 stdin JSON으로 선택된 MCP tool 하나를 호출할 수 있다. Automation은 Skill 지침을 읽지 않으며, 영구적인 Agent Home mcporter 구성을 사용하지 않습니다.
 
-run SDK는 `context()`와 `emitEvent(payload)`를 제공합니다. `context().event`는 직접 trigger가 ActorEvent로 추가했을 것과 같은 CloudEvents 엔벨로프입니다. 스크립트는 내보내지 않고 조용한 성공으로 끝내거나, `emitEvent`를 한 번 이상 호출하여 영구 `automation_job.emitted` 이벤트를 소유 세션에 추가할 수 있다.
+run SDK는 `context()`와 `emitEvent(payload)`를 제공합니다. `context().event`는 직접 trigger가 Signal로 추가했을 것과 같은 CloudEvents 엔벨로프입니다. 스크립트는 내보내지 않고 조용한 성공으로 끝내거나, `emitEvent`를 한 번 이상 호출하여 영구 `automation_job.emitted` 이벤트를 소유 세션에 추가할 수 있다.
 
-`context()`와 `emitEvent`는 플랫폼 run 안에서만 존재합니다. 직접 `bun main.ts` 실행은 이 함수들을 호출하지 않는 설정과 분기를 확인할 수 있다. 등록 후에는 모든 SDK 분기에 테스트 trigger를 사용하고 그 영구 run을 검사하세요. `emitEvent`는 stdout으로 폴백하지 않는다: ActorEvent가 영구 상태가 된 뒤에만 그 promise가 resolve된다.
+`context()`와 `emitEvent`는 플랫폼 run 안에서만 존재합니다. 직접 `bun main.ts` 실행은 이 함수들을 호출하지 않는 설정과 분기를 확인할 수 있다. 등록 후에는 모든 SDK 분기에 테스트 trigger를 사용하고 그 영구 run을 검사하세요. `emitEvent`는 stdout으로 폴백하지 않는다: Signal가 영구 상태가 된 뒤에만 그 promise가 resolve된다.
 
 모든 trigger 소비는 checkback을 청구하고, cron schedule을 진행시키고, webhook을 받아들이는 것과 같은 PostgreSQL 트랜잭션 안에서 영구 run을 만듭니다. 스크립트 예외, 0이 아닌 종료, 타임아웃은 종결적인 스크립트 결과이며 재시도되지 않습니다. Worker 손실은 인프라 장애다: run은 기존 Oban wake edge를 통해 새 fenced attempt를 받습니다. 리플레이는 스크립트 부작용을 반복할 수 있으므로 스크립트는 반복이 무해하도록 만들어야 한다.
 

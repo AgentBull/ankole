@@ -73,8 +73,8 @@ export function AgentFilesPage() {
       file.path,
       file.content_type,
       file.source,
-      file.signal_channel_id,
-      file.source_entry_id
+      file.conversation_id,
+      file.message_id
     )
   )
 
@@ -321,12 +321,10 @@ function PathRow({
         {file ? (
           <div className="space-y-1">
             <div>{t(`console.agent_files.source_${file.source}`)}</div>
-            {file.signal_channel_id ? (
-              <div>{t('console.agent_files.source_channel', { id: file.signal_channel_id })}</div>
+            {file.conversation_id ? (
+              <div>{t('console.agent_files.source_channel', { id: file.conversation_id })}</div>
             ) : null}
-            {file.source_entry_id ? (
-              <div>{t('console.agent_files.source_entry', { id: file.source_entry_id })}</div>
-            ) : null}
+            {file.message_id ? <div>{t('console.agent_files.source_entry', { id: file.message_id })}</div> : null}
           </div>
         ) : (
           t('console.agent_files.folder')

@@ -80,19 +80,19 @@ ssrf_filter = "When true, model-controlled URL fetches reject private, loopback,
 bootstrap_activation_code = "Current bootstrap activation code for the first-run setup session gate."
 completed = "Whether the Ankole deployment instance setup has completed."
 
-[app_configure.descriptions.signals_gateway]
+[app_configure.descriptions.signals]
 show_dead_letter_error_details = "When true, dead-letter notices sent to Signal channels include bounded, redacted Actor turn error details."
 
-[app_configure.descriptions.signals_gateway.dingtalk.bindings]
+[app_configure.descriptions.signals.dingtalk.bindings]
 "*" = "Encrypted DingTalk Channel Provider configuration."
 
-[app_configure.descriptions.signals_gateway.lark.bindings]
+[app_configure.descriptions.signals.lark.bindings]
 "*" = "Encrypted Lark / Feishu Channel Provider configuration."
 
-[app_configure.descriptions.signals_gateway.slack.bindings]
+[app_configure.descriptions.signals.slack.bindings]
 "*" = "Encrypted Slack Channel Provider configuration."
 
-[app_configure.descriptions.signals_gateway.teams.bindings]
+[app_configure.descriptions.signals.teams.bindings]
 "*" = "Encrypted Microsoft Teams Channel Provider configuration."
 
 [app_configure.descriptions.system]
@@ -1580,6 +1580,7 @@ source_entry = "Entry: {$id}"
 restore_tenant_description = "Remove the current tenant override for {$key}. The site value or declared default applies afterwards."
 
 [console.signals]
+adapter_group_event_source = "Event sources"
 adapter = "Adapter"
 adapter_group_consumer_im = "Consumer IM"
 adapter_group_enterprise_im = "Enterprise IM"
@@ -1599,6 +1600,9 @@ delivery_state_blocked = "Action required"
 delivery_state_exhausted = "Retry limit reached"
 delivery_state_permanent = "Provider rejected"
 delivery_state_unsupported = "Not supported by this channel"
+delivery_status_failed = "Failed"
+delivery_status_expired = "Expired"
+delivery_status_unknown = "Unknown delivery result"
 delivery_updated = "Updated"
 description = "Route messages and events from Channel Providers and other signal sources to an Agent."
 edit_hint = "View and edit this routing rule. Stored secrets are not loaded into the browser; leave a secret field blank to keep it."
@@ -1643,7 +1647,7 @@ anchor_hint = "ISO8601 instant the interval grid starts from."
 binding = "Routing rule"
 binding_empty = "No routing rule for this Agent yet"
 binding_empty_action = "Create a routing rule"
-binding_empty_hint = "A schedule delivers through a routing rule."
+binding_empty_hint = "A routing rule is needed for external conversations."
 binding_placeholder = "Select a routing rule"
 cancel = "Cancel checkback"
 cancel_description = "Cancel this pending checkback?"
@@ -1656,10 +1660,11 @@ deleted = "Schedule deleted."
 delete_description = "Delete schedule {$name}?"
 delete_title = "Delete schedule"
 add_delivery_target = "Add target"
-delivery_channel = "Delivery channel"
+delivery_conversation = "Delivery conversation ID"
+native_delivery = "Native conversation"
 delivery_target = "Target {$number}"
 delivery_targets = "Delivery targets"
-delivery_targets_hint = "The schedule runs once. Each target receives the same final result through its own durable delivery."
+delivery_targets_hint = "The schedule runs once. Each target conversation receives the same final result."
 delivery_thread = "Delivery thread"
 description = "Recurring schedules and one-shot checkbacks an Agent holds, across all of its sessions."
 due_at = "Due at"
@@ -1727,11 +1732,17 @@ timezone_hint = "IANA timezone. The control plane falls back to the system zone.
 title = "Schedules"
 
 [console.webhooks]
+create = "Create CloudEvents endpoint"
+create_description = "Create an authenticated event source, then add routing rules to select its Agents and targets."
+created_url = "Capability URL (shown once)"
+created_url_description = "Copy this URL before closing. The endpoint ID selects this source in routing rules."
+endpoint_id = "Endpoint ID"
+create_failed = "Could not create the endpoint."
 cancel = "Cancel endpoint"
 cancel_description = "Cancel {$label}? Its callback URL will stop accepting new deliveries."
 cancel_title = "Cancel webhook endpoint"
 cancelled = "Webhook endpoint cancelled."
-description = "Inspect and cancel callback capabilities an Agent created, across all of its sessions. Capability URLs are shown only when created."
+description = "Create CloudEvents sources and inspect or cancel Agent callback endpoints. Capability URLs are shown only when created."
 empty_description = "No live webhook endpoints. Include finished ones to see history."
 empty_title = "No webhook endpoints"
 expires_at = "Expires"
@@ -1740,7 +1751,7 @@ mode = "Mode"
 mode_one_shot = "One shot"
 mode_standing = "Standing"
 route = "Reply route"
-search_placeholder = "Search label, mode, status, binding, or channel"
+search_placeholder = "Search label, mode, status, binding or conversation"
 status = "Status"
 status_active = "Active"
 status_armed = "Armed"
@@ -2064,7 +2075,7 @@ steps = "Setup steps"
 title = "Ankole setup"
 validating_and_redirecting = "Validating and redirecting…"
 
-[signals_gateway.reply]
+[conversations.delivery.reply]
 tenant_suspended = "This tenant currently cannot start new work. Contact a site administrator before sending the request again. (actor-event::{$ref})"
 choose_option = "Choose"
 context_withdrawn = "A message used as context was withdrawn, so this reply stopped. Completed actions remain in effect. Send a new request to continue."
@@ -2098,7 +2109,7 @@ tool_call_completed = "Finished tool: {$tool}. Reading results."
 tool_call_started = "Calling tool: {$tool}"
 unmapped_sender = "This account is not linked to an Ankole user yet. Ask an administrator to bind it in the Ankole Console, then send your message again."
 
-[signals_gateway.reply.activity]
+[conversations.delivery.reply.activity]
 starting_computer = "The Agent computer is starting"
 resuming_computer = "The Agent computer is waking up"
 computer_retrying = "The Agent computer could not start and is retrying"
@@ -2205,7 +2216,7 @@ scheduled = "Scheduled"
 stopped = "Stopped"
 working = "Working…"
 
-[signals_gateway.cardkit]
+[conversations.delivery.cardkit]
 activity_title = "Progress"
 activity_title_current = "Progress · In progress: {$current}"
 activity_title_parallel = "Progress · In progress: {$current} among {$count} items"
@@ -2351,3 +2362,46 @@ new_site_admin = "New site administrator"
 choose_human = "Choose an active person"
 no_humans = "Create an active person in this tenant before transferring site administration."
 transfer_confirm = "Transfer site administration to { $name }? You will need to sign in as the new site administrator."
+
+[workplace.sidebar]
+title = "Workplace navigation"
+tabs_label = "Sidebar sections"
+collapse = "Hide sidebar"
+expand = "Show sidebar"
+sign_out = "Sign out"
+home_empty = "Nothing here yet."
+chat_empty = "No chats yet."
+
+[workplace.sidebar.tabs]
+home = "Home"
+chat = "Chat"
+
+[workplace.chat]
+new_title = "Start a conversation"
+new_conversation = "New conversation"
+loading_agents = "Loading Agents…"
+no_agents = "No active Agents are available. A tenant administrator can activate an Agent."
+loading_history = "Loading conversations…"
+history_failed = "Conversations could not be loaded."
+message_label = "Message"
+placeholder = "Message an Agent…"
+choose_agent = "Choose an Agent"
+send = "Send message"
+sending = "Sending…"
+send_failed = "Send not confirmed"
+retry_send = "Retry sending"
+retry_load = "Try again"
+draft_preserved = "The message and its IDs are kept. Retry to confirm sending."
+replying = "Replying…"
+retrying = "Replying · retry at { $time }"
+scroll_latest = "Scroll to latest message"
+reconnecting = "Reconnecting. Saved messages remain available."
+agent_unavailable = "This Agent is inactive. Past messages are available, but new messages cannot be sent."
+
+[workplace.chat.errors]
+agent_unavailable = "The Agent is inactive. New messages cannot be sent."
+conversation_not_found = "This conversation is unavailable or you do not have access."
+conversation_conflict = "These IDs were already used for a different message."
+invalid_id = "The conversation or message ID is invalid."
+invalid_text = "Enter a message that contains text."
+invalid_request = "The message request is invalid."

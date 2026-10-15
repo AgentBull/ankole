@@ -20,10 +20,10 @@ defmodule Ankole.E2E.ScheduleE2ETest do
 
   import Ankole.E2E.WaitHelpers,
     only: [
-      ai_messages_for_actor_event: 1,
+      ai_messages_for_signal: 1,
       deadline: 1,
-      wait_for_actor_event_dead_letter: 3,
-      wait_for_completed_actor_event_message: 3,
+      wait_for_signal_dead_letter: 3,
+      wait_for_completed_signal_message: 3,
       wait_until: 2
     ]
 
@@ -32,10 +32,10 @@ defmodule Ankole.E2E.ScheduleE2ETest do
   alias Ankole.E2E.FakeOpenAIState
   alias Ankole.Repo
   alias Ankole.Schedule
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.Channel
-  alias Ankole.SignalsGateway.Outbox
-  alias Ankole.SignalsGateway.OutboxEntry
+  alias Ankole.Signals.Signal
+  alias Ankole.Conversations.External
+  alias Ankole.Conversations.Delivery
+  alias Ankole.Conversations.Delivery.Intent
 
   setup do
     cleanup_committed_fixtures_on_exit!()
@@ -46,7 +46,8 @@ defmodule Ankole.E2E.ScheduleE2ETest do
   @tag ownership_timeout: 300_000
   @tag :human_offboarding
   test "Human revocation lets the admitted Worker attempt finish and prevents old work after restoration" do
-    alias Ankole.Principals.{HumanAccess, WorkCleanup}
+    alias Ankole.Principals.HumanAccess
+    alias Ankole.Principals.WorkCleanup
     ctx = start_worker_e2e_stack!()
     checkback = run_checkback_tool_loop(ctx)
     cron = run_cron_tool_loop(ctx)
@@ -65,7 +66,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
                create_time_ms: DateTime.to_unix(DateTime.add(base_time(), 30), :millisecond)
              )
 
-    input = actor_event_by_source_entry_id!(ctx.agent.uid, "om_offboarding_admitted")
+    input = signal_by_provider_message_id!(ctx.agent.uid, "om_offboarding_admitted")
     assert input.human_uid == uid
 
     assert {:ok, %{status: :driving}} =
@@ -79,9 +80,9 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     assert {:ok, %{running: 1}} = WorkCleanup.cleanup(uid, disabled.access_version)
 
     assert {:ok, _message} =
-             wait_for_completed_actor_event_message(ctx.container, input.id, deadline(60_000))
+             wait_for_completed_signal_message(ctx.container, input.id, deadline(60_000))
 
-    assert_actor_event_completed!(input.id)
+    assert_signal_completed!(input.id)
 
     assert Repo.get!(Ankole.Schedule.Schemas.ScheduledEvent, checkback.checkback.id).status ==
              "cancelled"
@@ -106,7 +107,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     finalize_due_inbound_batch_events!()
 
     refute Repo.exists?(
-             from e in ActorEvent, where: e.source_entry_id == "om_offboarding_blocked"
+             from e in Signal, where: e.provider_message_id == "om_offboarding_blocked"
            )
 
     {:ok, ticket} = Ankole.IdentityProviders.DirectoryAccess.begin_sync("lark-main")
@@ -156,16 +157,16 @@ defmodule Ankole.E2E.ScheduleE2ETest do
                create_time_ms: DateTime.to_unix(DateTime.add(base_time(), 32), :millisecond)
              )
 
-    fresh = actor_event_by_source_entry_id!(ctx.agent.uid, "om_offboarding_fresh")
+    fresh = signal_by_provider_message_id!(ctx.agent.uid, "om_offboarding_fresh")
     assert fresh.human_access_version == disabled.access_version
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(fresh, DateTime.add(fresh.available_at, 1))
 
     assert {:ok, _message} =
-             wait_for_completed_actor_event_message(ctx.container, fresh.id, deadline(60_000))
+             wait_for_completed_signal_message(ctx.container, fresh.id, deadline(60_000))
 
-    assert_actor_event_completed!(fresh.id)
+    assert_signal_completed!(fresh.id)
   end
 
   @tag timeout: 300_000
@@ -223,7 +224,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
       "oc_chaos_schedule_secondary"
     )
 
-    assert Enum.sort(Enum.map(cron_fire.outboxes, & &1.attempt_count)) == [1, 2]
+    assert Enum.sort(Enum.map(cron_fire.intents, & &1.attempt_count)) == [1, 2]
 
     counters = FakeOpenAIState.counters()
     assert counters[:checkback_tool] == 2
@@ -262,17 +263,15 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     fire_input = fire_cron_schedule!(schedule)
 
     assert {:ok, _message} =
-             wait_for_completed_actor_event_message(
+             wait_for_completed_signal_message(
                ctx.container,
                fire_input.id,
                deadline(60_000)
              )
 
-    assert Repo.get!(ActorEvent, fire_input.id).turn_outcome == "silent"
+    assert Repo.get!(Signal, fire_input.id).turn_outcome == "silent"
 
-    refute Repo.exists?(
-             from(entry in OutboxEntry, where: entry.source_actor_event_id == ^fire_input.id)
-           )
+    refute Repo.exists?(from(entry in Intent, where: entry.source_signal_id == ^fire_input.id))
 
     assert Enum.map(
              FakeFeishu.State.visible_messages(ctx.fake_feishu.state, "oc_chaos_schedule"),
@@ -295,17 +294,17 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     fire_input = fire_cron_schedule!(schedule)
 
     assert {:ok, failed} =
-             wait_for_actor_event_dead_letter(ctx.container, fire_input.id, deadline(60_000))
+             wait_for_signal_dead_letter(ctx.container, fire_input.id, deadline(60_000))
 
     assert is_nil(failed.completed_at)
-    assert failed.dead_letter_reason["code"] == "invalid_scheduled_reply"
+    assert failed.dead_letter_reason["code"] == "scheduled_turn_not_finished"
 
-    messages = ai_messages_for_actor_event(fire_input.id)
+    messages = ai_messages_for_signal(fire_input.id)
     assert [_command] = tool_call_items(messages, "command")
     assert command_tool_succeeded?(messages)
     assert FakeOpenAIState.counters()[:cron_invalid_result] == 3
 
-    assert {:ok, :idle} = Ankole.Conversations.Run.rebuild(fire_input)
+    assert {:ok, :idle} = Ankole.Sessions.Run.rebuild(fire_input)
 
     assert {:ok, %{status: :driving}} =
              ensure_input_driver!(fire_input, DateTime.utc_now(:microsecond))
@@ -313,20 +312,23 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     refute_receive {:fake_llm_request, :cron_invalid_result, _, _}, 1_000
 
     assert FakeOpenAIState.counters()[:cron_invalid_result] == 3
-    assert [_command] = tool_call_items(ai_messages_for_actor_event(fire_input.id), "command")
+    assert [_command] = tool_call_items(ai_messages_for_signal(fire_input.id), "command")
 
     notice =
-      Repo.get_by!(OutboxEntry,
-        source_actor_event_id: fire_input.id,
-        outbound_key: "ai-dead-letter:#{fire_input.id}"
+      Repo.one!(
+        from row in Intent,
+          where:
+            row.source_signal_id == ^fire_input.id and
+              fragment("?->'metadata'->>'source'", row.payload) ==
+                "session_dead_letter_notice"
       )
 
     expected_notice =
-      Ankole.I18n.t("signals_gateway.reply.dead_letter", %{"ref" => fire_input.id})
+      Ankole.I18n.t("conversations.delivery.reply.dead_letter", %{"ref" => fire_input.id})
 
     assert notice.fallback_visible_text == expected_notice
 
-    dispatch_and_assert_lark_outbox(
+    dispatch_and_assert_lark_intent(
       ctx.fake_feishu,
       notice,
       expected_notice,
@@ -352,36 +354,39 @@ defmodule Ankole.E2E.ScheduleE2ETest do
 
     # The route disappears after the schedule froze its target list. One
     # unreachable target must not cancel the others.
-    secondary_channel_id = "lark:oc_chaos_schedule_secondary"
-    assert %Channel{} = channel = Repo.get_by(Channel, id: secondary_channel_id)
-    assert {:ok, _deleted} = Repo.delete(channel)
+    secondary = External.get_conversation(Repo, "lark:oc_chaos_schedule_secondary")
+    assert secondary
+    Repo.delete!(ctx.record_binding)
+    assert {:ok, _preserved} = External.fetch_conversation(secondary.id)
 
     fire_input = fire_cron_schedule!(schedule)
 
     assert {:ok, message} =
-             wait_for_completed_actor_event_message(
+             wait_for_completed_signal_message(
                ctx.container,
                fire_input.id,
                deadline(60_000)
              )
 
-    assert {:ok, [_, _] = rows} =
+    assert {:ok, [_, _]} =
              wait_until(deadline(20_000), fn ->
                rows = final_reply_rows(fire_input.id, message.id)
                if length(rows) == 2, do: rows, else: nil
              end)
 
-    by_channel = Map.new(rows, &{&1.signal_channel_id, &1})
-    live = Map.fetch!(by_channel, "lark:oc_chaos_schedule")
-    gone = Map.fetch!(by_channel, secondary_channel_id)
+    run_intent_dispatch!()
+    rows = final_reply_rows(fire_input.id, message.id)
+    by_channel = Map.new(rows, &{&1.conversation_id, &1})
+    live = Map.fetch!(by_channel, External.get_conversation(Repo, "lark:oc_chaos_schedule").id)
+    gone = Map.fetch!(by_channel, secondary.id)
 
-    refute live.status == :unsupported
+    refute live.status == :failed
 
     # Terminal and named, not a row that waits for a retry that cannot help.
-    assert gone.status == :unsupported
+    assert gone.status == :failed
     assert gone.last_error["code"] == "unroutable_reply_route"
 
-    assert {:ok, stopped} = Outbox.list_stopped_deliveries(ctx.agent.uid)
+    assert {:ok, stopped} = Delivery.list_stopped_deliveries(ctx.agent.uid)
     assert Enum.any?(stopped, &(&1.outbound_key == gone.outbound_key))
   end
 
@@ -394,9 +399,12 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     cron = run_cron_tool_loop(ctx)
     schedule = configure_cron_fanout(ctx, cron.cron_schedule)
 
-    for channel_id <- ["lark:oc_chaos_schedule", "lark:oc_chaos_schedule_secondary"] do
-      assert %Channel{} = channel = Repo.get_by(Channel, id: channel_id)
-      assert {:ok, _deleted} = Repo.delete(channel)
+    for binding <- [ctx.primary_binding, ctx.record_binding] do
+      Repo.delete!(binding)
+    end
+
+    for provider_id <- ["lark:oc_chaos_schedule", "lark:oc_chaos_schedule_secondary"] do
+      assert External.get_conversation(Repo, provider_id)
     end
 
     fire_input = fire_cron_schedule!(schedule)
@@ -404,21 +412,23 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     # Nobody can receive the answer, but the run still ends and every route says
     # why, instead of leaving the Turn stuck.
     assert {:ok, _message} =
-             wait_for_completed_actor_event_message(
+             wait_for_completed_signal_message(
                ctx.container,
                fire_input.id,
                deadline(60_000)
              )
 
-    assert %ActorEvent{completed_at: %DateTime{}} = Repo.get(ActorEvent, fire_input.id)
+    assert %Signal{completed_at: %DateTime{}} = Repo.get(Signal, fire_input.id)
+
+    run_intent_dispatch!()
 
     rows =
-      OutboxEntry
-      |> where([row], row.source_actor_event_id == ^fire_input.id)
+      Intent
+      |> where([row], row.source_signal_id == ^fire_input.id)
       |> Repo.all()
 
     assert rows != []
-    assert Enum.all?(rows, &(&1.status == :unsupported))
+    assert Enum.all?(rows, &(&1.status == :failed))
   end
 
   defp fire_cron_schedule!(schedule) do
@@ -430,7 +440,7 @@ defmodule Ankole.E2E.ScheduleE2ETest do
                  do: :due
              end)
 
-    assert {:ok, %{status: :fired, actor_event: fire_input}} =
+    assert {:ok, %{status: :fired, signal: fire_input}} =
              Schedule.fire_cron(schedule.id)
 
     assert {:ok, %{status: :driving}} =
@@ -442,9 +452,9 @@ defmodule Ankole.E2E.ScheduleE2ETest do
     fire_input
   end
 
-  defp final_reply_rows(actor_event_id, ai_message_id) do
-    OutboxEntry
-    |> where([row], row.source_actor_event_id == ^actor_event_id)
+  defp final_reply_rows(signal_id, ai_message_id) do
+    Intent
+    |> where([row], row.source_signal_id == ^signal_id)
     |> where([row], row.ai_message_id == ^ai_message_id)
     |> Repo.all()
   end

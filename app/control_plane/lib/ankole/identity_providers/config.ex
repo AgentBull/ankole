@@ -89,7 +89,7 @@ defmodule Ankole.IdentityProviders.Config do
          {:ok, adapter} <- Ankole.IdentityProviders.fetch_adapter(next["adapter_id"]),
          {:ok, module} <- Ankole.IdentityProviders.adapter_module(adapter),
          {:ok, application} <-
-           Ankole.SignalsGateway.Bindings.resolve_platform_application(
+           Ankole.Signals.Bindings.resolve_platform_application(
              module,
              config,
              :identity_provider
@@ -97,7 +97,7 @@ defmodule Ankole.IdentityProviders.Config do
          {:ok, {activation_write, config_write}} <-
            Repo.transact(fn repo ->
              with :ok <-
-                    Ankole.SignalsGateway.Bindings.validate_platform_application_in_tx(
+                    Ankole.Signals.Bindings.validate_platform_application_in_tx(
                       repo,
                       application
                     ),
@@ -113,7 +113,7 @@ defmodule Ankole.IdentityProviders.Config do
                   {:ok, config_write} <-
                     AppConfigure.put_tenant_by_key_in_tx(repo, next["config_key"], config),
                   :ok <-
-                    Ankole.SignalsGateway.Bindings.record_platform_application_in_tx(
+                    Ankole.Signals.Bindings.record_platform_application_in_tx(
                       repo,
                       config_write,
                       application

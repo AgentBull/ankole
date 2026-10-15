@@ -37,11 +37,11 @@ The rest are optional and default to empty or nil when the module does not expor
 
 A plugin plugs into a subsystem through a named contract, and contract ids may contain dots so subsystems can namespace them. The contracts in actual use:
 
-- **`signals_gateway.adapter`** — declare a Signal adapter that SignalsGateway resolves into its adapter registry. This is how a new chat or event provider becomes available as a binding target.
-- **`signals_gateway.webhook_handler`** — declare a handler for the `/webhooks/v1/:handler_id/:instance_id/:kind` front door. The handler owns provider authentication and calls into ingress with a normalized fact.
+- **`signals.adapter`** — declare a Signal adapter that Signals resolves into its adapter registry. This is how a new chat or event provider becomes available as a binding target.
+- **`signals.webhook_handler`** — declare a handler for the `/webhooks/v1/:handler_id/:instance_id/:kind` front door. The handler owns provider authentication and calls into ingress with a normalized fact.
 - **`principals.identity_provider`** — declare an identity provider the operator can configure for admin sign-in.
 
-Contract-specific callback semantics stay with the subsystem that consumes the contract. The plugin registry only holds the generic adapter declaration envelope; the subsystem (`SignalsGateway.Adapters`, for example) reads the declarations for its own contract id and interprets them. That separation keeps the registry a dumb catalog and the subsystem the smart consumer.
+Contract-specific callback semantics stay with the subsystem that consumes the contract. The plugin registry only holds the generic adapter declaration envelope; the subsystem (`Signals.Adapters`, for example) reads the declarations for its own contract id and interprets them. That separation keeps the registry a dumb catalog and the subsystem the smart consumer.
 
 ## The enable boundary: next process start
 
@@ -74,6 +74,6 @@ They are not a runtime plugin store and not a way to ship code the operator has 
 
 ## Next steps
 
-- For the signal adapters a plugin can declare, read the [SignalsGateway](../signals-gateway/) page.
+- For the signal adapters a plugin can declare, read the [Signals](../signals/) page.
 - For the AppConfigure keys a plugin contributes, read the [Console](../console-api/) page.
 - For the trust model this extension surface sits inside, read [Principal and AuthZ](../principal-authz/).

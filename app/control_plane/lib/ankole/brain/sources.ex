@@ -136,32 +136,53 @@ defmodule Ankole.Brain.Sources do
     |> repo.update()
   end
 
-  @spec extraction_watermark(Source.t()) :: {DateTime.t(), String.t()} | nil
-  def extraction_watermark(%Source{
-        extracted_through_at: %DateTime{} = at,
-        extracted_through_entry_id: entry_id
-      })
-      when is_binary(entry_id),
-      do: {at, entry_id}
+  @spec extraction_watermark(Source.t()) :: non_neg_integer() | nil
+  def extraction_watermark(%Source{extracted_through_seq: seq}), do: seq
 
-  def extraction_watermark(%Source{}), do: nil
-
-  @spec channel_extraction_watermark(String.t()) :: {DateTime.t(), String.t()} | nil
-  def channel_extraction_watermark(channel_id) do
-    case Repo.get_by(Source, kind: "signal_channel", upstream_id: channel_id) do
+  def conversation_extraction_watermark(conversation_id) do
+    case Repo.get_by(Source, kind: "conversation", upstream_id: conversation_id) do
       %Source{} = source -> extraction_watermark(source)
       nil -> nil
     end
   end
 
-  @doc "Records a slice boundary while the caller holds the Source row lock."
-  @spec record_extraction_watermark(module(), Source.t(), {DateTime.t(), String.t()}) :: :ok
-  def record_extraction_watermark(repo, %Source{id: id}, {%DateTime{} = at, entry_id})
-      when is_binary(entry_id) do
+  @doc "Rewinds learning when a previously covered public Message changes."
+  def invalidate_conversation_message_in_tx(repo, message, now) do
+    case repo.one(
+           from s in Source,
+             where: s.kind == "conversation" and s.upstream_id == ^message.conversation_id,
+             lock: "FOR UPDATE"
+         ) do
+      %Source{extracted_through_seq: seq} = source when is_integer(seq) and seq >= message.seq ->
+        :ok = Ankole.Brain.Claims.withdraw_source_claims_in_tx(repo, source.id, now)
+
+        {:ok, _} =
+          source
+          |> Ecto.Changeset.change(
+            extracted_through_seq: 0,
+            extracted_through_at: nil,
+            upstream_revision: Ecto.UUID.generate()
+          )
+          |> repo.update()
+
+        if is_nil(source.archived_at) and Ankole.Brain.Config.enabled?() do
+          {:ok, _} = Ankole.Brain.Jobs.ProcessConversationSlice.enqueue(message.conversation_id)
+        end
+
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  @doc "Records a sequence boundary while the caller holds the Source row lock."
+  def record_extraction_watermark(repo, %Source{id: id}, {%DateTime{} = at, seq})
+      when is_integer(seq) and seq >= 0 do
     {1, _} =
       Source
       |> where([source], source.id == ^id)
-      |> repo.update_all(set: [extracted_through_at: at, extracted_through_entry_id: entry_id])
+      |> repo.update_all(set: [extracted_through_at: at, extracted_through_seq: seq])
 
     :ok
   end

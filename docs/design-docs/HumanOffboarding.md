@@ -32,7 +32,7 @@ restriction operation without automatic detection.
 | AuthZ | Decide permissions, protect manual administrator operations, and control restored permissions. |
 | Console and OIDC authentication | Reject disabled Humans and revoked credentials at their own request boundaries. |
 | OIDC | Provide standard logout notifications and Introspection, and own Client/session records and notification delivery. |
-| SignalsGateway, Schedule, Background Agent Jobs, Workflow, and Automation Jobs | Store the Human association of work, check it at execution admission, and stop future execution. |
+| Signals, Sessions, Schedule, Background Agent Jobs, Workflow, and Automation Jobs | Store the Human association of work, check it at execution admission, and stop future execution. |
 | Agent Computer | Execute admitted attempts through the existing Worker contract. It does not own Human status or a separate permission list. |
 | Console | Submit authorized operations and show account, sync, and affected-work results. |
 
@@ -433,11 +433,11 @@ legacy Console cron with only `created_by.principal_uid`, work without a proven
 source, and events from non-Human senders remain `review_required`. Inspect
 the unresolved-work list before rollout; its size depends on the stored facts.
 
-An unresolved queued ActorEvent enters `dead_letter` when execution admission
+An unresolved queued Signal enters `dead_letter` when execution admission
 first rejects it with `work_authorization_review_required`. Review and classify
-it in Console. If execution is still required, use `/retry actor-event::<id>`
+it in Console. If execution is still required, use `/retry signal::<id>`
 only when the event meets the existing
-[exact retry conditions](SignalsGateway.md#async-work-units). A rejected
+[exact retry conditions](Sessions.md#retry-reset-and-recovery). A rejected
 event with no visible durable reply cannot use that command; submit the
 original request again under current authorization. Classification alone does
 not replay a dead letter or restart stopped work. Other work types use their

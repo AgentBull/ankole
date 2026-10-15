@@ -11,11 +11,13 @@ defmodule Ankole.E2E.WaitHelpers do
   import ExUnit.Assertions
 
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.SignalsGateway.ActorEvent
-  alias Ankole.SignalsGateway.ActorRuntime.Schemas.AgentWorker
+  alias Ankole.Signals.Signal
+  alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.Repo
-  alias Ankole.SignalsGateway.OutboxEntry
-  alias Ankole.SignalsGateway.Entry
+  alias Ankole.Conversations.Delivery.Intent
+  alias Ankole.Conversations.Message, as: ConversationMessage
+  alias Ankole.Conversations.External
+  alias Ankole.Conversations.ExternalMessageRef
 
   @doc """
   Inserts old transcript rows plus a large recent tail for deterministic compression.
@@ -135,113 +137,112 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   @doc """
-  Waits for the AI message associated with one actor event to reach a status.
+  Waits for the AI message associated with one Signal to reach a status.
 
   Accepts the runtime-facing status names (`"succeeded"`, `"failed"`,
   `"cancelled"`) and maps them onto the `ai_gateway_messages` status column.
   """
   @spec wait_for_turn_status(map(), Ecto.UUID.t(), String.t(), integer()) ::
           {:ok, Message.t()}
-  def wait_for_turn_status(process, actor_event_id, status, deadline) do
+  def wait_for_turn_status(process, signal_id, status, deadline) do
     expected_status = ai_message_status(status)
 
-    case ai_message_for_actor_event(actor_event_id) do
+    case ai_message_for_signal(signal_id) do
       %Message{status: ^expected_status} = message ->
         {:ok, message}
 
       _other ->
         receive_or_wait(process, deadline, fn ->
-          wait_for_turn_status(process, actor_event_id, status, deadline)
+          wait_for_turn_status(process, signal_id, status, deadline)
         end)
     end
   end
 
   @doc """
-  Waits until the actor event is complete and returns its latest AI message.
+  Waits until the Signal is complete and returns its latest AI message.
 
   A tool loop can commit an earlier function_call row with status `complete`
-  while the actor event remains live. The adopted final answer is the latest
-  complete message after `actor_events.completed_at` is written.
+  while the Signal remains live. The adopted final answer is the latest
+  complete message after `signals.completed_at` is written.
   """
-  @spec wait_for_completed_actor_event_message(map(), Ecto.UUID.t(), integer()) ::
+  @spec wait_for_completed_signal_message(map(), Ecto.UUID.t(), integer()) ::
           {:ok, Message.t()}
-  def wait_for_completed_actor_event_message(process, actor_event_id, deadline) do
+  def wait_for_completed_signal_message(process, signal_id, deadline) do
     with_transient_db_retry(process, deadline, fn ->
-      case {Repo.get(ActorEvent, actor_event_id),
-            final_ai_message_for_actor_event(actor_event_id)} do
-        {%ActorEvent{completed_at: %DateTime{}}, %Message{status: "complete"} = message} ->
+      case {Repo.get(Signal, signal_id), final_ai_message_for_signal(signal_id)} do
+        {%Signal{completed_at: %DateTime{}}, %Message{status: "complete"} = message} ->
           {:ok, message}
 
-        {%ActorEvent{completed_at: %DateTime{}}, nil} ->
-          case ai_message_for_actor_event(actor_event_id) do
+        {%Signal{completed_at: %DateTime{}}, nil} ->
+          case ai_message_for_signal(signal_id) do
             %Message{status: "error"} = message ->
               flunk(
-                "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)}"
+                "Signal completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(signal_id))} #{inspect_process(process)}"
               )
 
             _message ->
               receive_or_wait(process, deadline, fn ->
-                wait_for_completed_actor_event_message(process, actor_event_id, deadline)
+                wait_for_completed_signal_message(process, signal_id, deadline)
               end)
           end
 
-        {%ActorEvent{completed_at: %DateTime{}}, %Message{status: "error"} = message} ->
+        {%Signal{completed_at: %DateTime{}}, %Message{status: "error"} = message} ->
           flunk(
-            "actor event completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)}"
+            "Signal completed with failed AI message: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(signal_id))} #{inspect_process(process)}"
           )
 
         _other ->
           receive_or_wait(process, deadline, fn ->
-            wait_for_completed_actor_event_message(process, actor_event_id, deadline)
+            wait_for_completed_signal_message(process, signal_id, deadline)
           end)
       end
     end)
   end
 
   @doc """
-  Waits until `actor_events.completed_at` is written, without requiring any AI
+  Waits until `signals.completed_at` is written, without requiring any AI
   message (e.g. ambient silence commits a noop completion).
   """
-  @spec wait_for_actor_event_completed(map(), Ecto.UUID.t(), integer()) ::
-          {:ok, ActorEvent.t()}
-  def wait_for_actor_event_completed(process, actor_event_id, deadline) do
-    case Repo.get(ActorEvent, actor_event_id) do
-      %ActorEvent{completed_at: %DateTime{}} = event ->
+  @spec wait_for_signal_completed(map(), Ecto.UUID.t(), integer()) ::
+          {:ok, Signal.t()}
+  def wait_for_signal_completed(process, signal_id, deadline) do
+    case Repo.get(Signal, signal_id) do
+      %Signal{completed_at: %DateTime{}} = event ->
         {:ok, event}
 
       _other ->
         receive_or_wait(process, deadline, fn ->
-          wait_for_actor_event_completed(process, actor_event_id, deadline)
+          wait_for_signal_completed(process, signal_id, deadline)
         end)
     end
   end
 
   @doc """
-  Waits until an actor event reaches its durable dead-letter state.
+  Waits until a Signal reaches its durable dead-letter state.
   """
-  @spec wait_for_actor_event_dead_letter(map(), Ecto.UUID.t(), integer()) ::
-          {:ok, ActorEvent.t()}
-  def wait_for_actor_event_dead_letter(process, actor_event_id, deadline) do
-    case Repo.get(ActorEvent, actor_event_id) do
-      %ActorEvent{input_state: "dead_letter", dead_letter_at: %DateTime{}} = event ->
+  @spec wait_for_signal_dead_letter(map(), Ecto.UUID.t(), integer()) ::
+          {:ok, Signal.t()}
+  def wait_for_signal_dead_letter(process, signal_id, deadline) do
+    case Repo.get(Signal, signal_id) do
+      %Signal{input_state: "dead_letter", dead_letter_at: %DateTime{}} = event ->
         {:ok, event}
 
       _other ->
         receive_or_wait(process, deadline, fn ->
-          wait_for_actor_event_dead_letter(process, actor_event_id, deadline)
+          wait_for_signal_dead_letter(process, signal_id, deadline)
         end)
     end
   end
 
   @doc """
-  Waits for the final Signal channel mirror row associated with an AI message.
+  Waits for the final Conversation mirror row associated with an AI message.
   """
   @spec wait_for_final_mirror(map(), Ecto.UUID.t(), integer()) ::
-          {:ok, Entry.t()}
+          {:ok, %{message: ConversationMessage.t(), external_ref: ExternalMessageRef.t()}}
   def wait_for_final_mirror(process, ai_message_id, deadline) do
-    case Repo.get_by(Entry, ai_message_id: ai_message_id) do
-      %Entry{} = entry ->
-        {:ok, entry}
+    case Ankole.SessionsCase.final_message_observation(ai_message_id) do
+      %{message: %ConversationMessage{}} = observation ->
+        {:ok, observation}
 
       nil ->
         receive_or_wait(process, deadline, fn ->
@@ -251,121 +252,122 @@ defmodule Ankole.E2E.WaitHelpers do
   end
 
   @doc """
-  Waits for the latest final Signal channel mirror of one completed actor event.
+  Waits for the latest final Conversation mirror of one completed Signal.
 
-  Ordinary streamed AI replies commit one final outbox row. Cron replies can
+  Ordinary streamed AI replies commit one final intent row. Cron replies can
   commit one target-scoped row for each delivery target. This helper selects
   the primary row. A steer keeps that message on the original Turn stream but
-  makes the accepted steer event own the outbox. The outbox maps those two
-  ActorEvent identities.
-  The wait loop runs due conversation and Outbox jobs because Oban is manual
+  makes the accepted steer event own the intent. The intent maps those two
+  Signal identities.
+  The wait loop runs due conversation and Delivery jobs because Oban is manual
   in these tests.
   """
   @spec wait_for_completed_final_reply(map(), Ecto.UUID.t(), integer()) ::
-          {:ok, Entry.t(), Message.t()}
-  def wait_for_completed_final_reply(process, actor_event_id, deadline) do
+          {:ok, %{message: ConversationMessage.t(), external_ref: ExternalMessageRef.t()},
+           Message.t()}
+  def wait_for_completed_final_reply(process, signal_id, deadline) do
     Process.put(
       :ankole_e2e_timeout_debug,
       fn ->
-        "durable_state=#{inspect(durable_commit_state(actor_event_id))} messages=#{inspect(ai_messages_for_actor_event(actor_event_id))}"
+        "durable_state=#{inspect(durable_commit_state(signal_id))} messages=#{inspect(ai_messages_for_signal(signal_id))}"
       end
     )
 
     if System.monotonic_time(:millisecond) > deadline do
       flunk(
-        "timed out waiting for final reply: durable_state=#{inspect(durable_commit_state(actor_event_id))} messages=#{inspect(ai_messages_for_actor_event(actor_event_id))} #{inspect_process(process)}"
+        "timed out waiting for final reply: durable_state=#{inspect(durable_commit_state(signal_id))} messages=#{inspect(ai_messages_for_signal(signal_id))} #{inspect_process(process)}"
       )
     end
 
     with_transient_db_retry(process, deadline, fn ->
-      case {Repo.get(ActorEvent, actor_event_id),
-            mirrored_latest_final_reply_for_actor_event(actor_event_id)} do
-        {%ActorEvent{completed_at: %DateTime{}}, {%Entry{} = reply, %Message{} = message}} ->
+      case {Repo.get(Signal, signal_id), mirrored_latest_final_reply_for_signal(signal_id)} do
+        {%Signal{completed_at: %DateTime{}},
+         {%{message: %ConversationMessage{}} = reply, %Message{} = message}} ->
           {:ok, reply, message}
 
-        {%ActorEvent{completed_at: %DateTime{}}, nil} ->
+        {%Signal{completed_at: %DateTime{}}, nil} ->
           receive_or_wait(process, deadline, fn ->
-            wait_for_completed_final_reply(process, actor_event_id, deadline)
+            wait_for_completed_final_reply(process, signal_id, deadline)
           end)
 
         _other ->
           receive_or_wait(process, deadline, fn ->
-            wait_for_completed_final_reply(process, actor_event_id, deadline)
+            wait_for_completed_final_reply(process, signal_id, deadline)
           end)
       end
     end)
   end
 
   @doc """
-  Waits for the explicit side-effect outbox row committed for one actor event
+  Waits for the explicit side-effect intent row committed for one Signal
   and AI message. Plain final-reply rows use the `ai-reply:<message_id>` key and
   are handled by `wait_for_completed_final_reply/3`.
   """
-  @spec wait_for_outbox_for_input(map(), Ecto.UUID.t(), integer(), Ecto.UUID.t()) ::
-          {:ok, OutboxEntry.t()}
-  def wait_for_outbox_for_input(process, source_actor_event_id, deadline, ai_message_id) do
-    case side_effect_outboxes_for_input(source_actor_event_id, ai_message_id) do
-      [%OutboxEntry{} = outbox] ->
-        {:ok, outbox}
+  @spec wait_for_intent_for_input(map(), Ecto.UUID.t(), integer(), Ecto.UUID.t()) ::
+          {:ok, Intent.t()}
+  def wait_for_intent_for_input(process, source_signal_id, deadline, ai_message_id) do
+    case side_effect_intents_for_input(source_signal_id, ai_message_id) do
+      [%Intent{} = intent] ->
+        {:ok, intent}
 
       [] ->
-        flunk_if_terminal_without_outbox(
+        flunk_if_terminal_without_intent(
           process,
-          source_actor_event_id,
-          "outbox for source_actor_event_id=#{source_actor_event_id}",
+          source_signal_id,
+          "intent for source_signal_id=#{source_signal_id}",
           fn ->
-            side_effect_outboxes_for_input(source_actor_event_id, ai_message_id)
+            side_effect_intents_for_input(source_signal_id, ai_message_id)
           end
         )
 
         receive_or_wait(process, deadline, fn ->
-          wait_for_outbox_for_input(process, source_actor_event_id, deadline, ai_message_id)
+          wait_for_intent_for_input(process, source_signal_id, deadline, ai_message_id)
         end)
 
-      outboxes ->
+      intents ->
         flunk(
-          "expected one side-effect outbox for source_actor_event_id=#{source_actor_event_id} ai_message_id=#{ai_message_id}, found #{length(outboxes)}: #{inspect(Enum.map(outboxes, & &1.outbound_key))}"
+          "expected one side-effect intent for source_signal_id=#{source_signal_id} ai_message_id=#{ai_message_id}, found #{length(intents)}: #{inspect(Enum.map(intents, & &1.outbound_key))}"
         )
     end
   end
 
-  defp side_effect_outboxes_for_input(source_actor_event_id, ai_message_id) do
+  defp side_effect_intents_for_input(source_signal_id, ai_message_id) do
     final_reply_key = "ai-reply:#{ai_message_id}"
 
-    OutboxEntry
-    |> where([outbox], outbox.source_actor_event_id == ^source_actor_event_id)
-    |> where([outbox], outbox.ai_message_id == ^ai_message_id)
-    |> where([outbox], outbox.outbound_key != ^final_reply_key)
-    |> order_by([outbox], asc: outbox.inserted_at, asc: outbox.outbound_key)
+    Intent
+    |> where([intent], intent.source_signal_id == ^source_signal_id)
+    |> where([intent], intent.ai_message_id == ^ai_message_id)
+    |> where([intent], intent.outbound_key != ^final_reply_key)
+    |> order_by([intent], asc: intent.inserted_at, asc: intent.outbound_key)
     |> Repo.all()
   end
 
   @doc """
-  Waits for the final outbox of one actor event without knowing the message id.
+  Waits for the final intent of one Signal without knowing the message id.
 
-  Convenience wrapper: first waits for the actor event to complete with an AI
-  message, then waits for the outbox row committed for that message.
+  Convenience wrapper: first waits for the Signal to complete with an AI
+  message, then waits for the intent row committed for that message.
   """
-  @spec wait_for_completed_outbox(map(), Ecto.UUID.t(), integer()) ::
-          {:ok, OutboxEntry.t(), Message.t()}
-  def wait_for_completed_outbox(process, actor_event_id, deadline) do
+  @spec wait_for_completed_intent(map(), Ecto.UUID.t(), integer()) ::
+          {:ok, Intent.t(), Message.t()}
+  def wait_for_completed_intent(process, signal_id, deadline) do
     with {:ok, message} <-
-           wait_for_completed_actor_event_message(process, actor_event_id, deadline),
-         {:ok, outbox} <-
-           wait_for_outbox_for_input(process, actor_event_id, deadline, message.id) do
-      {:ok, outbox, message}
+           wait_for_completed_signal_message(process, signal_id, deadline),
+         {:ok, intent} <-
+           wait_for_intent_for_input(process, signal_id, deadline, message.id) do
+      {:ok, intent, message}
     end
   end
 
   @doc """
-  Returns every AI message committed for one actor event in commit order.
+  Returns every AI message committed for one Signal in commit order.
   """
-  @spec ai_messages_for_actor_event(Ecto.UUID.t()) :: [Message.t()]
-  def ai_messages_for_actor_event(actor_event_id) do
+  @spec ai_messages_for_signal(Ecto.UUID.t()) :: [Message.t()]
+  def ai_messages_for_signal(signal_id) do
     Message
     |> where(
       [message],
-      fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) == ^actor_event_id
+      fragment("?#>>'{request_metadata,signal_id}'", message.metadata) == ^signal_id
     )
     |> order_by([message], asc: message.inserted_at, asc: message.id)
     |> Repo.all()
@@ -386,21 +388,21 @@ defmodule Ankole.E2E.WaitHelpers do
     |> Repo.insert!()
   end
 
-  defp flunk_if_terminal_without_outbox(process, actor_event_id, expected, outbox_check) do
-    case ai_message_for_actor_event_latest(actor_event_id) do
+  defp flunk_if_terminal_without_intent(process, signal_id, expected, intent_check) do
+    case ai_message_for_signal_latest(signal_id) do
       %Message{status: "complete"} = message ->
         completed? =
-          match?(%ActorEvent{completed_at: %DateTime{}}, Repo.get(ActorEvent, actor_event_id))
+          match?(%Signal{completed_at: %DateTime{}}, Repo.get(Signal, signal_id))
 
-        if completed? and not outbox_check_present?(outbox_check) do
+        if completed? and not intent_check_present?(intent_check) do
           flunk(
-            "AI message completed without #{expected}: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)}"
+            "AI message completed without #{expected}: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(signal_id))} #{inspect_process(process)}"
           )
         end
 
       %Message{status: "error"} = message ->
         flunk(
-          "AI message failed without #{expected}: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(actor_event_id))} #{inspect_process(process)}"
+          "AI message failed without #{expected}: response=#{inspect(message_response(message))} durable_state=#{inspect(durable_commit_state(signal_id))} #{inspect_process(process)}"
         )
 
       _message ->
@@ -408,8 +410,8 @@ defmodule Ankole.E2E.WaitHelpers do
     end
   end
 
-  defp outbox_check_present?(outbox_check) do
-    case outbox_check.() do
+  defp intent_check_present?(intent_check) do
+    case intent_check.() do
       nil -> false
       [] -> false
       _value -> true
@@ -447,105 +449,85 @@ defmodule Ankole.E2E.WaitHelpers do
       String.contains?(message, "connection not available")
   end
 
-  defp ai_message_for_actor_event(actor_event_id),
-    do: ai_message_for_actor_event_latest(actor_event_id)
+  defp ai_message_for_signal(signal_id),
+    do: ai_message_for_signal_latest(signal_id)
 
-  defp ai_message_for_actor_event_latest(actor_event_id) do
+  defp ai_message_for_signal_latest(signal_id) do
     Message
     |> where(
       [message],
-      fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) == ^actor_event_id
+      fragment("?#>>'{request_metadata,signal_id}'", message.metadata) == ^signal_id
     )
     |> order_by([message], desc: message.inserted_at, desc: message.id)
     |> limit(1)
     |> Repo.one()
   end
 
-  defp final_ai_message_for_actor_event(actor_event_id) do
-    actor_event_id
-    |> final_answer_messages_for_actor_event()
-    |> List.first()
+  defp final_ai_message_for_signal(signal_id) do
+    with %Signal{final_response_id: id} = signal when is_binary(id) <-
+           Repo.get(Signal, signal_id),
+         {:ok, %{final_response: response}} <-
+           Ankole.Sessions.ModelHistory.load_turn_chain(
+             %Ankole.Sessions.RunRef{
+               agent_uid: signal.agent_uid,
+               session_id: signal.session_id,
+               signal_id: signal.id
+             },
+             id
+           ) do
+      response
+    else
+      _not_adopted -> nil
+    end
   end
 
-  defp mirrored_latest_final_reply_for_actor_event(actor_event_id) do
-    with %OutboxEntry{} = outbox <- primary_final_outbox(actor_event_id),
-         %Message{} = message <- Repo.get(Message, outbox.ai_message_id),
-         %Entry{} = entry <- primary_final_entry(outbox) do
+  defp mirrored_latest_final_reply_for_signal(signal_id) do
+    with %Intent{} = intent <- primary_final_intent(signal_id),
+         %Message{} = message <- Repo.get(Message, intent.ai_message_id),
+         %{message: %ConversationMessage{}} = entry <- primary_final_entry(intent) do
       {entry, message}
     else
       _missing -> nil
     end
   end
 
-  # The final outbox is the anchor, not the AI message. A steer that reached the
-  # Worker owns the reply and its outbox, while the AI message stays recorded
-  # against the Turn that produced it, so the two can sit under different actor
-  # events. `ai_message_id` on the outbox is the link between them.
-  defp primary_final_outbox(actor_event_id) do
-    OutboxEntry
-    |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
+  # The final intent is the anchor, not the AI message. A steer that reached the
+  # Worker owns the reply and its intent, while the AI message stays recorded
+  # against the Turn that produced it, so the two can sit under different
+  # Signals. `ai_message_id` on the intent is the link between them.
+  defp primary_final_intent(signal_id) do
+    Intent
+    |> where([intent], intent.source_signal_id == ^signal_id)
     |> Repo.all()
-    |> Enum.find(fn outbox ->
-      metadata = get_in(outbox.payload, ["metadata"]) || %{}
+    |> Enum.find(fn intent ->
+      metadata = get_in(intent.payload, ["metadata"]) || %{}
 
       metadata["source"] == "ai_gateway_final_reply" and
         get_in(metadata, ["delivery_target", "primary"]) != false
     end)
   end
 
-  defp primary_final_entry(%OutboxEntry{} = outbox) do
-    case outbox.created_source_entry_id || outbox.target_source_entry_id do
-      source_entry_id when is_binary(source_entry_id) ->
-        Repo.get_by(Entry,
-          signal_channel_id: outbox.signal_channel_id,
-          source_entry_id: source_entry_id
-        )
+  defp primary_final_entry(%Intent{} = intent) do
+    case intent.created_provider_message_id || intent.target_provider_message_id do
+      provider_message_id when is_binary(provider_message_id) ->
+        External.get_message(Repo, intent.conversation_id, provider_message_id)
 
       nil ->
-        Entry
-        |> where([entry], entry.ai_message_id == ^outbox.ai_message_id)
-        |> where([entry], entry.signal_channel_id == ^outbox.signal_channel_id)
-        |> Repo.all()
-        |> Enum.find(fn entry ->
-          entry.metadata["actor_event_id"] == outbox.source_actor_event_id and
-            get_in(entry.metadata, ["delivery_target", "primary"]) != false
+        Repo.all(
+          from message in ConversationMessage,
+            join: ref in ExternalMessageRef,
+            on: ref.message_id == message.id and ref.tenant_id == message.tenant_id,
+            where:
+              ref.ai_message_id == ^intent.ai_message_id and
+                ref.conversation_id == ^intent.conversation_id,
+            select: %{message: message, external_ref: ref}
+        )
+        |> Enum.find(fn %{external_ref: ref} ->
+          ref.metadata["signal_id"] == intent.source_signal_id and
+            get_in(ref.metadata, ["delivery_target", "primary"]) != false
         end)
     end
   end
-
-  defp final_answer_messages_for_actor_event(actor_event_id) do
-    Message
-    |> where(
-      [message],
-      fragment("?#>>'{request_metadata,actor_event_id}'", message.metadata) == ^actor_event_id
-    )
-    |> where([message], message.status == "complete")
-    |> order_by([message], desc: message.inserted_at, desc: message.id)
-    |> Repo.all()
-    |> Enum.filter(&final_answer_message?/1)
-  end
-
-  defp final_answer_message?(%Message{metadata: metadata, content: content}) do
-    not tool_result_journal?(metadata) and not contains_non_final_tool_item?(content)
-  end
-
-  defp tool_result_journal?(%{"tool_result_journal" => true}), do: true
-  defp tool_result_journal?(_metadata), do: false
-
-  defp contains_non_final_tool_item?(items) when is_list(items) do
-    Enum.any?(items, fn
-      %{"type" => type} when type in ["function_call", "function_call_output"] ->
-        true
-
-      %{"content" => nested} when is_list(nested) ->
-        contains_non_final_tool_item?(nested)
-
-      _item ->
-        false
-    end)
-  end
-
-  defp contains_non_final_tool_item?(_items), do: false
 
   defp ai_message_status("succeeded"), do: "complete"
   defp ai_message_status("failed"), do: "error"
@@ -556,12 +538,12 @@ defmodule Ankole.E2E.WaitHelpers do
     Map.get(metadata, "response", metadata)
   end
 
-  defp durable_commit_state(actor_event_id) do
-    event = Repo.get(ActorEvent, actor_event_id)
+  defp durable_commit_state(signal_id) do
+    event = Repo.get(Signal, signal_id)
 
     driver =
       if event do
-        case Ankole.Conversations.Driver.whereis(event) do
+        case Ankole.Sessions.Driver.whereis(event) do
           :undefined ->
             :absent
 
@@ -584,14 +566,14 @@ defmodule Ankole.E2E.WaitHelpers do
 
     %{
       driver: driver,
-      actor_events:
-        ActorEvent
-        |> where([event], event.id == ^actor_event_id)
+      signals:
+        Signal
+        |> where([event], event.id == ^signal_id)
         |> Repo.all()
         |> Enum.map(
           &Map.take(&1, [
             :id,
-            :source_entry_id,
+            :provider_message_id,
             :completed_at,
             :input_state,
             :attempt_count,
@@ -599,26 +581,26 @@ defmodule Ankole.E2E.WaitHelpers do
           ])
         ),
       receipts:
-        Ankole.Conversations.Receipts
+        Ankole.Sessions.Receipts
         |> where(
           [receipt],
           receipt.agent_uid in subquery(
-            from event in ActorEvent, where: event.id == ^actor_event_id, select: event.agent_uid
+            from event in Signal, where: event.id == ^signal_id, select: event.agent_uid
           )
         )
         |> Repo.all()
         |> Enum.map(&Map.take(&1, [:response_id, :call_id, :session_id, :inserted_at])),
-      outboxes:
-        OutboxEntry
-        |> where([outbox], outbox.source_actor_event_id == ^actor_event_id)
+      intents:
+        Intent
+        |> where([intent], intent.source_signal_id == ^signal_id)
         |> Repo.all()
         |> Enum.map(
           &Map.take(&1, [
             :outbound_key,
-            :source_actor_event_id,
+            :source_signal_id,
             :ai_message_id,
-            :reply_to_source_entry_id,
-            :target_source_entry_id,
+            :reply_to_provider_message_id,
+            :target_provider_message_id,
             :operation,
             :status,
             :payload

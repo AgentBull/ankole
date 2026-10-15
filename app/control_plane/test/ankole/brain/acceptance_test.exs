@@ -17,7 +17,7 @@ defmodule Ankole.Brain.AcceptanceTest do
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.SignalsLearning
+  alias Ankole.Brain.ConversationsLearning
   alias Ankole.Brain.Sources
   alias Ankole.Ecto.UUIDv7
 
@@ -295,17 +295,17 @@ defmodule Ankole.Brain.AcceptanceTest do
       insert_entry!(channel.id, "m1", "第一条消息", ~U[2026-08-20 10:00:00.000000Z])
       insert_entry!(channel.id, "m2", "第二条消息", ~U[2026-08-20 10:01:00.000000Z])
 
-      slice = SignalsLearning.pending_slice(channel.id)
+      slice = ConversationsLearning.pending_slice(channel.id)
       assert length(slice) == 2
 
-      token = SignalsLearning.slice_version_token(channel.id, slice)
-      assert SignalsLearning.slice_version_token(channel.id, slice) == token
+      token = ConversationsLearning.slice_version_token(channel.id, slice)
+      assert ConversationsLearning.slice_version_token(channel.id, slice) == token
 
       last = List.last(slice)
 
       {:ok, source} =
         Sources.get_or_create(%{
-          kind: "signal_channel",
+          kind: "conversation",
           upstream_id: channel.id,
           name: channel.id
         })
@@ -314,18 +314,18 @@ defmodule Ankole.Brain.AcceptanceTest do
         Sources.record_extraction_watermark(
           Repo,
           source,
-          {last.first_seen_at, last.source_entry_id}
+          {last.message.created_at, last.message.seq}
         )
 
       # The watermark moves: the same entries never re-enter a slice.
-      assert SignalsLearning.pending_slice(channel.id) == []
+      assert ConversationsLearning.pending_slice(channel.id) == []
 
       # A new message forms the next slice with a new token.
       insert_entry!(channel.id, "m3", "第三条消息", ~U[2026-08-20 11:00:00.000000Z])
-      next_slice = SignalsLearning.pending_slice(channel.id)
-      assert Enum.map(next_slice, & &1.source_entry_id) == ["m3"]
+      next_slice = ConversationsLearning.pending_slice(channel.id)
+      assert Enum.map(next_slice, & &1.external_ref.provider_message_id) == ["m3"]
 
-      next_token = SignalsLearning.slice_version_token(channel.id, next_slice)
+      next_token = ConversationsLearning.slice_version_token(channel.id, next_slice)
       refute next_token == token
     end
 
@@ -335,21 +335,24 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       # A bulk mirror insert gives every entry one arrival instant. A
       # timestamp-only strict comparison would lose everything after the
-      # covered entry; the (first_seen_at, source_entry_id) order keeps it.
+      # covered entry; the (first_seen_at, provider_message_id) order keeps it.
       insert_entry!(channel.id, "m1", "第一条", shared_at)
       insert_entry!(channel.id, "m2", "第二条", shared_at)
       insert_entry!(channel.id, "m3", "第三条", shared_at)
 
       {:ok, source} =
         Sources.get_or_create(%{
-          kind: "signal_channel",
+          kind: "conversation",
           upstream_id: channel.id,
           name: channel.id
         })
 
-      :ok = Sources.record_extraction_watermark(Repo, source, {shared_at, "m2"})
+      :ok = Sources.record_extraction_watermark(Repo, source, {shared_at, 2})
 
-      assert Enum.map(SignalsLearning.pending_slice(channel.id), & &1.source_entry_id) == ["m3"]
+      assert Enum.map(
+               ConversationsLearning.pending_slice(channel.id),
+               & &1.external_ref.provider_message_id
+             ) == ["m3"]
     end
 
     test "a late delivery with an old provider timestamp still enters the next slice" do
@@ -359,13 +362,13 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       {:ok, source} =
         Sources.get_or_create(%{
-          kind: "signal_channel",
+          kind: "conversation",
           upstream_id: channel.id,
           name: channel.id
         })
 
       :ok =
-        Sources.record_extraction_watermark(Repo, source, {~U[2026-08-20 10:00:00.000000Z], "m1"})
+        Sources.record_extraction_watermark(Repo, source, {~U[2026-08-20 10:00:00.000000Z], 1})
 
       # The provider sent this message before the watermark instant, but it
       # arrived after: the watermark compares arrival order only, so the
@@ -378,7 +381,10 @@ defmodule Ankole.Brain.AcceptanceTest do
         provider_time: ~U[2026-08-20 09:59:00.000000Z]
       )
 
-      assert Enum.map(SignalsLearning.pending_slice(channel.id), & &1.source_entry_id) == ["m2"]
+      assert Enum.map(
+               ConversationsLearning.pending_slice(channel.id),
+               & &1.external_ref.provider_message_id
+             ) == ["m2"]
     end
   end
 
@@ -420,17 +426,17 @@ defmodule Ankole.Brain.AcceptanceTest do
       Repo.insert!(%Ankole.Brain.Schemas.Source{
         id: UUIDv7.autogenerate(),
         upstream_id: channel.id,
-        kind: "signal_channel",
+        kind: "conversation",
         name: "archived channel",
         archived_at: DateTime.utc_now(:microsecond)
       })
 
       assert {:ok, %{status: :skipped, reason: :source_archived}} =
-               SignalsLearning.process_channel(channel.id)
+               ConversationsLearning.process_conversation(channel.id)
 
       # No terminal and no claims: the slice stays untouched.
-      assert SignalsLearning.pending_slice(channel.id) != []
-      refute Repo.exists?(Claim |> where([claim], claim.signal_gateway_channel_id == ^channel.id))
+      assert ConversationsLearning.pending_slice(channel.id) != []
+      refute Repo.exists?(Claim |> where([claim], claim.conversation_id == ^channel.id))
     end
   end
 
@@ -445,46 +451,42 @@ defmodule Ankole.Brain.AcceptanceTest do
 
   defp insert_channel!(attrs \\ %{}) do
     now = DateTime.utc_now(:microsecond)
+    kind = attrs[:kind] || :im_group
 
     Repo.insert!(
-      Ankole.SignalsGateway.Channel.changeset(
-        %Ankole.SignalsGateway.Channel{},
-        Map.merge(
-          %{
-            id: "test:acceptance-#{System.unique_integer([:positive])}",
-            kind: :im_group,
-            reply_mode: :entry,
-            metadata: %{},
-            raw_payload: %{},
-            first_seen_at: now,
-            last_seen_at: now
-          },
-          attrs
-        )
+      Ankole.Conversations.Conversation.changeset(
+        %Ankole.Conversations.Conversation{},
+        Map.merge(Map.drop(attrs, [:kind]), %{
+          id: Ecto.UUID.generate(),
+          kind: :external,
+          external_kind: kind,
+          provider_conversation_id: "test:acceptance-#{System.unique_integer([:positive])}",
+          title: "Conversation",
+          reply_mode: :entry,
+          last_activity_at: now,
+          first_seen_at: now,
+          last_seen_at: now
+        })
       )
     )
   end
 
-  defp insert_entry!(channel_id, source_entry_id, text, seen_at, opts \\ []) do
-    Repo.insert!(
-      Ankole.SignalsGateway.Entry.changeset(%Ankole.SignalsGateway.Entry{}, %{
-        document_id: "#{channel_id}:#{source_entry_id}",
-        signal_channel_id: channel_id,
-        source_entry_id: source_entry_id,
-        text: text,
-        author: %{"principal_uid" => nil, "display_name" => "tester"},
-        attachments: [],
-        links: [],
-        mentions: [],
-        metadata: %{},
-        raw_payload: %{},
-        reactions: %{},
-        raw_reaction_keys: %{},
-        content_hash: Ankole.Kernel.xxh3_128_hex(text),
-        provider_time: Keyword.get(opts, :provider_time),
-        first_seen_at: seen_at,
-        last_seen_at: seen_at
-      })
-    )
+  defp insert_entry!(conversation_id, provider_message_id, text, seen_at, opts \\ []) do
+    {:ok, result} =
+      Repo.transact(
+        &Ankole.Conversations.External.observe_in_tx(
+          &1,
+          conversation_id,
+          %{
+            provider_message_id: provider_message_id,
+            text: text,
+            author: %{"display_name" => "tester"},
+            provider_time: Keyword.get(opts, :provider_time) || seen_at
+          },
+          seen_at
+        )
+      )
+
+    result
   end
 end

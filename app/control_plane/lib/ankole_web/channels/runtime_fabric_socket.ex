@@ -13,7 +13,7 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
 
   use Phoenix.Socket
 
-  alias Ankole.SignalsGateway.ActorRuntime.AgentWorkers
+  alias Ankole.AgentWorkers
 
   channel "worker", AnkoleWeb.WorkerChannel
 

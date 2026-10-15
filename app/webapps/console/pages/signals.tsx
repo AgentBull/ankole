@@ -305,7 +305,12 @@ function StoppedDeliveries({
                 {row.attempt_count}/{row.max_attempts}
               </TableCell>
               <TableCell>
-                <StatusIndicator tone="danger">{t(`console.signals.delivery_state_${row.state}`)}</StatusIndicator>
+                <StatusIndicator tone={row.status === 'unknown' ? 'warning' : 'danger'}>
+                  {t(`console.signals.delivery_status_${row.status}`)}
+                </StatusIndicator>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {t(`console.signals.delivery_state_${row.state}`)}
+                </span>
               </TableCell>
               <TableCell>{row.possible_duplicate ? t('console.signals.delivery_possible_duplicate') : '—'}</TableCell>
               <TableCell>{formatConsoleDate(row.updated_at)}</TableCell>
@@ -448,7 +453,12 @@ export function SignalBindingEditorPage() {
   }
 
   const targetAgentUID = model.agentUID.value || defaultAgentUID
-  const activeFields = activeAdapter?.fields ?? []
+  const activeFields = (activeAdapter?.fields ?? []).flatMap(field => {
+    if (activeAdapter?.adapter_id !== 'cloudevents' || field.path !== 'target_id') return [field]
+    const targetKind = model.config.value.target_kind
+    if (targetKind === 'subject' || targetKind === 'event') return []
+    return [{ ...field, required: targetKind === 'conversation' || targetKind === 'session' }]
+  })
   const submitDisabled = editing && !model.dirty.value
   const writeError = createBinding.error ?? updateBinding.error
   const writeFieldError = configFieldServerError(writeError, activeFields, locale)
@@ -537,24 +547,30 @@ export function SignalBindingEditorPage() {
 
       {activeAdapter ? (
         <>
-          <FormSection
-            title={t('console.signals.section_behavior')}
-            description={t('console.signals.section_behavior_hint')}>
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              <ConfigField
-                field={activeAdapter.group_message_mode_field}
-                locale={locale}
-                value={model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter)}
-                onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
-              />
-              <ConfigField
-                field={activeAdapter.unmatched_sender_policy_field}
-                locale={locale}
-                value={model.unmatchedSenderPolicy.value || defaultUnmatchedSenderPolicy(activeAdapter)}
-                onChange={value => (model.unmatchedSenderPolicy.value = String(value) as UnmatchedSenderPolicy)}
-              />
-            </div>
-          </FormSection>
+          {activeAdapter.group_message_mode_field || activeAdapter.unmatched_sender_policy_field ? (
+            <FormSection
+              title={t('console.signals.section_behavior')}
+              description={t('console.signals.section_behavior_hint')}>
+              <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+                {activeAdapter.group_message_mode_field ? (
+                  <ConfigField
+                    field={activeAdapter.group_message_mode_field}
+                    locale={locale}
+                    value={model.groupMessageMode.value || defaultGroupMessageMode(activeAdapter)}
+                    onChange={value => (model.groupMessageMode.value = String(value) as GroupMessageMode)}
+                  />
+                ) : null}
+                {activeAdapter.unmatched_sender_policy_field ? (
+                  <ConfigField
+                    field={activeAdapter.unmatched_sender_policy_field}
+                    locale={locale}
+                    value={model.unmatchedSenderPolicy.value || defaultUnmatchedSenderPolicy(activeAdapter)}
+                    onChange={value => (model.unmatchedSenderPolicy.value = String(value) as UnmatchedSenderPolicy)}
+                  />
+                ) : null}
+              </div>
+            </FormSection>
+          ) : null}
           <FormSection
             title={t('console.signals.section_connection')}
             description={t('console.signals.section_connection_hint')}>
@@ -641,7 +657,7 @@ function asJSONObject(value: unknown): JSONObject {
 
 function defaultGroupMessageMode(adapter: SignalAdapterItem): GroupMessageMode | '' {
   const field = adapter.group_message_mode_field
-  return asGroupMessageMode(typeof field.default === 'string' ? field.default : undefined) ?? ''
+  return asGroupMessageMode(typeof field?.default === 'string' ? field.default : undefined) ?? ''
 }
 
 function asGroupMessageMode(value: string | undefined): GroupMessageMode | undefined {
@@ -651,7 +667,7 @@ function asGroupMessageMode(value: string | undefined): GroupMessageMode | undef
 
 function defaultUnmatchedSenderPolicy(adapter: SignalAdapterItem): UnmatchedSenderPolicy | '' {
   const field = adapter.unmatched_sender_policy_field
-  return asUnmatchedSenderPolicy(typeof field.default === 'string' ? field.default : undefined) ?? ''
+  return asUnmatchedSenderPolicy(typeof field?.default === 'string' ? field.default : undefined) ?? ''
 }
 
 function asUnmatchedSenderPolicy(value: string | undefined): UnmatchedSenderPolicy | undefined {
