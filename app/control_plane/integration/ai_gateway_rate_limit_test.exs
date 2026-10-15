@@ -30,7 +30,8 @@ defmodule Ankole.AIGateway.RateLimitIntegrationTest do
 
     assert_receive {:attempt, first_at, first}
     assert_receive {:attempt, second_at, second}
-    assert second_at - first_at >= 2_000
+    # Allow 1ms each for the persisted deadline and remaining-wait truncation.
+    assert second_at - first_at >= 1_998
     assert first.body == second.body
     assert first.headers["authorization"] == second.headers["authorization"]
     refute_receive {:attempt, _, _}

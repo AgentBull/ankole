@@ -1,5 +1,9 @@
 # Changelog
 
+## Version 2.0.0-alpha.4 (2026-10-15)
+
+- Allow 2 ms of rounding in the native Retry-After timing test.
+
 ## Version 2.0.0-alpha.3 (2026-10-14)
 
 - Start Workers when environment tools or Jobs need them. Agent creation and
