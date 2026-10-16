@@ -12,9 +12,15 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     {"signal_gateway_webhook_endpoints", "signal_webhook_endpoints"}
   ]
 
+  # Text that a uuid column can be compared with; other strings never match a row.
+  @uuid_pattern "'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'"
+
   def up do
     execute(fn ->
       repo = repo()
+      # A server-side statement_timeout from the site's role or database would
+      # cancel the rewrite; the setting ends with this transaction.
+      sql(repo, "SET LOCAL statement_timeout = 0")
 
       if Ankole.Repo.Migrations.SignalProducers.add_if_missing(repo),
         do: Ankole.Repo.Migrations.SignalProducers.backfill(repo)
@@ -123,13 +129,13 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
 
   defp prepare_maps(repo) do
     %{rows: channels} =
-      repo.query!("SELECT tenant_id,id FROM signal_gateway_channels ORDER BY tenant_id,id")
+      query!(repo, "SELECT tenant_id,id FROM signal_gateway_channels ORDER BY tenant_id,id")
 
     rows = for [tenant, old_id] <- channels, do: [tenant, old_id, uuid()]
     insert_batches(repo, "conversation_migration_map", ~w(tenant_id old_id id), rows)
 
     %{rows: entries} =
-      repo.query!("""
+      query!(repo, """
       SELECT e.tenant_id,e.document_id,e.signal_channel_id,m.id,e.source_entry_id,
         row_number() OVER (PARTITION BY e.tenant_id,e.signal_channel_id ORDER BY e.first_seen_at,e.source_entry_id,e.document_id)
       FROM signal_gateway_entries e JOIN conversation_migration_map m ON m.tenant_id=e.tenant_id AND m.old_id=e.signal_channel_id
@@ -146,6 +152,8 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
       ~w(tenant_id old_id id old_conversation_id conversation_id provider_message_id seq),
       rows
     )
+
+    sql(repo, "ANALYZE conversation_migration_map; ANALYZE message_migration_map")
   end
 
   # Names and columns are migration-owned constants. UUIDv7 generation stays in
@@ -163,13 +171,15 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
           "(" <> Enum.map_join(1..width, ",", &"$#{index * width + &1}") <> ")"
         end)
 
-      repo.query!(
+      query!(
+        repo,
         "INSERT INTO #{table} (#{Enum.join(columns, ",")}) VALUES #{values}",
         List.flatten(batch)
       )
     end)
   end
 
+  # One statement per call: the Repo log then shows the time of each copy.
   defp copy_public_records(repo) do
     sql(repo, """
     INSERT INTO conversations(tenant_id,id,kind,title,last_activity_at,
@@ -179,7 +189,10 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     SELECT c.tenant_id,m.id,'external',COALESCE(NULLIF(btrim(c.name),''),c.id),c.last_seen_at,
       c.id,c.kind,c.reply_mode,c.visibility,c.principal_group_id,c.metadata,c.raw_payload,c.first_seen_at,c.last_seen_at,
       c.ambient_standing_orders,c.ambient_standing_orders_set_by,c.ambient_standing_orders_updated_at,
-      c.inserted_at,c.updated_at FROM signal_gateway_channels c JOIN conversation_migration_map m ON m.tenant_id=c.tenant_id AND m.old_id=c.id;
+      c.inserted_at,c.updated_at FROM signal_gateway_channels c JOIN conversation_migration_map m ON m.tenant_id=c.tenant_id AND m.old_id=c.id
+    """)
+
+    sql(repo, """
     INSERT INTO conversation_participants(tenant_id,conversation_id,principal_uid,role)
       SELECT DISTINCT m.tenant_id,m.id,record.agent_uid,'agent' FROM conversation_migration_map m
       JOIN (
@@ -187,41 +200,68 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
         UNION SELECT tenant_id,substring(session_id FROM 16),agent_uid FROM sessions WHERE starts_with(session_id,'signal-channel:')
         UNION SELECT tenant_id,signal_channel_id,agent_uid FROM signal_gateway_outbox_entries
       ) record ON record.tenant_id=m.tenant_id AND record.old_id=m.old_id
-      JOIN principals p ON p.tenant_id=record.tenant_id AND p.uid=record.agent_uid AND p.type='agent';
+      JOIN principals p ON p.tenant_id=record.tenant_id AND p.uid=record.agent_uid AND p.type='agent'
+    """)
+
+    sql(repo, """
     INSERT INTO conversation_participants(tenant_id,conversation_id,principal_uid,role)
       SELECT DISTINCT c.tenant_id,c.id,member.principal_uid,'member'
       FROM conversations c JOIN principal_group_memberships member ON member.tenant_id=c.tenant_id AND member.group_id=c.principal_group_id
       JOIN principals p ON p.tenant_id=member.tenant_id AND p.uid=member.principal_uid
-      WHERE c.kind='external' AND p.type='human' ON CONFLICT DO NOTHING;
+      WHERE c.kind='external' AND p.type='human' ON CONFLICT DO NOTHING
+    """)
+
+    sql(repo, """
     INSERT INTO conversation_participants(tenant_id,conversation_id,principal_uid,role)
       SELECT c.tenant_id,c.id,p.uid,'member' FROM conversations c
       JOIN principals p ON p.tenant_id=c.tenant_id AND p.uid=c.metadata->>'dm_peer_principal_uid'
-      WHERE c.kind='external' AND c.external_kind='im_dm' AND p.type='human' ON CONFLICT DO NOTHING;
+      WHERE c.kind='external' AND c.external_kind='im_dm' AND p.type='human' ON CONFLICT DO NOTHING
+    """)
+
+    sql(repo, """
     INSERT INTO conversation_messages(tenant_id,id,conversation_id,seq,author_type,author_uid,kind,text,
       attachments,links,mentions,rich_content,origin,created_at)
     SELECT e.tenant_id,m.id,m.conversation_id,m.seq,COALESCE(p.type::text,'unknown'),p.uid,'message',e.text,
       e.attachments,e.links,e.mentions,e.rich_content,'external',COALESCE(e.provider_time,e.first_seen_at)
     FROM signal_gateway_entries e JOIN message_migration_map m ON m.tenant_id=e.tenant_id AND m.old_id=e.document_id
-    LEFT JOIN principals p ON p.tenant_id=e.tenant_id AND p.uid=COALESCE(e.author->>'principal_uid',e.author->>'agent_uid');
+    LEFT JOIN principals p ON p.tenant_id=e.tenant_id AND p.uid=COALESCE(e.author->>'principal_uid',e.author->>'agent_uid')
+    """)
+
+    sql(repo, """
     INSERT INTO external_message_refs(tenant_id,message_id,conversation_id,provider_message_id,
       reply_to_provider_message_id,provider_thread_id,author,metadata,raw_payload,provider_time,
       reactions,raw_reaction_keys,content_hash,first_seen_at,last_seen_at,ai_message_id)
     SELECT e.tenant_id,m.id,m.conversation_id,e.source_entry_id,e.reply_to_source_entry_id,e.provider_thread_id,
       e.author,e.metadata,e.raw_payload,e.provider_time,e.reactions,e.raw_reaction_keys,e.content_hash,
       e.first_seen_at,e.last_seen_at,e.ai_message_id FROM signal_gateway_entries e
-      JOIN message_migration_map m ON m.tenant_id=e.tenant_id AND m.old_id=e.document_id;
+      JOIN message_migration_map m ON m.tenant_id=e.tenant_id AND m.old_id=e.document_id
+    """)
+
+    sql(repo, """
     UPDATE conversation_messages msg SET reply_to_message_id=target.id FROM external_message_refs ref
       JOIN message_migration_map target ON target.tenant_id=ref.tenant_id AND target.conversation_id=ref.conversation_id
         AND target.provider_message_id=ref.reply_to_provider_message_id
-      WHERE msg.tenant_id=ref.tenant_id AND msg.id=ref.message_id;
+      WHERE msg.tenant_id=ref.tenant_id AND msg.id=ref.message_id
+    """)
+
+    sql(repo, """
     UPDATE signals s SET message_id=m.id FROM message_migration_map m
-      WHERE s.tenant_id=m.tenant_id AND s.signal_channel_id=m.old_conversation_id AND s.source_entry_id=m.provider_message_id;
+      WHERE s.tenant_id=m.tenant_id AND s.signal_channel_id=m.old_conversation_id AND s.source_entry_id=m.provider_message_id
+    """)
+
+    sql(repo, """
     UPDATE conversation_messages msg SET session_id=s.session_id,signal_id=s.id
-      FROM external_message_refs ref JOIN ai_gateway_messages ai ON ai.tenant_id=ref.tenant_id AND ai.id=ref.ai_message_id
-      JOIN signals s ON s.tenant_id=ai.tenant_id AND s.id::text=ai.metadata->'request_metadata'->>'signal_id'
-      WHERE msg.tenant_id=ref.tenant_id AND msg.id=ref.message_id AND msg.author_type='agent';
+      FROM (SELECT ref.tenant_id,ref.message_id,
+          CASE WHEN ai.metadata->'request_metadata'->>'signal_id' ~* #{@uuid_pattern}
+            THEN (ai.metadata->'request_metadata'->>'signal_id')::uuid END AS signal_id
+        FROM external_message_refs ref JOIN ai_gateway_messages ai ON ai.tenant_id=ref.tenant_id AND ai.id=ref.ai_message_id) origin
+      JOIN signals s ON s.tenant_id=origin.tenant_id AND s.id=origin.signal_id
+      WHERE msg.tenant_id=origin.tenant_id AND msg.id=origin.message_id AND msg.author_type='agent'
+    """)
+
+    sql(repo, """
     UPDATE conversations c SET sequence_high_water=COALESCE((SELECT max(seq) FROM conversation_messages m
-      WHERE m.tenant_id=c.tenant_id AND m.conversation_id=c.id),0);
+      WHERE m.tenant_id=c.tenant_id AND m.conversation_id=c.id),0)
     """)
   end
 
@@ -229,7 +269,7 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     # Replace foreign keys before converting their key type. Provider-message IDs
     # stay adapter data; columns that represent public message references become UUIDs.
     %{rows: columns} =
-      repo.query!("""
+      query!(repo, """
       SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public'
         AND column_name IN ('signal_channel_id','signal_gateway_channel_id')
         AND table_name NOT IN ('signal_gateway_channels','signal_gateway_entries') ORDER BY table_name
@@ -325,7 +365,7 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     """)
 
     %{rows: columns} =
-      repo.query!("""
+      query!(repo, """
       SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public'
         AND data_type='text' AND column_name IN ('session_id','owner_session_id','conversation_key','provenance_session')
         AND table_name<>'sessions'
@@ -354,7 +394,7 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     """)
 
     %{rows: [[shape]]} =
-      repo.query!("""
+      query!(repo, """
       SELECT pg_get_constraintdef(oid) FROM pg_constraint
       WHERE conrelid='brain_claims'::regclass AND conname='brain_claims_type_shape'
       """)
@@ -375,7 +415,7 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     )
 
     %{rows: files} =
-      repo.query!("""
+      query!(repo, """
       SELECT f.tenant_id,f.agent_uid,f.path,m.old_id,m.id FROM agent_files f
         JOIN conversation_migration_map m ON m.tenant_id=f.tenant_id AND m.id=f.conversation_id
       """)
@@ -402,7 +442,7 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     insert_batches(repo, "file_migration_map", ~w(tenant_id agent_uid old_path new_path), rows)
 
     %{rows: conflicts} =
-      repo.query!("""
+      query!(repo, """
       SELECT m.new_path FROM file_migration_map m JOIN agent_files f
         ON f.tenant_id=m.tenant_id AND f.agent_uid=m.agent_uid AND f.path<>m.old_path
         AND (f.path=m.new_path OR starts_with(f.path,m.new_path||'/') OR starts_with(m.new_path,f.path||'/'))
@@ -467,7 +507,7 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     """)
 
     %{rows: columns} =
-      repo.query!("""
+      query!(repo, """
       SELECT table_name,column_name FROM information_schema.columns WHERE table_schema='public' AND data_type='jsonb'
         AND column_name IN ('data','entries','source_provenance','reply_route','request_context','runtime_projection','wake_payload','payload','recovery_state','config')
         AND table_name NOT IN ('ai_gateway_messages','external_message_refs','signal_gateway_channels','signal_gateway_entries','ai_gateway_compaction_artifacts')
@@ -489,24 +529,65 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
 
     sql(repo, """
     UPDATE ai_gateway_messages SET metadata=jsonb_set(metadata,'{request_metadata}',
-      pg_temp.conversation_references(metadata->'request_metadata',tenant_id)) WHERE metadata?'request_metadata';
+      pg_temp.conversation_references(metadata->'request_metadata',tenant_id)) WHERE metadata?'request_metadata'
+    """)
+
+    sql(repo, """
     UPDATE ai_gateway_conversations SET metadata=jsonb_set(metadata,'{origin}',
-      pg_temp.conversation_references(metadata->'origin',tenant_id)) WHERE metadata?'origin';
+      pg_temp.conversation_references(metadata->'origin',tenant_id)) WHERE metadata?'origin'
+    """)
+
+    mark_conversation_reads(repo)
+
+    sql(repo, """
+    UPDATE conversation_messages SET attachments=ARRAY(SELECT pg_temp.conversation_references(a,tenant_id) FROM unnest(attachments) a)
+    """)
+  end
+
+  # Each AI message that came from an external conversation records which
+  # message sequence it had read. The signal references are collected once per
+  # message and joined by uuid, so every lookup uses the primary keys.
+  defp mark_conversation_reads(repo) do
+    sql(repo, """
+    CREATE TEMP TABLE ai_conversation_reads ON COMMIT DROP AS
+    SELECT ai.tenant_id,ai.id AS message_id,map.id AS conversation_id,
+      CASE WHEN ref.signal_id ~* #{@uuid_pattern} THEN ref.signal_id::uuid END AS signal_id
+    FROM ai_gateway_messages ai
+    JOIN ai_gateway_conversations c ON c.tenant_id=ai.tenant_id AND c.id=ai.conversation_id
+    JOIN conversation_migration_map map ON map.tenant_id=c.tenant_id AND c.conversation_key='conversation:'||map.id::text
+    LEFT JOIN LATERAL (
+      SELECT ai.metadata->'request_metadata'->>'signal_id' AS signal_id
+      UNION ALL
+      SELECT item->>'signal_id' FROM jsonb_array_elements(
+        CASE WHEN jsonb_typeof(ai.metadata->'request_metadata'->'request_refs')='array'
+          THEN ai.metadata->'request_metadata'->'request_refs' ELSE '[]'::jsonb END) item
+    ) ref ON true
+    WHERE ai.metadata?'request_metadata' AND NOT (ai.metadata->'request_metadata'?'conversation_read')
+    """)
+
+    sql(repo, "ANALYZE ai_conversation_reads")
+
+    sql(repo, """
+    CREATE TEMP TABLE ai_conversation_read_marks ON COMMIT DROP AS
+    SELECT r.tenant_id,r.message_id,r.conversation_id,COALESCE(max(msg.seq),0) AS max_seq
+    FROM ai_conversation_reads r
+    LEFT JOIN signals s ON s.tenant_id=r.tenant_id AND s.id=r.signal_id
+    LEFT JOIN LATERAL (
+      SELECT s.message_id AS id UNION ALL
+      SELECT CASE WHEN item#>>'{}' ~* #{@uuid_pattern} THEN (item#>>'{}')::uuid END
+        FROM jsonb_path_query(s.data,'$.**.message_id') item
+    ) refs ON true
+    LEFT JOIN conversation_messages msg ON msg.tenant_id=r.tenant_id
+      AND msg.conversation_id=r.conversation_id AND msg.id=refs.id
+    GROUP BY r.tenant_id,r.message_id,r.conversation_id
+    """)
+
+    sql(repo, "ANALYZE ai_conversation_read_marks")
+
+    sql(repo, """
     UPDATE ai_gateway_messages ai SET metadata=jsonb_set(ai.metadata,'{request_metadata,conversation_read}',
-      jsonb_build_object('id',map.id::text,'max_seq',COALESCE((SELECT max(msg.seq) FROM signals s
-        JOIN LATERAL (SELECT s.message_id::text AS id UNION ALL
-          SELECT item#>>'{}' FROM jsonb_path_query(s.data,'$.**.message_id') item) refs ON true
-        JOIN conversation_messages msg ON msg.tenant_id=s.tenant_id AND msg.id::text=refs.id
-        WHERE s.tenant_id=ai.tenant_id AND (s.id::text=ai.metadata->'request_metadata'->>'signal_id'
-          OR s.id::text IN (SELECT item->>'signal_id' FROM jsonb_array_elements(
-            CASE WHEN jsonb_typeof(ai.metadata->'request_metadata'->'request_refs')='array'
-              THEN ai.metadata->'request_metadata'->'request_refs' ELSE '[]'::jsonb END) item))
-          AND msg.conversation_id=map.id),0)))
-      FROM ai_gateway_conversations c JOIN conversation_migration_map map ON map.tenant_id=c.tenant_id
-        AND c.conversation_key='conversation:'||map.id::text
-      WHERE ai.tenant_id=c.tenant_id AND ai.conversation_id=c.id AND ai.metadata?'request_metadata'
-        AND NOT (ai.metadata->'request_metadata'?'conversation_read');
-    UPDATE conversation_messages SET attachments=ARRAY(SELECT pg_temp.conversation_references(a,tenant_id) FROM unnest(attachments) a);
+      jsonb_build_object('id',mark.conversation_id::text,'max_seq',mark.max_seq))
+    FROM ai_conversation_read_marks mark WHERE ai.tenant_id=mark.tenant_id AND ai.id=mark.message_id
     """)
   end
 
@@ -542,7 +623,7 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
            "Ankole.Conversations.Jobs.InboundBatchFinalize"},
           {"Ankole.Brain.Jobs.ProcessChannelSlice", "Ankole.Brain.Jobs.ProcessConversationSlice"}
         ] do
-      repo.query!("UPDATE oban_jobs SET worker=$2 WHERE worker=$1", [old, new])
+      query!(repo, "UPDATE oban_jobs SET worker=$2 WHERE worker=$1", [old, new])
     end
   end
 
@@ -563,7 +644,7 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
           {"app_configurations", "tenant_id"}
         ] do
       %{rows: rows} =
-        repo.query!("""
+        query!(repo, """
         SELECT #{tenant_column},scope,key,value FROM #{table}
         WHERE left(key,length('signals_gateway.'))='signals_gateway.'
         ORDER BY scope,key FOR UPDATE
@@ -575,7 +656,8 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
         identity = [scope, key] ++ if(tenant, do: [tenant], else: [])
         collision_scope = if tenant, do: " AND tenant_id=$3", else: ""
 
-        if repo.query!(
+        if query!(
+             repo,
              "SELECT 1 FROM #{table} WHERE scope=$1 AND key=$2#{collision_scope}",
              identity
            ).num_rows > 0 do
@@ -587,7 +669,8 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
         params = [key, envelope, scope] ++ if(tenant, do: [tenant], else: [])
         old_key_param = length(params) + 1
 
-        repo.query!(
+        query!(
+          repo,
           "UPDATE #{table} SET key=$1,value=$2 WHERE scope=$3#{tenant_scope} AND key=$#{old_key_param}",
           params ++ [old_key]
         )
@@ -651,7 +734,7 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
 
   defp migrate_console_grants(repo) do
     %{rows: rows} =
-      repo.query!("""
+      query!(repo, """
       SELECT tenant_id,id,resource_pattern,condition FROM permission_grants
       WHERE position('signal_gateway_' IN resource_pattern)>0
       ORDER BY tenant_id,id FOR UPDATE
@@ -699,7 +782,8 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
         |> String.replace("signal_gateway_adapters", "signals_adapters")
         |> String.replace("signal_gateway_channels", "conversations")
 
-      repo.query!(
+      query!(
+        repo,
         "UPDATE permission_grants SET resource_pattern=$1,condition=$2 WHERE tenant_id=$3 AND id=$4",
         [pattern, condition, tenant, id]
       )
@@ -733,7 +817,8 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     )
 
     %{rows: constraints} =
-      repo.query!(
+      query!(
+        repo,
         "SELECT conrelid::regclass::text,conname FROM pg_constraint WHERE connamespace='public'::regnamespace AND conname LIKE 'signal_gateway_%'"
       )
 
@@ -745,7 +830,8 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
     end
 
     %{rows: indexes} =
-      repo.query!(
+      query!(
+        repo,
         "SELECT indexname FROM pg_indexes WHERE schemaname='public' AND indexname LIKE 'signal_gateway_%'"
       )
 
@@ -803,12 +889,14 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
 
   defp migrate_deliveries(repo) do
     %{rows: checks} =
-      repo.query!(
+      query!(
+        repo,
         "SELECT conname,pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='deliveries'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%status%'"
       )
 
     %{rows: indexes} =
-      repo.query!(
+      query!(
+        repo,
         "SELECT indexname,indexdef FROM pg_indexes WHERE schemaname='public' AND tablename='deliveries' AND indexdef LIKE '%status%'"
       )
 
@@ -891,7 +979,8 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
 
   defp drop_column_constraints(repo, table, column) do
     %{rows: rows} =
-      repo.query!(
+      query!(
+        repo,
         "SELECT conname FROM pg_constraint WHERE conrelid=$1::text::regclass AND contype='f' AND $2=ANY(SELECT attname FROM pg_attribute WHERE attrelid=conrelid AND attnum=ANY(conkey))",
         [table, column]
       )
@@ -907,7 +996,8 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
 
   defp column?(repo, table, column),
     do:
-      repo.query!(
+      query!(
+        repo,
         "SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name=$1 AND column_name=$2",
         [table, column]
       ).rows != []
@@ -917,9 +1007,12 @@ defmodule Ankole.Repo.Migrations.MergeExternalConversations do
 
   defp uuid, do: Ecto.UUID.dump!(Ankole.Ecto.UUIDv7.autogenerate())
 
-  defp sql(repo, statement) do
-    # Postgrex accepts one prepared statement; migration SQL blocks are simple
-    # statements except for PL/pgSQL, which need the simple-query protocol.
-    repo.query!(statement, [], query_type: :text)
-  end
+  # Postgrex accepts one prepared statement; migration SQL blocks are simple
+  # statements except for PL/pgSQL, which need the simple-query protocol.
+  defp sql(repo, statement), do: query!(repo, statement, [], query_type: :text)
+
+  # Data migrations run as long as the site's data needs; the Repo's query
+  # timeout is for requests, not for a one-time rewrite inside one transaction.
+  defp query!(repo, statement, params \\ [], opts \\ []),
+    do: repo.query!(statement, params, Keyword.put(opts, :timeout, :infinity))
 end

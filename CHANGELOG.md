@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.7 (2026-10-16)
+
+- Let the external-conversation migration run as long as the site's data
+  needs: it clears the server statement timeout for its transaction, its raw
+  queries no longer use the Repo request timeout, the temporary maps are
+  analyzed, and the message and read-mark lookups join `signals` by uuid
+  instead of by text, which a 1.x site with tens of thousands of Signals could
+  not complete.
+
 ## Version 2.0.0-alpha.6 (2026-10-16)
 
 - Set the TLS provider before native I/O starts, so model WebSocket calls work
