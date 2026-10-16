@@ -19,7 +19,8 @@ defmodule Ankole.Repo.Migrations.SignalProducers do
           CHECK (producer IN ('kernel','external'));
         """,
         [],
-        query_type: :text
+        query_type: :text,
+        timeout: :infinity
       )
     end
 
@@ -99,7 +100,8 @@ defmodule Ankole.Repo.Migrations.SignalProducers do
         AND command.type='command.retry' AND s.source_event_id='retry:'||command.id::text;
       """,
       [],
-      query_type: :text
+      query_type: :text,
+      timeout: :infinity
     )
   end
 end
