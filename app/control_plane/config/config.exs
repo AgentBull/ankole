@@ -92,7 +92,7 @@ config :tzdata, :autoupdate, :disabled
 config :ankole, Oban,
   repo: Ankole.Repo,
   notifier: Oban.Notifiers.PG,
-  queues: [default: 10, agent_workers: 20, conversations: 20, intent: 20],
+  queues: [default: 10, agent_workers: 20, conversations: 20, outbox: 20],
   plugins: [
     Oban.Plugins.Pruner,
     {Oban.Plugins.Lifeline, rescue_after: :timer.minutes(30)},

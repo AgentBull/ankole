@@ -1640,6 +1640,10 @@ read credit. One public Response can include several native Provider calls.
 Elixir also produces terminals for its own domain, persistence, and native
 owner failures. It does not rebuild normal Provider failure terminals.
 
+If a native stream task panics, the kernel reports `native_stream_panicked`
+to its owner. Elixir handles it as a native owner failure, so the Response
+does not wait for a Provider event that cannot arrive.
+
 Every downstream consumer uses `ResponseStream.next/2`. A public terminal that
 has no read credit stays buffered until the consumer reads it, cancels, or
 exits. Native termination does not discard that buffer. The shutdown timer
