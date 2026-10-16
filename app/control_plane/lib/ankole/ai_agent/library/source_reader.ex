@@ -39,6 +39,12 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
+  @doc "Lists Skill directories without treating unreadable entries as absent."
+  @spec list_skill_directories(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def list_skill_directories(root) do
+    with {:ok, entries} <- File.ls(root), do: skill_directories(root, entries)
+  end
+
   @doc "Reads installed Skill manifests from the Agent's drive."
   @spec read_installed_skill_sources(String.t(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def read_installed_skill_sources(agent_uid, opts \\ []) do
@@ -331,27 +337,62 @@ defmodule Ankole.AIAgent.Library.SourceReader do
     end
   end
 
-  defp list_skill_root(root, :empty) do
-    case File.ls(root) do
-      {:ok, entries} -> {:ok, skill_directories(root, entries)}
-      {:error, :enoent} -> {:ok, []}
-      {:error, _reason} = error -> error
-    end
-  end
+  defp list_skill_root(root, missing) do
+    case list_skill_directories(root) do
+      {:error, :enoent} when missing == :empty ->
+        case File.lstat(root) do
+          {:error, :enoent} -> {:ok, []}
+          _result -> {:error, :enoent}
+        end
 
-  defp list_skill_root(root, :error) do
-    case File.ls(root) do
-      {:ok, entries} -> {:ok, skill_directories(root, entries)}
-      {:error, _reason} = error -> error
+      result ->
+        result
     end
   end
 
   defp skill_directories(root, entries) do
     entries
     |> Enum.sort()
-    |> Enum.filter(fn entry ->
-      File.dir?(Path.join(root, entry)) and File.regular?(Path.join([root, entry, @skill_file]))
-    end)
+    |> Enum.map(&skill_directory(root, &1))
+    |> Ankole.Attrs.collect_results()
+    |> case do
+      {:ok, directories} -> {:ok, Enum.reject(directories, &is_nil/1)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp skill_directory(root, entry) do
+    case File.stat(Path.join(root, entry)) do
+      {:ok, %File.Stat{type: :directory}} ->
+        skill_file_directory(root, entry)
+
+      {:ok, _stat} ->
+        {:ok, nil}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp skill_file_directory(root, entry) do
+    path = Path.join([root, entry, @skill_file])
+
+    case File.stat(path) do
+      {:ok, %File.Stat{type: :regular}} ->
+        {:ok, entry}
+
+      {:ok, _stat} ->
+        {:ok, nil}
+
+      {:error, :enoent} ->
+        case File.lstat(path) do
+          {:error, :enoent} -> {:ok, nil}
+          _result -> {:error, :enoent}
+        end
+
+      {:error, _reason} = error ->
+        error
+    end
   end
 
   defp do_read_skill_source(parent_root, root_label, relative_path) do

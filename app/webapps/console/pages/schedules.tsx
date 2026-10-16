@@ -441,7 +441,7 @@ export function ScheduleCronEditorPage() {
     [editing, existingRow]
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'schedule', id: cronID },
+    sourceKey: `cron:${cronID ?? 'new'}`,
     source: scheduleDraft,
     absent: () => editing && requestErrorCode(existing.error) === 'not_found'
   })

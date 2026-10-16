@@ -19,7 +19,7 @@ Harness は各行動主体を識別し、アクセス規則を適用し、長時
 
 1 つのプライベートな deployment instance は、1 つの論理 control plane と、Agent ごとに 1 台の Agent Computer Worker を持ちます。control plane は Identity、state、schedule を管理し、Worker を作成します。各 Worker は、その Agent が実際に働く compute 環境を提供します。
 
-Workplace と外部アダプターが会話の発言を記録します。Signals が発言、外部イベント、時刻の刺激を受け付け、Sessions が作業を実行します。Identity Provider が人と組織ディレクトリを供給します。AIGateway は model、embedding、rerank、画像、web 能力に対する 1 つの境界を提供します。
+Pod と外部アダプターが会話の発言を記録します。Signals が発言、外部イベント、時刻の刺激を受け付け、Sessions が作業を実行します。Identity Provider が人と組織ディレクトリを供給します。AIGateway は model、embedding、rerank、画像、web 能力に対する 1 つの境界を提供します。
 
 ## Control plane と Agent Computer Worker
 
@@ -57,7 +57,7 @@ Agent 作成時に pool を選ぶか、site の既定 pool を使います。そ
 
 ### 会話は参加者の発言を保存する
 
-会話は人と Agent が共有する空間です。`Ankole.Conversations` は参加者とメッセージを保存します。Workplace はネイティブの発言を直接書き込みます。アダプターは外部の会話を観測し、その内容の正本は外部プラットフォームにあります。
+会話は人と Agent が共有する空間です。`Ankole.Conversations` は参加者とメッセージを保存します。Pod はネイティブの発言を直接書き込みます。アダプターは外部の会話を観測し、その内容の正本は外部プラットフォームにあります。
 
 会話の発言と Agent の作業は別の記録です。発言は参加者の記録です。モデル呼び出し、ツール結果、圧縮は、実行セッションに対応する AIGateway のモデル状態に属します。実行セッションは複数の会話をまたがず、ある会話の作業が別の会話に入りません。
 

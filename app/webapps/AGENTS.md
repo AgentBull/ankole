@@ -22,12 +22,12 @@ This file applies to all files under `app/webapps/`. It supplements the root `AG
 - Use `computed` for derived state. Use an effect only to synchronize with an external system, and clean up the effect.
 - The Console refreshes queries after successful writes through the `MutationCache` in `console/query-client.ts`. Pages do not refresh queries on success. A mutation that changes no Console data sets `meta: { invalidates: false }`. A failure path that needs fresh data calls `invalidateQueries` in `onError`. Setup and auth keep their own QueryClient behavior.
 - Let TanStack Query own request state and the remote cache. Do not copy query data into a Signal only to make it observable. A Signal model can own an editable draft that starts from query data.
-- Console editor pages must seed Signal drafts through `useEditorDraft`. Pass a structured resource identity, the loaded draft source or `undefined`, and the real absence check. The hook owns source keys and seeds each selected identity once, so a query refetch cannot replace operator edits. Setup forms do not use this hook because they do not have the Console draft lifecycle.
+- Console editor pages must seed Signal drafts through `useEditorDraft`. The resource owner supplies a stable, opaque `sourceKey`, the loaded draft source or `undefined`, and the real absence check. Include every selection dimension in the key. The hook seeds each selected key once, so a query refetch cannot replace operator edits. Models with pending request captures implement `resetSource`; the hook calls it on selection changes and unmount. Keep resource names and key formats outside the hook. Setup forms do not use this hook because they do not have the Console draft lifecycle.
 
 ## UI and API boundaries
 
-- Put cross-webapp providers and browser integration in `common/`. Keep product-specific pages and state in `console/`, `setup/`, or `workplace/`.
-- Treat `openapi/*.json` and `console/api/generated/` as generated artifacts. Change the owning control-plane API declaration, regenerate the OpenAPI document, and then run `bun run --filter @ankole/webapps openapi:generate`. Do not patch generated artifacts to change behavior.
+- Put cross-webapp providers and browser integration in `common/`. Keep product-specific pages and state in `console/`, `setup/`, or `pod/`.
+- Treat `openapi/*.json` and `*/api/generated/` as generated artifacts. Change the owning control-plane API declaration, regenerate the OpenAPI document, and then run `bun run --filter @ankole/webapps openapi:generate`. Do not patch generated artifacts to change behavior.
 
 ## Validation
 

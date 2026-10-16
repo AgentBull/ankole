@@ -393,6 +393,15 @@ export type BackgroundAgentJobHealthResponse = {
 }
 
 /**
+ * BackgroundActivityAutomationRunsResponse
+ */
+export type BackgroundActivityAutomationRunsResponse = {
+  next_cursor: string | null
+  observed_at: string
+  runs: Array<BackgroundActivityAutomationRun>
+}
+
+/**
  * ScheduleRecurrence
  *
  * Recurrence of one cron schedule. Kind `cron` uses `expression` and `timezone`; kind `every` uses `every_ms` and `anchor_at`.
@@ -819,6 +828,16 @@ export type ConsoleReadinessModelProfiles = {
 }
 
 /**
+ * OIDCLoginSources
+ */
+export type OidcLoginSources = {
+  sources: Array<{
+    enabled: boolean
+    provider_id: string
+  }>
+}
+
+/**
  * AIGatewayChatGPTEnterpriseCredentialRequest
  */
 export type AiGatewayChatGptEnterpriseCredentialRequest = {
@@ -878,6 +897,32 @@ export type AgentFileEntry = {
 }
 
 /**
+ * BackgroundActivityWorkflowCall
+ */
+export type BackgroundActivityWorkflowCall = {
+  agent_uid: string
+  attempts: number
+  attention: boolean
+  error_code: string | null
+  error_summary: string | null
+  id: number
+  label: string | null
+  owner_session_id: string
+  resource_kind: 'workflow_call'
+  run_counts: WorkflowActivityCounts
+  run_error_code: string | null
+  run_error_summary: string | null
+  run_id: number
+  run_status: string
+  run_title: string
+  sleep_note: string | null
+  sleeping_until: string | null
+  status: 'queued' | 'running' | 'sleeping'
+  task_session_id: string
+  updated_at: string | null
+}
+
+/**
  * PrincipalCreateRequest
  */
 export type PrincipalCreateRequest = {
@@ -923,6 +968,27 @@ export type AccessReviewGroup = {
 export type BrainObjectForgetRequest = {
   reason: string
   slug: string
+}
+
+/**
+ * BackgroundActivityAutomationRun
+ */
+export type BackgroundActivityAutomationRun = {
+  agent_uid: string
+  attempt_id: string | null
+  attempts: number
+  automation_job_id: number
+  definition_status: 'active' | 'cancelled' | 'expired'
+  error: string | null
+  id: number
+  inserted_at: string | null
+  label: string | null
+  owner_session_id: string
+  resource_kind: 'automation_run'
+  scheduled_event_id: string | null
+  started_at: string | null
+  status: 'queued' | 'running'
+  updated_at: string | null
 }
 
 /**
@@ -1542,6 +1608,19 @@ export type ProviderHostedCapabilities = {
 }
 
 /**
+ * WorkflowActivityCounts
+ */
+export type WorkflowActivityCounts = {
+  cancelled: number
+  failed: number
+  queued: number
+  running: number
+  sleeping: number
+  succeeded: number
+  total: number
+}
+
+/**
  * SignalAdapterItem
  */
 export type SignalAdapterItem = {
@@ -1613,6 +1692,25 @@ export type ScheduleEventListResponse = {
  */
 export type BrainClaimListResponse = {
   claims: Array<BrainClaim>
+}
+
+/**
+ * BackgroundActivityJob
+ */
+export type BackgroundActivityJob = {
+  agent_uid: string
+  attempts: number
+  error_code: string | null
+  error_summary: string | null
+  id: number
+  owner_session_id: string
+  queued_at: string | null
+  resource_kind: 'background_job'
+  source_signal_id: string | null
+  started_at: string | null
+  status: 'queued' | 'running' | 'waiting_on_user'
+  title: string
+  updated_at: string | null
 }
 
 /**
@@ -1916,6 +2014,15 @@ export type BrainSuggestionDecideRequest = {
 }
 
 /**
+ * BackgroundActivityJobsResponse
+ */
+export type BackgroundActivityJobsResponse = {
+  jobs: Array<BackgroundActivityJob>
+  next_cursor: string | null
+  observed_at: string
+}
+
+/**
  * DirectoryEventItem
  */
 export type DirectoryEventItem = {
@@ -2061,6 +2168,17 @@ export type IdentityMappingRequestItem = {
 export type AgentSkillLessonCreateRequest = {
   content: string
   skill_name: string
+}
+
+/**
+ * BackgroundActivityWorkflowResponse
+ */
+export type BackgroundActivityWorkflowResponse = {
+  calls_next_cursor: string | null
+  live_calls: Array<BackgroundActivityWorkflowCall>
+  observed_at: string
+  runs: Array<BackgroundActivityWorkflowRun>
+  runs_next_cursor: string | null
 }
 
 /**
@@ -2730,6 +2848,25 @@ export type BackgroundAgentJobResponse = {
  */
 export type ConversationStandingOrdersResponse = {
   standing_orders: ConversationStandingOrdersItem
+}
+
+/**
+ * BackgroundActivityWorkflowRun
+ */
+export type BackgroundActivityWorkflowRun = {
+  agent_uid: string
+  cleanup_pending: boolean
+  completed_at: string | null
+  counts: WorkflowActivityCounts
+  error_code: string | null
+  error_summary: string | null
+  id: number
+  inserted_at: string | null
+  owner_session_id: string
+  resource_kind: 'workflow_run'
+  status: string
+  title: string
+  updated_at: string | null
 }
 
 /**
@@ -3504,6 +3641,38 @@ export type AnkoleWebAgentWorkerControllerIndexResponses = {
 
 export type AnkoleWebAgentWorkerControllerIndexResponse =
   AnkoleWebAgentWorkerControllerIndexResponses[keyof AnkoleWebAgentWorkerControllerIndexResponses]
+
+export type BackgroundActivityWorkflowData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    limit?: number
+    calls_cursor?: string
+    runs_cursor?: string
+  }
+  url: '/api/v1/agents/{agent_uid}/background-activities/workflow'
+}
+
+export type BackgroundActivityWorkflowErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type BackgroundActivityWorkflowError = BackgroundActivityWorkflowErrors[keyof BackgroundActivityWorkflowErrors]
+
+export type BackgroundActivityWorkflowResponses = {
+  /**
+   * Workflow activity
+   */
+  200: BackgroundActivityWorkflowResponse
+}
+
+export type BackgroundActivityWorkflowResponse2 =
+  BackgroundActivityWorkflowResponses[keyof BackgroundActivityWorkflowResponses]
 
 export type AnkoleWebAiGatewayFilesControllerDeleteData = {
   body?: never
@@ -6116,6 +6285,36 @@ export type AnkoleWebBrainControllerRestoreObjectResponses = {
 export type AnkoleWebBrainControllerRestoreObjectResponse =
   AnkoleWebBrainControllerRestoreObjectResponses[keyof AnkoleWebBrainControllerRestoreObjectResponses]
 
+export type BackgroundActivityJobsData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    limit?: number
+    cursor?: string
+  }
+  url: '/api/v1/agents/{agent_uid}/background-activities/background-jobs'
+}
+
+export type BackgroundActivityJobsErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type BackgroundActivityJobsError = BackgroundActivityJobsErrors[keyof BackgroundActivityJobsErrors]
+
+export type BackgroundActivityJobsResponses = {
+  /**
+   * Background Jobs
+   */
+  200: BackgroundActivityJobsResponse
+}
+
+export type BackgroundActivityJobsResponse2 = BackgroundActivityJobsResponses[keyof BackgroundActivityJobsResponses]
+
 export type AnkoleWebBrainControllerHealthData = {
   body?: never
   path?: never
@@ -6935,6 +7134,38 @@ export type AnkoleWebHumanAccessControllerShowResponses = {
 export type AnkoleWebHumanAccessControllerShowResponse =
   AnkoleWebHumanAccessControllerShowResponses[keyof AnkoleWebHumanAccessControllerShowResponses]
 
+export type BackgroundActivityAutomationRunsData = {
+  body?: never
+  path: {
+    agent_uid: string
+  }
+  query?: {
+    limit?: number
+    cursor?: string
+  }
+  url: '/api/v1/agents/{agent_uid}/background-activities/automation-runs'
+}
+
+export type BackgroundActivityAutomationRunsErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type BackgroundActivityAutomationRunsError =
+  BackgroundActivityAutomationRunsErrors[keyof BackgroundActivityAutomationRunsErrors]
+
+export type BackgroundActivityAutomationRunsResponses = {
+  /**
+   * Automation runs
+   */
+  200: BackgroundActivityAutomationRunsResponse
+}
+
+export type BackgroundActivityAutomationRunsResponse2 =
+  BackgroundActivityAutomationRunsResponses[keyof BackgroundActivityAutomationRunsResponses]
+
 export type AnkoleWebScheduleControllerIndexCronData = {
   body?: never
   path?: never
@@ -7481,6 +7712,31 @@ export type AnkoleWebAgentSkillLessonControllerCreateResponses = {
 
 export type AnkoleWebAgentSkillLessonControllerCreateResponse =
   AnkoleWebAgentSkillLessonControllerCreateResponses[keyof AnkoleWebAgentSkillLessonControllerCreateResponses]
+
+export type OidcLoginSourcesData = {
+  body?: never
+  path?: never
+  query?: never
+  url: '/api/v1/oidc-clients/login-sources'
+}
+
+export type OidcLoginSourcesErrors = {
+  /**
+   * Error
+   */
+  default: ConsoleApiErrorEnvelope
+}
+
+export type OidcLoginSourcesError = OidcLoginSourcesErrors[keyof OidcLoginSourcesErrors]
+
+export type OidcLoginSourcesResponses = {
+  /**
+   * Sources
+   */
+  200: OidcLoginSources
+}
+
+export type OidcLoginSourcesResponse = OidcLoginSourcesResponses[keyof OidcLoginSourcesResponses]
 
 export type AnkoleWebBrainControllerDecideContradictionData = {
   /**

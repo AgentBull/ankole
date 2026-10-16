@@ -1252,6 +1252,16 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
   defp insert_aged_human_entry!(conversation_id, hours) do
     at = DateTime.add(DateTime.utc_now(:microsecond), -hours * 3600, :second)
 
+    # Advance the whole customer's conversation beyond the service window,
+    # including the real provider-authored question that opened this card.
+    Repo.update_all(
+      from(message in Ankole.Conversations.ExternalMessageRef,
+        where: message.conversation_id == ^external_conversation_id(conversation_id),
+        where: fragment("?->>'platform_subject' = ?", message.author, ^@wa_id)
+      ),
+      set: [provider_time: at]
+    )
+
     {:ok, %{message: message}} =
       Repo.transact(fn repo ->
         Ankole.Conversations.External.observe_in_tx(
@@ -1287,7 +1297,10 @@ defmodule Ankole.Plugins.WhatsAppAdapterTest do
           channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
           text: "deploy?",
           explicit: true,
-          author: %{principal_uid: human.uid, id: @wa_id},
+          author:
+            Ankole.SignalsFixtures.provider_author_fixture(human.uid, @wa_id, %{
+              provider: "whatsapp-main"
+            }),
           provider_time: now
         },
         now

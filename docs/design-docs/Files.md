@@ -208,12 +208,12 @@ returns `next_after`; pass it as `--after` to read the next page.
 ## Attachments
 
 Inbound adapters record a pending observation before they download bytes.
-`Conversations.Attachments` allocates its stable numeric attachment ID in
-PostgreSQL. The adapter stores bytes through
-`Conversations.Observe.store_attachment/3`, then observes a complete or failed
-result with the same provider identity. A complete attachment carries
-`blob_ref`, drive `path`, and size. Redelivery cannot replace stored bytes with
-a pending or failed result.
+`Conversations.Attachments` owns attachment storage, download result handling,
+redelivery reuse, and stable numeric attachment IDs in PostgreSQL. The adapter
+stores bytes through `Conversations.Attachments.store_attachment/3`, then
+observes a complete or failed result with the same provider identity. A complete
+attachment carries `blob_ref`, drive `path`, and size. Redelivery cannot replace
+stored bytes with a pending or failed result.
 
 The public Conversation UUID scopes the path under
 `chats/<conversation_id>/inbox/<digest>/<filename>`. Provider room and message

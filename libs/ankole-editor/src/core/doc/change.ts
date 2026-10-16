@@ -117,7 +117,13 @@ function isNatNum(value: any): value is number {
   return typeof value == 'number' && Math.floor(value) == value && value >= 0
 }
 
-type SectionData = Slice | readonly Modification[] | null
+const noTokens = Slice.empty.content
+
+function sliceLen(tokens: readonly Token[]) {
+  return tokens.reduce((l, e) => l + (e.tokenType == Token.Type.Node ? e.length : 1), 0)
+}
+
+type SectionData = readonly Token[] | readonly Modification[] | null
 
 const applyCache = new WeakMap<ChangeSet, { a: Plot.Doc; b: Plot.Doc }>()
 
@@ -185,7 +191,7 @@ export class ChangeSet {
     for (let i = 0; i < this.data.length; i++) {
       const a = this.data[i] as any,
         b = (other as ChangeSet).data[i] as any
-      if (a && !(this.sections[(i << 1) + 1]! < 0 ? compareModifications(a, b) : a.eq(b))) return false
+      if (a && !(this.sections[(i << 1) + 1]! < 0 ? compareModifications(a, b) : Slice.eq(a, b))) return false
     }
     return true
   }
@@ -217,7 +223,7 @@ export class ChangeSet {
         builder.modifications = null
       } else {
         cursor = cursor.advance(lenA)
-        ;(this.data[i] as Slice).run(builder)
+        Slice.run(this.data[i] as readonly Token[], builder)
       }
     }
     if (cursor.pos != doc.length) throw new ValidationError("Change doesn't cover the entire document")
@@ -229,13 +235,13 @@ export class ChangeSet {
 
   /** Convert this change set to a JSON-serializeable representation. */
   toJSON(): ChangeSet.JSON {
-    const result: (number | [number, Slice.JSON | readonly ModificationJSON[]])[] = []
+    const result: (number | [number, readonly Token.JSON[] | readonly ModificationJSON[]])[] = []
     for (let i = 0; i < this.data.length; i++) {
       const len = this.sections[i << 1]!,
         ins = this.sections[(i << 1) + 1]
       if (ins == -1) result.push(len)
       else if (ins == -2) result.push([len, (this.data[i] as readonly Modification[]).map(modificationToJSON)])
-      else result.push([len, (this.data[i] as Slice).toJSON()])
+      else result.push([len, (this.data[i] as readonly Token[]).map(t => t.toJSON())])
     }
     return result
   }
@@ -258,9 +264,10 @@ export class ChangeSet {
           sections.push(len, -2)
           data.push(val.map(m => modificationFromJSON(schema, m)))
         } else {
-          const slice = Slice.fromJSON(schema, val)
-          sections.push(len, slice.length)
-          data.push(slice)
+          if (!Array.isArray(val)) throw new ValidationError('Invalid ChangeSet JSON')
+          const tokens = val.map(v => Token.fromJSON(schema, v))
+          sections.push(len, sliceLen(tokens))
+          data.push(tokens)
         }
       }
     }
@@ -343,7 +350,7 @@ export class ChangeSet {
       const len = this.sections[iS++]!,
         ins = this.sections[iS++]!
       if (ins < 0) fitter.preserved(pos, (pos += len))
-      else fitter.replaced(this.data[i] as Slice, pos, (pos += len))
+      else fitter.replaced(this.data[i] as readonly Token[], pos, (pos += len))
     }
     const fit = fitter.finish()
     return fit ? this.compose(fit) : this
@@ -406,7 +413,7 @@ export class ChangeSet {
     let found: number | null = null
     this.iterChanges((_f, _t, pos, _to, inserted) => {
       if (found != null) return
-      for (const tok of inserted.content) {
+      for (const tok of inserted) {
         if (tok.tokenType == Token.Type.Node) {
           if (pred(tok.tag)) return (found = pos)
           pos += tok.length
@@ -441,7 +448,7 @@ export class ChangeSet {
    * or only have marks modified.
    */
   iterChanges(
-    replaced: (fromA: number, toA: number, fromB: number, toB: number, inserted: Slice) => void,
+    replaced: (fromA: number, toA: number, fromB: number, toB: number, inserted: readonly Token[]) => void,
     preserved?: (
       fromA: number,
       toA: number,
@@ -459,7 +466,7 @@ export class ChangeSet {
         posA += len
         posB += len
       } else {
-        replaced(posA, (posA += len), posB, (posB += ins), data as Slice)
+        replaced(posA, (posA += len), posB, (posB += ins), data as readonly Token[])
       }
     }
   }
@@ -647,17 +654,17 @@ export namespace ChangeSet {
      * remove marks.
      */
     to?: number
-    /** Replace the given range with this slice. */
+    /**
+     * Replace the given range with this slice. If `fit` is `true`
+     * and a {@link Slice} is given here, its context will be used to
+     * do the fitting.
+     */
     insert?: Slice | readonly Token[]
     /**
      * For deletions or insertions where it isn't obvious that the
-     * replacement will produce a valid document, set this to `true`
-     * or a stack of context tags to make the library process the
-     * replacement to make sure it fits. Context tags (passed with
-     * the innermost tag first, as in {@link Plot.Doc.contextAt} may
-     * be used as wrappers when fitting the slice.
+     * replacement will produce a valid document, set this to `true`.
      */
-    fit?: boolean | readonly Plot.Tag[]
+    fit?: boolean
     /**
      * Add the given mark to this change's range. Cannot be combined
      * with `insert`.
@@ -713,7 +720,7 @@ export namespace ChangeSet {
   export type Sections = readonly number[]
 
   /** The JSON representation of a change set. */
-  export type JSON = readonly (number | [number, Slice.JSON | readonly ModificationJSON[]])[]
+  export type JSON = readonly (number | [number, readonly Token.JSON[] | readonly ModificationJSON[]])[]
 
   /**
    * Modes available in {@link ChangeSet.mapPos} to control whether
@@ -813,17 +820,14 @@ function createChangeSet(doc: Plot.Doc, spec: ChangeSet.Spec, mayCorrect = true)
         }
       } else {
         if (to == null) to = from
-        insert = (!insert ? Slice.empty : Array.isArray(insert) ? Slice.of(insert) : insert) as Slice
+        const context = insert instanceof Slice ? insert.context : Slice.empty.context
+        insert = !insert ? noTokens : insert instanceof Slice ? insert.content : insert
         if (to <= from) to = from
         if (fit) {
           doCorrect = true
-          ;({
-            from,
-            to,
-            slice: insert
-          } = fitReplacement(doc, doc.resolve(from), doc.resolve(to), insert, fit === true ? [] : fit))
+          ;({ from, to, tokens: insert } = fitReplacement(doc, doc.resolve(from), doc.resolve(to), insert, context))
         }
-        if (insert.length || to != from) section(from, to, insert.length, insert)
+        if (insert.length || to != from) section(from, to, sliceLen(insert), insert)
       }
     }
   }
@@ -867,13 +871,13 @@ function transform(setA: ChangeSet, setB: ChangeSet, doc: Plot.Doc, before: bool
       // that (and process any changes in A it covers).
       const end = pos + b.len
       addSection(sections, data, b.ins, -1, null)
-      if (fitter) fitter.replaced(b.slice, pos, end, true)
+      if (fitter) fitter.replaced(b.tokens, pos, end, true)
       while (pos < end) {
         if (a.done) throw new ValidationError('Mismatched change sets')
         const piece = Math.min(a.len, end - pos)
         if (a.ins >= 0 && inserted < a.i && a.len <= piece) {
-          addSection(sections, data, 0, a.ins, a.slice)
-          if (fitter) fitter.replaced(a.slice, pos - a.off, pos + a.len)
+          addSection(sections, data, 0, a.ins, a.tokens)
+          if (fitter) fitter.replaced(a.tokens, pos - a.off, pos + a.len)
           inserted = a.i
         }
         a.forward(piece)
@@ -893,7 +897,7 @@ function transform(setA: ChangeSet, setB: ChangeSet, doc: Plot.Doc, before: bool
           len += piece
           b.forward(piece)
         } else if (b.ins == 0 && pos + b.len < end) {
-          if (fitter) fitter.replaced(b.slice, pos, pos + b.len, true)
+          if (fitter) fitter.replaced(b.tokens, pos, pos + b.len, true)
           pos += b.len
           b.next()
         } else {
@@ -901,11 +905,11 @@ function transform(setA: ChangeSet, setB: ChangeSet, doc: Plot.Doc, before: bool
         }
       }
       if (inserted < a.i) {
-        addSection(sections, data, len, a.ins, a.slice)
-        if (fitter) fitter.replaced(a.slice, start - a.off, start + a.len)
+        addSection(sections, data, len, a.ins, a.tokens)
+        if (fitter) fitter.replaced(a.tokens, start - a.off, start + a.len)
         inserted = a.i
       } else {
-        addSection(sections, data, len, 0, Slice.empty)
+        addSection(sections, data, len, 0, noTokens)
       }
       a.forward(pos - start)
     } else {
@@ -932,11 +936,11 @@ function compose(
       return { sections, data }
     } else if (a.ins == 0) {
       // Deletion in A
-      addSection(sections, data, a.len, 0, a.slice, open)
+      addSection(sections, data, a.len, 0, a.tokens, open)
       a.next()
     } else if (b.len == 0 && !b.done) {
       // Insertion in B
-      addSection(sections, data, 0, b.ins, b.slice, open)
+      addSection(sections, data, 0, b.ins, b.tokens, open)
       b.next()
     } else if (a.done || b.done) {
       throw new ValidationError('Mismatched change set lengths')
@@ -947,7 +951,7 @@ function compose(
         const mods = combineMods(a.mods, b.mods)
         addSection(sections, data, len, (data ? mods : a.ins == -2 || b.ins == -2) ? -2 : -1, mods, open)
       } else if (a.keep) {
-        addSection(sections, data, len, b.off ? 0 : b.ins, b.off ? Slice.empty : b.slice, open)
+        addSection(sections, data, len, b.off ? 0 : b.ins, b.off ? noTokens : b.tokens, open)
       } else if (b.keep) {
         addSection(
           sections,
@@ -958,7 +962,7 @@ function compose(
           open
         )
       } else {
-        addSection(sections, data, a.off ? 0 : a.len, b.off ? 0 : b.ins, b.off ? Slice.empty : b.slice, open)
+        addSection(sections, data, a.off ? 0 : a.len, b.off ? 0 : b.ins, b.off ? noTokens : b.tokens, open)
       }
       open = (a.ins > len || (b.ins >= 0 && b.len > len)) && (open || sections.length > sectionLen)
       a.forward2(len)
@@ -998,10 +1002,10 @@ function invertMods(mods: readonly Modification[], target: Node.Tag): readonly M
   })
 }
 
-function applyModsToSlice(slice: Slice, mods: readonly Modification[] | null) {
-  if (!mods) return slice
+function applyModsToSlice(tokens: readonly Token[], mods: readonly Modification[] | null) {
+  if (!mods) return tokens
   const content: Token[] = []
-  for (const tok of slice.content) {
+  for (const tok of tokens) {
     if (tok.tokenType == Token.Type.Open) {
       content.push(tok.withMarks(applyModifications(mods, tok.marks)))
     } else if (tok.tokenType == Token.Type.Node) {
@@ -1012,7 +1016,7 @@ function applyModsToSlice(slice: Slice, mods: readonly Modification[] | null) {
       content.push(tok)
     }
   }
-  return Slice.of(content)
+  return content
 }
 
 enum FitFlag {
@@ -1102,12 +1106,12 @@ class ChangeFitter implements Pos.Walker {
   lastCoverTo = -1
   doubleDeleteDelta = 0
 
-  replaced(slice: Slice, from: number, to: number, covering = false) {
+  replaced(tokens: readonly Token[], from: number, to: number, covering = false) {
     this.doubleDeleteDelta = 0
     if (covering) {
       this.lastCoverFrom = from
       this.lastCoverTo = to
-    } else if (slice.length) {
+    } else if (tokens.length) {
       const overlapFrom = Math.max(from, this.lastCoverFrom)
       const overlapTo = Math.min(to, this.lastCoverTo)
       if (overlapFrom < overlapTo) {
@@ -1120,7 +1124,7 @@ class ChangeFitter implements Pos.Walker {
       this.inputDelta -= counter.count
     }
     this.inserting = true
-    slice.run(this, this.pos)
+    Slice.run(tokens, this, this.pos)
     this.inserting = false
 
     if (this.local) this.nextSync = Math.max(this.nextSync, localSyncPosAfter((this.inputPos = this.getPos(to))))
@@ -1280,8 +1284,7 @@ class ChangeFitter implements Pos.Walker {
     let pos = 0
     for (const { from, to, insert } of this.patches) {
       addSection(sections, data, from - pos, -1, null)
-      const slice = Slice.of(insert)
-      addSection(sections, data, to - from, slice.length, slice)
+      addSection(sections, data, to - from, sliceLen(insert), insert)
       pos = to
     }
     addSection(sections, data, this.pos - pos, -1, null)
@@ -1356,12 +1359,12 @@ class SectionIter {
     return this.data ? (this.data[(this.i - 2) >> 1] as readonly Modification[] | null) : null
   }
 
-  get slice() {
-    return this.data ? (this.data[(this.i - 2) >> 1] as Slice) : Slice.empty
+  get tokens() {
+    return this.data ? (this.data[(this.i - 2) >> 1] as readonly Token[]) : noTokens
   }
 
   slicePart(len?: number) {
-    return this.slice.slice(this.off, len == null ? undefined : this.off + len)
+    return Slice.slice(this.tokens, this.off, len == null ? undefined : this.off + len)
   }
 
   forward(len: number) {
@@ -1410,7 +1413,7 @@ function addSection(
     // Insertion or replacement joinable to another insertion
     sections[last]! += len
     sections[last + 1]! += ins
-    if (data) data[data.length - 1] = (data[data.length - 1] as Slice).concat(value as Slice)
+    if (data) data[data.length - 1] = Slice.concat(data[data.length - 1] as readonly Token[], value as readonly Token[])
   } else {
     sections.push(len, ins)
     if (data) data.push(value)
@@ -1421,11 +1424,17 @@ function finishCx(cx: BuildContext, schema: Schema) {
   return cx.tag.create(cx.children.length || cx.tag.type.canBeEmpty ? cx.children : [schema.createDefault(cx.tag.type)])
 }
 
-function closeSlice(schema: Schema, slice: Slice, context: readonly Plot.Tag[], depth: number, closeEnd = false) {
+function closeSlice(
+  schema: Schema,
+  tokens: readonly Token[],
+  context: readonly Plot.Tag[],
+  depth: number,
+  closeEnd = false
+) {
   const top: Token[] = []
   let stack: BuildContext | null = null
   for (let i = depth - 1; i >= 0; i--) stack = new BuildContext(context[i]!, stack)
-  for (const token of slice.content) {
+  for (const token of tokens) {
     if (token.tokenType == Token.Type.Close) {
       if (stack) {
         const node = finishCx(stack, schema)
@@ -1448,7 +1457,7 @@ function closeSlice(schema: Schema, slice: Slice, context: readonly Plot.Tag[], 
     }
   }
   if (stack) splatContext(top, stack)
-  return Slice.of(top)
+  return top
 }
 
 function splatContext(top: Token[], cx: BuildContext) {
@@ -1461,8 +1470,8 @@ function isFitBarrier(plot: Plot.Type) {
   return plot.isolating || plot.isInline
 }
 
-function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context: readonly Plot.Tag[]) {
-  if (!slice.length) return fitDeletion(from, to)
+function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, tokens: readonly Token[], context: readonly Plot.Tag[]) {
+  if (!tokens.length) return fitDeletion(from, to)
 
   let preferredContext = -1
   for (let i = 0; i < context.length; i++) {
@@ -1474,8 +1483,8 @@ function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context
     closeCount = 0
   // Find the number of nodes this slice closes, relative to its
   // start depth.
-  for (let i = 0, opened = 0; i < slice.content.length; i++) {
-    const tok = slice.content[i]!
+  for (let i = 0, opened = 0; i < tokens.length; i++) {
+    const tok = tokens[i]!
     if (tok.tokenType == Token.Type.Close) {
       if (opened) opened--
       else closeCount++
@@ -1489,7 +1498,7 @@ function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context
   // start and closed by the slice, see if the slice or one of its
   // contexts can be inserted instead of that node. If so, replace the
   // node.
-  let found: { from: number; to: number; slice: Slice } | undefined,
+  let found: { from: number; to: number; tokens: readonly Token[] } | undefined,
     foundCost = 1e8
   let neutral = true,
     toEnd = true
@@ -1527,7 +1536,7 @@ function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context
             found = {
               from: cxFrom.before,
               to: toEnd ? cxTo.after : to.pos,
-              slice: i >= 0 ? closeSlice(doc.schema, slice, context, i + 1, toEnd) : slice
+              tokens: i >= 0 ? closeSlice(doc.schema, tokens, context, i + 1, toEnd) : tokens
             }
             foundCost = cost
           }
@@ -1550,7 +1559,7 @@ function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context
         if (!type) continue
         if (doc.schema.canContain(cx.node.type, type)) {
           const pos = before > -1 ? before : after
-          return { from: pos, to: pos, slice: i >= 0 ? closeSlice(doc.schema, slice, context, i + 1, true) : slice }
+          return { from: pos, to: pos, tokens: i >= 0 ? closeSlice(doc.schema, tokens, context, i + 1, true) : tokens }
         }
       }
       if (isFitBarrier(cx.node.type) || !cx.parent) break
@@ -1564,16 +1573,16 @@ function fitReplacement(doc: Plot.Doc, from: Pos, to: Pos, slice: Slice, context
     if (i == preferredContext) continue
     const depth = i < 0 ? preferredContext : i
     if (doc.schema.canContain(from.parent.node.type, context[depth]!.type)) {
-      slice = closeSlice(doc.schema, slice, context, depth + 1, true)
+      tokens = closeSlice(doc.schema, tokens, context, depth + 1, true)
       break
     }
   }
-  return { from: from.pos, to: to.pos, slice }
+  return { from: from.pos, to: to.pos, tokens }
 }
 
 function fitDeletion(from: Pos, to: Pos) {
   let toDepth = to.depth
-  let covered: { from: number; to: number; slice: Slice } | undefined
+  let covered: { from: number; to: number; tokens: readonly Token[] } | undefined
   // Walk up the contexts (catching up on cxTo whenever depth reaches
   // its depth), tracking whether there is any content between the
   // current depth's start/end and from/to by counting tokens.
@@ -1594,7 +1603,7 @@ function fitDeletion(from: Pos, to: Pos) {
     // continuing past its end (but not to the end of a node at the
     // same level), include the node's open token.
     if (cx.end < to.pos && cx.parent.end > to.pos && !toAtEnd) {
-      return { from: cx.before, to: to.pos, slice: Slice.empty }
+      return { from: cx.before, to: to.pos, tokens: noTokens }
     }
     // Else if this is a completely covered set of siblings with
     // non-inline content, and the range isn't inside a single
@@ -1606,8 +1615,8 @@ function fitDeletion(from: Pos, to: Pos) {
       cx.parent.start == cxTo.parent!.start &&
       !(from.parent.start == to.parent.start && from.parent.node.inlineContent)
     ) {
-      covered = { from: cx.before, to: cxTo.after, slice: Slice.empty }
+      covered = { from: cx.before, to: cxTo.after, tokens: noTokens }
     }
   }
-  return covered || { from: from.pos, to: to.pos, slice: Slice.empty }
+  return covered || { from: from.pos, to: to.pos, tokens: noTokens }
 }

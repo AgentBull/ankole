@@ -322,7 +322,7 @@ defmodule Ankole.E2E.Scenarios.Lifecycle do
     assert {:ok, %{status: :driving, pid: steer_driver}} =
              ensure_input_driver!(steer_input, DateTime.add(steer_input.available_at, 1, :second))
 
-    assert steer_driver == Ankole.Sessions.Driver.whereis(input)
+    assert steer_driver == Ankole.Sessions.driver_pid(input)
 
     # A steer injected by the Driver owns the final reply and its intent, so the
     # completion is observed on the steer event rather than the event that opened

@@ -99,9 +99,8 @@ const STDOUT_EXIT_GRACE_MS = 50
 /** Grace period after stdin closes before Agent Computer kills the process. */
 const PROCESS_GRACEFUL_CLOSE_MS = ms('1s')
 // One JSON-RPC line the app-server can send. Above this the line is not a
-// message this client can act on, and buffering it would spend the shared
-// Worker's memory on a single Codex runtime. Generous enough for a large
-// turn/diff notification, small enough that it cannot exhaust the Worker.
+// message this client can act on. This wire-byte bound admits large turn/diff
+// notifications; decoded strings and parsed objects can use more heap.
 const MAX_JSONRPC_LINE_BYTES = 64 * 1024 * 1024
 // JSON line parsing stays non-throwing so one bad line becomes a protocol
 // failure with the original line attached.
@@ -484,9 +483,7 @@ export class CodexAppServerLineTooLongError extends Error {
   readonly code = 'codex_app_server_line_too_long'
 
   constructor(readonly bytes: number) {
-    super(
-      `codex app-server sent a ${bytes} byte line without a newline, above the ${MAX_JSONRPC_LINE_BYTES} byte bound`
-    )
+    super(`codex app-server sent a ${bytes} byte JSON-RPC line, above the ${MAX_JSONRPC_LINE_BYTES} byte bound`)
     this.name = 'CodexAppServerLineTooLongError'
   }
 }
@@ -537,27 +534,31 @@ async function readJSONLines(stream: ReadableStream<Uint8Array> | null, onLine: 
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let lineBytes = 0
 
   try {
     while (true) {
       const { value, done } = await reader.read()
       if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      let newlineIndex = buffer.indexOf('\n')
-      while (newlineIndex >= 0) {
-        const line = buffer.slice(0, newlineIndex).trim()
-        buffer = buffer.slice(newlineIndex + 1)
+      let start = 0
+      while (start < value.byteLength) {
+        const newline = value.indexOf(0x0a, start)
+        const end = newline < 0 ? value.byteLength : newline
+        lineBytes += end - start
+        // Count wire bytes before decoding or dispatch, including complete
+        // lines. A chunk can contain several individually valid messages.
+        if (lineBytes > MAX_JSONRPC_LINE_BYTES) throw new CodexAppServerLineTooLongError(lineBytes)
+        buffer += decoder.decode(value.subarray(start, end), { stream: true })
+        if (newline < 0) break
+
+        const line = (buffer + decoder.decode()).trim()
+        buffer = ''
+        lineBytes = 0
         if (line) onLine(line)
-        newlineIndex = buffer.indexOf('\n')
-      }
-      // Checked after the split so the bound applies to one unterminated line,
-      // not to a batch of complete ones. Failing here reaches `failTransport`
-      // and takes down this runtime alone.
-      if (buffer.length > MAX_JSONRPC_LINE_BYTES) {
-        throw new CodexAppServerLineTooLongError(buffer.length)
+        start = newline + 1
       }
     }
-    const tail = buffer.trim()
+    const tail = (buffer + decoder.decode()).trim()
     if (tail) onLine(tail)
   } finally {
     reader.releaseLock()

@@ -1,6 +1,28 @@
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import type { RPCMethod, RPCRequestInit } from '../../lanes/rpc_contract'
+import { type RPCRequester, type RPCFrame } from '../../lanes/rpc_lane'
+import type { RunRef, JobTurnRef } from '../../lanes/session_lane'
+import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
+
+export type WebhookRPCMethod = Extract<RPCMethod, `webhook.${string}`>
+export type WebhookRPCRequester = <M extends WebhookRPCMethod>(
+  method: M,
+  payload: RPCRequestInit<M>
+) => Promise<JSONObject>
+
+/** Binds this CLI family to its caller's turn; only reads may repeat after disconnect. */
+export function webhookRPCRequester(rpc: RPCRequester, turn: JobTurnRef | RunRef): WebhookRPCRequester {
+  const frame = 'job_id' in turn ? { jobTurn: turn } : { run: turn }
+  return async (method, payload) => {
+    const response = await rpc(method, payload, frame as RPCFrame<typeof method>, {
+      retryOnDisconnect: method === 'webhook.endpoint.list'
+    })
+    return jsonObjectFromBytes(response.bodyJson, `${method} body_json`) ?? {}
+  }
+}
+
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { type WebhookRPCRequester } from '../../lanes/rpc_lane'
 import { WORKER_SHARE_ROOT } from '../../core/agent-home-paths'
 import {
   CLI_REQUEST_MAX_BYTES,

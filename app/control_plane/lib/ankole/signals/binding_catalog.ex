@@ -8,7 +8,7 @@ defmodule Ankole.Signals.BindingCatalog do
   alias Ankole.Signals.Adapters
   alias Ankole.Signals.Adapters.Definition
   alias Ankole.Signals.Binding
-  alias Ankole.Conversations.GroupMessageModes
+  alias Ankole.Signals.GroupMessageModes
   alias Ankole.Signals.SubjectNamespace
   alias Ankole.Signals.UnmatchedSenderPolicies
 
@@ -146,7 +146,7 @@ defmodule Ankole.Signals.BindingCatalog do
     ]
   end
 
-  def identity_provider_ids(%{identity_provider_adapter: adapter_id}) do
+  defp identity_provider_ids(%{identity_provider_adapter: adapter_id}) do
     SubjectNamespace.provider_ids(adapter_id)
   end
 
@@ -173,36 +173,4 @@ defmodule Ankole.Signals.BindingCatalog do
 
   def get_binding_configuration(_agent_uid, _binding_name),
     do: {:error, :binding_not_found}
-
-  def binding_config_key(%Definition{} = definition, agent_uid, binding_name) do
-    case definition.config_module do
-      module when is_atom(module) and not is_nil(module) ->
-        if function_exported?(module, :binding_config_key, 2) do
-          case module.binding_config_key(agent_uid, binding_name) do
-            key when is_binary(key) and key != "" -> {:ok, key}
-            key -> {:error, {:invalid_adapter_config_key, definition.id, key}}
-          end
-        else
-          binding_config_key_from_pattern(definition, agent_uid, binding_name)
-        end
-
-      nil ->
-        binding_config_key_from_pattern(definition, agent_uid, binding_name)
-    end
-  end
-
-  defp binding_config_key_from_pattern(definition, agent_uid, binding_name) do
-    case definition.config_key_pattern do
-      pattern when is_binary(pattern) ->
-        key =
-          pattern
-          |> String.replace("<agent_uid>", agent_uid)
-          |> String.replace("<id>", binding_name)
-
-        {:ok, key}
-
-      _pattern ->
-        {:error, {:missing_adapter_config_key_pattern, definition.id}}
-    end
-  end
 end

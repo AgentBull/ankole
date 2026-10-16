@@ -8,7 +8,8 @@ defmodule Ankole.OIDC.Session do
     field :client_id, Ankole.Ecto.UUIDv7
     field :principal_uid, Ankole.Ecto.PrincipalKey
     field :browser_id, Ankole.Ecto.UUIDv7
-    field :browser_generation, :integer
+    field :authentication_id, Ankole.Ecto.UUIDv7
+    field :authentication_revision, :integer
     field :access_version, :integer
     field :provider_id, :string
     field :auth_time, :integer

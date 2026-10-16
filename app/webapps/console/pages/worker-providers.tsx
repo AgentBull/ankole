@@ -153,7 +153,7 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
     return initialKind ? newWorkerProviderDraft(initialKind) : undefined
   }, [providerID, selected, definitions])
   const status = useEditorDraft(model, {
-    identity: { resource: 'worker-provider', providerID },
+    sourceKey: providerID ? `provider:${providerID}` : 'new',
     source,
     absent: () => Boolean(providerID && providers.isSuccess && !selected)
   })

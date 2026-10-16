@@ -186,7 +186,7 @@ export function PrincipalGroupEditorPage() {
     [loadedGroup, mode]
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'principal-group', name },
+    sourceKey: name ? `group:${name}` : 'new',
     source: groupDraft,
     absent: () => mode === 'edit' && requestErrorCode(group.error) === 'not_found'
   })

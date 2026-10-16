@@ -13,7 +13,7 @@ import {
   rmSync
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
-import type { AgentPluginCatalogEntry } from '../../../lanes/rpc_lane'
+import { type AgentPluginCatalogEntry } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { CodexAppServerClient } from './app-server-client'
 import { sanitizePathSegment } from '../../agent-home-paths'
 import { errorMessage } from '../../../common/errors'

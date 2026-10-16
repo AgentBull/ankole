@@ -1,6 +1,7 @@
 defmodule Ankole.Conversations.Delivery.Posting do
   @moduledoc "Commits the external effects of one statement to one validated target."
-  alias Ankole.Conversations.{Delivery, PostResult, Statement, Target}
+  alias Ankole.Conversations.{Delivery, PostResult, Statement}
+  alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.Conversations.Delivery.Interactions
 
   def post_in_tx(repo, target, %Statement{notice: %{} = notice} = statement) do
@@ -16,7 +17,7 @@ defmodule Ankole.Conversations.Delivery.Posting do
 
   def post_in_tx(
         repo,
-        %Target{} = target,
+        %StatementTarget{} = target,
         %Statement{signal: signal, completion: completion} = statement
       ) do
     route = delivery_target(target, signal)

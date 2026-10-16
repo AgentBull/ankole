@@ -1,6 +1,7 @@
 import { runAutomationJob } from '../automation-jobs/run'
 import { pullFile, pushBundle, pushFile } from '../lanes/file/relay'
-import { type RuntimeRPCClient, type WorkerRPCHandlers } from '../lanes/rpc_lane'
+import { type RuntimeRPCClient } from '../lanes/rpc_lane'
+import { type WorkerRPCHandlers } from '../lanes/rpc_contract'
 import type { WorkerConfig } from './config'
 import { throwingRPCRequester } from './rpc_requests'
 

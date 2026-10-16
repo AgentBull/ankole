@@ -7,8 +7,13 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
   schema "browser_login_transactions" do
     field :tenant_id, Ankole.Ecto.UUIDv7
     field :browser_id, Ankole.Ecto.UUIDv7
-    field :generation, :integer
-    field :purpose, Ecto.Enum, values: [:console, :oauth]
+    field :started_revision, :integer
+    field :purpose, Ecto.Enum, values: [:console, :oauth, :pod, :site]
+    field :mode, Ecto.Enum, values: [:replace, :add], default: :replace
+    field :expected_authentication_id, Ankole.Ecto.UUIDv7
+    field :authentication_id, Ankole.Ecto.UUIDv7
+    field :authentication_revision, :integer
+    field :csrf_token, :string
 
     field :status, Ecto.Enum,
       values: [:pending, :authenticated, :consumed, :cancelled],
@@ -19,7 +24,6 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
     field :upstream_state, :string
     field :redirect_uri, :string
     field :password_ticket, :map
-    field :authentication, :map
     field :expires_at, :utc_datetime_usec
     timestamps()
   end

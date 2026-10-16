@@ -24,6 +24,7 @@ defmodule Ankole.Tenants.Tenant do
     |> validate_format(:slug, ~r/\A[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\z/)
     |> unique_constraint(:slug, name: :tenants_slug_index)
     |> check_constraint(:slug, name: :tenants_slug_format)
+    |> check_constraint(:slug, name: :tenants_slug_reserved, message: "is reserved")
     |> check_constraint(:display_name, name: :tenants_display_name_present)
   end
 end

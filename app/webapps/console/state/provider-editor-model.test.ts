@@ -64,3 +64,78 @@ describe('ProviderEditorModel', () => {
     model[Symbol.dispose]()
   })
 })
+
+describe('Provider save acknowledgement', () => {
+  const initial = { providerID: 'openai', providerKind: 'openai', baseURL: 'initial', options: {} }
+
+  test('confirms the sent snapshot and preserves edits made while the request is pending', async () => {
+    using model = new ProviderEditorModel()
+    model.initialize('provider:openai', initial)
+    model.baseURL.value = 'sent-A'
+    const request = Promise.withResolvers<string>()
+    const completions: boolean[] = []
+    const pending = model.save(
+      draft => {
+        expect(draft.baseURL).toBe('sent-A')
+        return request.promise
+      },
+      (_response, clean) => completions.push(clean)
+    )
+    model.baseURL.value = 'unsent-B'
+    request.resolve('saved-A')
+    await pending
+    expect(model.baseURL.value).toBe('unsent-B')
+    expect(model.dirty.value).toBe(true)
+    expect(completions).toEqual([false])
+
+    await model.save(
+      async draft => {
+        expect(draft.baseURL).toBe('unsent-B')
+        return 'saved-B'
+      },
+      (_response, clean) => completions.push(clean)
+    )
+    expect(completions).toEqual([false, true])
+    expect(model.dirty.value).toBe(false)
+  })
+
+  test('normal success acknowledges the snapshot and permits the original success navigation', async () => {
+    using model = new ProviderEditorModel()
+    model.initialize('new', initial)
+    model.baseURL.value = 'sent-A'
+    const navigations: string[] = []
+    await model.save(
+      async () => ({ providerID: 'openai' }),
+      (response, clean) => {
+        expect(clean).toBe(true)
+        if (clean) navigations.push(`/providers/${response.providerID}`)
+      }
+    )
+    expect(model.dirty.value).toBe(false)
+    expect(navigations).toEqual(['/providers/openai'])
+  })
+
+  test('leaving and revisiting the same resource revokes old completion and feedback', async () => {
+    using model = new ProviderEditorModel()
+    model.initialize('provider:openai', initial)
+    model.baseURL.value = 'sent-A'
+    const request = Promise.withResolvers<void>()
+    let completed = false
+    const pending = model.save(
+      () => request.promise,
+      () => {
+        completed = true
+      }
+    )
+    model.resetSource()
+    model.initialize('provider:other', { ...initial, providerID: 'other' })
+    model.resetSource()
+    model.initialize('provider:openai', initial)
+    model.baseURL.value = 'new-visit'
+    request.resolve()
+    await pending
+    expect(completed).toBe(false)
+    expect(model.baseURL.value).toBe('new-visit')
+    expect(model.dirty.value).toBe(true)
+  })
+})

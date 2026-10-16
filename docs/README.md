@@ -15,7 +15,7 @@ manage shared infrastructure. See [Tenants](design-docs/Tenants.md).
 A Principal identifies the person or Agent responsible for an action. AuthZ
 decides what that Principal can do.
 
-An Agent receives work from native Workplace messages, provider messages,
+An Agent receives work from native Pod messages, provider messages,
 schedules, and Background Agent Jobs. It can use tools and resume work after a
 process fails. PostgreSQL stores the data that Ankole needs after a restart.
 
@@ -51,7 +51,7 @@ Schedule creates a `Signal` through the same intake when work becomes due. A `Ba
 runs work outside the Session that created it. AppConfigure stores settings
 that an operator can change while Ankole runs.
 
-Workplace sends native messages through Conversations and Signals to Sessions.
+Pod sends native messages through Conversations and Signals to Sessions.
 Native and provider Messages use shared public history. Each Agent's model
 history remains separate from that Conversation.
 
@@ -98,7 +98,7 @@ Automation scripts, and is available while its Worker is absent. See
 | `app/control_plane/` | Elixir control plane, Phoenix APIs, Ecto schemas, and migrations |
 | `app/kernel/` | Shared Rust kernel and host bindings |
 | `app/agent_computer/` | Bun worker, tools, Codex runner, and browser runtime |
-| `app/webapps/` | Auth, setup, Workplace, and console React applications |
+| `app/webapps/` | Auth, setup, Pod, and console React applications |
 | `app/library/` | Built-in Skills, Agent Plugins, and Agent templates |
 | `app/locales/` | Shared translation catalogs |
 | `plugins/` | First-party control-plane plugins |
@@ -253,7 +253,7 @@ credentials.
 | [Tenants](design-docs/Tenants.md) | Site administration, data contexts, isolation and tenant lifecycle |
 | [AIGateway](design-docs/AIGateway.md) | Model providers, Response history, compaction, and generated files |
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | Per-Agent token limits, periods, resets, and the rejection contract |
-| [Conversations](design-docs/Conversations.md) | Shared public history, provider observation, Delivery, and Workplace SSE |
+| [Conversations](design-docs/Conversations.md) | Shared public history, provider observation, Delivery, and Pod SSE |
 | [Signals](design-docs/Signals.md) | Single intake, authorization, routing rules, and CloudEvents Endpoints |
 | [Sessions](design-docs/Sessions.md) | Agent execution, model rounds, unread history, and recovery |
 | [BrainV3](design-docs/BrainV3.md) | Tenant-shared knowledge, scoped disclosure, learning, and Dreaming |

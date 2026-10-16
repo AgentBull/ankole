@@ -5,6 +5,53 @@ defmodule AnkoleWeb.OIDCClientControllerTest do
   alias Ankole.AuthZ
   alias Ankole.OIDC
 
+  defmodule SiteSource do
+    @behaviour Ankole.IdentityProviders.SiteSources
+    def authenticate(_), do: {:error, :invalid_authentication}
+    def login_path, do: "/test/site-login"
+    def display_name, do: "Test site source"
+    def fresh_authentication?, do: false
+  end
+
+  test "the Client catalog and allowlist share the reserved site source authority", %{conn: conn} do
+    previous = Application.get_env(:ankole, :site_identity_sources, [])
+    Application.put_env(:ankole, :site_identity_sources, [{"test-site", SiteSource}])
+    on_exit(fn -> Application.put_env(:ankole, :site_identity_sources, previous) end)
+    conn = console_conn(conn)
+
+    catalog =
+      conn |> recycle_api() |> get("/api/v1/oidc-clients/login-sources") |> json_response(200)
+
+    assert %{"provider_id" => "test-site", "enabled" => true} in catalog["sources"]
+
+    response =
+      conn
+      |> recycle_api()
+      |> post("/api/v1/oidc-clients", %{
+        "name" => "Site source client",
+        "enabled" => true,
+        "type" => "public",
+        "redirect_uris" => ["https://client.example.test/callback"],
+        "scopes" => ["openid"],
+        "allowed_identity_provider_ids" => ["test-site"],
+        "allowed_group_ids" => [],
+        "allowed_models" => %{}
+      })
+
+    assert %{"oidc_client" => %{"id" => id}} = json_response(response, 201)
+    {:ok, client} = OIDC.get_active_client(id)
+    assert :ok = Ankole.OIDC.LoginPolicy.authorize_source(client, "test-site")
+
+    assert {:error, :identity_provider_not_allowed} =
+             Ankole.OIDC.LoginPolicy.authorize_source(
+               %{client | allowed_identity_provider_ids: ["other"]},
+               "test-site"
+             )
+
+    assert {:error, :reserved_identity_provider_id} =
+             Ankole.IdentityProviders.save_provider("test-site", "local", %{}, true)
+  end
+
   test "admin creates, reads, updates, rotates, and deletes OIDC Clients", %{conn: conn} do
     conn = console_conn(conn)
 

@@ -447,12 +447,23 @@ Pod 区分的地址访问控制面时，才在 `controlPlane.extraEnv` 中设置
 保留到这些升级起点已包含身份配置作用域与每 Agent 的 Slack/Teams 配置键，且预演后
 没有旧行；不能仅因当前站点已升级就删除。
 
-`networkPolicy.enabled` 只允许控制面 Pod 访问 EPMD 和 distribution 端口。
-HTTP 对所有对端保持开放，因为 ingress controller 要提供 Console，Worker 也要
-访问每个 Pod IP 完成文件中转。`networkPolicy.enabled` 还会限制 Worker Pod：
-Worker Pod 不接受任何连接，只能访问控制面、DNS 和公网地址，不能访问
-`networkPolicy.workerDeniedCIDRs`（私有网段和节点元数据地址）。另外，请把节点的
-实例元数据 hop limit 设为 1。
+`networkPolicy.enabled` 默认为 `false`。启用后，控制面策略允许控制面 Pod 访问
+EPMD 和 distribution 端口。HTTP 对所有对端保持开放，因为 ingress controller
+要提供 Console，Worker 也要访问每个 Pod IP 完成文件中转。`worker.localPods=true`
+时，另一条策略选择 release 命名空间中带有本 installation 标签的 Worker Pod。
+这条策略不添加入站放行规则。出站规则允许访问控制面的 HTTP 端口、**任意目标**的
+TCP/UDP 53 端口，以及 `networkPolicy.workerDeniedCIDRs` 之外的 IPv4 地址。
+DNS 规则也适用于这些 CIDR 内的地址，因此该配置不是绝对的私网地址拒绝列表。
+
+策略生效需要网络插件支持 NetworkPolicy。其他适用策略可以增加放行范围，Pod
+所在节点的通信也受 Kubernetes 的特殊规则影响，详见
+[NetworkPolicy 契约](https://kubernetes.io/docs/concepts/services-networking/network-policies/)。
+Chart 不配置其他 Worker Provider 或远程浏览器的网络。节点元数据保护仍由节点配置
+负责；支持实例元数据 hop limit 的节点应将其设为 1。按英文指南的
+[Worker 出站核验步骤](README.md#verify-worker-egress-in-a-deployment)检查实际部署：
+从同一 Agent 的 `command`、本地浏览器和 Automation Job 请求受控的允许与拒绝
+测试端点，并核对网络插件和端点日志。浏览器 SSRF 拒绝、远程浏览器结果、连接被拒绝
+或超时本身都不能证明 Worker NetworkPolicy 已生效。
 
 `files.store=fs` 只允许一个副本，副本数更多时 Chart 会拒绝渲染；需要多个副本时，
 请使用共享远程存储后端。

@@ -35,6 +35,7 @@ import { StatusIndicator } from '../console-form'
 import { PageHeader, PageStack, RefreshButton } from '../console-page'
 import { readinessSteps, type ReadinessStep } from '../console-readiness'
 import { workerNeedsAttention } from './workers'
+import { BackgroundActivity } from './background-activity'
 
 const NEXT_STEP_ICONS: Record<ReadinessStep['key'], ComponentType<{ className?: string }>> = {
   provider: RiSparkling2Line,
@@ -205,6 +206,8 @@ export function HomePage() {
           detail={t('console.home.of_total', { total: providerRows.length })}
         />
       </section>
+
+      <BackgroundActivity agents={agentRows} />
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Panel

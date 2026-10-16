@@ -268,7 +268,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
   test "facade publishes a generic terminal event after an in-transaction failure" do
     %{principal: subject} = human_fixture()
     {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "facade-publish")
-    assert :ok = AIGateway.subscribe(subject.uid, conversation.id)
+    assert :ok = Ankole.AIGateway.Events.subscribe(subject.uid, conversation.id)
 
     {:ok, response} =
       start_response_run(%{

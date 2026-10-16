@@ -470,7 +470,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
       assert {:ok, _} = AppConfigure.put_global_by_key(config_key, chat_config())
 
       assert {:ok, _} =
-               Ankole.Signals.Bindings.upsert_binding(%{
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
                  agent_uid: agent.uid,
                  name: binding_name,
                  adapter: "slack",
@@ -595,7 +595,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), chat_config())
 
       assert {:ok, _} =
-               Ankole.Signals.Bindings.upsert_binding(%{
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
                  agent_uid: agent.uid,
                  name: binding_name,
                  adapter: "slack",
@@ -895,7 +895,7 @@ defmodule Ankole.Plugins.SlackAdapterTest do
                AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
 
       assert {:ok, binding} =
-               Ankole.Signals.Bindings.upsert_binding(%{
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
                  agent_uid: agent.uid,
                  name: binding_name,
                  adapter: "slack",

@@ -1,9 +1,5 @@
-import type { JsonObject as JSONObject } from '@agentbull/active-support'
-
-type InternalAPIRequestOptions = {
-  body?: JSONObject
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
-}
+import { identityHeaders } from './browser-context'
+import type { CreateClientConfig } from './api/generated/client.gen'
 
 /**
  * A non-2xx response from the internal SPA API. The message keeps the
@@ -23,52 +19,28 @@ export class InternalAPIError extends Error {
   }
 }
 
-export async function internalAPIGet<T>(path: string): Promise<T> {
-  return internalAPIRequest<T>(path, { method: 'GET' })
-}
-
-export async function internalAPIPost<T>(path: string, body?: JSONObject): Promise<T> {
-  return internalAPIRequest<T>(path, { method: 'POST', body })
-}
-
-export async function internalAPIPut<T>(path: string, body?: JSONObject): Promise<T> {
-  return internalAPIRequest<T>(path, { method: 'PUT', body })
-}
-
-export async function internalAPIDelete<T>(path: string): Promise<T> {
-  return internalAPIRequest<T>(path, { method: 'DELETE' })
-}
+// The generated SDK owns methods, paths and JSON types. Browser transport
+// keeps the same session and error contracts for auth, setup and Pod.
+export const createClientConfig: CreateClientConfig = config => ({
+  ...config,
+  credentials: 'same-origin',
+  headers: { accept: 'application/json' },
+  fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const request = new Request(input, init)
+    request.headers.set('x-csrf-token', csrfToken())
+    for (const [name, value] of Object.entries(identityHeaders())) request.headers.set(name, value)
+    const response = await globalThis.fetch(request)
+    if (!response.ok) {
+      throw new InternalAPIError(response.status, response.statusText, await readPayload(response))
+    }
+    return response
+  }) as typeof fetch
+})
 
 export function csrfToken(): string {
   const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content
   if (!token) throw new Error('CSRF token is missing from the browser shell')
   return token
-}
-
-async function internalAPIRequest<T>(path: string, options: InternalAPIRequestOptions): Promise<T> {
-  const headers = new Headers()
-
-  headers.set('accept', 'application/json')
-  // Phoenix serves these endpoints from a browser session, so JSON requests
-  // still need the CSRF token rendered into the HTML shell.
-  headers.set('x-csrf-token', csrfToken())
-
-  const body = options.body === undefined ? undefined : JSON.stringify(options.body)
-  if (body) headers.set('content-type', 'application/json')
-
-  const response = await fetch(path, {
-    body,
-    credentials: 'same-origin',
-    headers,
-    method: options.method ?? 'GET'
-  })
-  const payload = await readPayload(response)
-
-  if (!response.ok) {
-    throw new InternalAPIError(response.status, response.statusText, payload)
-  }
-
-  return payload as T
 }
 
 async function readPayload(response: Response): Promise<unknown> {

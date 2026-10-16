@@ -118,11 +118,11 @@ describe('computer tools', () => {
     expect(
       readFile.describeActivity(readFile.schema.parse({ path: '/agents/agent-1/sessions/session-1/app.ts' }))
     ).toEqual({
-      key: 'signals_gateway.reply.activity.file_read_target',
+      key: 'conversations.delivery.reply.activity.file_read_target',
       bindings: { path: 'session-1/app.ts' }
     })
     const patchBodySummary = applyPatch.describeActivity(applyPatch.schema.parse('private patch body'))
-    expect(patchBodySummary).toEqual({ key: 'signals_gateway.reply.activity.file_update' })
+    expect(patchBodySummary).toEqual({ key: 'conversations.delivery.reply.activity.file_update' })
     const commandSummaries = [
       command.describeActivity(
         command.schema.parse({
@@ -139,14 +139,45 @@ describe('computer tools', () => {
     ]
 
     expect(commandSummaries).toEqual([
-      { key: 'signals_gateway.reply.activity.command_test_family', bindings: { family: 'mix test' } },
-      { key: 'signals_gateway.reply.activity.command_search_code_family', bindings: { family: 'rg' } },
-      { key: 'signals_gateway.reply.activity.command_check_changes_family', bindings: { family: 'git diff' } },
-      { key: 'signals_gateway.reply.activity.command_execute_family', bindings: { family: 'run-secret' } },
-      { key: 'signals_gateway.reply.activity.command_execute_family', bindings: { family: 'echo' } }
+      { key: 'conversations.delivery.reply.activity.command_test_family', bindings: { family: 'mix test' } },
+      { key: 'conversations.delivery.reply.activity.command_search_code_family', bindings: { family: 'rg' } },
+      { key: 'conversations.delivery.reply.activity.command_check_changes_family', bindings: { family: 'git diff' } },
+      { key: 'conversations.delivery.reply.activity.command_execute_family', bindings: { family: 'run-secret' } },
+      { key: 'conversations.delivery.reply.activity.command_execute_family', bindings: { family: 'echo' } }
     ])
     expect(JSON.stringify(commandSummaries)).not.toContain('private')
     expect(JSON.stringify(commandSummaries)).not.toContain('do-not-leak')
+  })
+
+  it('uses the delivery activity vocabulary for every Computer tool', () => {
+    const inputs: Record<string, unknown> = {
+      command: { command: 'git status --short' },
+      read_file: { path: '/agents/agent-1/sessions/10000/report.txt' },
+      find: { pattern: 'report' },
+      grep: { pattern: 'private' },
+      ls: { path: '/agents/agent-1/sessions/10000' },
+      apply_patch: '*** Begin Patch\n*** Delete File: private.txt\n*** End Patch\n'
+    }
+    const descriptions = Object.fromEntries(
+      computerToolsForContext(contextFor(new FakeComputer())).map(tool => [
+        tool.name,
+        tool.describeActivity(tool.schema.parse(inputs[tool.name]))
+      ])
+    )
+    expect(descriptions).toEqual({
+      command: {
+        key: 'conversations.delivery.reply.activity.command_check_changes_family',
+        bindings: { family: 'git status' }
+      },
+      read_file: {
+        key: 'conversations.delivery.reply.activity.file_read_target',
+        bindings: { path: '10000/report.txt' }
+      },
+      find: { key: 'conversations.delivery.reply.activity.command_find_files_family', bindings: { family: 'find' } },
+      grep: { key: 'conversations.delivery.reply.activity.command_search_code_family', bindings: { family: 'grep' } },
+      ls: { key: 'conversations.delivery.reply.activity.file_list_target', bindings: { path: 'sessions/10000' } },
+      apply_patch: { key: 'conversations.delivery.reply.activity.file_update' }
+    })
   })
 
   it('adds duration and expected nonzero exit-code notes to command output', async () => {
@@ -344,7 +375,8 @@ describe('computer tools', () => {
       const tool = createCommandTool(contextFor(computer, { agentHome, workspaceRoot }))
 
       const result = await tool.execute('call-huge-output', {
-        command: 'yes 0123456789abcdef | head -c 3000000; echo; echo TAIL_SENTINEL'
+        command:
+          'python3 -c \'import sys; sys.stdout.write("A"*1500000+"MIDDLE_SENTINEL"+"Z"*1500000+"\\nTAIL_SENTINEL\\n")\''
       })
       const text = textOf(result)
 
@@ -352,6 +384,14 @@ describe('computer tools', () => {
       expect(text).toContain('exit_code=0')
       expect(text).toContain('... [output truncated —')
       expect(text).toContain('TAIL_SENTINEL')
+      const observedBytes = 3000000 + Buffer.byteLength('MIDDLE_SENTINEL\nTAIL_SENTINEL\n')
+      const droppedBytes = observedBytes - 2 * 1024 * 1024
+      expect(result.details.outputCapture).toEqual({ observedBytes, droppedBytes, drained: true })
+      expect(text).toContain(`output capture omitted ${droppedBytes} of ${observedBytes} observed bytes`)
+      expect(text).toContain('captured output saved to:')
+      const captured = readFileSync(result.details.outputLogPath!, 'utf8')
+      expect(captured).toContain(`${droppedBytes} bytes of output dropped here`)
+      expect(captured).not.toContain('MIDDLE_SENTINEL')
     } finally {
       rmSync(agentHome, { recursive: true, force: true })
     }

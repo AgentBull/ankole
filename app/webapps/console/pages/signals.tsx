@@ -386,12 +386,7 @@ export function SignalBindingEditorPage() {
     }
   }, [bindingDetail.data?.config, currentBinding, defaultAgentUID, editing, lockedAdapter, signalAdapters, sourceReady])
   const draftStatus = useEditorDraft(model, {
-    identity: {
-      resource: 'signal-binding',
-      agentUID: sourceAgentUID,
-      adapterID: lockedAdapter,
-      name: lockedName
-    },
+    sourceKey: `binding:${sourceAgentUID}:${lockedAdapter ?? ''}:${lockedName ?? 'new'}`,
     source: bindingDraft,
     absent: () => editing && requestErrorCode(bindingDetail.error) === 'not_found'
   })

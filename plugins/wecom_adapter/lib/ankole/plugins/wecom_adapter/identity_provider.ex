@@ -131,21 +131,22 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
         %{
           provider: provider_id,
           external_id: userid,
-          display_name: display_name(user),
-          avatar_url: optional_text(user, "avatar"),
-          email: optional_text(user, "biz_mail") || optional_text(user, "email"),
-          mobile: normalized_mobile(user),
-          job_title: optional_text(user, "position"),
           metadata:
             compact_map(%{
               "alias" => optional_text(user, "alias"),
               "status" => MapHelpers.fetch_value(user, "status"),
               "main_department" => MapHelpers.fetch_value(user, "main_department"),
-              "direct_leader" => MapHelpers.fetch_value(user, "direct_leader"),
-              "department_ids" => department_ids
+              "direct_leader" => MapHelpers.fetch_value(user, "direct_leader")
             })
-        },
-        [group_external_ids: department_ids] ++ Keyword.take(opts, [:directory_group_index])
+            |> then(fn metadata ->
+              if is_list(department_ids),
+                do: Map.put(metadata, "department_ids", department_ids),
+                else: metadata
+            end)
+        }
+        |> Map.merge(observed_profile(user)),
+        if(is_list(department_ids), do: [group_external_ids: department_ids], else: []) ++
+          Keyword.take(opts, [:directory_group_index])
       )
     end
   end
@@ -290,12 +291,35 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
     |> MapHelpers.fetch_value("department")
     |> case do
       list when is_list(list) -> Enum.map(list, &to_string/1)
-      _other -> []
+      _other -> nil
     end
   end
 
   defp display_name(user) do
-    optional_text(user, "name") || optional_text(user, "alias") || optional_text(user, "userid")
+    if Enum.any?(["name", "alias"], &Map.has_key?(user, &1)) do
+      optional_text(user, "name") ||
+        optional_text(user, "alias")
+    else
+      optional_text(user, "userid")
+    end
+  end
+
+  defp observed_profile(user) do
+    profile = %{
+      display_name: display_name(user),
+      authoritative_profile: Enum.any?(["name", "alias"], &Map.has_key?(user, &1))
+    }
+
+    [
+      {:avatar_url, ["avatar"], optional_text(user, "avatar")},
+      {:email, ["biz_mail", "email"],
+       optional_text(user, "biz_mail") || optional_text(user, "email")},
+      {:mobile, ["mobile"], normalized_mobile(user)},
+      {:job_title, ["position"], optional_text(user, "position")}
+    ]
+    |> Enum.reduce(profile, fn {field, keys, value}, attrs ->
+      if Enum.any?(keys, &Map.has_key?(user, &1)), do: Map.put(attrs, field, value), else: attrs
+    end)
   end
 
   defp normalized_mobile(user) do

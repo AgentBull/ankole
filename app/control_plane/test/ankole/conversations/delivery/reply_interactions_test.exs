@@ -309,40 +309,136 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
     assert Enum.all?(delivered["actions"], & &1["disabled"])
   end
 
-  test "an undeclared external CloudEvent preserves a pending clarification" do
+  for timing <- [:before_open, :after_open],
+      type <- ["com.example.build.finished", "session.reset_due"] do
+    @tag external_timing: timing
+    test "external #{type} #{timing} preserves enabled controls and accepts one answer", %{
+      external_timing: timing
+    } do
+      type = unquote(type)
+
+      before_open =
+        if timing == :before_open, do: &receive_external(&1, type), else: fn _ -> :ok end
+
+      %{agent: agent, human: human, event: source, action: action} =
+        setup_interaction(before_open: before_open)
+
+      if timing == :after_open, do: receive_external(source, type)
+
+      checkpoint = PreviewState.get(source.id).checkpoint
+      assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
+      assert checkpoint["presentation"]["interaction_status"] == "pending"
+
+      assert {:ok, _} =
+               Ankole.Conversations.Delivery.commit(%{
+                 agent_uid: agent.uid,
+                 binding_name: "mock",
+                 outbound_key: "preserved-clarification",
+                 operation: :post,
+                 conversation_id: source.conversation_id,
+                 source_signal_id: source.id,
+                 fallback_visible_text: "Choose or reply",
+                 payload: %{"reply_presentation" => checkpoint["presentation"]}
+               })
+
+      parent = self()
+
+      assert {:ok, %{status: :sent}} =
+               Ankole.Conversations.Delivery.dispatch(
+                 agent.uid,
+                 "mock",
+                 "preserved-clarification",
+                 delivery_adapter([:post_entry], fn intent ->
+                   send(parent, {:preserved_presentation, intent.payload["reply_presentation"]})
+                   {:ok, %{created_provider_message_id: "preserved-card"}}
+                 end),
+                 now: @now
+               )
+
+      assert_receive {:preserved_presentation, delivered}
+      assert delivered["interaction_status"] == "pending"
+      refute Enum.any?(delivered["actions"], & &1["disabled"])
+
+      answer = action_input(action, human.uid, "answer-after-external")
+      assert {:ok, %{status: :accepted}} = Observe.emit_action(agent.uid, "mock", answer)
+      assert {:ok, %{status: :duplicate_action}} = Observe.emit_action(agent.uid, "mock", answer)
+      assert action_event_count(agent.uid) == 1
+    end
+  end
+
+  for timing <- [:before_open, :after_open],
+      type <- [
+        "background_agent_job.dispatch",
+        "command.compress",
+        "command.llm",
+        "command.new",
+        "command.retry",
+        "command.steer",
+        "command.stop",
+        "conversation.message.addressed",
+        "im.message.may_intervene",
+        "input.revised",
+        "signal.action.invoked",
+        "workflow.task.dispatch",
+        "workflow.task.message",
+        "workflow.task.wakeup"
+      ] do
+    @tag superseding_timing: timing
+    test "declared #{type} #{timing} closes controls and rejects a callback", %{
+      superseding_timing: timing
+    } do
+      type = unquote(type)
+
+      before_open =
+        if timing == :before_open,
+          do: fn source -> accept_signal(source, type, "superseding-before") end,
+          else: fn _ -> :ok end
+
+      %{agent: agent, human: human, event: source, action: action} =
+        setup_interaction(before_open: before_open)
+
+      if timing == :after_open, do: accept_signal(source, type, "superseding-after")
+      checkpoint = PreviewState.get(source.id).checkpoint
+      assert checkpoint["interactions"]["clarify:call-1"]["state"] == "superseded"
+      assert checkpoint["presentation"]["interaction_status"] == "superseded"
+      assert Enum.all?(checkpoint["presentation"]["actions"], & &1["disabled"])
+      before_actions = action_event_count(agent.uid)
+
+      assert {:ok, %{status: :stale_action}} =
+               Observe.emit_action(
+                 agent.uid,
+                 "mock",
+                 action_input(action, human.uid, "late-after-superseding")
+               )
+
+      assert action_event_count(agent.uid) == before_actions
+    end
+  end
+
+  test "a rolled-back intake leaves no supersede or driver job" do
     %{event: source} = setup_interaction()
+    before_jobs = Repo.aggregate(Oban.Job, :count)
+    before_signals = Repo.aggregate(Signal, :count)
 
-    assert {:ok, endpoint} =
-             Ankole.Signals.Webhooks.create_endpoint(%{
-               label: "Build results",
-               expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
-               mode: "standing",
-               event_format: "cloudevents"
-             })
+    assert {:error, :rollback_intake} =
+             Repo.transact(fn repo ->
+               assert {:ok, _} =
+                        accept_signal(source, "conversation.message.addressed", "rolled-back",
+                          repo: repo
+                        )
 
-    assert {:ok, _} =
-             Ankole.Signals.Bindings.put_binding(
-               source.agent_uid,
-               "cloudevents",
-               "build-results",
-               %{
-                 "config" => %{"webhook_endpoint_id" => endpoint.webhook_endpoint.id},
-                 "target" => %{"session_id" => source.session_id}
-               }
-             )
+               assert PreviewState.get(source.id).checkpoint["interactions"]["clarify:call-1"][
+                        "state"
+                      ] == "superseded"
 
-    assert {:ok, %{signals: [%Signal{producer: :external}]}} =
-             Ankole.Signals.Webhooks.receive_cloudevent(endpoint.token, %{
-               "specversion" => "1.0",
-               "source" => "https://outside.example/events",
-               "id" => "external-result",
-               "type" => "com.example.build.finished",
-               "data" => %{"result" => "ok"}
-             })
+               {:error, :rollback_intake}
+             end)
 
-    checkpoint = Ankole.Conversations.Delivery.PreviewState.get(source.id).checkpoint
-    assert checkpoint["interactions"]["clarify:call-1"]["state"] == "pending"
-    assert checkpoint["presentation"]["interaction_status"] == "pending"
+    assert PreviewState.get(source.id).checkpoint["interactions"]["clarify:call-1"]["state"] ==
+             "pending"
+
+    assert Repo.aggregate(Signal, :count) == before_signals
+    assert Repo.aggregate(Oban.Job, :count) == before_jobs
   end
 
   test "a passive provider lifecycle event does not supersede a clarification" do
@@ -473,7 +569,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
     assert action_event_count(agent.uid) == 1
   end
 
-  defp setup_interaction do
+  defp setup_interaction(opts \\ []) do
     %{principal: agent} = agent_fixture()
     %{principal: human} = human_fixture()
     binding_fixture(agent.uid, "mock", :ignore, adapter: "lark")
@@ -550,6 +646,8 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
         ]
       })
 
+    Keyword.get(opts, :before_open, fn _ -> :ok end).(event)
+
     checkpoint = %{
       "schema_version" => 1,
       "adapter" => "lark",
@@ -557,18 +655,23 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
       "message_id" => "card-message-1",
       "streaming_state" => "closed",
       "element_ids" => ["state", "answer", "actions"],
-      "presentation" => ReplyPresentation.checkpoint(presentation),
-      "interactions" => %{
-        "clarify:call-1" => %{
-          "interaction_id" => "clarify:call-1",
-          "state" => "pending",
-          "opened_at" => DateTime.to_iso8601(@now)
-        }
-      }
+      "presentation" => ReplyPresentation.checkpoint(presentation)
     }
 
-    assert {:ok, _updated} =
-             PreviewState.put_checkpoint(event.id, checkpoint)
+    assert {:ok, _updated} = PreviewState.put_checkpoint(event.id, checkpoint)
+
+    assert {:ok, _} =
+             Repo.transact(fn repo ->
+               :ok =
+                 Ankole.Sessions.Queue.lock_session_in_tx(repo, event.agent_uid, event.session_id)
+
+               Ankole.Conversations.Delivery.Interactions.open_in_tx(
+                 repo,
+                 event,
+                 presentation,
+                 @now
+               )
+             end)
 
     assert :ok =
              PreviewState.record_provider_message(
@@ -602,7 +705,8 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
   defp accept_signal(source, type, id, opts \\ []) do
     now = Keyword.get(opts, :now, @now)
 
-    Signals.accept(%{
+    attrs = %{
+      producer: :kernel,
       source: "test://reply-interactions",
       id: unique_uid(id),
       type: type,
@@ -617,7 +721,42 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
         provider_thread_id: source.provider_thread_id,
         provider_message_id: unique_uid("source-message")
       }
-    })
+    }
+
+    case Keyword.get(opts, :repo) do
+      nil -> Signals.accept(attrs)
+      repo -> Signals.accept_in_tx(repo, attrs)
+    end
+  end
+
+  defp receive_external(source, type) do
+    assert {:ok, endpoint} =
+             Ankole.Signals.Webhooks.create_endpoint(%{
+               label: "Build results",
+               expires_at: DateTime.add(DateTime.utc_now(), 3600, :second),
+               mode: "standing",
+               event_format: "cloudevents"
+             })
+
+    assert {:ok, _} =
+             Ankole.Signals.Bindings.put_binding(
+               source.agent_uid,
+               "cloudevents",
+               "build-results",
+               %{
+                 "config" => %{"webhook_endpoint_id" => endpoint.webhook_endpoint.id},
+                 "target" => %{"session_id" => source.session_id}
+               }
+             )
+
+    assert {:ok, %{signals: [%Signal{producer: :external}]}} =
+             Ankole.Signals.Webhooks.receive_cloudevent(endpoint.token, %{
+               "specversion" => "1.0",
+               "source" => "https://outside.example/events",
+               "id" => unique_uid("external-result"),
+               "type" => type,
+               "data" => %{"result" => "ok"}
+             })
   end
 
   defp action_event_count(agent_uid) do

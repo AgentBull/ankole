@@ -1,14 +1,5 @@
 import { create } from '@bufbuild/protobuf'
-import type { JobTurnRef } from '../lanes/session_lane'
-import { jobTurnRefToProto } from '../lanes/session_lane'
-import {
-  createEnvelope,
-  ControlShutdownSchema,
-  envelopeHeader,
-  TurnAcceptedSchema,
-  WorkerProgressSchema,
-  type Envelope
-} from './envelope_proto'
+import { createEnvelope, ControlShutdownSchema, envelopeHeader, type Envelope } from './envelope_proto'
 
 /**
  * Reports that this worker has stopped accepting new turns and is draining its
@@ -23,27 +14,5 @@ export function controlShutdownEnvelope(reason: string): Envelope {
       case: 'controlShutdown',
       value: create(ControlShutdownSchema, { reason })
     }
-  })
-}
-
-/**
- * Builds the acceptance fence for a received turn revision.
- * Active mailbox updates are identified by the same turn fence plus a newer revision.
- */
-export function turnAcceptedEnvelope(turn: JobTurnRef): Envelope {
-  return createEnvelope({
-    ...envelopeHeader(`turn-accepted-${crypto.randomUUID()}`),
-    body: {
-      case: 'turnAccepted',
-      value: create(TurnAcceptedSchema, { turn: jobTurnRefToProto(turn) })
-    }
-  })
-}
-
-/** Keeps the accepted Job attempt alive. */
-export function workerProgressEnvelope(turn: JobTurnRef): Envelope {
-  return createEnvelope({
-    ...envelopeHeader(`worker-progress-${crypto.randomUUID()}`),
-    body: { case: 'workerProgress', value: create(WorkerProgressSchema, { turn: jobTurnRefToProto(turn) }) }
   })
 }

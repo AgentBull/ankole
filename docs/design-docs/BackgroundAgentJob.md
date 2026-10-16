@@ -360,6 +360,21 @@ notification. The runtime buffers child Turn events that arrive before the
 activity and replays them after assignment. The child Turn remains the owner of
 the child's work.
 
+The app-server transport checks every JSON-RPC line before parsing, including
+complete lines and the final line without a newline. The limit is 64 MiB of
+wire bytes. Unowned thread notifications share bounds of 256 messages and
+64 MiB of serialized UTF-8. These are protocol and retention bounds, not heap
+size guarantees. Crossing either notification bound ends and reaps this
+Agent's app-server through the existing runtime-loss path. It does not discard
+completion events and continue with an incomplete view of the thread tree.
+
+The Job session serializes ordinary lead-Turn completions and deduplicates them
+by thread and Turn ID. A retry may finish in the same app-server output batch
+as its start response; its completion waits for the preceding recovery rather
+than being discarded. Explicit compaction completion resolves its handshake
+immediately, outside that serial order, because recovery waits for it before
+starting the retry. These rules preserve the existing recovery budgets.
+
 A thread that was created before raw notifications were enabled can resume
 without the exact collaboration call. For this case, `subAgentActivity` stores a
 minimal lifecycle pair with the stable child identity. An ambiguous interaction
@@ -1024,3 +1039,20 @@ available:
 - Turn stall detection, its retryable abort, its exhausted Job failure, and
   deadline rearming from storage.
 - Real Deep Research and Office artifact Jobs in the Worker image.
+
+## Console background activity coverage
+
+The Home background activity area reads queued, running and waiting-on-user Jobs
+for one selected Agent in the current tenant. It retains the existing
+`background_agent_jobs` read permission, owner Session and source Signal links,
+native status, admission timestamps and bounded error summaries. Its query
+filters activity before cursor pagination and does not load task text, result
+bodies, metadata or Turn trajectories; the existing Job detail remains the
+inspection surface for those facts. An absent error summary stays unknown.
+
+The existing Background Job health metrics describe this domain only. The
+activity area separately displays [Workflow](Workflow.md#console-activity-inspection)
+and [Automation runs](AutomationJobs.md#live-activity-in-console-home), with their
+own permissions, observation times and page cursors. It does not total parent
+Workflow rows, child calls and delegated Jobs as execution slots, and it does not
+cover all conversation Turns, Worker processes or resource utilization.

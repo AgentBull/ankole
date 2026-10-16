@@ -104,8 +104,10 @@ boundary. A reply route remains a separate delivery fact.
 `Signals.Types` explicitly declares whether each code-produced type supersedes
 a pending interaction. Undeclared types, including external CloudEvents types,
 preserve the pending interaction. Intake takes the Session lock before insert
-and calls `Sessions.Queue.appended_in_tx/2` afterward; the queue owner applies
-interaction supersession and records the durable EnsureDriver wakeup.
+and then applies interaction supersession through `Delivery.Interactions`
+and records the durable EnsureDriver wakeup in the same transaction. Opening a
+late clarification uses the same declared superseding types. Only a kernel
+`session.reset_due` Signal acts as a reset barrier for an interaction answer.
 The provider-removal lifecycle type is `conversation.message.removed`.
 
 `accept_in_tx/2` returns the accepted Signal as a pending publication fact.
@@ -306,7 +308,7 @@ Provider event
 Lark, Slack, Microsoft Teams, DingTalk, WeCom, Telegram, Discord, LINE,
 WhatsApp, and Email supply provider protocol facts. They do not write
 Conversation records or Signal rows directly. The public observation methods
-include `emit_entry/4`, `emit_entry_with_attachments/5`,
+include `emit_entry/4`, `emit_entry_with_attachments/5`, `emit_entry_deferred/5`,
 `emit_entry_removed/4`, `emit_reaction/4`, and `emit_action/4` on
 `Ankole.Conversations.Observe`.
 
@@ -317,6 +319,22 @@ reference. All observers of the same `(tenant_id, provider_conversation_id)`
 use the same Conversation and Message facts. Each observer Agent becomes a
 participant. A Binding identifies its observation and delivery route; it does
 not divide the platform room into private Agent copies.
+
+Entry authors report provider subjects and profile observations. Raw
+`principal_uid`, `agent_uid`, `human_access_version`, and top-level `sender_key`
+are rejected at this boundary. Identity admission supplies the Principal and
+access version. Managed actions retain their separately verified operator UID.
+Input channel fields use the nested `channel` map; diagnostic provider facts
+use `raw_payload`.
+
+`Conversations.Attachments` owns attachment storage, download results, and
+reuse on redelivery. Observe owns the order of pending and final observations.
+LINE and WhatsApp share its deferred attachment operation: it commits pending
+attachment IDs before starting the existing tenant-bound task and admits the
+final result through a fresh Binding lookup. Redelivery retains the first
+observation time. A task admission error returns to the provider for retry;
+a missing task supervisor still fails the request. Lark retains its separate
+all-consumers pending barrier.
 
 An observed result contains `conversation` and `message_observation`. The
 latter contains `message`, `external_ref`, and its observation status. Public
@@ -343,7 +361,7 @@ attachment handling, batching, and external replies.
 
 ## Admit the Provider Author
 
-`Ankole.Signals.IdentityAdmission` maps a reported sender to a Principal.
+`Ankole.Conversations.IdentityAdmission` maps a reported sender to a Principal.
 Adapters supply stable subject candidates and a display name; they do not
 create or select Principals themselves.
 

@@ -1,7 +1,8 @@
 import { z } from 'zod'
 import type { JobTurnRef } from '../../lanes/session_lane'
 import { defineWorkerTool, type WorkerAgentTool } from '../../core'
-import type { RPCRequester, RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import { type RPCRequester } from '../../lanes/rpc_lane'
+import { type RuntimeSkillSummary } from '../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { createSkillLoader, type SkillLoadDetails, type SkillLoader } from '../../skills/skill-loader'
 
 // `name` is the enabled skill name from RuntimeFabric. `filePath` lets the model
@@ -45,7 +46,7 @@ export function createSkillViewTool(loader: SkillLoader): WorkerAgentTool<typeof
     isReadOnly: true,
     isDestructive: false,
     describeActivity: params => ({
-      key: 'signals_gateway.reply.activity.skill_load',
+      key: 'conversations.delivery.reply.activity.skill_load',
       bindings: { name: params.name }
     }),
     async execute(_toolCallId, params) {

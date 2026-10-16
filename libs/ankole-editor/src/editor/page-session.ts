@@ -44,8 +44,9 @@ export class PageSession {
     const tree = readTree(this.editor.state.doc)
     return { revision: this.version, markdown: printMarkdown(tree), xml: printXml(tree) }
   }
-  /** Replace the page in one undoable step. A stale revision or an active composition rejects the write. */
+  /** Replace the page in one undoable step. Only the active session can write. */
   apply(write: PageWrite): PageApplied {
+    if (sessions.get(this.editor) !== this) throw new Error('页面会话已结束，请重新读取当前会话后再应用')
     if (this.editor.composing) throw new Error('输入法组合尚未结束，请完成输入后再应用')
     if (write.revision !== this.version) {
       throw new Error('文档已变化，源码草稿已保留。请导出草稿并重新读取文档后合并修改。')

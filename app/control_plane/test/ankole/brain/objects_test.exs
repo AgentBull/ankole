@@ -7,6 +7,7 @@ defmodule Ankole.Brain.ObjectsTest do
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
+  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Ecto.UUIDv7
@@ -207,6 +208,134 @@ defmodule Ankole.Brain.ObjectsTest do
   end
 
   describe "update_object/4" do
+    test "meta changes beyond the inspection print limit invalidate the baseline", %{human: human} do
+      prefix = String.duplicate("x", 5_000)
+
+      {:ok, object} =
+        Objects.create_object(
+          %{
+            slug: "notes/long-meta",
+            type: "note",
+            title: "Long meta",
+            meta: %{"value" => prefix <> "A"}
+          },
+          human.uid
+        )
+
+      assert {:ok, updated} =
+               Objects.update_object(
+                 object.slug,
+                 %{meta: %{"value" => prefix <> "B"}, expected_content_hash: object.content_hash},
+                 human.uid
+               )
+
+      refute object.content_hash == updated.content_hash
+
+      assert {:error, :content_hash_conflict} =
+               Objects.update_object(
+                 object.slug,
+                 %{title: "Stale", expected_content_hash: object.content_hash},
+                 human.uid
+               )
+    end
+
+    test "metadata-only edits invalidate a stale full-form save", %{human: human} do
+      for {field, before_value, after_value} <- [
+            {:subtype, "reference", "decision"},
+            {:effective_date, ~D[2026-08-01], ~D[2026-08-02]}
+          ] do
+        {:ok, object} =
+          Objects.create_object(
+            %{
+              field => before_value,
+              slug: "notes/cas-#{field}",
+              type: "note",
+              title: "CAS metadata",
+              body: "Original body",
+              meta: %{}
+            },
+            human.uid
+          )
+
+        assert {:ok, updated} =
+                 Objects.update_object(
+                   object.slug,
+                   %{field => after_value, :expected_content_hash => object.content_hash},
+                   human.uid
+                 )
+
+        refute updated.content_hash == object.content_hash
+
+        assert {:error, :content_hash_conflict} =
+                 Objects.update_object(
+                   object.slug,
+                   %{
+                     title: object.title,
+                     body: "Stale full form",
+                     meta: object.meta,
+                     subtype: object.subtype,
+                     effective_date: object.effective_date,
+                     expected_content_hash: object.content_hash
+                   },
+                   human.uid
+                 )
+
+        stored = Repo.get!(Object, object.id)
+        assert Map.fetch!(stored, field) == after_value
+        assert stored.body == object.body
+
+        assert Repo.aggregate(from(v in ObjectVersion, where: v.object_id == ^object.id), :count) ==
+                 1
+      end
+    end
+
+    test "deleted content is read-only until explicit restore", %{human: human} do
+      {:ok, original} =
+        Objects.create_object(
+          %{slug: "notes/deleted-write", type: "note", title: "Deleted", body: "Original"},
+          human.uid
+        )
+
+      {:ok, edited} =
+        Objects.update_object(
+          original.slug,
+          %{body: "Current", expected_content_hash: original.content_hash},
+          human.uid
+        )
+
+      [version] = Repo.all(from(v in ObjectVersion, where: v.object_id == ^original.id))
+      {:ok, deleted} = Objects.soft_delete(edited.slug, reason: "No longer valid", by: human.uid)
+
+      before_chunks =
+        Repo.all(from(c in Chunk, where: c.object_id == ^original.id, order_by: c.id))
+
+      assert {:error, :object_deleted} =
+               Objects.update_object(
+                 deleted.slug,
+                 %{body: "Hidden edit", expected_content_hash: deleted.content_hash},
+                 human.uid
+               )
+
+      assert {:error, :object_deleted} = Objects.rollback(deleted.slug, version.id, human.uid)
+      assert Repo.get!(Object, original.id) == deleted
+      assert Repo.all(from(v in ObjectVersion, where: v.object_id == ^original.id)) == [version]
+
+      assert Repo.all(from(c in Chunk, where: c.object_id == ^original.id, order_by: c.id)) ==
+               before_chunks
+
+      assert {:ok, restored} = Objects.restore(deleted.slug)
+      assert is_nil(restored.deleted_at)
+      assert {:ok, rolled_back} = Objects.rollback(restored.slug, version.id, human.uid)
+      assert rolled_back.body == original.body
+
+      assert {:ok, _edited_again} =
+               Objects.update_object(
+                 rolled_back.slug,
+                 %{body: "Visible edit", expected_content_hash: rolled_back.content_hash},
+                 human.uid
+               )
+    end
+
     test "snapshots the previous body and applies CAS", %{human: human} do
       assert {:ok, object} =
                Objects.create_object(

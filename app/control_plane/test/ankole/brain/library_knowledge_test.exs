@@ -4,6 +4,8 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
   import ExUnit.CaptureLog
   import Ankole.PrincipalsFixtures
 
+  alias Ankole.AIAgent.Library.AgentPlugins
+  alias Ankole.AIAgent.Library.SourceReader, as: LibrarySourceReader
   alias Ankole.Brain.Chunker
   alias Ankole.Brain.Config
   alias Ankole.Brain.Dreaming
@@ -223,6 +225,195 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
 
     assert {:error, {:skill_source_name_conflicts, [^name]}} = LibraryKnowledge.sync()
     assert Repo.get_by!(Object, slug: slug).deleted_at == nil
+  end
+
+  test "knowledge read errors preserve the set and revision while other sets advance", %{
+    dir: dir,
+    set: set
+  } do
+    write_page!(dir, "read-failure")
+    sync!(set)
+    source = Repo.get_by!(Source, kind: "library", upstream_id: set.set_id)
+    path = Path.join(dir, "concepts/read-failure.md")
+    File.rm!(path)
+    File.ln_s!("missing", path)
+    write_page!(dir, "not-partially-projected")
+
+    other_dir = dir <> "-other-set"
+    File.mkdir_p!(Path.join(other_dir, "concepts"))
+    on_exit(fn -> File.rm_rf!(other_dir) end)
+    write_page!(other_dir, "healthy-set")
+    other_set = %{set | set_id: set.set_id <> "-other", dir: other_dir}
+
+    assert {:ok, %{reports: [failed, healthy]}} =
+             LibraryKnowledge.sync(sets: [set, other_set])
+
+    assert failed.status == :error
+    assert failed.reason =~ "enoent"
+    assert healthy.projected == 1
+    assert Repo.get_by!(Object, slug: "concepts/read-failure").deleted_at == nil
+    assert Repo.get!(Source, source.id).upstream_revision == source.upstream_revision
+    refute Repo.get_by(Object, slug: "concepts/not-partially-projected")
+
+    File.rm!(path)
+    File.ln_s!("read-failure.md", path)
+    assert [%{status: :error, reason: reason}] = sync!(set).reports
+    assert reason =~ "eloop"
+    assert Repo.get_by!(Object, slug: "concepts/read-failure").deleted_at == nil
+    assert Repo.get!(Source, source.id).upstream_revision == source.upstream_revision
+
+    File.rm!(path)
+    File.mkdir_p!(Path.join(path, "concepts"))
+    write_page!(path, "inside-md-directory")
+    assert [%{status: :ok, projected: 2, withdrawn: 1}] = sync!(set).reports
+    assert Repo.get_by!(Object, slug: "concepts/read-failure").deleted_at != nil
+    assert Repo.get_by!(Object, slug: "concepts/inside-md-directory").deleted_at == nil
+  end
+
+  test "complete reads still reject invalid pages and withdraw their old projection", %{
+    dir: dir,
+    set: set
+  } do
+    write_page!(dir, "invalid-revision")
+    sync!(set)
+    File.write!(Path.join(dir, "concepts/invalid-revision.md"), "Missing frontmatter.")
+
+    assert [%{status: :ok, rejected: 1, withdrawn: 1}] = sync!(set).reports
+    assert Repo.get_by!(Object, slug: "concepts/invalid-revision").deleted_at != nil
+  end
+
+  test "knowledge discovery keeps readable links and ignores hidden files", %{dir: dir, set: set} do
+    hidden = Path.join(dir, ".hidden")
+    File.mkdir_p!(Path.join(hidden, "concepts"))
+    write_page!(hidden, "hidden-method")
+
+    external = dir <> "-linked"
+    File.mkdir_p!(Path.join(external, "concepts"))
+    on_exit(fn -> File.rm_rf!(external) end)
+    write_page!(external, "linked-method")
+    File.ln_s!(Path.join(external, "concepts"), Path.join(dir, "linked"))
+    File.ln_s!(Path.join(external, "concepts/linked-method.md"), Path.join(dir, "alias.md"))
+    File.ln_s!("missing", Path.join(dir, "broken.txt"))
+    File.ln_s!("missing", Path.join(dir, "broken-assets"))
+
+    assert [%{status: :ok, projected: 1, rejected: 1}] = sync!(set).reports
+    assert Repo.get_by!(Object, slug: "concepts/linked-method").deleted_at == nil
+    refute Repo.get_by(Object, slug: "concepts/hidden-method")
+  end
+
+  test "a broken knowledge directory preserves its set while other sets synchronize" do
+    allow_cache_database_access()
+
+    root =
+      Path.join(System.tmp_dir!(), "ankole-knowledge-root-#{System.unique_integer([:positive])}")
+
+    File.mkdir_p!(Path.join(root, "skills"))
+    knowledge = Path.join(root, "knowledge")
+    File.mkdir_p!(Path.join(knowledge, "concepts"))
+    on_exit(fn -> File.rm_rf!(root) end)
+    with_library_root(root)
+    write_page!(knowledge, "root-read-failure")
+    write_agent_plugin!(root, "healthy-plugin", "healthy-plugin-skill")
+    plugin_knowledge = Path.join([root, "agent-plugins", "healthy-plugin", "knowledge"])
+    File.mkdir_p!(Path.join(plugin_knowledge, "concepts"))
+    write_page!(plugin_knowledge, "healthy-plugin-method")
+
+    assert {:ok, _report} = LibraryKnowledge.sync()
+    File.rename!(knowledge, Path.join(root, "retained-knowledge"))
+    File.ln_s!("missing", knowledge)
+    write_page!(plugin_knowledge, "healthy-plugin-method", " A later valid revision.")
+
+    assert {:ok, %{reports: reports}} = LibraryKnowledge.sync()
+    failed = Enum.find(reports, &(&1.set == "library"))
+    healthy = Enum.find(reports, &(&1.set == "agent-plugin:healthy-plugin"))
+    assert failed.status == :error
+    assert failed.reason =~ "enoent"
+    assert healthy.projected == 1
+
+    assert Repo.get_by!(Object, slug: "concepts/root-read-failure").deleted_at == nil
+
+    assert Repo.get_by!(Object, slug: "concepts/healthy-plugin-method").body =~
+             "A later valid revision."
+
+    File.rm!(knowledge)
+    assert {:ok, %{withdrawn_sets: [%{withdrawn: 1}]}} = LibraryKnowledge.sync()
+    assert Repo.get_by!(Object, slug: "concepts/root-read-failure").deleted_at != nil
+  end
+
+  test "disabled Plugin knowledge stays absent while its lazy Skills remain discoverable" do
+    allow_cache_database_access()
+
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "ankole-knowledge-enable-#{System.unique_integer([:positive])}"
+      )
+
+    File.mkdir_p!(Path.join(root, "skills"))
+    on_exit(fn -> File.rm_rf!(root) end)
+    with_library_root(root)
+    write_agent_plugin!(root, "github", "disabled-parent-skill")
+    knowledge = Path.join([root, "agent-plugins", "github", "knowledge"])
+    File.mkdir_p!(Path.join(knowledge, "concepts"))
+    write_page!(knowledge, "enabled-plugin-knowledge")
+
+    assert {:ok, _report} = LibraryKnowledge.sync()
+    refute Repo.get_by(Object, slug: "concepts/enabled-plugin-knowledge")
+
+    assert Repo.get_by!(Object, slug: "lazyload-agent-skills/disabled-parent-skill").deleted_at ==
+             nil
+
+    assert {:ok, _defaults} = AgentPlugins.set_global_default("github", true)
+    assert {:ok, _report} = LibraryKnowledge.sync()
+    assert Repo.get_by!(Object, slug: "concepts/enabled-plugin-knowledge").deleted_at == nil
+
+    assert {:ok, _defaults} = AgentPlugins.set_global_default("github", false)
+    assert {:ok, _report} = LibraryKnowledge.sync()
+    assert Repo.get_by!(Object, slug: "concepts/enabled-plugin-knowledge").deleted_at != nil
+
+    assert Repo.get_by!(Object, slug: "lazyload-agent-skills/disabled-parent-skill").deleted_at ==
+             nil
+  end
+
+  test "cached Skills cannot hide an unreadable required library root" do
+    allow_cache_database_access()
+
+    root =
+      Path.join(System.tmp_dir!(), "ankole-library-root-#{System.unique_integer([:positive])}")
+
+    retained = root <> "-retained"
+    knowledge = Path.join(root, "knowledge")
+    File.mkdir_p!(Path.join(knowledge, "concepts"))
+
+    on_exit(fn ->
+      File.rm_rf!(root)
+      File.rm_rf!(retained)
+    end)
+
+    with_library_root(root)
+    config = Application.get_env(:ankole, Ankole.AIAgent.Library, [])
+
+    Application.put_env(
+      :ankole,
+      Ankole.AIAgent.Library,
+      Keyword.put(config, :source_cache_ttl_ms, 300_000)
+    )
+
+    write_lazy_skill!(Path.join([root, "skills", "cached-root-skill"]), "cached-root-skill")
+    write_page!(knowledge, "cached-root-method")
+
+    assert {:ok, _report} = LibraryKnowledge.sync()
+    source = Repo.get_by!(Source, kind: "library", upstream_id: "library")
+    File.rename!(root, retained)
+    File.ln_s!("missing", root)
+
+    assert {:ok, [%{name: "cached-root-skill"}]} =
+             LibrarySourceReader.read_builtin_skill_sources()
+
+    assert {:error, :enoent} = LibraryKnowledge.sync()
+    assert Repo.get_by!(Object, slug: "concepts/cached-root-method").deleted_at == nil
+    assert Repo.get_by!(Object, slug: "lazyload-agent-skills/cached-root-skill").deleted_at == nil
+    assert Repo.get!(Source, source.id).upstream_revision == source.upstream_revision
   end
 
   test "self-healing reports a failed Skill inventory and continues later repairs" do

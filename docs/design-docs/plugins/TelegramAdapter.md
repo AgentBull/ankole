@@ -97,11 +97,11 @@ IM setup uses this sequence:
 1. An administrator signs in through LocalPassword and creates a human
    Principal.
 2. The Telegram binding selects `manual_review`.
-3. An unmatched user receives the fixed mapping notice. Signals.IdentityAdmission creates
+3. An unmatched user receives the fixed mapping notice. Conversations.IdentityAdmission creates
    a mapping request and does not store the original message.
 4. The administrator maps the Telegram external identity to the existing
    Principal.
-5. The user sends the message again, and Signals.IdentityAdmission admits it to the Agent.
+5. The user sends the message again, and Conversations.IdentityAdmission admits it to the Agent.
 
 This sequence describes a common setup. It is not a dependency between
 LocalPassword and Telegram. The mapping target can be any existing human

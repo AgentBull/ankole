@@ -211,7 +211,7 @@ export function OIDCClientEditorPage() {
   const loadedClient = clientQuery.data?.oidc_client
 
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'oidc-client', clientID },
+    sourceKey: clientID ? `client:${clientID}` : 'new',
     source: mode === 'new' ? emptyDraft() : loadedClient ? draftFromClient(loadedClient) : undefined,
     absent: () => mode === 'edit' && requestErrorCode(clientQuery.error) === 'not_found'
   })

@@ -1,7 +1,11 @@
 import { create } from '@bufbuild/protobuf'
-import type { AgentConversationContextResponse } from './rpc_lane'
+import { type AgentConversationContextResponse } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
   SessionKeySchema,
+  createEnvelope,
+  envelopeHeader,
+  TurnAcceptedSchema,
+  WorkerProgressSchema,
   RunRefSchema,
   JobTurnRefSchema,
   fetchRuntimeConfigFromProto,
@@ -190,4 +194,26 @@ function requiredString(value: string, path: string): string {
     throw new Error(`${path} is required`)
   }
   return value
+}
+
+/**
+ * Builds the acceptance fence for a received turn revision.
+ * Active mailbox updates are identified by the same turn fence plus a newer revision.
+ */
+export function turnAcceptedEnvelope(turn: JobTurnRef): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(`turn-accepted-${crypto.randomUUID()}`),
+    body: {
+      case: 'turnAccepted',
+      value: create(TurnAcceptedSchema, { turn: jobTurnRefToProto(turn) })
+    }
+  })
+}
+
+/** Keeps the accepted Job attempt alive. */
+export function workerProgressEnvelope(turn: JobTurnRef): Envelope {
+  return createEnvelope({
+    ...envelopeHeader(`worker-progress-${crypto.randomUUID()}`),
+    body: { case: 'workerProgress', value: create(WorkerProgressSchema, { turn: jobTurnRefToProto(turn) }) }
+  })
 }

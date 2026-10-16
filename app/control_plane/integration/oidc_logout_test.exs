@@ -158,7 +158,10 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
     server = start_supervised!({Bandit, plug: AnkoleWeb.Endpoint, port: 0, ip: {127, 0, 0, 1}})
     {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
     origin = "http://127.0.0.1:#{port}"
-    cookie = "_ankole_key=" <> browser.resp_cookies["_ankole_key"].value
+
+    cookie =
+      browser.resp_cookies
+      |> Enum.map_join("; ", fn {name, cookie} -> name <> "=" <> cookie.value end)
 
     params = %{
       id_token_hint: tokens["id_token"],
@@ -235,14 +238,67 @@ defmodule Ankole.OIDCLogoutIntegrationTest do
     assert Req.get!(origin <> "/oauth/logout", params: params, redirect: false).status == 400
   end
 
-  defp response_cookie(response, fallback) do
-    case Enum.find(
-           Req.Response.get_header(response, "set-cookie"),
-           &String.starts_with?(&1, "_ankole_key=")
-         ) do
-      nil -> fallback
-      cookie -> cookie |> String.split(";", parts: 2) |> hd()
+  test "RP delivery cannot revoke an account signed in after the confirmed logout", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    parent = self()
+
+    endpoint =
+      start_upstream_server(fn _ ->
+        send(parent, {:delivery_waiting, self()})
+        receive do: (:finish_delivery -> {:json, 200, %{}})
+      end)
+
+    {browser, _, _} = authorize(conn, endpoint)
+    reference = WebSession.browser_reference(browser)
+    {:ok, request} = Ankole.OIDC.RPLogout.prepare(reference, %{})
+
+    confirmation =
+      Task.async(fn ->
+        browser
+        |> recycle()
+        |> post("/oauth/logout/confirm", %{"request" => request.id, "action" => "confirm"})
+      end)
+
+    assert_receive {:delivery_waiting, delivery}, 5_000
+
+    try do
+      Repo.put_tenant_id(tenant.id)
+      human = human_fixture().principal
+      {:ok, flow} = BrowserSessions.begin_login(reference, :pod, %{}, mode: :add)
+      {:ok, _} = BrowserSessions.bind_provider(reference, flow.id, "local")
+
+      {:ok, %{authentication: authentication}} =
+        BrowserSessions.complete_login(reference, flow.id, %{
+          "principal_uid" => human.uid,
+          "access_version" => human.access_version,
+          "provider_id" => "local",
+          "external_id" => human.uid,
+          "auth_time" => System.system_time(:second)
+        })
+
+      send(delivery, :finish_delivery)
+      assert Task.await(confirmation, 5_000).status == 302
+
+      assert BrowserSessions.authentication(BrowserSessions.reference(authentication), :pod)[
+               "principal_uid"
+             ] == human.uid
+    after
+      send(delivery, :finish_delivery)
     end
+  end
+
+  defp response_cookie(response, fallback) do
+    initial = Plug.Conn.Cookies.decode(fallback)
+
+    Req.Response.get_header(response, "set-cookie")
+    |> Enum.reduce(initial, fn header, cookies ->
+      [pair | _] = String.split(header, ";")
+      [name, value] = String.split(pair, "=", parts: 2)
+      if value == "", do: Map.delete(cookies, name), else: Map.put(cookies, name, value)
+    end)
+    |> Enum.map_join("; ", fn {name, value} -> name <> "=" <> value end)
   end
 
   defp authorize(conn, endpoint) do

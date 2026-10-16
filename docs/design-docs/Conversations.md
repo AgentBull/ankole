@@ -43,6 +43,26 @@ its Signal while the native conversation exists. External facts survive removal
 of an Agent or its Binding: Principal and Signal foreign keys can become null,
 while the observed platform facts and recorded Session identity remain.
 
+## External Message Batching
+
+`Conversations.InboundBatches` owns one shared batching policy for IM adapters.
+A batch is scoped by tenant, Agent, binding, conversation, and thread. Requester
+continuity decides whether an incoming observation can extend that batch. The
+batch deadline and finalize job commit in the same transaction; an early wakeup
+retries at the stored deadline. Adapters own platform wire formats and identity
+observation, Conversations owns batching and source tombstones, and Signals accepts the
+resulting stimulus. Adding an adapter does not copy these windows or recovery
+rules into that adapter.
+
+`Conversations.MessageInput` computes message-backed input revisions without
+database writes. It updates source entries, their summary, ambient batch facts,
+and the attachment supplement deadline. Both `Conversations.InputRevisions`
+and `Sessions.Revisions` use this calculation. The former owns queued changes
+and revision intake; the latter owns in-flight cancellation, retained effects,
+and recovery. Each caller keeps its existing transaction and locks. Inbound
+batch windows and supplement waiting remain separate policies. Other Signal
+sources do not need this message representation or these revision rules.
+
 ## Accept a Human Message
 
 The current Human must participate in the conversation. Every active Agent in
@@ -113,15 +133,20 @@ The daily model conversation reset excludes native conversation Sessions.
 Refresh and reconnect read committed messages from Conversations; AIGateway
 history remains model state rather than the visible transcript.
 
-## Workplace Browser API
+## Pod Browser API
 
-The internal API is mounted at `/.internal-apis/workplace`. It uses the same
-access gate as the Workplace shell: setup must be complete, and the browser
+The internal API is mounted at `/.internal-apis/pod`. It uses the same
+access gate as the Pod shell: setup must be complete, and the browser
 must have an active site administrator session. Unsafe requests require CSRF
-proof. These routes do not enter OpenAPI.
+proof. These routes are excluded from the public Console OpenAPI contract.
+`InternalAPISpec` selects the private router operations for build-time client
+generation. Controllers and domain functions retain runtime validation;
+generation does not add request casting middleware. `mix ankole.openapi.check`
+checks both contracts (`--write` updates them); the webapps `openapi:generate`
+script generates both clients.
 
 The authenticated Principal determines the tenant. A Console data tenant
-selection cannot change the Workplace tenant. Read, write, and SSE operations
+selection cannot change the Pod tenant. Read, write, and SSE operations
 check that the current Human participates in the conversation.
 
 | Method and path | Contract |
@@ -131,7 +156,7 @@ check that the current Human participates in the conversation.
 | `POST /conversations` | Accepts `conversationID`, `agentUID`, `messageID`, and `text`; returns the committed conversation detail |
 | `GET /conversations/:id` | Returns conversation detail, the latest 500 messages in sequence order, and execution status |
 | `POST /conversations/:id/messages` | Accepts `messageID` and `text`; returns the committed conversation detail |
-| `GET /conversations/:id/events` | SSE for committed changes and subsequent live model text |
+| `GET /conversations/:id/events` | SSE for committed changes, current activity, and subsequent live model text |
 
 Both POST operations return HTTP 200 on success. Conversation summaries contain
 `id`, `title`, `agent` (`uid`, `displayName`, `active`), and `lastActivityAt`.
@@ -142,7 +167,7 @@ Each message contains `id`, `seq`, `authorType`, `authorUID`, `kind`, `text`,
 `agent`; `kind` is `message` or `notice`. Human `signalID` values are null.
 Timestamps use ISO 8601.
 
-Status contains `state` and `retryAt`. State is `idle`, `queued`, `running`, or
+Status contains `state`, `retryAt`, and `activity`. State is `idle`, `queued`, `running`, or
 `retrying`. `retryAt` is a timestamp for a scheduled retry and null otherwise.
 Sessions derives this status from its durable inbox.
 Ready admitted input takes priority over queued input, which takes priority
@@ -172,6 +197,23 @@ comment every 15 seconds and removes both subscriptions when it closes.
 | `status` | `{}` | Execution or Agent availability changed |
 | `started` | `{responseID, signalIDs}` | A model Response started; replace prior live text |
 | `delta` | `{responseID, signalIDs, text}` | Subsequent text for that Response |
+| `activity` | Current activity snapshot | Bounded phase and unfinished tool labels |
+
+An activity snapshot contains `conversationID`, `agentUID`, `sessionID`,
+`signalID`, `responseID`, `epoch`, `revision`, `state`, `phase`, and `tools`.
+Its state is `active`, `unavailable`, or `settled`; it is a display observation,
+not a second execution lifecycle. Labels have bounded text and bindings, and
+`tools` has at most four entries. Reasoning, tool arguments, outputs, and result
+bodies do not enter this projection.
+
+The stream subscribes before reading a bounded current Driver snapshot. It
+checks the stored workspace epoch and open Signal before accepting active
+details, and monitors the Driver. The initial frame includes the current
+snapshot, so a late connection can show a capacity wait without replaying an
+event log. Epoch and revision ordering reject older observations; a settled
+epoch cannot reopen. Driver loss, retry, and disconnection clear transient
+details and fall back to the durable status. An activity frame never triggers
+a full history read.
 
 Conversation events are published after acceptance, admission, retry,
 completion, or dead-letter commit. Agent disablement, enablement, and permanent
@@ -201,7 +243,7 @@ Response without a visible reply.
 ## Agent Lifecycle and Scope
 
 Disabling an Agent preserves its native conversations and history. Reads stay
-available; new conversations and messages return `agent_unavailable`. Workplace
+available; new conversations and messages return `agent_unavailable`. Pod
 disables the composer and explains that the Agent is unavailable.
 
 Permanent Agent deletion removes its native conversations, participants, and
@@ -215,7 +257,7 @@ can target a native conversation through its UUID. Its own execution Session
 reads those committed statements on the next request; the cron rule keeps a
 separate model history. Native multi-person and multi-Agent creation, native
 attachments, and conversation rename, deletion, search, stop, and regenerate
-controls remain outside the current Workplace interface.
+controls remain outside the current Pod interface.
 
 ## Observe an External Conversation
 
@@ -341,7 +383,7 @@ presentation live in the Delivery-owned `delivery_previews` row, keyed by
 preview. `Delivery.ReplyPresentation` owns the renderer-safe presentation.
 These facts let durable delivery settle or recover the visible surface. They do
 not make a streamed draft an immutable model or conversation record. Native
-conversations use Workplace SSE and never start an external preview.
+conversations use Pod SSE and never start an external preview.
 
 See [Signals](Signals.md) for intake and adapter contracts, [Sessions](Sessions.md)
 for execution and recovery, [AIGateway](AIGateway.md) for model state,

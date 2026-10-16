@@ -58,7 +58,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, _binding} =
-      Ankole.Signals.Bindings.upsert_binding(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent.uid,
         name: "wecom-stream",
         adapter: "wecom",

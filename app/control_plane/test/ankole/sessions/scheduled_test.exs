@@ -220,6 +220,112 @@ defmodule Ankole.Sessions.ScheduledTest do
     end
   end
 
+  test "five-fire batch reads preserve Message precedence, nil fallback and every Intent status" do
+    %{agent: agent, session_id: session_id} = cron_session()
+    room = Ankole.ExternalConversationsFixtures.external_conversation_fixture("mock:streak")
+    events = for _ <- 1..5, do: cron_fire_event(agent.uid, session_id, "batch")
+    [first, second, third, fourth, fifth] = events
+
+    for {event, text, status, age} <- [
+          {first, "wrong fallback", :sent, 1},
+          {second, "same report 2", :failed, 2},
+          {third, "same report 3", :sent, 3},
+          {fourth, "old wrong fallback", :sent, 4},
+          {fourth, "same report 4", :pending, 5},
+          {fourth, nil, :sent, 6},
+          {fifth, "same report 5", :failed, 7}
+        ] do
+      Repo.insert!(%Intent{
+        agent_uid: agent.uid,
+        binding_name: "control-plane:test",
+        outbound_key: Ecto.UUID.generate(),
+        operation: :reply,
+        status: status,
+        source_signal_id: event.id,
+        fallback_visible_text: text,
+        idempotency_key: Ecto.UUID.generate(),
+        inserted_at: DateTime.add(@base_time, age, :second)
+      })
+    end
+
+    for {event, text, seq} <- [
+          {first, "same report 1", 1},
+          {second, "old wrong message", 2},
+          {second, nil, 3},
+          {third, "", 4}
+        ] do
+      Repo.insert!(%Ankole.Conversations.Message{
+        id: Ecto.UUID.generate(),
+        conversation_id: room.id,
+        seq: seq,
+        author_type: :agent,
+        author_uid: agent.uid,
+        text: text,
+        signal_id: event.id,
+        origin: :external,
+        session_id: event.session_id,
+        created_at: DateTime.add(@base_time, seq, :second)
+      })
+    end
+
+    candidates = Ankole.Conversations.reply_candidate_texts(Enum.map(events, & &1.id))
+
+    assert candidates == %{
+             first.id => "same report 1",
+             second.id => "same report 2",
+             third.id => "",
+             fourth.id => "same report 4",
+             fifth.id => "same report 5"
+           }
+
+    # Copied external fire metadata cannot enter the producer-filtered window.
+    external = cron_fire_event(agent.uid, session_id, "batch")
+    external |> Signal.changeset(%{producer: :external}) |> Repo.update!()
+    input = cron_fire_event(agent.uid, session_id, "batch")
+    tag = make_ref()
+    handler = {__MODULE__, tag}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ankole, :repo, :query],
+        fn _, _, metadata, {pid, tag} ->
+          if self() == pid, do: send(pid, {tag, metadata.query})
+        end,
+        {self(), tag}
+      )
+
+    try do
+      assert Scheduled.consecutive_identical_replies(input) == 2
+    after
+      :telemetry.detach(handler)
+    end
+
+    reads = collect_reads(tag)
+    assert length(reads) == 3
+    assert Enum.all?(reads, &String.starts_with?(&1, "SELECT"))
+
+    # A missing most recent reply is not removed from the fire sequence.
+    next = cron_fire_event(agent.uid, session_id, "batch")
+    assert Scheduled.consecutive_identical_replies(next) == 0
+    assert Ankole.Conversations.reply_candidate_texts([]) == %{}
+  end
+
+  test "identical replies scan at most five fires" do
+    %{agent: agent, session_id: session_id} = cron_session()
+    for n <- 1..7, do: fire_with_reply(agent.uid, session_id, "bounded", "same report #{n}")
+    input = cron_fire_event(agent.uid, session_id, "bounded")
+    assert Scheduled.consecutive_identical_replies(input) == 5
+  end
+
+  defp collect_reads(tag, acc \\ []) do
+    receive do
+      {^tag, query} -> collect_reads(tag, [query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
   defp cron_session do
     %{principal: agent} = agent_fixture()
     %{agent: agent, session_id: "session-#{System.unique_integer([:positive])}"}

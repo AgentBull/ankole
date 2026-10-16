@@ -69,18 +69,11 @@ export const AgentLibraryEditorModel = createModel(() => {
     dirty: computed(() =>
       AGENT_LIBRARY_DOCUMENT_KINDS.some(kind => documents[kind].draft.value !== documents[kind].sourceContent.value)
     ),
-    initialize(agentUID: string, nextDocuments: AgentLibraryDocumentsSnapshot) {
-      const nextSourceKey = `agent:${agentUID}`
+    initialize(nextSourceKey: string, nextDocuments: AgentLibraryDocumentsSnapshot) {
+      if (sourceKey.value === nextSourceKey) return
       batch(() => {
-        if (sourceKey.value !== nextSourceKey) {
-          sourceKey.value = nextSourceKey
-          for (const kind of AGENT_LIBRARY_DOCUMENT_KINDS) replaceDocumentState(documents[kind], nextDocuments[kind])
-          return
-        }
-
-        for (const kind of AGENT_LIBRARY_DOCUMENT_KINDS) {
-          if (!documents[kind].editing.value) replaceDocumentState(documents[kind], nextDocuments[kind])
-        }
+        sourceKey.value = nextSourceKey
+        for (const kind of AGENT_LIBRARY_DOCUMENT_KINDS) replaceDocumentState(documents[kind], nextDocuments[kind])
       })
     },
     beginEdit(kind: AgentLibraryDocumentKind) {

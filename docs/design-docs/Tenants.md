@@ -61,7 +61,11 @@ status and access version before admitting work.
 
 Exactly one tenant is privileged. Its built-in `siteadmin` group controls site
 administration through AuthZRoot. Console entry and site APIs use that same
-owner. AuthZ loads permissions from the operator's own tenant. Selecting
+owner. The private global AppConfigure key `tenants.privileged_tenant_id` stores
+its stable ID. A slug change does not change this assignment. The upgrade
+resolves the previous `tenants.privileged_slug` to its tenant ID and removes the
+old key; a missing or invalid assignment stops the upgrade. AuthZ loads
+permissions from the operator's own tenant. Selecting
 a data tenant neither grants that tenant's groups to the operator nor changes
 the author recorded on writes. Brain writes use the operator as writer inside
 their own tenant, preserving group and private-claim write checks. Cross-tenant
@@ -71,7 +75,7 @@ The Console defaults to `/site-admin-console`. The startup setting
 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` can change it; invalid or occupied paths fail
 startup. `/console` returns 404. The configured path is sent only with an
 authenticated administrator response, rather than bundled into public assets.
-Sign-in without a return path opens the Workplace at `/workplace`. The Workplace
+Sign-in without a return path opens the Pod at `/pod`. The Pod
 has no Console link and does not receive the Console path.
 
 Console data APIs accept `x-ankole-tenant`; without it they use the operator's
@@ -82,13 +86,35 @@ Console so drafts and cached results cannot move to another tenant. The URL
 hands the selection to the new document, which commits it to sessionStorage.
 A cancelled tenant-switch navigation leaves the old document and its selection
 unchanged.
-The Console and Workplace clear this selection when they request sign-out.
-Confirming OIDC sign-out also clears it; cancelling OIDC sign-out keeps it.
+Console data selection is stored under the document's authentication reference.
+Sign-out clears that selection. Confirming OIDC sign-out also clears the current
+selection; cancelling keeps it. Another authentication cannot inherit it.
 
 Creation installs the existing tenant scaffold and chosen Brain schema packs in
 one transaction. Privilege transfer requires an active target Human, moves the
-built-in group and grants, and leaves one privileged tenant. The privileged
+built-in group and grants, and leaves one privileged tenant. The transfer locks
+the assignment row and target tenant in the same order as other administration
+operations. The privileged
 tenant cannot be suspended or deleted; transfer its role first.
+
+## Pod work entry
+
+The work shell is `/pod`, with its private browser API at
+`/.internal-apis/pod`. Any active Human can sign in through the tenant's existing
+providers and use the Conversation participant contract. No siteadmin gate
+applies to work entry, and work login does not open management APIs.
+
+On a single host, `tenant_id` identifies the target organization, for example
+`/pod?tenant_id=<uuid>`. It is public routing data, not access proof. Without an
+explicit target, use the valid active context or the privileged tenant as the
+default organization. An explicit unknown target fails. Callback targets remain
+fixed by the login transaction; `x-ankole-tenant` is only a Console data selector.
+Open pages send their fixed authentication and tenant on each API request.
+
+FOSS replaces its default work authentication when another work identity signs
+in. The core can keep independent proofs for callers that request add mode.
+See [Browser Sessions](BrowserSessions.md). A multi-Pod navigation product is
+not required for a single-host deployment.
 
 ## Configuration and integrations
 
@@ -163,6 +189,9 @@ application identity. Keep Recreate until supported old and new versions can
 safely share schema, writers and durable job arguments; simply
 upgrading one deployment does not establish either removal condition.
 
-This boundary supports operator-managed tenants. Customer registration, billing,
-self-service administration and quotas are outside this contract. Trusted site
-operators and control-plane plugins can access site infrastructure.
+This boundary provides tenant storage, scaffold creation, lifecycle, and work
+entry. A private site account product can compose `Tenants.create/1`, Human
+creation, and identity binding in the same Repo transaction. It does not replace
+tenant isolation or create a second Principal model. Registration, email
+credentials, self-service pages, and billing belong to that product. Trusted site
+operators and control-plane plugins retain their infrastructure authority.

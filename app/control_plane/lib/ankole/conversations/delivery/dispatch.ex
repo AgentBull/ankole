@@ -40,7 +40,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
       )
 
     active_jobs =
-      from job in Oban.Job,
+      from(job in Oban.Job,
         where: job.worker == ^Oban.Worker.to_string(Dispatch),
         where: job.state in ["available", "scheduled", "retryable", "executing"],
         where:
@@ -52,6 +52,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
             parent_as(:intent).outbound_key
           ),
         select: 1
+      )
 
     keys =
       Repo.across_tenants(fn ->
@@ -89,6 +90,19 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     end)
   end
 
+  defp delivery_trace_attributes(intent, phase) do
+    %{
+      "ankole.tenant.id" => intent.tenant_id,
+      "ankole.principal.uid" => intent.agent_uid,
+      "ankole.signal.id" => intent.source_signal_id,
+      "ankole.ai_gateway.response_id" => intent.ai_message_id,
+      "ankole.delivery.key" => intent.outbound_key,
+      "ankole.delivery.binding" => intent.binding_name,
+      "ankole.delivery.attempt" => intent.attempt_count,
+      "ankole.delivery.phase" => phase
+    }
+  end
+
   @doc """
   Dispatches one intent row through a concrete adapter runtime.
 
@@ -118,16 +132,41 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     with :ok <- await_reply_preview_finalization(agent_uid, binding_name, outbound_key, options) do
       now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
-      case prepare_intent_dispatch(agent_uid, binding_name, outbound_key, adapter, now) do
+      claim =
+        Ankole.Observability.stage(
+          "delivery.claim",
+          %{
+            "ankole.principal.uid" => agent_uid,
+            "ankole.delivery.binding" => binding_name,
+            "ankole.delivery.key" => outbound_key
+          },
+          fn -> prepare_intent_dispatch(agent_uid, binding_name, outbound_key, adapter, now) end
+        )
+
+      case claim do
         {:ok, {:send, intent, conversation, adapter}} ->
-          adapter
-          |> call_adapter_send(intent)
-          |> finalize_intent_send(intent, conversation, now)
+          attributes = delivery_trace_attributes(intent, "send")
+
+          result =
+            Ankole.Observability.stage("delivery.send", attributes, fn ->
+              call_adapter_send(adapter, intent)
+            end)
+
+          Ankole.Observability.stage("delivery.finalize", attributes, fn ->
+            finalize_intent_send(result, intent, conversation, now)
+          end)
 
         {:ok, {:reconcile, intent, conversation, adapter}} ->
-          adapter
-          |> call_adapter_reconcile(intent)
-          |> finalize_intent_reconcile(intent, conversation, now)
+          attributes = delivery_trace_attributes(intent, "reconcile")
+
+          result =
+            Ankole.Observability.stage("delivery.reconcile", attributes, fn ->
+              call_adapter_reconcile(adapter, intent)
+            end)
+
+          Ankole.Observability.stage("delivery.finalize", attributes, fn ->
+            finalize_intent_reconcile(result, intent, conversation, now)
+          end)
 
         {:ok, %Intent{} = intent} ->
           {:ok, intent}
@@ -833,10 +872,22 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
              ) do
           {:ok, current_intent}
         else
+          Ankole.Observability.stage(
+            "delivery.stale_result",
+            Map.merge(delivery_trace_attributes(intent, phase), %{
+              "ankole.delivery.current_attempt" => current_intent.attempt_count,
+              "ankole.delivery.current_status" => to_string(current_intent.status)
+            }),
+            fn -> :stale end
+          )
+
           Logging.warning(
             "conversations.delivery.stale_attempt_result_ignored",
             "signals gateway intent ignored a stale attempt result",
             %{
+              tenant_id: intent.tenant_id,
+              signal_id: intent.source_signal_id,
+              ai_message_id: intent.ai_message_id,
               agent_uid: intent.agent_uid,
               binding_name: intent.binding_name,
               outbound_key: intent.outbound_key,

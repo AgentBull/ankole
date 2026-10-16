@@ -87,6 +87,62 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
     end
   end
 
+  test "current UUID keys and metadata origins remain OR alternatives before cursor pagination" do
+    %{principal: agent} = PrincipalsFixtures.agent_fixture()
+    %{principal: peer} = PrincipalsFixtures.human_fixture(%{display_name: "Peer needle_%"})
+    primary = channel_fixture("mock:canonical_%", name: "Canonical needle_%")
+    origin = channel_fixture("mock:origin_%", name: "Origin needle_%")
+
+    canonical =
+      conversation_fixture(agent.uid, Ankole.Sessions.Key.conversation(primary.id), %{
+        metadata: %{"origin" => %{"conversation_id" => origin.id, "peer_uid" => peer.uid}},
+        updated_at: ~U[2026-07-02 12:00:00.000000Z]
+      })
+
+    metadata_only =
+      conversation_fixture(agent.uid, "custom:metadata-only", %{
+        metadata: %{"origin" => %{"conversation_id" => origin.id}},
+        updated_at: ~U[2026-07-02 11:00:00.000000Z]
+      })
+
+    _newer_decoy =
+      conversation_fixture(agent.uid, "custom:needleXY", %{
+        updated_at: ~U[2026-07-02 13:00:00.000000Z]
+      })
+
+    for {row, at} <- [
+          {canonical, ~U[2026-07-02 12:00:00.000000Z]},
+          {metadata_only, ~U[2026-07-02 11:00:00.000000Z]}
+        ] do
+      row |> Ecto.Changeset.change(updated_at: at) |> Repo.update!()
+    end
+
+    for search <- ["Canonical needle_%", "mock:canonical_%", primary.id, "Peer needle_%"] do
+      assert {:ok, page} = ConsoleQueries.list_conversations(search: search)
+      assert Enum.map(page.conversations, & &1.id) == [canonical.id]
+    end
+
+    for search <- ["Origin needle_%", "mock:origin_%", "needle_%"] do
+      assert {:ok, first} = ConsoleQueries.list_conversations(search: search, limit: 1)
+      assert Enum.map(first.conversations, & &1.id) == [canonical.id]
+      assert is_binary(first.next_cursor)
+
+      assert {:ok, second} =
+               ConsoleQueries.list_conversations(
+                 search: search,
+                 limit: 1,
+                 cursor: first.next_cursor
+               )
+
+      assert Enum.map(second.conversations, & &1.id) == [metadata_only.id]
+      assert is_nil(second.next_cursor)
+    end
+
+    other_tenant = create_tenant()
+    Repo.put_tenant_id(other_tenant.id)
+    assert {:ok, %{conversations: []}} = ConsoleQueries.list_conversations(search: "needle_%")
+  end
+
   describe "list_conversations/1 with a conversation key filter" do
     test "treats underscore and percent as literal characters" do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()

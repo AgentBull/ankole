@@ -15,7 +15,6 @@ defmodule Ankole.Sessions.NativeConversationTest do
   alias Ankole.Signals.Signal
   alias Ankole.Signals.Binding
   alias Ankole.Conversations.Delivery.Intent
-  alias Ankole.Sessions.ModelHistory
 
   setup do
     %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
@@ -201,7 +200,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
                })
              end)
 
-    followup = Repo.one!(from e in Signal, where: e.id != ^context.event.id)
+    followup = Repo.one!(from(e in Signal, where: e.id != ^context.event.id))
     assert Commands.injectable?(followup)
 
     assert {:ok, [injected], run} =
@@ -228,9 +227,8 @@ defmodule Ankole.Sessions.NativeConversationTest do
   test "native model conversations are not daily-reset candidates", context do
     run = prepare(context)
 
-    assert [] ==
-             ModelHistory.daily_reset_candidates_in_tx(
-               Repo,
+    assert {:ok, %{due_sessions: 0, signals: []}} =
+             Ankole.Sessions.SessionReset.enqueue_daily_session_resets(
                DateTime.add(DateTime.utc_now(:microsecond), 1, :day)
              )
 
@@ -326,7 +324,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
                })
              end)
 
-    Repo.one!(from e in Signal, where: e.id != ^context.event.id)
+    Repo.one!(from(e in Signal, where: e.id != ^context.event.id))
   end
 
   defp suspend_tenant do

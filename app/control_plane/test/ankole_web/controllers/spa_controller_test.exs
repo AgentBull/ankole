@@ -19,12 +19,12 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/setup"
   end
 
-  test "GET / redirects to sessions after setup completes", %{conn: conn} do
+  test "GET / redirects to Pod after setup completes", %{conn: conn} do
     {:ok, true} = SetupConfig.put_completed(true)
 
     conn = get(conn, ~p"/")
 
-    assert redirected_to(conn) == ~p"/sessions/new"
+    assert redirected_to(conn) == ~p"/pod"
   end
 
   test "GET /setup serves setup before completion", %{conn: conn} do
@@ -57,28 +57,44 @@ defmodule AnkoleWeb.SpaControllerTest do
 
     conn = get(conn, ~p"/site-admin-console/settings")
 
-    assert redirected_to(conn) == ~p"/sessions/new?return_to=%2Fsite-admin-console%2Fsettings"
+    flow =
+      redirected_to(conn)
+      |> URI.parse()
+      |> Map.fetch!(:query)
+      |> URI.decode_query()
+      |> Map.fetch!("flow")
+
+    assert {:ok, %{purpose: :console, request: %{"return_to" => "/site-admin-console/settings"}}} =
+             AnkoleWeb.Session.login_transaction(conn, flow)
   end
 
-  test "GET /workplace redirects anonymous users to auth after completion", %{conn: conn} do
+  test "GET /pod redirects anonymous users to auth after completion", %{conn: conn} do
     {:ok, true} = SetupConfig.put_completed(true)
 
-    conn = get(conn, ~p"/workplace/some/path")
+    conn = get(conn, ~p"/pod/some/path")
 
-    assert redirected_to(conn) == ~p"/sessions/new?return_to=%2Fworkplace%2Fsome%2Fpath"
+    flow =
+      redirected_to(conn)
+      |> URI.parse()
+      |> Map.fetch!(:query)
+      |> URI.decode_query()
+      |> Map.fetch!("flow")
+
+    assert {:ok, %{purpose: :pod, request: %{"return_to" => "/pod/some/path"}}} =
+             AnkoleWeb.Session.login_transaction(conn, flow)
   end
 
-  test "GET /workplace serves its shell without the console path", %{conn: conn} do
-    conn = conn |> active_admin_conn() |> get(~p"/workplace")
+  test "GET /pod serves its shell without the console path", %{conn: conn} do
+    conn = conn |> active_admin_conn() |> get(~p"/pod")
     html = html_response(conn, 200)
 
-    assert html =~ ~s(http://assets.test/entrypoints/workplace.tsx)
+    assert html =~ ~s(http://assets.test/entrypoints/pod.tsx)
     refute html =~ "/site-admin-console"
   end
 
-  test "GET /sessions/new sends a signed-in administrator to the workplace", %{conn: conn} do
+  test "GET /sessions/new sends a signed-in administrator to the pod", %{conn: conn} do
     conn = conn |> active_admin_conn() |> get(~p"/sessions/new")
 
-    assert redirected_to(conn) == ~p"/workplace"
+    assert redirected_to(conn) == ~p"/pod"
   end
 end

@@ -248,6 +248,64 @@ defmodule Ankole.AgentWorkers.FunctionComputeTest do
              Repo.without_tenant(fn -> FunctionCompute.list_instances(provider, :all) end)
   end
 
+  test "a Worker committed on the final inventory page keeps its owner", %{provider: provider} do
+    tenant_id = Repo.tenant_id!()
+
+    stub(fn conn ->
+      # A site-wide read must not extend its tenant bypass into provider I/O.
+      assert_raise Ankole.TenantContextMissing, fn -> Repo.all(AgentWorker) end
+      assert conn.request_path == "/v2/sandboxes"
+
+      case conn.query_params["nextToken"] do
+        nil ->
+          conn |> Plug.Conn.put_resp_header("x-next-token", "last") |> Req.Test.json([])
+
+        "last" ->
+          uid =
+            Repo.with_tenant(tenant_id, fn ->
+              %{principal: agent} =
+                agent_fixture(%{handle: @uid, worker_provider_id: provider.provider_id})
+
+              agent.uid
+            end)
+
+          send(self(), {:committed_worker, uid})
+
+          selected =
+            sandbox(provider) |> put_in(["metadata", "ankole-agent"], ProviderKind.hash16(uid))
+
+          Req.Test.json(conn, [selected])
+      end
+    end)
+
+    assert {:ok, [%{agent_uid: uid, instance_ref: "sandbox-selected"}]} =
+             Repo.without_tenant(fn -> FunctionCompute.list_instances(provider, :all) end)
+
+    assert_receive {:committed_worker, ^uid}
+  end
+
+  test "a later inventory page failure does not return partial orphan observations", %{
+    provider: provider
+  } do
+    stub(fn conn ->
+      assert conn.method == "GET"
+      assert_raise Ankole.TenantContextMissing, fn -> Repo.all(AgentWorker) end
+
+      case conn.query_params["nextToken"] do
+        nil ->
+          conn
+          |> Plug.Conn.put_resp_header("x-next-token", "last")
+          |> Req.Test.json([sandbox(provider)])
+
+        "last" ->
+          error(conn, 503)
+      end
+    end)
+
+    assert {:error, {:function_compute_api, 503, "Unavailable", "retry"}} =
+             Repo.without_tenant(fn -> FunctionCompute.list_instances(provider, :all) end)
+  end
+
   test "pause preserves memory and resume sets the new lifetime; errors remain errors", %{
     provider: provider
   } do

@@ -327,7 +327,7 @@ export function SettingEditorDrawer() {
           : ''
         : formatJSON(item.value ?? null)
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'setting', key, scope },
+    sourceKey: `setting:${scope}:${key}`,
     source: settingDraft,
     absent: () => requestErrorCode(detail.error) === 'not_found' || (list.isSuccess && !list.isFetching && !item)
   })
@@ -572,7 +572,7 @@ export function SettingGroupDrawer() {
     item => item.editable && group !== undefined && item.key.startsWith(group.prefix)
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'setting-group', group: groupID, scope },
+    sourceKey: `setting-group:${scope}:${groupID}`,
     source: group && items.length ? { kind: group.id, items } : undefined,
     absent: () => list.isSuccess && !list.isFetching && items.length === 0
   })

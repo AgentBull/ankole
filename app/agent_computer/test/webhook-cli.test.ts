@@ -2,9 +2,9 @@ import { describe, expect, it } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { type WebhookRPCMethod, type WebhookRPCRequester } from '../src/lanes/rpc_lane'
+import { type WebhookRPCMethod, type WebhookRPCRequester } from '../src/cli/webhooks/webhook-cli-bridge'
 import { startWebhookCLIBridge } from '../src/cli/webhooks/webhook-cli-bridge'
-import { requestWebhookCLI } from '../src/cli/webhooks/webhook-cli-client'
+import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
 import { WEBHOOK_CLI_HELP, commandFromArgs, helpRequested } from '../src/cli/webhooks/webhook-cli'
 
 describe('webhook CLI', () => {
@@ -123,3 +123,7 @@ describe('webhook CLI', () => {
     }
   })
 })
+
+function requestWebhookCLI(socketPath: string, command: unknown) {
+  return requestSocketLineBridge(socketPath, JSON.stringify(command), 'webhook CLI bridge returned an invalid response')
+}

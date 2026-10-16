@@ -21,7 +21,6 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     only: [
       collect_results: 1,
       compact_metadata_map: 1,
-      fetch_list: 2,
       fetch_map: 3,
       optional_text: 2
     ]
@@ -78,7 +77,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     email = identity_email(user)
 
     with [external_id | external_ids] <- subject_candidates(user, email) do
-      department_ids = fetch_list(user, "department_ids")
+      department_ids = Map.get(user, "department_ids")
 
       Directory.upsert_user(
         provider_id,
@@ -86,22 +85,23 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
           provider: provider_id,
           external_id: external_id,
           external_ids: external_ids,
-          display_name: display_name(user),
-          avatar_url: avatar_url(user),
-          email: email,
-          mobile: normalized_mobile(user),
-          job_title: optional_text(user, "job_title"),
           metadata:
             compact_metadata_map(%{
               "user_id" => optional_text(user, "user_id") || optional_text(user, "id"),
               "open_id" => optional_text(user, "open_id"),
               "union_id" => optional_text(user, "union_id"),
               "tenant_key" => optional_text(user, "tenant_key"),
-              "employee_no" => optional_text(user, "employee_no"),
-              "department_ids" => department_ids
+              "employee_no" => optional_text(user, "employee_no")
             })
-        },
-        [group_external_ids: department_ids, access_observation: access_observation(user)] ++
+            |> then(fn metadata ->
+              if is_list(department_ids),
+                do: Map.put(metadata, "department_ids", department_ids),
+                else: metadata
+            end)
+        }
+        |> Map.merge(observed_profile(user)),
+        [access_observation: access_observation(user)] ++
+          if(is_list(department_ids), do: [group_external_ids: department_ids], else: []) ++
           Keyword.take(opts, [:directory_group_index, :observed_at, :operation_id])
       )
     else
@@ -446,7 +446,13 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   end
 
   defp user_info(client, access_token) do
-    FeishuOpenAPI.get(client, "/open-apis/authen/v1/user_info", user_access_token: access_token)
+    case FeishuOpenAPI.get(client, "/open-apis/authen/v1/user_info",
+           user_access_token: access_token
+         ) do
+      {:ok, %{"data" => user}} when is_map(user) -> {:ok, user}
+      {:ok, _body} -> {:error, :missing_platform_subject}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp ensure_department_group(provider_id, department) when is_map(department) do
@@ -604,10 +610,30 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   end
 
   defp display_name(user) do
-    optional_text(user, "name") ||
-      optional_text(user, "en_name") ||
-      optional_text(user, "nickname") ||
+    if Enum.any?(["name", "en_name", "nickname"], &Map.has_key?(user, &1)) do
+      optional_text(user, "name") ||
+        optional_text(user, "en_name") ||
+        optional_text(user, "nickname")
+    else
       optional_text(user, "user_id")
+    end
+  end
+
+  defp observed_profile(user) do
+    profile = %{
+      display_name: display_name(user),
+      authoritative_profile: Enum.any?(["name", "en_name", "nickname"], &Map.has_key?(user, &1))
+    }
+
+    [
+      {:avatar_url, ["avatar"], avatar_url(user)},
+      {:email, ["enterprise_email", "work_email", "email"], identity_email(user)},
+      {:mobile, ["mobile"], normalized_mobile(user)},
+      {:job_title, ["job_title"], optional_text(user, "job_title")}
+    ]
+    |> Enum.reduce(profile, fn {field, keys, value}, attrs ->
+      if Enum.any?(keys, &Map.has_key?(user, &1)), do: Map.put(attrs, field, value), else: attrs
+    end)
   end
 
   defp avatar_url(user) do

@@ -6,10 +6,10 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { internalAPIGet, internalAPIPut } from '../common/internal-api-client'
+import { setupBrainPacks, updateSetupBrainPacks } from '../common/api/generated/sdk.gen'
 import { ErrorBlock } from '../common/error-block'
 import { SetupPanel } from './layout'
-import { BrainPacksStepModel, type BrainPack } from './state/brain-packs-step-model'
+import { BrainPacksStepModel } from './state/brain-packs-step-model'
 
 /**
  * Industry step: picks the Brain schema packs the instance installs at setup
@@ -24,7 +24,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
   const model = useModel(BrainPacksStepModel)
   const query = useQuery({
     queryKey: ['setup-brain-packs'],
-    queryFn: () => internalAPIGet<{ packs: BrainPack[]; selected: string[] }>('/.internal-apis/setup/brain-packs')
+    queryFn: () => setupBrainPacks()
   })
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
   const seeded = model.sourceKey.value === 'setup-brain-packs'
   const selected: ReadonlySet<string> = seeded ? model.selectedPacks.value : new Set(query.data?.selected ?? [])
   const mutation = useMutation({
-    mutationFn: () => internalAPIPut<{ packs: string[] }>('/.internal-apis/setup/brain-packs', model.submission()),
+    mutationFn: () => updateSetupBrainPacks({ body: model.submission() }),
     onSuccess: onContinue
   })
 

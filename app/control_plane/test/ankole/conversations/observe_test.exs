@@ -33,115 +33,6 @@ defmodule Ankole.Conversations.ObserveTest do
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
-  describe "attachment materialization" do
-    test "stores download bytes with the adapter's name, type and added fields" do
-      [stored] =
-        Observe.materialize_attachments(
-          [%{"provider_ref" => "fixture:one", "name" => "source.txt"}],
-          "fixture",
-          fn _attachment ->
-            {:ok,
-             %{
-               body: "download bytes",
-               filename: "stored.txt",
-               content_type: "text/plain",
-               put: %{"mimetype" => "text/plain"}
-             }}
-          end
-        )
-
-      assert stored["name"] == "source.txt"
-      assert String.ends_with?(stored["path"], "/stored.txt")
-      assert stored["mimetype"] == "text/plain"
-      assert stored["materialization_state"] == "complete"
-      assert stored["size"] == byte_size("download bytes")
-      assert Attachments.stored?(stored)
-      refute Observe.attachments_need_bytes?([stored])
-      assert Observe.materialization_state([stored]) == "complete"
-    end
-
-    test "does not fetch stored bytes or provider facts and drops credentials from every result" do
-      {:ok, stored} = Observe.store_attachment(%{"name" => "stored.bin"}, "stored")
-
-      restricted = %{
-        "provider_ref" => "fixture:large",
-        "materialization_state" => "provider_download_limit",
-        "restriction" => "original restriction"
-      }
-
-      external = %{
-        "provider_ref" => "fixture:external",
-        "materialization_state" => "provider_external_content"
-      }
-
-      attachments =
-        Enum.map([stored, restricted, external], &Map.put(&1, "download_code", "temporary"))
-
-      assert [^stored, ^restricted, ^external] =
-               Observe.materialize_attachments(
-                 attachments,
-                 "fixture",
-                 fn _ -> flunk("must not download") end,
-                 drop_keys: ["download_code"]
-               )
-
-      refute Observe.attachments_need_bytes?(attachments)
-      assert Observe.materialization_state(attachments) == "complete"
-    end
-
-    test "records download limits without changing the provider restriction" do
-      [attachment] =
-        Observe.materialize_attachments(
-          [%{"provider_ref" => "fixture:large"}],
-          "fixture",
-          fn _ -> {:error, :provider_download_limit} end,
-          restriction: "provider limit"
-        )
-
-      assert attachment["materialization_state"] == "provider_download_limit"
-      assert attachment["restriction"] == "provider limit"
-      assert Observe.materialization_state([attachment]) == "complete"
-    end
-
-    test "failure and exception remove temporary keys and remain unsatisfied" do
-      for download <- [fn _ -> {:error, :unavailable} end, fn _ -> raise "download failed" end] do
-        [attachment] =
-          Observe.materialize_attachments(
-            [
-              %{
-                "provider_ref" => "fixture:failed",
-                "temp_url" => "temporary",
-                "aeskey" => "secret"
-              }
-            ],
-            "fixture",
-            download,
-            drop_keys: ["temp_url", "aeskey"]
-          )
-
-        assert attachment["materialization_state"] == "failed"
-        refute Map.has_key?(attachment, "temp_url")
-        refute Map.has_key?(attachment, "aeskey")
-        assert Observe.attachments_need_bytes?([attachment])
-        assert Observe.materialization_state([attachment]) == "failed"
-      end
-    end
-
-    test "a failed observation can fetch again and become complete" do
-      [attachment] =
-        Observe.materialize_attachments(
-          [%{"provider_ref" => "fixture:retry", "materialization_state" => "failed"}],
-          "fixture",
-          fn _ ->
-            {:ok, %{body: "retried", filename: "retry.bin", content_type: nil, put: %{}}}
-          end
-        )
-
-      assert attachment["materialization_state"] == "complete"
-      assert Attachments.stored?(attachment)
-    end
-  end
-
   describe "ingress attribute keys" do
     test "raises when an internal fact constructor receives an unknown field" do
       assert_raise KeyError, fn ->
@@ -374,7 +265,7 @@ defmodule Ankole.Conversations.ObserveTest do
                |> get_in(["attachments", Access.at(0), "attachment_id"])
 
       {:ok, stored} =
-        Observe.store_attachment(%{"name" => "AlphaJiuGongGeYinZiFenYu.md"}, "notes")
+        Attachments.store_attachment(%{"name" => "AlphaJiuGongGeYinZiFenYu.md"}, "notes")
 
       materialized_attachment =
         attachment
@@ -864,7 +755,7 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       %{principal: %{uid: bob_uid}} = human_fixture()
-      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
+      bob = provider_author_fixture(bob_uid, "provider-bob", %{display_name: "Bob"})
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
                Observe.emit_entry(
@@ -909,12 +800,16 @@ defmodule Ankole.Conversations.ObserveTest do
 
       assert {:ok, _entry} =
                Repo.transact(fn repo ->
-                 {:ok, binding} = Ankole.Signals.Bindings.get_binding(agent.uid, "bot")
+                 conversation =
+                   External.get_conversation(repo, newer_fact.provider_conversation_id)
 
-                 with {:ok, fact} <-
-                        Observe.bind_conversation_in_tx(repo, binding, newer_fact, newer_time) do
-                   Observe.record_message_in_tx(repo, fact, newer_time)
-                 end
+                 fact = %{
+                   newer_fact
+                   | conversation_id: conversation.id,
+                     session_id: Ankole.Sessions.Key.conversation(conversation.id)
+                 }
+
+                 External.observe_entry_in_tx(repo, fact, newer_time)
                end)
 
       mention_at = DateTime.add(@base_time, 500, :millisecond)
@@ -1016,7 +911,7 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       %{principal: %{uid: bob_uid}} = human_fixture()
-      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
+      bob = provider_author_fixture(bob_uid, "provider-bob", %{display_name: "Bob"})
 
       assert {:ok, %{status: :ignored, inbound_batch: neutral_batch}} =
                Observe.emit_entry(
@@ -1105,10 +1000,8 @@ defmodule Ankole.Conversations.ObserveTest do
              ] ==
                dm_input.sender_key
 
-      # A provider echo authored by the agent itself must not replace the
-      # durable "other participant" identity used by conversation-origin DM
-      # routing.
-      assert {:ok, %{status: :accepted}} =
+      # A provider cannot claim internal Agent authority or replace the DM peer.
+      assert {:error, {:invalid_ingress_author_authority, "principal_uid"}} =
                Observe.emit_entry(
                  agent.uid,
                  "lark-main",
@@ -1179,18 +1072,15 @@ defmodule Ankole.Conversations.ObserveTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark-main", :record_only)
 
-      assert {:ok, %{status: :recorded, inbound_batch: target_batch}} =
-               Observe.emit_entry(
-                 agent.uid,
-                 "lark-main",
-                 group_entry(%{
-                   source_event_id: "evt-agent-report",
-                   provider_message_id: "msg-agent-report",
-                   text: "Yesterday's complete report",
-                   author: %{agent_uid: agent.uid, display_name: "Research Agent"}
-                 }),
-                 now: @base_time
-               )
+      Ankole.ExternalConversationsFixtures.external_conversation_fixture("lark:chat:group-a")
+
+      target =
+        insert_message_observation!(
+          "msg-agent-report",
+          "Yesterday's complete report",
+          @base_time,
+          %{agent_uid: agent.uid, display_name: "Research Agent"}
+        )
 
       reply_time = DateTime.add(@base_time, 1, :millisecond)
 
@@ -1207,7 +1097,7 @@ defmodule Ankole.Conversations.ObserveTest do
                  now: reply_time
                )
 
-      assert Repo.get!(InboundBatch, target_batch.id).batch_state == "finalized"
+      assert target.provider_message_id == "msg-agent-report"
       assert reply_batch.mode == "addressed"
       assert reply_batch.reply_to_provider_message_id == "msg-agent-report"
 
@@ -1311,7 +1201,10 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent_b.uid, "lark-main", :ignore)
 
       {:ok, attachment} =
-        Observe.store_attachment(%{"name" => "strategy.pdf", "resource_type" => "file"}, "pdf")
+        Attachments.store_attachment(
+          %{"name" => "strategy.pdf", "resource_type" => "file"},
+          "pdf"
+        )
 
       assert {:ok, %{status: :recorded}} =
                Observe.emit_entry(
@@ -1453,7 +1346,7 @@ defmodule Ankole.Conversations.ObserveTest do
                  "bot",
                  group_entry(%{
                    explicit: true,
-                   sender_key: "lark:user:bob",
+                   author: %{platform_subject: "lark:user:bob", display_name: "Bob"},
                    text: "goodbye",
                    provider_conversation_id: "lark:chat:allowed"
                  }),
@@ -1466,14 +1359,17 @@ defmodule Ankole.Conversations.ObserveTest do
           "bot",
           group_entry(%{
             explicit: true,
-            sender_key: "lark:user:alice",
+            author: %{platform_subject: "lark:user:alice", display_name: "Alice"},
             source_event_id: "evt-cel-functions",
             provider_conversation_id: "lark:chat:allowed",
             provider_message_id: "msg-cel-functions"
           })
         )
 
-      assert input.sender_key == "lark:user:alice"
+      assert {:ok, principal} =
+               Ankole.Principals.resolve_platform_subject("bot", "lark:user:alice")
+
+      assert input.sender_key == principal.uid
     end
 
     test "CEL binding filters keep booleans and null as JSON values" do
@@ -1519,7 +1415,7 @@ defmodule Ankole.Conversations.ObserveTest do
       assert reason =~ "signal filter execution failed"
 
       assert {:error, changeset} =
-               Ankole.Signals.Bindings.upsert_binding(%{
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
                  agent_uid: agent.uid,
                  name: "bad-shape",
                  adapter: "lark",
@@ -1934,9 +1830,9 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       %{principal: %{uid: alice_uid}} = human_fixture()
-      alice = %{principal_uid: alice_uid, id: "provider-alice", display_name: "Alice"}
+      alice = provider_author_fixture(alice_uid, "provider-alice", %{display_name: "Alice"})
       %{principal: %{uid: bob_uid}} = human_fixture()
-      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
+      bob = provider_author_fixture(bob_uid, "provider-bob", %{display_name: "Bob"})
 
       for {event_id, entry_id, author, offset, text} <- [
             {"evt-a1", "msg-a1", alice, 0, "first"},
@@ -2175,9 +2071,9 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       %{principal: %{uid: alice_uid}} = human_fixture()
-      alice = %{principal_uid: alice_uid, id: "provider-alice", display_name: "Alice"}
+      alice = provider_author_fixture(alice_uid, "provider-alice", %{display_name: "Alice"})
       %{principal: %{uid: bob_uid}} = human_fixture()
-      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
+      bob = provider_author_fixture(bob_uid, "provider-bob", %{display_name: "Bob"})
 
       assert {:ok, %{status: :ignored}} =
                Observe.emit_entry(
@@ -2246,9 +2142,9 @@ defmodule Ankole.Conversations.ObserveTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       %{principal: %{uid: alice_uid}} = human_fixture()
-      alice = %{principal_uid: alice_uid, id: "provider-alice", display_name: "Alice"}
+      alice = provider_author_fixture(alice_uid, "provider-alice", %{display_name: "Alice"})
       %{principal: %{uid: bob_uid}} = human_fixture()
-      bob = %{principal_uid: bob_uid, id: "provider-bob", display_name: "Bob"}
+      bob = provider_author_fixture(bob_uid, "provider-bob", %{display_name: "Bob"})
 
       assert {:ok, %{status: :accepted, inbound_batch: first_batch}} =
                Observe.emit_entry(
@@ -2392,7 +2288,7 @@ defmodule Ankole.Conversations.ObserveTest do
               resource_type: "image"
             }
           ],
-          metadata: Observe.put_attachment_materialization(%{}, "pending", attachment_at)
+          metadata: Attachments.put_attachment_materialization(%{}, "pending", attachment_at)
         })
 
       assert {:ok, %{inbound_batch: pending_batch}} =
@@ -2404,14 +2300,14 @@ defmodule Ankole.Conversations.ObserveTest do
                DateTime.add(attachment_at, 4_000, :millisecond)
 
       materialized_at = DateTime.add(attachment_at, 2_000, :millisecond)
-      {:ok, stored} = Observe.store_attachment(%{"name" => "chart.png"}, "png")
+      {:ok, stored} = Attachments.store_attachment(%{"name" => "chart.png"}, "png")
       materialized_path = stored["path"]
 
       materialized =
         pending
         |> Map.put(
           :metadata,
-          Observe.put_attachment_materialization(pending.metadata, "complete", attachment_at)
+          Attachments.put_attachment_materialization(pending.metadata, "complete", attachment_at)
         )
         |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
         |> put_in([:attachments, Access.at(0), :path], materialized_path)
@@ -2439,6 +2335,7 @@ defmodule Ankole.Conversations.ObserveTest do
     end
 
     test "materialization after the batch hard cap refreshes the open signal" do
+      {:ok, stored} = Attachments.store_attachment(%{"name" => "slow-image.png"}, "slow png")
       # The owning transaction keeps input delivery pending while its content is revised.
       assert {:ok, _} =
                Repo.transact(fn _repo ->
@@ -2477,9 +2374,6 @@ defmodule Ankole.Conversations.ObserveTest do
                           end)
 
                  materialized_at = DateTime.add(pending_batch.available_at, 1, :second)
-
-                 {:ok, stored} =
-                   Observe.store_attachment(%{"name" => "slow-image.png"}, "slow png")
 
                  materialized_path = stored["path"]
 
@@ -2553,6 +2447,85 @@ defmodule Ankole.Conversations.ObserveTest do
   end
 
   describe "attachment observation surface" do
+    test "task capacity failure preserves pending media for redelivery and reuses completed bytes" do
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :record_only)
+
+      input =
+        group_entry(%{
+          source_event_id: "evt-deferred-image",
+          provider_message_id: "msg-deferred-image",
+          metadata: %{},
+          attachments: [%{"provider_ref" => "lark:image:deferred", "name" => "chart.png"}]
+        })
+
+      emit = &Observe.emit_entry(agent.uid, "bot", &1)
+      supervisor = start_supervised!({Task.Supervisor, max_children: 0})
+
+      assert {:error, :max_children} =
+               Observe.emit_entry_deferred(
+                 input,
+                 emit,
+                 fn _ -> flunk("download must not start without a task") end,
+                 &Task.Supervisor.start_child(supervisor, &1),
+                 []
+               )
+
+      assert %{attachments: [pending], metadata: metadata} =
+               message_snapshot!(
+                 conversation_id: input.provider_conversation_id,
+                 provider_message_id: input.provider_message_id
+               )
+
+      assert metadata["attachment_materialization"]["state"] == "pending"
+      observed_at = metadata["attachment_materialization"]["observed_at"]
+      attachment_id = pending["attachment_id"]
+      assert is_integer(attachment_id)
+      refute Attachments.stored?(pending)
+      owner = self()
+
+      materialize = fn attachments ->
+        Attachments.materialize_attachments(attachments, "fixture", fn _attachment ->
+          {:ok,
+           %{body: "image bytes", filename: "chart.png", content_type: "image/png", put: %{}}}
+        end)
+      end
+
+      assert {:ok, _pending} =
+               Observe.emit_entry_deferred(
+                 input,
+                 emit,
+                 materialize,
+                 fn task -> Task.start(fn -> send(owner, {:materialized, task.()}) end) end,
+                 []
+               )
+
+      assert_receive {:materialized, {:ok, _complete}}, 5_000
+
+      assert %{attachments: [stored], metadata: metadata} =
+               message_snapshot!(
+                 conversation_id: input.provider_conversation_id,
+                 provider_message_id: input.provider_message_id
+               )
+
+      assert metadata["attachment_materialization"] == %{
+               "state" => "complete",
+               "observed_at" => observed_at
+             }
+
+      assert stored["attachment_id"] == attachment_id
+      assert {:ok, _reference, "image bytes"} = Ankole.Files.read(agent.uid, stored["path"])
+
+      assert {:ok, %{message_observation: %{message: %{attachments: [^stored]}}}} =
+               Observe.emit_entry_deferred(
+                 input,
+                 emit,
+                 fn _ -> flunk("stored bytes must be reused") end,
+                 fn _ -> flunk("stored bytes need no download task") end,
+                 []
+               )
+    end
+
     test "a later observation without stored bytes never replaces a stored attachment" do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "bot", :record_only)
@@ -2566,7 +2539,7 @@ defmodule Ankole.Conversations.ObserveTest do
           attachments: [
             %{provider_ref: "lark:image:guarded", source_message_id: "msg-guarded-image"}
           ],
-          metadata: Observe.put_attachment_materialization(%{}, "pending", observed_at)
+          metadata: Attachments.put_attachment_materialization(%{}, "pending", observed_at)
         })
 
       assert {:ok, _pending} = Observe.emit_entry(agent.uid, "bot", pending, now: observed_at)
@@ -2577,14 +2550,14 @@ defmodule Ankole.Conversations.ObserveTest do
           provider_message_id: "msg-guarded-image"
         )
 
-      {:ok, stored} = Observe.store_attachment(%{"name" => "chart.png"}, <<137, 80, 78, 71>>)
+      {:ok, stored} = Attachments.store_attachment(%{"name" => "chart.png"}, <<137, 80, 78, 71>>)
       path = stored["path"]
 
       complete =
         pending
         |> Map.put(
           :metadata,
-          Observe.put_attachment_materialization(%{}, "complete", observed_at)
+          Attachments.put_attachment_materialization(%{}, "complete", observed_at)
         )
         |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
         |> put_in([:attachments, Access.at(0), :path], path)
@@ -2597,7 +2570,10 @@ defmodule Ankole.Conversations.ObserveTest do
 
       failed =
         pending
-        |> Map.put(:metadata, Observe.put_attachment_materialization(%{}, "failed", observed_at))
+        |> Map.put(
+          :metadata,
+          Attachments.put_attachment_materialization(%{}, "failed", observed_at)
+        )
         |> put_in([:attachments, Access.at(0), :materialization_state], "failed")
 
       assert {:ok, _late} =
@@ -2617,42 +2593,6 @@ defmodule Ankole.Conversations.ObserveTest do
       assert kept["blob_ref"] == stored["blob_ref"]
       assert kept["materialization_state"] == "complete"
       assert {:ok, %{source: "inbound"}} = Ankole.Files.fetch(agent.uid, drive_path)
-    end
-
-    test "attachments need bytes until the file service holds every one of them" do
-      stored = %{
-        "attachment_id" => 10_042,
-        "blob_ref" => String.duplicate("ab", 32),
-        "path" => "inbox/abababababababab/report.pdf"
-      }
-
-      refute Observe.attachments_need_bytes?([])
-      refute Observe.attachments_need_bytes?([stored])
-
-      assert Observe.attachments_need_bytes?([stored, %{"provider_ref" => "lark:file:fresh"}])
-      assert Observe.attachments_need_bytes?([%{"attachment_id" => 10_042}])
-      assert Observe.attachments_need_bytes?([Map.delete(stored, "path")])
-      assert Observe.attachments_need_bytes?([%{stored | "blob_ref" => ""}])
-    end
-
-    test "the observation metadata always carries the state and the observed time" do
-      observed_at = DateTime.add(@base_time, 250, :millisecond)
-
-      assert Observe.put_attachment_materialization(
-               %{"provider" => "discord"},
-               "pending",
-               observed_at
-             ) == %{
-               "provider" => "discord",
-               "attachment_materialization" => %{
-                 "state" => "pending",
-                 "observed_at" => "2026-07-02T01:34:05.250000Z"
-               }
-             }
-
-      assert_raise FunctionClauseError, fn ->
-        Observe.put_attachment_materialization(%{}, "downloading", observed_at)
-      end
     end
   end
 

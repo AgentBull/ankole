@@ -22,8 +22,9 @@ import {
 const INITIALIZE_SLOW_DIAGNOSTIC_MS = ms('1m')
 /** Bound for cancellation and thread cleanup requests. */
 const CLEANUP_REQUEST_TIMEOUT_MS = ms('5s')
-/** Process memory bound for events that arrive before their thread owner. */
+/** Count and serialized UTF-8 bounds for events that arrive before their owner. */
 const MAX_PENDING_THREAD_NOTIFICATIONS = 256
+const MAX_PENDING_THREAD_NOTIFICATION_BYTES = 64 * 1024 * 1024
 /** Log bound for unscoped app-server stderr diagnostics. */
 const MAX_RUNTIME_STDERR_DIAGNOSTIC_LENGTH = 2_048
 
@@ -244,7 +245,7 @@ export class AgentCodexRuntime {
   private readonly sessionThreads = new Map<AgentCodexRuntimeSession, Set<string>>()
   private readonly activeTurns = new Map<string, string>()
   private readonly pendingServerRequests = new Map<AgentCodexRuntimeSession, Set<Promise<void>>>()
-  private readonly pendingThreadNotifications = new Map<string, JSONRPCMessage[]>()
+  private readonly pendingThreadNotifications = new Map<string, Array<{ message: JSONRPCMessage; bytes: number }>>()
   private readonly sessionTurnIdleWaiters = new Map<AgentCodexRuntimeSession, Set<() => void>>()
   private readonly retiredThreadIDs = new Set<string>()
   private readonly retiredThreadCleanupVersions = new Map<string, number>()
@@ -252,6 +253,7 @@ export class AgentCodexRuntime {
   private readonly threadTransitions = new Map<string, Promise<void>>()
   private readonly sessionCleanupTasks = new Map<AgentCodexRuntimeSession, Promise<void>>()
   private pendingThreadNotificationCount = 0
+  private pendingThreadNotificationBytes = 0
   private agentSetup = Promise.resolve()
   private pluginsInitialized = false
   private pluginCatalogSignature: string | undefined
@@ -366,6 +368,7 @@ export class AgentCodexRuntime {
   }
 
   routeNotification(message: JSONRPCMessage): void {
+    if (this.lost || this.closing) return
     const params = jsonObject(message.params)
     const thread = jsonObject(params.thread)
     const threadID = stringValue(params.threadId) ?? stringValue(thread.id)
@@ -489,6 +492,7 @@ export class AgentCodexRuntime {
   markLost(error: AgentCodexRuntimeLostError): void {
     if (this.lost || this.closing) return
     this.lost = error
+    this.clearPendingThreadNotifications()
     for (const session of new Set(this.threadOwners.values())) session.handleRuntimeLost(error)
     for (const waiters of this.sessionTurnIdleWaiters.values()) {
       for (const resolve of waiters) resolve()
@@ -499,6 +503,7 @@ export class AgentCodexRuntime {
   async close(): Promise<void> {
     if (this.closing) return
     this.closing = true
+    this.clearPendingThreadNotifications()
     await this.client.closeAndWait()
   }
 
@@ -596,29 +601,35 @@ export class AgentCodexRuntime {
     if (!pending) return
     this.pendingThreadNotifications.delete(threadID)
     this.pendingThreadNotificationCount -= pending.length
+    this.pendingThreadNotificationBytes -= pending.reduce((bytes, entry) => bytes + entry.bytes, 0)
   }
 
   private bufferThreadNotification(threadID: string, message: JSONRPCMessage): void {
     if (this.pendingThreadNotificationCount >= MAX_PENDING_THREAD_NOTIFICATIONS) {
-      this.logger?.warning(
-        'worker.codex_runtime_pending_event_dropped',
-        'Codex runtime dropped an unowned thread event after reaching the buffer limit',
-        { agent_uid: this.agentUID, thread_id: threadID, method: message.method ?? 'unknown' }
-      )
-      return
+      throw new Error('Codex unowned thread notifications exceed the 256 message bound')
+    }
+    const bytes = Buffer.byteLength(JSON.stringify(message), 'utf8')
+    if (this.pendingThreadNotificationBytes + bytes > MAX_PENDING_THREAD_NOTIFICATION_BYTES) {
+      throw new Error('Codex unowned thread notifications exceed the 64 MiB byte bound')
     }
     const pending = this.pendingThreadNotifications.get(threadID) ?? []
-    pending.push(message)
+    pending.push({ message, bytes })
     this.pendingThreadNotifications.set(threadID, pending)
     this.pendingThreadNotificationCount += 1
+    this.pendingThreadNotificationBytes += bytes
   }
 
   private drainPendingThreadNotifications(threadID: string): void {
     const pending = this.pendingThreadNotifications.get(threadID)
     if (!pending) return
-    this.pendingThreadNotifications.delete(threadID)
-    this.pendingThreadNotificationCount -= pending.length
-    for (const message of pending) this.routeNotification(message)
+    this.dropPendingThreadNotifications(threadID)
+    for (const { message } of pending) this.routeNotification(message)
+  }
+
+  private clearPendingThreadNotifications(): void {
+    this.pendingThreadNotifications.clear()
+    this.pendingThreadNotificationCount = 0
+    this.pendingThreadNotificationBytes = 0
   }
 
   private trackActiveTurn(message: JSONRPCMessage, threadID: string): void {

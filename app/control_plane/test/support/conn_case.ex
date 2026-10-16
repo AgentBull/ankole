@@ -102,6 +102,11 @@ defmodule AnkoleWeb.ConnCase do
 
   @doc "Adds same-origin and CSRF proof to a browser session."
   def with_console_csrf(conn) do
+    if state = WebSession.csrf_state(conn) do
+      Plug.CSRFProtection.delete_csrf_token()
+      Plug.CSRFProtection.load_state(conn.secret_key_base, state)
+    end
+
     csrf_token = Plug.CSRFProtection.get_csrf_token()
     csrf_state = Plug.CSRFProtection.dump_state()
 

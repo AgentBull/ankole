@@ -34,7 +34,7 @@ export function PrincipalEditPage() {
     [loadedPrincipal]
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'principal', uid },
+    sourceKey: uid ? `principal:${uid}` : 'new',
     source: principalDraft,
     absent: () => requestErrorCode(principal.error) === 'not_found'
   })

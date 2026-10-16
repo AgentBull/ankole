@@ -2,14 +2,15 @@ defmodule Ankole.Sessions.Main do
   @moduledoc "Owns admission for a user conversation."
   use Ankole.Sessions.RunType
 
+  alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.Sessions.Commands
 
   def tools(run, tools, hosted) do
     {tools, hosted} = super(run, tools, hosted)
 
     attachments? =
-      case Ankole.Conversations.Target.for_reply(Ankole.Repo, run.event) do
-        {:ok, target} -> Ankole.Conversations.Target.accepts_attachments?(target)
+      case StatementTarget.for_reply(Ankole.Repo, run.event) do
+        {:ok, target} -> StatementTarget.accepts_attachments?(target)
         _ -> true
       end
 

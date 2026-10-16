@@ -34,11 +34,35 @@ is not recovery truth. Committing an input also commits an EnsureDriver job.
 Immediate wakeups improve latency after commit; startup and durable recovery
 find accepted work even if the producer dies at that point.
 
+`Sessions.driver_name/1` owns the shared registry identity for ordinary and Job
+drivers. `driver_pid/1` and `active_model_conversation_id/1` are read-only
+locators; neither starts a process nor creates history. External Preview keeps
+its existing checkpoint identity when recovering a completed presentation.
+
 One Driver serializes a Session through a global name. The stored workspace
 and Driver epoch fence a writer that survives a takeover. Worker commands also
 carry the current incarnation and run reference. Another Agent or Session never
 writes into this Session's model history. Other Sessions can append public
 statements to a shared conversation without changing the running model log.
+
+## Diagnostic Correlation
+
+Optional tracing uses the durable Signal ID across intake, admission, model
+requests, finalization, and Delivery. Intake inside a caller-owned transaction
+records `prepared_in_tx`; only an existing post-commit path records `committed`.
+Admission records `observed_committed`, queue age, readiness delay, and its
+outcome. These observations neither wake work nor establish durability.
+
+Each attempt keeps its epoch and attempt number. A turn that absorbs more inputs
+records each input's relationship to the root Signal and the chosen reply Signal.
+Each Delivery records its own key, source Signal, attempt, send or reconciliation
+phase, and outcome, including unknown and stale results. Async recovery can start
+a new trace and still use these identities; no persistent trace registry is needed.
+
+New stage spans carry identifiers, states, and elapsed times, never stimulus
+bodies, prompts, tool arguments, credentials, or attachment bytes. They use facts
+already loaded by the owning operation and do not add business queries or RPCs.
+Missing or failed tracing does not change admission, retries, sends, or commits.
 
 ## Admission and Responsibility
 
@@ -75,6 +99,10 @@ and its `message_ids` atomically. Subsequent requests derive their read position
 from the visible model branch. They exclude the running Session's own published
 output by both author Agent and Session, and still see another Agent's output.
 A retry, fork, truncation, or compaction follows that branch's committed facts.
+Only completed ordinary Responses establish consumption. A compaction checkpoint
+can retain caller metadata for history without proving that its pending model
+request consumed those Messages. Failed requests after compaction therefore
+reread the same unconsumed background.
 
 Signals retain their original envelope and current stimulus Message identities.
 They do not freeze the conversation's background history. Provider reasoning,
@@ -108,6 +136,20 @@ quota, suspension, and unavailable-model notices follow the same target set.
 The destination conversation's own Session sees those public reports on its
 next request, while the cron work keeps its own model state.
 
+Workflow-specific terminal-input recovery, retry exhaustion, task progress locks,
+and attempt restoration belong to `WorkflowTask`, not the shared RunType
+extension contract. Workflow owns model-unavailable diagnostics and locked task
+transitions. A caller-owned transaction returns the Workflow transition through
+the Session result; `Run.after_finalization/1` performs terminal cleanup only
+after the outer transaction commits. Ordinary cancellation and Human revocation
+retain their different treatment of already admitted work.
+
+`RoundState` captures and restores the same six scalar loop controls. Pages,
+steers, tool results, and Workflow attempts retain their distinct recovery rules.
+Run records tool journals, completed wait inputs, RoundState, and receipt removal
+in the same fenced transaction. Recovery asks AIGateway for the caller's visible
+suffix; checkpoints and unmatched tool journals do not falsely end that suffix.
+
 ## Revisions and Completion
 
 A new Human input, control command, or explicit input revision reaches the
@@ -128,10 +170,37 @@ transaction. An external result becomes a Delivery intent, whose provider
 success can complete later or fail independently. Raw streamed model text,
 reasoning, and tool results are not automatically public final statements.
 
-A native Session publishes live progress through Workplace SSE. External
+Generated image bytes are prepared before the final Session transaction. The
+transaction rechecks the selected Artifact identity and digest, then commits
+file references, the recomputed journal-based presentation, and input completion
+together. A changed provider image alias or a collected blob returns a retryable
+execution error. The existing bounded admission/recovery path prepares it again;
+no path or reply is committed with missing image bytes. A failed final commit
+can leave unreferenced bytes for the existing file collector.
+If preparation fails, a short fence check gives closed or replaced runs their
+existing rejection before returning an artifact error. Successful preparation
+uses only the final transaction's fence check.
+
+A native Session publishes live progress through Pod SSE. External
 Sessions can use their Binding's transient reply preview. The preview is a
 presentation owner, not the execution log. Final delivery settles its recorded
 surface after the durable terminal intent takes ownership.
+
+Native activity is a bounded observation in the existing Driver: one phase and
+up to four unfinished tool labels from its PendingCalls. `Sessions.Activity`
+filters native display fields, ignores late updates to terminal tools, advances
+display revisions, and clears details. The Driver keeps execution state and
+PendingCalls. Each snapshot carries the
+admitted Signal, workspace epoch, response identity, and a revision within that
+epoch.
+Snapshots check the durable epoch and open input; a missing or stopped Driver
+falls back to durable generic status. Completion, retry, replacement, and death
+clear details. Activity creates no process, journal, or separate pending state.
+
+Only the Run's native source conversation receives activity. A scheduled report's
+destinations do not subscribe to its execution. External Preview retains its
+synchronous ownership, adoption, revision, checkpoint, and terminal handoff
+contracts; the native display projection does not filter its payloads.
 
 ## Retry, Reset, and Recovery
 

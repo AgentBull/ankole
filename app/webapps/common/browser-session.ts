@@ -1,18 +1,21 @@
-import { internalAPIDelete } from './internal-api-client'
+import { authenticationRef } from './browser-context'
+import { ankoleWebAuthControllerDeleteSession, endBrowserAuthentication } from './api/generated/sdk.gen'
 
-const storageKey = 'ankole.console.data-tenant'
+function storageKey(): string {
+  return `ankole.console.data-tenant:${authenticationRef() ?? 'anonymous'}`
+}
 
 export function dataTenantID(): string | null {
-  return window.sessionStorage.getItem(storageKey)
+  return window.sessionStorage.getItem(storageKey())
 }
 
 export function clearDataTenant(): void {
-  window.sessionStorage.removeItem(storageKey)
+  window.sessionStorage.removeItem(storageKey())
 }
 
 export async function endSiteSession(): Promise<void> {
   clearDataTenant()
-  await internalAPIDelete('/.internal-apis/session')
+  await ankoleWebAuthControllerDeleteSession()
 }
 
 /** Commit a selection only after navigation succeeded and the old document is gone. */
@@ -20,7 +23,7 @@ export function applyDataTenantNavigation(): void {
   const url = new URL(window.location.href)
   if (!url.searchParams.has('data_tenant')) return
   const tenantID = url.searchParams.get('data_tenant')
-  if (tenantID) window.sessionStorage.setItem(storageKey, tenantID)
+  if (tenantID) window.sessionStorage.setItem(storageKey(), tenantID)
   else clearDataTenant()
   url.searchParams.delete('data_tenant')
   window.history.replaceState(window.history.state, '', url)
@@ -60,4 +63,9 @@ export function withDataContext(fetch: typeof globalThis.fetch): typeof globalTh
     return response
   }
   return scopedFetch as typeof globalThis.fetch
+}
+
+export async function endPodSession(): Promise<void> {
+  clearDataTenant()
+  await endBrowserAuthentication()
 }

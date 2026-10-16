@@ -846,7 +846,10 @@ defmodule Ankole.Plugins.LineAdapterTest do
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
-            author: %{principal_uid: human.uid, id: @user_id},
+            author:
+              Ankole.SignalsFixtures.provider_author_fixture(human.uid, @user_id, %{
+                provider: "line-main"
+              }),
             provider_time: base_time()
           }
         )

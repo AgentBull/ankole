@@ -2,8 +2,8 @@ defmodule AnkoleWeb.ConsolePolicy do
   @moduledoc """
   Authorization boundary for console REST API actions.
 
-  The console API pipeline already verifies the bearer token and re-checks that
-  the subject is still an active human admin. This module keeps the explicit
+  The console API pipeline verifies the browser session and re-checks that the
+  subject is still an active Human administrator. This module keeps the explicit
   AuthZ decision path alive for resource/action checks without doing per-request
   grant repair.
   """
@@ -29,7 +29,7 @@ defmodule AnkoleWeb.ConsolePolicy do
     end
   end
 
-  # Fail closed: without a `current_principal_uid` assign (set only by the bearer
-  # plug on success) there is no authenticated principal, so deny.
+  # Fail closed: without a `current_principal_uid` assign from the authenticated
+  # session boundary there is no authenticated Principal, so deny.
   def authorize(_conn, _resource, _action), do: {:error, :forbidden}
 end

@@ -3132,16 +3132,18 @@ defmodule Ankole.BackgroundAgentJobsTest do
       args: %{agent_uid: event.agent_uid, session_id: event.session_id}
     )
 
-    for job <-
-          Repo.all(
-            from j in Oban.Job,
-              where: j.worker == "Ankole.Sessions.Jobs.EnsureDriver",
-              where: j.state in ["available", "scheduled", "retryable"],
-              where: fragment("?->>'tenant_id' = ?", j.args, ^Repo.tenant_id!())
-          ) do
+    wakeup_jobs =
+      Repo.all(
+        from j in Oban.Job,
+          where: j.worker == "Ankole.Sessions.Jobs.EnsureDriver",
+          where: j.state in ["available", "scheduled", "retryable"],
+          where: fragment("?->>'tenant_id' = ?", j.args, ^Repo.tenant_id!())
+      )
+
+    for job <- wakeup_jobs do
       key = %{agent_uid: job.args["agent_uid"], session_id: job.args["session_id"]}
 
-      if Ankole.Sessions.Driver.whereis(key) == :undefined,
+      if Ankole.Sessions.driver_pid(key) == :undefined,
         do: Ankole.SessionsCase.stub_driver(key)
     end
 
@@ -3150,8 +3152,11 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert %{failure: 0, success: count} =
              Oban.drain_queue(queue: :conversations, with_scheduled: true)
 
-    assert count > 0
-    for _ <- 1..count, do: assert_receive(:reconcile_inbox)
+    # The queue also drains non-Driver jobs and committed jobs from other
+    # tenants. Only these registered Session drivers forward to this test.
+    assert wakeup_jobs != []
+    assert count >= length(wakeup_jobs)
+    for _ <- wakeup_jobs, do: assert_receive(:reconcile_inbox)
   end
 
   defp flush_driver_wakeups do

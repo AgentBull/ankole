@@ -9,7 +9,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   alias Ankole.Plugins.UTF16Text
   alias Ankole.Conversations.AdapterContext
   alias Ankole.Conversations.{Conversation, ExternalMessageRef}
-  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.{Attachments, Observe}
   alias Ankole.Conversations.Delivery.ActionToken
 
   @download_limit_bytes 20 * 1024 * 1024
@@ -163,7 +163,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
       consumer.context.agent_uid,
       consumer.context.binding_name,
       input,
-      &Observe.materialize_attachments(
+      &Attachments.materialize_attachments(
         &1,
         "telegram",
         fn attachment ->

@@ -498,7 +498,7 @@ export function BrainObjectDrawer() {
                                 {version.body}
                               </TableCell>
                               <TableCell className="text-right">
-                                {page.library_managed ? null : (
+                                {page.editable ? (
                                   <Button
                                     disabled={rollback.isPending}
                                     size="xs"
@@ -507,7 +507,7 @@ export function BrainObjectDrawer() {
                                     onClick={() => setRollbackVersionID(version.id)}>
                                     {t('console.brain.rollback')}
                                   </Button>
-                                )}
+                                ) : null}
                               </TableCell>
                             </TableRow>
                           ))}

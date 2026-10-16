@@ -108,7 +108,10 @@ Instance writes cannot edit a managed body. The Console can fork a knowledge
 page into tenant ownership; later product updates then leave that body alone.
 Skill discovery records cannot be forked. Removing a shipped file withdraws
 its page and preserves attached data; a returning file restores the page in
-place. Inventory read failures preserve the previous projection.
+place. Directory and file reads must complete before a set projects pages or
+withdraws missing pages. Inventory read failures preserve that set's pages
+and Source revision; other sets can still synchronize. A complete read of an
+invalid file still rejects the file and withdraws its old projection.
 
 Library writes lock the Source before the Object and check archive state
 and body ownership in the page transaction. Source archive and withdrawal

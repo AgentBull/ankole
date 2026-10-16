@@ -14,7 +14,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
   alias Ankole.Signals.Signal
   alias Ankole.Repo
-  alias Ankole.Signals.Envelope
+  alias Ankole.Conversations.Envelope
   alias Ankole.Conversations.InputRevisions
   alias Ankole.Conversations.InboundBatch
   alias Ankole.Conversations.Observation
@@ -328,7 +328,7 @@ defmodule Ankole.Conversations.InboundBatches do
          _type,
          now
        ) do
-    with {:ok, mirror_entry} <- Ankole.Conversations.Observe.record_message_in_tx(repo, fact, now) do
+    with {:ok, mirror_entry} <- Ankole.Conversations.External.observe_entry_in_tx(repo, fact, now) do
       {:ok, Map.put(result, :message_observation, mirror_entry)}
     end
   end
@@ -397,7 +397,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp maybe_mirror_im_entry(repo, fact, policy, type, now) do
     case should_mirror_im_entry?(policy, type) do
-      true -> Ankole.Conversations.Observe.record_message_in_tx(repo, fact, now)
+      true -> Ankole.Conversations.External.observe_entry_in_tx(repo, fact, now)
       false -> {:ok, nil}
     end
   end
@@ -550,8 +550,8 @@ defmodule Ankole.Conversations.InboundBatches do
          policy,
          now
        ) do
-    {prefix, tail} = split_addressable_tail(batch.entries, fact.sender_key)
-    addressed_entries = tail ++ [entry]
+    {prefix, tail} = split_addressable_tail(batch.entries, entry)
+    addressed_entries = Enum.map(tail, &admit_same_sender_entry(&1, entry)) ++ [entry]
 
     case prefix do
       [] ->
@@ -623,14 +623,18 @@ defmodule Ankole.Conversations.InboundBatches do
          policy,
          now
        ) do
+    requester = Enum.find(batch.entries, &(&1["sender_key"] == batch.requester_sender_key))
+    same_sender? = requester != nil and same_entry_sender?(requester, entry)
+    entry = if same_sender?, do: admit_same_sender_entry(entry, requester), else: entry
+
     cond do
-      batch.requester_sender_key == fact.sender_key and addressable_neutral_entry?(entry) and
+      same_sender? and addressable_neutral_entry?(entry) and
           not addressed_batch_full?(batch.entries, entry) ->
         batch
         |> update_inbound_batch(repo, [entry], now)
         |> inbound_result(:accepted)
 
-      batch.requester_sender_key == fact.sender_key and addressable_neutral_entry?(entry) ->
+      same_sender? and addressable_neutral_entry?(entry) ->
         with {:ok, closed} <- finalize_inbound_batch_in_tx(repo, batch, now),
              {:ok, result} <-
                create_inbound_batch(repo, fact, policy, "addressed", [entry], now)
@@ -1174,19 +1178,50 @@ defmodule Ankole.Conversations.InboundBatches do
     }
 
     with {:ok, fact} <- Observation.entry(attrs) do
-      Ankole.Conversations.Observe.record_message_in_tx(repo, fact, now)
+      Ankole.Conversations.External.observe_entry_in_tx(repo, fact, now)
     end
   end
 
-  defp split_addressable_tail(entries, sender_key) do
+  defp split_addressable_tail(entries, addressed_entry) do
     {tail_reversed, prefix_reversed} =
       entries
       |> Enum.reverse()
       |> Enum.split_while(fn entry ->
-        entry["sender_key"] == sender_key and addressable_neutral_entry?(entry)
+        same_entry_sender?(entry, addressed_entry) and addressable_neutral_entry?(entry)
       end)
 
     {Enum.reverse(prefix_reversed), Enum.reverse(tail_reversed)}
+  end
+
+  # Ignored entries have no Principal admission. Match their provider subject to
+  # the admitted sender before moving that same sender's tail into an addressed
+  # batch; the ignored prefix must remain free of identity side effects.
+  defp same_entry_sender?(left, right) do
+    left_author = left["author"] || %{}
+    right_author = right["author"] || %{}
+    principal_uid = left_author["principal_uid"]
+
+    (is_binary(principal_uid) and principal_uid == right_author["principal_uid"]) or
+      (entry_provider(left) == entry_provider(right) and
+         Enum.any?(entry_subjects(left_author), &(&1 in entry_subjects(right_author))))
+  end
+
+  defp entry_provider(entry) do
+    author = entry["author"] || %{}
+    author["provider"] || get_in(author, ["metadata", "provider"]) || entry["binding_name"]
+  end
+
+  defp entry_subjects(author) do
+    [author["platform_subject"] | List.wrap(author["platform_subject_alternates"])]
+    |> Enum.filter(&(is_binary(&1) and &1 != ""))
+  end
+
+  defp admit_same_sender_entry(entry, admitted) do
+    entry
+    |> Map.put("sender_key", admitted["sender_key"])
+    |> Map.update!("author", fn author ->
+      Map.merge(author, Map.take(admitted["author"], ["principal_uid", "human_access_version"]))
+    end)
   end
 
   defp addressable_neutral_fact?(fact, type) do

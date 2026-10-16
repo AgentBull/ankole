@@ -11,7 +11,7 @@ defmodule Ankole.Tenants do
   alias Ankole.Principals.Principal
   alias Ankole.Tenants.Tenant
 
-  @privileged_key "tenants.privileged_slug"
+  @privileged_key "tenants.privileged_tenant_id"
 
   def privileged_definition do
     AppConfigure.define(
@@ -19,15 +19,21 @@ defmodule Ankole.Tenants do
       scope: :global,
       encrypted: false,
       console_writable: false,
-      schema: Ankole.AppConfigure.Schema.string(),
-      description: "Slug of the tenant whose siteadmin group administers this site."
+      schema:
+        Ankole.AppConfigure.Schema.new(fn value ->
+          case Ecto.UUID.cast(value) do
+            {:ok, id} -> {:ok, id}
+            :error -> {:error, :invalid_tenant_id}
+          end
+        end),
+      description: "ID of the tenant whose siteadmin group administers this site."
     )
   end
 
   def privileged do
     case AppConfigure.get_global_by_key_in_tx(Repo, @privileged_key) do
-      {:ok, slug} ->
-        case Repo.get_by(Tenant, slug: slug) do
+      {:ok, id} ->
+        case Repo.get(Tenant, id) do
           %Tenant{} = tenant -> {:ok, tenant}
           nil -> {:error, :privileged_tenant_missing}
         end
@@ -206,34 +212,23 @@ defmodule Ankole.Tenants do
   end
 
   def update(%Tenant{id: id}, attrs) do
-    result =
-      Repo.transact(fn repo ->
-        with {:ok, current_slug} <- lock_administration(repo),
-             {:ok, tenant} <- lock_tenant(repo, id),
-             :ok <- not_deleting(tenant),
-             {:ok, updated} <-
-               tenant
-               |> Tenant.changeset(Map.take(attrs, [:slug, :display_name]))
-               |> repo.update() do
-          if tenant.slug == current_slug and updated.slug != tenant.slug do
-            with {:ok, write} <-
-                   AppConfigure.put_global_by_key_in_tx(repo, @privileged_key, updated.slug),
-                 do: {:ok, {updated, write}}
-          else
-            {:ok, {updated, nil}}
-          end
-        end
-      end)
-
-    committed_tenant(result)
+    Repo.transact(fn repo ->
+      with {:ok, _} <- lock_administration(repo),
+           {:ok, tenant} <- lock_tenant(repo, id),
+           :ok <- not_deleting(tenant) do
+        tenant
+        |> Tenant.changeset(Map.take(attrs, [:slug, :display_name]))
+        |> repo.update()
+      end
+    end)
   end
 
   def suspend(%Tenant{id: id}) do
     Repo.transact(fn repo ->
-      with {:ok, slug} <- lock_administration(repo),
+      with {:ok, privileged_id} <- lock_administration(repo),
            {:ok, tenant} <- lock_tenant(repo, id),
            :ok <- not_deleting(tenant),
-           :ok <- not_privileged(tenant, slug) do
+           :ok <- not_privileged(tenant, privileged_id) do
         tenant |> Ecto.Changeset.change(suspended_at: DateTime.utc_now()) |> repo.update()
       end
     end)
@@ -241,7 +236,7 @@ defmodule Ankole.Tenants do
 
   def resume(%Tenant{id: id}) do
     Repo.transact(fn repo ->
-      with {:ok, _slug} <- lock_administration(repo),
+      with {:ok, _} <- lock_administration(repo),
            {:ok, tenant} <- lock_tenant(repo, id),
            :ok <- not_deleting(tenant) do
         tenant |> Ecto.Changeset.change(suspended_at: nil) |> repo.update()
@@ -251,9 +246,9 @@ defmodule Ankole.Tenants do
 
   def delete(%Tenant{id: id}) do
     Repo.transact(fn repo ->
-      with {:ok, slug} <- lock_administration(repo),
+      with {:ok, privileged_id} <- lock_administration(repo),
            {:ok, tenant} <- lock_tenant(repo, id),
-           :ok <- not_privileged(tenant, slug),
+           :ok <- not_privileged(tenant, privileged_id),
            {:ok, tenant} <-
              tenant
              |> Ecto.Changeset.change(deleting_at: tenant.deleting_at || DateTime.utc_now())
@@ -267,9 +262,9 @@ defmodule Ankole.Tenants do
   def transfer_site_administration(%Tenant{id: id}, uid) do
     result =
       Repo.transact(fn repo ->
-        with {:ok, slug} <- lock_administration(repo),
+        with {:ok, privileged_id} <- lock_administration(repo),
              {:ok, target} <- lock_tenant(repo, id),
-             :ok <- not_privileged(target, slug),
+             :ok <- not_privileged(target, privileged_id),
              true <- is_nil(target.suspended_at) and is_nil(target.deleting_at),
              {:ok, _} <-
                Repo.with_tenant(target.id, fn ->
@@ -282,8 +277,8 @@ defmodule Ankole.Tenants do
                       do: {:ok, group}
                end),
              {:ok, write} <-
-               AppConfigure.put_global_by_key_in_tx(repo, @privileged_key, target.slug) do
-          remove_site_admin_group(repo, slug)
+               AppConfigure.put_global_by_key_in_tx(repo, @privileged_key, target.id) do
+          remove_site_admin_group(repo, privileged_id)
 
           {:ok, {target, write}}
         else
@@ -296,8 +291,8 @@ defmodule Ankole.Tenants do
     committed_tenant(result)
   end
 
-  defp remove_site_admin_group(repo, slug) do
-    tenant = repo.get_by!(Tenant, slug: slug)
+  defp remove_site_admin_group(repo, tenant_id) do
+    tenant = repo.get!(Tenant, tenant_id)
 
     Repo.with_tenant(tenant.id, fn ->
       if group = repo.get_by(Group, name: Root.admin_group_name(), built_in: true) do
@@ -328,9 +323,8 @@ defmodule Ankole.Tenants do
 
   defp not_deleting(%Tenant{deleting_at: nil}), do: :ok
   defp not_deleting(_), do: {:error, :tenant_deleting}
-  defp not_privileged(%Tenant{slug: slug}, slug), do: {:error, :privileged_tenant_protected}
+  defp not_privileged(%Tenant{id: id}, id), do: {:error, :privileged_tenant_protected}
   defp not_privileged(_, _), do: :ok
-  defp committed_tenant({:ok, {tenant, nil}}), do: {:ok, tenant}
 
   defp committed_tenant({:ok, {tenant, write}}) do
     with {:ok, _} <- AppConfigure.cache_committed_write(write), do: {:ok, tenant}

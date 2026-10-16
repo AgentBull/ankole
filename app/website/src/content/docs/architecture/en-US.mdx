@@ -19,7 +19,7 @@ The Harness identifies each actor, applies access rules, restores long work, kee
 
 One private deployment instance has one logical control plane and one Agent Computer Worker for each Agent. The control plane manages identity, state, and scheduling, and it creates the Workers. Each Worker provides the compute environment where its Agent works.
 
-Workplace and external adapters record conversation messages. Signals admits messages, external events, and schedules; Sessions executes their work. Identity Providers supply people and the organization directory. AIGateway provides one boundary for models, embeddings, reranking, images, and web capabilities.
+Pod and external adapters record conversation messages. Signals admits messages, external events, and schedules; Sessions executes their work. Identity Providers supply people and the organization directory. AIGateway provides one boundary for models, embeddings, reranking, images, and web capabilities.
 
 ## Control plane and Agent Computer Workers
 
@@ -57,7 +57,7 @@ Each Worker has its own capacity for environment workspaces and Codex turns. Mai
 
 ### Conversations preserve messages
 
-A conversation is a shared space for people and Agents. `Ankole.Conversations` stores its participants and messages. Workplace writes native messages directly. An adapter observes messages in an external conversation; the external platform remains their authority.
+A conversation is a shared space for people and Agents. `Ankole.Conversations` stores its participants and messages. Pod writes native messages directly. An adapter observes messages in an external conversation; the external platform remains their authority.
 
 Conversation messages and Agent work have separate records. Messages belong to participants. Model calls, tool results, and compaction belong to the session's model state in AIGateway. A session does not cross conversations, so one conversation's work cannot enter another conversation.
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { OIDCClientEditorModel, emptyDraft, writeBody } from './oidc-client-editor-model'
-import { resolveEditorDraftIdentity, seedEditorDraft } from '../use-editor-draft'
+import { seedEditorDraft } from '../use-editor-draft'
 
 describe('OIDC client session settings', () => {
   test('a refetch cannot replace operator edits, and switching client resets the draft', () => {
@@ -10,12 +10,12 @@ describe('OIDC client session settings', () => {
       allowedIdentityProviderIDs: ['lark'],
       backchannelLogoutURI: 'https://rp.test/logout'
     }
-    seedEditorDraft(model, resolveEditorDraftIdentity({ resource: 'oidc-client', clientID: 'a' }), first, false)
+    seedEditorDraft(model, 'client:a', first, false)
     model.setDraft(current => ({ ...current, allowedIdentityProviderIDs: ['local'] }))
-    seedEditorDraft(model, resolveEditorDraftIdentity({ resource: 'oidc-client', clientID: 'a' }), first, false)
+    seedEditorDraft(model, 'client:a', first, false)
     expect(model.draft.value.allowedIdentityProviderIDs).toEqual(['local'])
     expect(model.dirty.value).toBe(true)
-    seedEditorDraft(model, resolveEditorDraftIdentity({ resource: 'oidc-client', clientID: 'b' }), emptyDraft(), false)
+    seedEditorDraft(model, 'client:b', emptyDraft(), false)
     expect(model.draft.value.backchannelLogoutURI).toBe('')
     expect(model.dirty.value).toBe(false)
     model[Symbol.dispose]()

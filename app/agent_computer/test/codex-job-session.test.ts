@@ -16,12 +16,9 @@ import {
   BackgroundAgentJobTurnUpsertResponseSchema
 } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { TurnStart } from '../src/lanes/session_lane'
-import {
-  RuntimeRPCClient,
-  type BackgroundAgentJobResponse,
-  type RPCRequester,
-  type RPCRequestInit
-} from '../src/lanes/rpc_lane'
+import { RuntimeRPCClient, type RPCRequester } from '../src/lanes/rpc_lane'
+import { type BackgroundAgentJobResponse } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { type RPCRequestInit } from '../src/lanes/rpc_contract'
 import { RuntimeFabricTransportError } from '../src/fabric/fabric'
 import { throwingRPCRequester } from '../src/worker/rpc_requests'
 import { FakeDrive } from './support/fake-drive'
@@ -40,6 +37,9 @@ type FakeScenario = {
   turns: FakeTurn[]
   /** How the explicit compaction turn ends after its `contextCompaction` item. */
   compaction?: { completeDelayMs: number; status: 'completed' | 'failed' }
+  coalesceTurnStarts?: boolean
+  duplicateCompletions?: boolean
+  reuseTurnIDOnReplacement?: boolean
 }
 type LogEntry = Record<string, unknown> & { received?: string; emitted?: string; rejected?: string }
 
@@ -237,6 +237,66 @@ describe('@ankole/agent-computer Codex Job session recovery ladder', () => {
     ])
     expect(fixture.cleanupCalls()).toBe(1)
   }, 20_000)
+
+  for (const recovery of ['transient', 'compaction', 'replacement', 'empty_report'] as const) {
+    it(`settles coalesced ${recovery} retry completions without repeating old terminal events`, async () => {
+      const firstTurn: FakeTurn =
+        recovery === 'empty_report'
+          ? { status: 'completed', text: '' }
+          : {
+              status: 'failed',
+              error:
+                recovery === 'transient'
+                  ? { message: 'server overloaded', codexErrorInfo: 'serverOverloaded' }
+                  : recovery === 'compaction'
+                    ? { message: 'context window exceeded', codexErrorInfo: 'contextWindowExceeded' }
+                    : { message: 'No rollout found for thread' }
+            }
+      const fixture = sessionFixture(`coalesced-${recovery}`, {
+        turns: [firstTurn, { status: 'completed', text: `done after ${recovery}` }],
+        compaction: { completeDelayMs: 10, status: 'completed' },
+        coalesceTurnStarts: true,
+        duplicateCompletions: true,
+        reuseTurnIDOnReplacement: recovery === 'replacement'
+      })
+
+      await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
+
+      expect(fixture.statusUpdates.at(-1)?.status).toBe('succeeded')
+      expect(parsedJSON(fixture.statusUpdates.at(-1)?.resultJson)?.output_text).toBe(`done after ${recovery}`)
+      expect(fixture.log().filter(entry => entry.received === 'turn/start')).toHaveLength(2)
+      expect(fixture.log().filter(entry => entry.received === 'thread/start')).toHaveLength(
+        recovery === 'replacement' ? 2 : 1
+      )
+      expect(fixture.log().filter(entry => entry.received === 'thread/compact/start')).toHaveLength(
+        recovery === 'compaction' ? 1 : 0
+      )
+      const batches = fixture.log().filter(entry => entry.emitted === 'coalesced_turn')
+      expect(batches).toHaveLength(2)
+      expect(batches.every(entry => Number(entry.bytes) < 4_096)).toBe(true)
+      expect(fixture.cleanupCalls()).toBe(1)
+    })
+  }
+
+  it('keeps the local retry budget when each failed retry completes with its start response', async () => {
+    const fixture = sessionFixture('coalesced-retry-budget', {
+      turns: Array.from({ length: 5 }, () => ({
+        status: 'failed',
+        error: { message: 'server overloaded', codexErrorInfo: 'serverOverloaded' }
+      })),
+      coalesceTurnStarts: true,
+      duplicateCompletions: true
+    })
+
+    await expect(runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)).rejects.toThrow(
+      'server overloaded'
+    )
+
+    expect(fixture.statusUpdates.map(update => update.status)).toEqual(['running'])
+    expect(fixture.log().filter(entry => entry.received === 'turn/start')).toHaveLength(4)
+    expect(fixture.log().filter(entry => entry.received === 'thread/compact/start')).toHaveLength(0)
+    expect(fixture.cleanupCalls()).toBe(1)
+  })
 
   it('rebuilds a thread lost mid-run from the durable workspace and records the new anchor', async () => {
     const fixture = sessionFixture('agent-c3-replace', {
@@ -551,6 +611,8 @@ let threadCount = 0
 let turnCount = 0
 let compactionCount = 0
 let activeCompactionTurn = undefined
+let previousCompletion = undefined
+const threadTurns = new Map()
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
 function log(entry) { appendFileSync(process.env.FAKE_LOG, JSON.stringify(entry) + '\\n') }
 function handle(message) {
@@ -581,20 +643,31 @@ function handle(message) {
       return write({ id: message.id, result: { turn: { id: 'rejected-' + (turnCount + 1), status: 'inProgress' } } })
     }
     turnCount += 1
-    const turnId = 'turn-' + turnCount
+    threadTurns.set(threadId, (threadTurns.get(threadId) ?? 0) + 1)
+    const turnId = 'turn-' + (scenario.reuseTurnIDOnReplacement ? threadTurns.get(threadId) : turnCount)
     const outcome = scenario.turns[turnCount - 1]
     log({ received: 'turn/start', threadId, input })
-    write({ id: message.id, result: { turn: { id: turnId, status: 'inProgress' } } })
-    setTimeout(() => {
-      write({ method: 'turn/started', params: { threadId, turn: { id: turnId, status: 'inProgress', items: [] } } })
-      if (!outcome) return
+    const response = { id: message.id, result: { turn: { id: turnId, status: 'inProgress' } } }
+    const notifications = [
+      { method: 'turn/started', params: { threadId, turn: { id: turnId, status: 'inProgress', items: [] } } }
+    ]
+    if (scenario.duplicateCompletions && previousCompletion) notifications.push(previousCompletion)
+    if (outcome) {
       if (outcome.status === 'completed') {
-        write({ method: 'item/completed', params: { threadId, turnId, item: { type: 'agentMessage', id: 'message-' + turnCount, text: outcome.text } } })
-        write({ method: 'turn/completed', params: { threadId, turn: { id: turnId, status: 'completed' } } })
-        return
+        notifications.push({ method: 'item/completed', params: { threadId, turnId, item: { type: 'agentMessage', id: 'message-' + turnCount, text: outcome.text } } })
       }
-      write({ method: 'turn/completed', params: { threadId, turn: { id: turnId, status: 'failed', error: outcome.error } } })
-    }, 5)
+      previousCompletion = { method: 'turn/completed', params: { threadId, turn: { id: turnId, status: outcome.status, ...(outcome.status === 'failed' ? { error: outcome.error } : {}) } } }
+      notifications.push(previousCompletion)
+      if (scenario.duplicateCompletions) notifications.push(previousCompletion)
+    }
+    if (scenario.coalesceTurnStarts) {
+      const output = [response, ...notifications].map(message => JSON.stringify(message) + '\\n').join('')
+      log({ emitted: 'coalesced_turn', turnId, bytes: Buffer.byteLength(output) })
+      process.stdout.write(output)
+    } else {
+      write(response)
+      setTimeout(() => notifications.forEach(write), 5)
+    }
     return
   }
   if (message.method === 'thread/compact/start') {
@@ -605,6 +678,7 @@ function handle(message) {
     activeCompactionTurn = turnId
     log({ received: 'thread/compact/start', threadId })
     write({ id: message.id, result: {} })
+    if (scenario.duplicateCompletions && previousCompletion) write(previousCompletion)
     setTimeout(() => {
       write({ method: 'turn/started', params: { threadId, turn: { id: turnId, status: 'inProgress', items: [] } } })
       write({ method: 'item/completed', params: { threadId, turnId, item: { type: 'contextCompaction', id: 'compaction-' + compactionCount } } })
@@ -614,7 +688,9 @@ function handle(message) {
         const turn = compaction.status === 'completed'
           ? { id: turnId, status: 'completed' }
           : { id: turnId, status: 'failed', error: { message: 'compaction failed upstream' } }
-        write({ method: 'turn/completed', params: { threadId, turn } })
+        previousCompletion = { method: 'turn/completed', params: { threadId, turn } }
+        write(previousCompletion)
+        if (scenario.duplicateCompletions) write(previousCompletion)
       }, compaction.completeDelayMs)
     }, 5)
     return

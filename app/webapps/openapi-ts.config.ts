@@ -1,7 +1,15 @@
-export default {
-  input: './openapi/console.json',
-  output: {
-    path: './console/api/generated'
+export default [
+  {
+    input: './openapi/console.json',
+    output: { path: './console/api/generated' },
+    plugins: ['@hey-api/client-fetch', '@tanstack/react-query']
   },
-  plugins: ['@hey-api/client-fetch', '@tanstack/react-query']
-}
+  {
+    input: './openapi/internal.json',
+    output: { path: './common/api/generated' },
+    plugins: [
+      { name: '@hey-api/client-fetch', runtimeConfigPath: './common/internal-api-client', throwOnError: true },
+      { name: '@hey-api/sdk', responseStyle: 'data' }
+    ]
+  }
+]

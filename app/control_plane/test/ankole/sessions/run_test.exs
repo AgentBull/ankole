@@ -39,6 +39,50 @@ defmodule Ankole.Sessions.RunTest do
     {:ok, key: key, event: event}
   end
 
+  test "queue reads keep ordinary due order separate from strict Job head and started recovery",
+       %{key: key, event: first} do
+    now = DateTime.utc_now(:microsecond)
+    future = DateTime.add(now, 60)
+    first = Repo.update!(Ecto.Changeset.change(first, available_at: future))
+
+    [due, started, closed] =
+      for {at, suffix} <- [{now, "due"}, {future, "started"}, {now, "closed"}] do
+        assert {:ok, signal} =
+                 Repo.transact(fn repo ->
+                   Signals.accept_in_tx(repo, %{
+                     producer: :kernel,
+                     target: key,
+                     sender: key.agent_uid,
+                     source: "test:queue",
+                     id: suffix,
+                     type: "custom.queue",
+                     data: %{},
+                     available_at: at
+                   })
+                 end)
+
+        signal
+      end
+
+    started = Repo.update!(Ecto.Changeset.change(started, last_attempt_at: now))
+    Repo.update!(Ecto.Changeset.change(closed, completed_at: now))
+    assert Ankole.Sessions.Queue.due(key, now) |> Enum.map(& &1.id) == [due.id]
+    assert Ankole.Sessions.Queue.next_ready_event(key.agent_uid, key.session_id, now).id == due.id
+
+    assert is_nil(
+             Ankole.Sessions.Queue.next_ready_event(key.agent_uid, key.session_id, now,
+               strict_queue_order?: true
+             )
+           )
+
+    assert Ankole.Sessions.Queue.oldest_open(Repo, key.agent_uid, key.session_id).id == first.id
+
+    assert Ankole.Sessions.Queue.oldest_started(Repo, key.agent_uid, key.session_id).id ==
+             started.id
+
+    assert Ankole.Sessions.Queue.due(%{key | session_id: "unrelated"}, now) == []
+  end
+
   test "revocation rejects fresh steers and controls but retains admitted input", %{
     key: key,
     event: event
@@ -275,7 +319,11 @@ defmodule Ankole.Sessions.RunTest do
       refute Repo.reload!(unread).completed_at
 
       assert {:ok, tail} =
-               Ankole.Sessions.ModelHistory.conversation_tail(run.conversation, event.id)
+               Ankole.AIGateway.visible_response_suffix(
+                 run.agent_uid,
+                 run.conversation.id,
+                 {"signal_id", event.id}
+               )
 
       assert MapSet.member?(tail.recorded_call_ids, Run.call_id(call))
     end
@@ -368,8 +416,9 @@ defmodule Ankole.Sessions.RunTest do
              )
 
     refute Repo.exists?(
-             from m in Message,
+             from(m in Message,
                where: m.conversation_id == ^old.conversation.id and m.status == "generating"
+             )
            )
   end
 

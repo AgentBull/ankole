@@ -72,7 +72,7 @@ defmodule Ankole.SignalsFixtures do
             producer: :kernel,
             source: Keyword.get(opts, :source, "test://external-session"),
             id: "test-event-#{unique}",
-            type: "test.source",
+            type: Keyword.get(opts, :type, "test.source"),
             time: now,
             data: %{"text" => observation.message.text, "message_id" => observation.message.id},
             message_id: observation.message.id,
@@ -133,10 +133,11 @@ defmodule Ankole.SignalsFixtures do
     limit = Keyword.get(opts, :limit, 500)
 
     Ankole.Repo.all(
-      from batch in Ankole.Conversations.InboundBatch,
+      from(batch in Ankole.Conversations.InboundBatch,
         where: batch.batch_state == "open" and batch.available_at <= ^now,
         order_by: [asc: batch.available_at, asc: batch.id],
         limit: ^limit
+      )
     )
     |> Enum.map(fn batch ->
       Ankole.Conversations.InboundBatches.finalize_inbound_batch_by_id(batch.id, now: now)
@@ -148,11 +149,23 @@ defmodule Ankole.SignalsFixtures do
     |> then(&{:ok, &1})
   end
 
+  # Seeds persisted state without configuration validation or post-save wakeups.
+  # Use the production put/update operations for the behavior under test.
+  def raw_binding_fixture(attrs) when is_map(attrs) do
+    %Ankole.Signals.Binding{}
+    |> Ankole.Signals.Binding.changeset(attrs)
+    |> Ankole.Repo.insert(
+      on_conflict: {:replace_all_except, [:inserted_at]},
+      conflict_target: [:agent_uid, :name],
+      returning: true
+    )
+  end
+
   # Tests that exercise message mechanics default to :create_standalone so an
   # unseeded sender still flows; identity-admission tests pass :manual_review.
   def binding_fixture(agent_uid, name, policy, opts \\ []) do
     {:ok, binding} =
-      Ankole.Signals.Bindings.upsert_binding(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent_uid,
         name: name,
         adapter: Keyword.get(opts, :adapter, "lark"),
@@ -164,6 +177,19 @@ defmodule Ankole.SignalsFixtures do
       })
 
     binding
+  end
+
+  def provider_author_fixture(principal_uid, external_id, attrs \\ %{}) do
+    provider = Map.get(attrs, :provider, "signals-fixture")
+
+    {:ok, _} =
+      Ankole.Principals.upsert_platform_subject_human(%{
+        uid: principal_uid,
+        provider: provider,
+        external_id: external_id
+      })
+
+    Map.merge(%{provider: provider, platform_subject: external_id, id: external_id}, attrs)
   end
 
   def group_entry(overrides \\ %{}) do
@@ -183,7 +209,7 @@ defmodule Ankole.SignalsFixtures do
               principal.uid
           end
 
-        %{principal_uid: uid, id: "ou_alice", display_name: "Alice"}
+        provider_author_fixture(uid, "ou_alice", %{display_name: "Alice"})
       end
 
     Map.merge(

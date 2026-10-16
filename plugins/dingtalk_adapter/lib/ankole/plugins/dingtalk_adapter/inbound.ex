@@ -17,7 +17,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Conversations.AdapterContext
-  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.{Attachments, Observe}
   alias DingTalkOpenAPI.Event
   alias DingTalkOpenAPI.Robot
 
@@ -398,7 +398,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     robot_code = Config.effective_robot_code(config)
 
     attachments =
-      Observe.materialize_attachments(
+      Attachments.materialize_attachments(
         input.attachments,
         "dingtalk",
         fn attachment ->

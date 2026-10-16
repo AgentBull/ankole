@@ -1,6 +1,6 @@
 defmodule Ankole.I18n.Loader do
   @moduledoc """
-  Loads TOML locale catalogs from disk.
+  Loads source or generated locale catalogs from disk.
 
   The loader only deals with application-owned files and the stable mapping from
   a filename to a locale id. It does not read AppConfigure or user input;
@@ -15,7 +15,7 @@ defmodule Ankole.I18n.Loader do
         }
 
   @doc """
-  Loads every `*.toml` locale file in `dir`.
+  Loads every `*.toml` or generated `*.json` locale file in `dir`.
 
   The returned map is deterministic because files are listed in stable order.
   `:toml_spec` is injectable for tests that need to pin parser behavior.
@@ -25,23 +25,23 @@ defmodule Ankole.I18n.Loader do
     spec = Keyword.get(opts, :toml_spec, :"1.1.0")
 
     dir
-    |> list_toml_files()
+    |> list_catalog_files()
     |> Map.new(fn path -> {locale_id_from_path(path), parse_file(path, spec)} end)
   end
 
   @doc """
-  Lists locale TOML files in stable order.
+  Lists locale catalog files in stable order.
 
   A missing directory returns an empty list. Catalog startup can then use the
   same degraded path as an empty catalog instead of forcing filesystem handling
   into this small loader.
   """
-  @spec list_toml_files(Path.t()) :: [Path.t()]
-  def list_toml_files(dir) do
+  @spec list_catalog_files(Path.t()) :: [Path.t()]
+  def list_catalog_files(dir) do
     case File.ls(dir) do
       {:ok, entries} ->
         entries
-        |> Enum.filter(&String.ends_with?(&1, ".toml"))
+        |> Enum.filter(&String.ends_with?(&1, [".toml", ".json"]))
         |> Enum.sort()
         |> Enum.map(&Path.join(dir, &1))
 
@@ -57,7 +57,7 @@ defmodule Ankole.I18n.Loader do
   """
   @spec locale_id_from_path(Path.t()) :: String.t()
   def locale_id_from_path(path) do
-    Path.basename(path, ".toml")
+    path |> Path.basename() |> Path.rootname()
   end
 
   # Parse errors include the source path because catalog problems are usually
@@ -65,14 +65,19 @@ defmodule Ankole.I18n.Loader do
   defp parse_file(path, spec) do
     raw = File.read!(path)
 
-    case TomlElixir.decode(raw, spec: spec) do
+    result =
+      if Path.extname(path) == ".json",
+        do: Ankole.JSON.decode(raw),
+        else: TomlElixir.decode(raw, spec: spec)
+
+    case result do
       {:ok, decoded} ->
         Normalizer.normalize(decoded, file: path)
 
       {:error, exception} ->
         raise Normalizer.Error,
           file: path,
-          reason: "TOML parse error; #{Exception.message(exception)}"
+          reason: "Catalog parse error; #{inspect(exception)}"
     end
   end
 end

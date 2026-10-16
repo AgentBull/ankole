@@ -368,7 +368,7 @@ defmodule Ankole.Sessions.ReplyRouteTest do
   defp source!(agent_uid, session_id) do
     key = %{agent_uid: agent_uid, session_id: session_id}
 
-    if Ankole.Sessions.Driver.whereis(key) == :undefined do
+    if Ankole.Sessions.driver_pid(key) == :undefined do
       Ankole.SessionsCase.stub_driver(key)
     end
 

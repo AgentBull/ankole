@@ -221,6 +221,7 @@ defmodule Ankole.Sessions.ConsoleQueries do
   # precedence.
   defp maybe_filter_search(query, search) do
     pattern = "%#{Repo.escape_like(search)}%"
+    conversation_prefix = Ankole.Sessions.Key.conversation("")
     # Stored subject UIDs are canonical lowercase.
     subject = String.downcase(search)
 
@@ -229,7 +230,7 @@ defmodule Ankole.Sessions.ConsoleQueries do
         where:
           (ilike(channel.title, ^pattern) or ilike(channel.provider_conversation_id, ^pattern)) and
             (parent_as(:conversation).conversation_key ==
-               fragment("'conversation:' || ?::text", channel.id) or
+               fragment("? || ?::text", ^conversation_prefix, channel.id) or
                fragment(
                  "? -> 'origin' ->> 'conversation_id' = ?::text",
                  parent_as(:conversation).metadata,

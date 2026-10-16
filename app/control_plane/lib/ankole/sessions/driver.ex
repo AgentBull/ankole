@@ -16,6 +16,10 @@ defmodule Ankole.Sessions.Driver do
       :run,
       :event,
       :stream,
+      :phase,
+      :activity_conversation_id,
+      activity_revision: 0,
+      activity_state: "active",
       tasks: %{},
       pending: %{},
       early_stream: [],
@@ -29,6 +33,7 @@ defmodule Ankole.Sessions.Driver do
   alias Ankole.AIGateway
   alias Ankole.Observability
 
+  alias Ankole.Sessions.Activity
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Commands
   alias Ankole.Sessions.Machine
@@ -53,13 +58,9 @@ defmodule Ankole.Sessions.Driver do
   def child_spec({key, _tenant_id} = args),
     do: %{id: {__MODULE__, key}, start: {__MODULE__, :start_link, [args]}, restart: :temporary}
 
-  @spec name(map()) :: {module(), String.t(), String.t()}
-  def name(key), do: {__MODULE__, key.agent_uid, key.session_id}
-  @spec whereis(map()) :: pid() | :undefined
-  def whereis(key), do: :global.whereis_name(name(key))
   @spec start_link({map(), String.t()}) :: :gen_statem.start_ret()
   def start_link({key, _tenant_id} = args),
-    do: :gen_statem.start_link({:global, name(key)}, __MODULE__, args, [])
+    do: :gen_statem.start_link({:global, Ankole.Sessions.driver_name(key)}, __MODULE__, args, [])
 
   @impl true
   def callback_mode, do: :handle_event_function
@@ -73,6 +74,10 @@ defmodule Ankole.Sessions.Driver do
   end
 
   @impl true
+  def handle_event({:call, from}, :activity_snapshot, _state, data) do
+    {:keep_state_and_data, [{:reply, from, Activity.project(data)}]}
+  end
+
   def handle_event(:internal, :rebuild, _state, data) do
     task_result(:rebuild, Run.rebuild(data.key), :idle, data)
   end
@@ -86,11 +91,12 @@ defmodule Ankole.Sessions.Driver do
     run = %{data.run | iteration: data.run.iteration + 1}
     receiver = self()
 
-    Presentation.event(run, "turn.phase", %{
-      "operation_id" => "turn",
-      "state" => "working",
-      "label_key" => "conversations.delivery.reply.activity.turn_understanding"
-    })
+    data =
+      present(%{data | run: run}, "turn.phase", %{
+        "operation_id" => "turn",
+        "state" => "working",
+        "label_key" => "conversations.delivery.reply.activity.turn_understanding"
+      })
 
     {:next_state, :requesting_model,
      Ankole.Sessions.Driver.Tasks.task(
@@ -148,7 +154,9 @@ defmodule Ankole.Sessions.Driver do
   def handle_event(:state_timeout, :retire, :idle, data), do: {:stop, :normal, data}
 
   def handle_event(:info, :reconcile_inbox, _state, data) do
-    actions = Enum.map(Run.open_events(data.key), &{:next_event, :internal, {:inbox, &1.id}})
+    actions =
+      Enum.map(Ankole.Sessions.Queue.due(data.key), &{:next_event, :internal, {:inbox, &1.id}})
+
     {:keep_state, data, actions}
   end
 
@@ -550,15 +558,17 @@ defmodule Ankole.Sessions.Driver do
   defp task_result(_kind, {:error, reason}, _state, data), do: failed(reason, data)
 
   defp enter_tools(data) do
-    {run, pending} = ToolRound.restore(data.run)
-    data = %{data | run: run, pending: pending}
+    {run, pending, events} = ToolRound.restore(data.run)
+    data = present(%{data | run: run, pending: pending, phase: nil}, events)
 
     {:next_state, :executing_tools, data,
      worker_timers(data) ++ [{:next_event, :internal, :tools}]}
   end
 
-  defp await_result(data, id, wait),
-    do: %{data | pending: ToolRound.await(data.run, data.pending, id, wait)}
+  defp await_result(data, id, wait) do
+    {pending, events} = ToolRound.await(data.run, data.pending, id, wait)
+    present(%{data | pending: pending}, events)
+  end
 
   defp dispatch_tools(data) do
     data = dispatch_available(data)
@@ -593,9 +603,9 @@ defmodule Ankole.Sessions.Driver do
       {:result, id, result} ->
         dispatch_available(put_result(id, result, data))
 
-      {:execute, entry, pending} ->
+      {:execute, entry, pending, events} ->
         id = Run.call_id(entry.call)
-        data = %{data | pending: pending}
+        data = present(%{data | pending: pending}, events)
 
         data =
           if entry.tool.executor == :worker or entry.worker_name,
@@ -618,8 +628,9 @@ defmodule Ankole.Sessions.Driver do
     do: {:keep_state, put_result(id, result, data), [{:next_event, :internal, :tools}]}
 
   defp put_result(id, result, data) do
-    {run, pending} = ToolRound.accept(data.run, data.pending, id, result)
-    %{data | run: run, pending: pending}
+    {run, pending, events} = ToolRound.accept(data.run, data.pending, id, result)
+    data = present(%{data | run: run, pending: pending}, events)
+    Activity.publish(data)
   end
 
   defp observe_waits(%{observing?: true} = data),
@@ -665,9 +676,20 @@ defmodule Ankole.Sessions.Driver do
         (payload.response_id == Run.response_id(data.run.model_response) and
            Map.has_key?(data.pending, payload.call_id))
 
-    if Worker.matches?(payload.run, data.run) and current?,
-      do: apply_worker_event(Worker.decode(type, payload), data),
-      else: :keep_state_and_data
+    if Worker.matches?(payload.run, data.run) and current? do
+      decoded =
+        case Worker.decode(type, payload) do
+          {:presentation, "tool.activity", value} ->
+            {:presentation, "tool.activity", Map.put(value, "operation_id", payload.call_id)}
+
+          other ->
+            other
+        end
+
+      apply_worker_event(decoded, data)
+    else
+      :keep_state_and_data
+    end
   end
 
   defp worker_result(_type, _payload, _data), do: :keep_state_and_data
@@ -696,8 +718,7 @@ defmodule Ankole.Sessions.Driver do
   end
 
   defp apply_worker_event({:presentation, kind, value}, data) do
-    Presentation.event(data.run, kind, value)
-    :keep_state_and_data
+    {:keep_state, present(data, kind, value)}
   end
 
   defp apply_worker_event({:result, id, result, follow}, data),
@@ -757,10 +778,11 @@ defmodule Ankole.Sessions.Driver do
     do:
       Ankole.Sessions.Driver.Tasks.task(data, :worker_check, fn -> Worker.check(data.run, row) end)
 
-  defp worker_effect(:ready, data), do: %{data | pending: PendingCall.ready(data.pending)}
+  defp worker_effect(:ready, data),
+    do: Activity.publish(%{data | pending: PendingCall.ready(data.pending), phase: nil})
 
   defp worker_effect(:retry_calls, data),
-    do: %{data | pending: PendingCall.worker_changed(data.pending)}
+    do: Activity.publish(%{data | pending: PendingCall.worker_changed(data.pending), phase: nil})
 
   defp worker_effect(:probe, data) do
     sending = for {_, {{:worker_send, id}, _}} <- data.tasks, do: id
@@ -770,13 +792,11 @@ defmodule Ankole.Sessions.Driver do
   defp worker_effect({:unavailable, reason}, data), do: fail_worker_waits(reason, data)
 
   defp worker_effect({:phase, phase}, data) do
-    Presentation.event(data.run, "turn.phase", %{
+    present(data, "turn.phase", %{
       "operation_id" => "turn",
       "state" => "working",
       "label_key" => "conversations.delivery.reply.activity.#{WorkerAcquisition.phase_key(phase)}"
     })
-
-    data
   end
 
   defp worker_timers(data) do
@@ -852,6 +872,8 @@ defmodule Ankole.Sessions.Driver do
   end
 
   defp rebuild(data) do
+    data = Activity.clear(data, "settled")
+
     {:next_state, :idle,
      %{
        Ankole.Sessions.Driver.Tasks.clear_tasks(
@@ -861,7 +883,8 @@ defmodule Ankole.Sessions.Driver do
          pending: %{},
          stream: nil,
          acquisition: :idle,
-         event: nil
+         event: nil,
+         phase: nil
      },
      [
        {{:timeout, :worker_acquire}, :cancel},
@@ -879,7 +902,7 @@ defmodule Ankole.Sessions.Driver do
 
   defp failed(:signal_canceled, data) do
     event =
-      Enum.find(Run.open_events(data.run), fn event ->
+      Enum.find(Ankole.Sessions.Queue.due(data.run), fn event ->
         event.type == "input.revised" and Revisions.immediate?(data.run, event)
       end)
 
@@ -919,6 +942,7 @@ defmodule Ankole.Sessions.Driver do
     )
 
     if error["retryable"] == true do
+      data = Activity.clear(data, "unavailable")
       Presentation.stop(data.run)
       if data.stream, do: AIGateway.cancel_response_stream(data.stream, "conversation_retry")
 
@@ -951,6 +975,17 @@ defmodule Ankole.Sessions.Driver do
 
   defp prepare(data, run) do
     run = Observability.attach_turn(run)
+
+    data = %{
+      data
+      | run: run,
+        phase: nil,
+        pending: %{},
+        activity_revision: 0,
+        activity_state: "active",
+        activity_conversation_id: Activity.native_source(run)
+    }
+
     driver = self()
 
     {:next_state, :preparing,
@@ -966,8 +1001,17 @@ defmodule Ankole.Sessions.Driver do
      end)}
   end
 
+  defp present(data, events) do
+    Enum.reduce(events, data, fn event, data -> present(data, event["kind"], event["payload"]) end)
+  end
+
+  defp present(data, kind, payload) do
+    Activity.present(data, Presentation.event(data.run, kind, payload))
+  end
+
   @impl true
   def terminate(reason, state, data) do
+    Activity.clear(data, "unavailable")
     Ankole.Sessions.Driver.Tasks.clear_tasks(data)
     if data.stream, do: AIGateway.cancel_response_stream(data.stream, "driver_stopped")
 

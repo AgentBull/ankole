@@ -17,8 +17,9 @@ defmodule AnkoleWeb.Router do
     plug :accepts, ["html"]
     plug :fetch_session
     plug :fetch_flash
-    plug :protect_from_forgery
+    plug AnkoleWeb.Plugs.BrowserCSRF
     plug :put_secure_browser_headers
+    plug :private_response
   end
 
   pipeline :openapi do
@@ -30,8 +31,9 @@ defmodule AnkoleWeb.Router do
     # Setup, authentication, and Console JSON requests share cookie and CSRF protection.
     plug :accepts, ["json"]
     plug :fetch_session
-    plug :protect_from_forgery
+    plug AnkoleWeb.Plugs.BrowserCSRF
     plug :put_secure_browser_headers
+    plug :private_response
   end
 
   pipeline :oauth_protocol do
@@ -46,12 +48,13 @@ defmodule AnkoleWeb.Router do
     plug AnkoleWeb.Plugs.RequireSiteAdminSession
   end
 
-  pipeline :workplace_api do
+  pipeline :pod_api do
     plug :accepts, ["json", "event-stream"]
     plug :fetch_session
-    plug :protect_from_forgery
+    plug AnkoleWeb.Plugs.BrowserCSRF
     plug :put_secure_browser_headers
-    plug AnkoleWeb.Plugs.RequireWorkplaceSession
+    plug :private_response
+    plug AnkoleWeb.Plugs.RequirePodSession
   end
 
   pipeline :data_context do
@@ -98,6 +101,8 @@ defmodule AnkoleWeb.Router do
     get "/session", AuthController, :session
     delete "/session", AuthController, :delete_session
     get "/identity-providers", AuthController, :identity_providers
+    post "/sessions/identity-selection", AuthController, :select_identity
+    delete "/authentications/current", AuthController, :delete_authentication
     post "/sessions/local-password", AuthController, :local_password_login
     post "/sessions/local-password/change", AuthController, :local_password_change
   end
@@ -119,15 +124,15 @@ defmodule AnkoleWeb.Router do
     options "/oauth/userinfo", OIDCController, :options
   end
 
-  scope "/.internal-apis/workplace", AnkoleWeb do
-    pipe_through :workplace_api
+  scope "/.internal-apis/pod", AnkoleWeb do
+    pipe_through :pod_api
 
-    get "/agents", WorkplaceController, :agents
-    get "/conversations", WorkplaceController, :index
-    post "/conversations", WorkplaceController, :create
-    get "/conversations/:id", WorkplaceController, :show
-    post "/conversations/:id/messages", WorkplaceController, :post_message
-    get "/conversations/:id/events", WorkplaceController, :events
+    get "/agents", PodController, :agents
+    get "/conversations", PodController, :index
+    post "/conversations", PodController, :create
+    get "/conversations/:id", PodController, :show
+    post "/conversations/:id/messages", PodController, :post_message
+    get "/conversations/:id/events", PodController, :events
   end
 
   # The spec document is public (no bearer token) so tooling can read it without
@@ -257,6 +262,7 @@ defmodule AnkoleWeb.Router do
 
     get "/oidc-clients", OIDCClientController, :index
     post "/oidc-clients", OIDCClientController, :create
+    get "/oidc-clients/login-sources", OIDCClientController, :login_sources
     get "/oidc-clients/:id", OIDCClientController, :show
     patch "/oidc-clients/:id", OIDCClientController, :update
     delete "/oidc-clients/:id", OIDCClientController, :delete
@@ -375,6 +381,18 @@ defmodule AnkoleWeb.Router do
     get "/console-readiness", ConsoleReadinessController, :show
 
     get "/agent-workers", AgentWorkerController, :index
+
+    get "/agents/:agent_uid/background-activities/background-jobs",
+        BackgroundActivityController,
+        :jobs
+
+    get "/agents/:agent_uid/background-activities/workflow",
+        BackgroundActivityController,
+        :workflow
+
+    get "/agents/:agent_uid/background-activities/automation-runs",
+        BackgroundActivityController,
+        :automation_runs
 
     get "/background-agent-jobs", BackgroundAgentJobController, :index
 
@@ -557,7 +575,7 @@ defmodule AnkoleWeb.Router do
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own
-  # client-side routing: any deep link under the console mount, /workplace, or /setup returns the same
+  # client-side routing: any deep link under the console mount, /pod, or /setup returns the same
   # shell, and the React router takes over. SpaController re-checks setup/auth
   # state on every shell request, so the access gate stays server-side rather
   # than trusting the SPA to redirect.
@@ -575,9 +593,12 @@ defmodule AnkoleWeb.Router do
     get "/sessions/oidc/:provider_id/callback", AuthController, :oidc_callback
     get "/site-admin-console", SpaController, :console
     get "/site-admin-console/*path", SpaController, :console
-    get "/workplace", SpaController, :workplace
-    get "/workplace/*path", SpaController, :workplace
+    get "/pod", SpaController, :pod
+    get "/pod/*path", SpaController, :pod
     get "/setup", SpaController, :setup
     get "/setup/*path", SpaController, :setup
   end
+
+  defp private_response(conn, _opts),
+    do: put_resp_header(conn, "cache-control", "private, no-store")
 end

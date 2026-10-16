@@ -198,7 +198,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
     {:ok, stored_config} = AppConfigure.get_by_key(config_key)
 
     {:ok, _binding} =
-      Ankole.Signals.Bindings.upsert_binding(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent.uid,
         name: binding_name,
         adapter: adapter,

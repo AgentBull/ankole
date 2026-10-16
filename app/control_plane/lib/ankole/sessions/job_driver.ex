@@ -5,7 +5,6 @@ defmodule Ankole.Sessions.JobDriver do
 
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.CodexJob
-  alias Ankole.Sessions.Driver
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.CodexJob.Attempt
@@ -20,7 +19,7 @@ defmodule Ankole.Sessions.JobDriver do
     do: %{id: {__MODULE__, key}, start: {__MODULE__, :start_link, [args]}, restart: :temporary}
 
   def start_link({key, _tenant_id} = args),
-    do: :gen_statem.start_link({:global, Driver.name(key)}, __MODULE__, args, [])
+    do: :gen_statem.start_link({:global, Ankole.Sessions.driver_name(key)}, __MODULE__, args, [])
 
   @impl true
   def callback_mode, do: :handle_event_function

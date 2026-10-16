@@ -16,7 +16,7 @@ import {
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -50,13 +50,17 @@ const MARKDOC_ERROR_CODES = new Set([
 type Translate = (key: string, values?: Record<string, unknown>) => string
 
 export function BrainObjectEditorPage() {
+  const slug = useParams().slug ?? ''
+  return <BrainObjectEditor key={slug} slug={slug} />
+}
+
+function BrainObjectEditor({ slug }: { slug: string }) {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const params = useParams()
   const model = useModel(BrainObjectEditorModel)
   const [latest, setLatest] = useState<BrainObjectPage>()
-  const slug = params.slug ?? ''
+  const active = useRef(false)
   const mode = slug ? 'edit' : 'new'
 
   const detail = useQuery({
@@ -72,38 +76,21 @@ export function BrainObjectEditorPage() {
     [mode, page]
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'brain-object', slug: slug || undefined },
+    sourceKey: slug ? `object:${slug}` : 'new',
     source: brainObjectDraft,
     absent: () => mode === 'edit' && requestErrorCode(detail.error) === 'not_found'
   })
 
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    active.current = true
+    return () => {
+      active.current = false
       model.reset()
-    },
-    [model]
-  )
-
-  const create = useMutation({
-    ...ankoleWebBrainControllerCreateObjectMutation(),
-    onSuccess: response => {
-      if (!response.object) return
-      model.markSaved(response.object)
-
-      toast.success(t('console.brain.object_created', { slug: response.object.slug }))
-      navigate(brainObjectPath(response.object.slug))
     }
-  })
-  const update = useMutation({
-    ...ankoleWebBrainControllerUpdateObjectMutation(),
-    onSuccess: response => {
-      if (!response.object) return
-      model.markSaved(response.object)
-      setLatest(undefined)
+  }, [model])
 
-      toast.success(t('console.brain.object_saved', { slug: response.object.slug }))
-    }
-  })
+  const create = useMutation(ankoleWebBrainControllerCreateObjectMutation())
+  const update = useMutation(ankoleWebBrainControllerUpdateObjectMutation())
 
   const writeError = mode === 'new' ? create.error : update.error
   const errorCode = requestErrorCode(writeError)
@@ -119,13 +106,36 @@ export function BrainObjectEditorPage() {
       model.validationError.value = draftError
       return
     }
-    if (mode === 'new') create.mutate({ body: model.createBody() })
-    else if (page?.editable && model.contentHash.value) update.mutate({ body: model.updateBody() })
+    if (mode === 'new') {
+      create.mutate(
+        { body: model.createBody() },
+        {
+          onSuccess: response => {
+            if (!response.object) return
+            model.markSaved(response.object)
+            toast.success(t('console.brain.object_created', { slug: response.object.slug }))
+            navigate(brainObjectPath(response.object.slug))
+          }
+        }
+      )
+    } else if (page?.editable && model.contentHash.value) {
+      update.mutate(
+        { body: model.updateBody() },
+        {
+          onSuccess: response => {
+            if (!response.object) return
+            model.markSaved(response.object)
+            setLatest(undefined)
+            toast.success(t('console.brain.object_saved', { slug: response.object.slug }))
+          }
+        }
+      )
+    }
   }
 
   const loadLatest = async () => {
     const result = await detail.refetch()
-    if (result.data?.object) {
+    if (active.current && result.data?.object) {
       setLatest(result.data.object)
       model.useLatestContentHash(result.data.object.content_hash)
     }
@@ -402,6 +412,8 @@ function writeErrorText(error: unknown, t: Translate): string | undefined {
       return t('console.brain.type_unknown')
     case 'reserved_object_type':
       return t('console.brain.type_reserved')
+    case 'object_deleted':
+      return t('console.brain.edit_block_deleted')
     default:
       return undefined
   }

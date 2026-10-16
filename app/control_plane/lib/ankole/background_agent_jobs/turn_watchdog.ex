@@ -7,10 +7,10 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
-  alias Ankole.Signals.Signal
   alias Ankole.AgentWorkers
   alias Ankole.Sessions.TurnControl
   alias Ankole.Sessions.CodexJob
+  alias Ankole.Signals.Signal
   alias Ankole.Sessions.JobTurnRef
   @stall_grace_seconds 3_600
   @max_stalls 3
@@ -44,14 +44,10 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
             activity = latest_active_turn_activity(repo, job.id) || job.updated_at
 
             event =
-              repo.one(
-                from e in Signal,
-                  where:
-                    e.agent_uid == ^job.agent_uid and
-                      e.session_id == ^BackgroundAgentJobs.job_session_id(job.id) and
-                      e.input_state == "open" and is_nil(e.completed_at),
-                  order_by: [asc: e.queue_sequence],
-                  limit: 1
+              Ankole.Sessions.Queue.oldest_open(
+                repo,
+                job.agent_uid,
+                BackgroundAgentJobs.job_session_id(job.id)
               )
 
             if (job.status == "running" and activity) && event && stalled?(activity, now) do

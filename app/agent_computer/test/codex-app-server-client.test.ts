@@ -159,8 +159,57 @@ describe('Codex app-server client transport', () => {
     const chunk = 'x'.repeat(1024 * 1024)
     for (let sent = 0; sent <= 64; sent++) transport.stdout(chunk)
 
-    expect((await settlesWithin(pending, 5_000)).message).toContain('without a newline')
+    expect(await settlesWithin(pending, 5_000)).toMatchObject({ code: 'codex_app_server_line_too_long' })
     expect(transport.killCount()).toBe(1)
+  })
+
+  for (const [character, count] of [
+    ['x', 65],
+    ['界', 23]
+  ] as const) {
+    it(`rejects a complete oversized ${character === 'x' ? 'ASCII' : 'multibyte'} line before dispatch`, async () => {
+      const transport = fakeTransport()
+      const notifications: unknown[] = []
+      const client = new CodexAppServerClient(
+        { ...clientOptions(), onNotification: message => notifications.push(message) },
+        transport.spawn
+      )
+      const first = rejectionOf(client.request('thread/start', {}, 10_000))
+      const second = rejectionOf(client.request('turn/start', {}, 10_000))
+      const text = character.repeat(count * 1024 * 1024)
+      transport.stdout(`${JSON.stringify({ id: 1, result: text })}\n{"method":"item/completed"}\n`)
+
+      expect(await settlesWithin(first, 5_000)).toMatchObject({ code: 'codex_app_server_line_too_long' })
+      expect(await second).toBe(await first)
+      expect(notifications).toEqual([])
+      expect(transport.killCount()).toBe(1)
+    })
+  }
+
+  it('accepts an exact-bound line and another complete response in the same chunk', async () => {
+    const transport = fakeTransport()
+    const client = new CodexAppServerClient(clientOptions(), transport.spawn)
+    const first = client.request('thread/start', {}, 10_000)
+    const second = client.request('turn/start', {}, 10_000)
+    const text = 'x'.repeat(64 * 1024 * 1024 - Buffer.byteLength(JSON.stringify({ id: 1, result: '' })))
+    transport.stdout(`${JSON.stringify({ id: 1, result: text })}\n{"id":2,"result":"next"}\n`)
+
+    expect(await first).toBe(text)
+    expect(await second).toBe('next')
+    expect(transport.killCount()).toBe(0)
+    await client.close()
+  })
+
+  it('decodes a multibyte response at EOF without requiring a final newline', async () => {
+    const transport = fakeTransport()
+    const client = new CodexAppServerClient(clientOptions(), transport.spawn)
+    const pending = client.request('thread/start', {}, 10_000)
+    const bytes = Buffer.from('{"id":1,"result":"牛"}')
+    transport.stdout(bytes.subarray(0, bytes.length - 3))
+    transport.stdout(bytes.subarray(bytes.length - 3))
+    transport.closeStdout()
+    expect(await pending).toBe('牛')
+    await client.close()
   })
 })
 

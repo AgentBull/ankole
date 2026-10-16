@@ -68,6 +68,35 @@ test('stale writes and invalid sources change neither content nor revision', () 
   expect(session.read()).toEqual(before)
 })
 
+test('replacing a session revokes old writes even when both revisions are zero', () => {
+  const { editor, session: old } = open()
+  const oldDraft = old.read()
+  const current = new PageSession(editor)
+  expect(() => old.apply({ format: 'markdown', source: 'old draft', revision: oldDraft.revision })).toThrow('会话')
+  expect(current.read().markdown).toBe('Before')
+  current.apply({ format: 'markdown', source: 'current content', revision: current.revision })
+  const before = current.read()
+  old.dispose()
+  expect(() => old.apply({ format: 'markdown', source: 'old draft', revision: oldDraft.revision })).toThrow('会话')
+  expect(current.read()).toEqual(before)
+  current.apply({ format: 'markdown', source: 'still current', revision: current.revision })
+  expect(current.read().markdown).toBe('still current')
+})
+
+test('a disposed session can read but cannot change the page', () => {
+  const { editor, session } = open()
+  const before = session.read()
+  session.dispose()
+  expect(session.read()).toEqual(before)
+  expect(() => session.apply({ format: 'markdown', source: 'disposed write', revision: before.revision })).toThrow(
+    '会话'
+  )
+  expect(session.read()).toEqual(before)
+  const current = new PageSession(editor)
+  current.apply({ format: 'markdown', source: 'replacement', revision: current.revision })
+  expect(current.read().markdown).toBe('replacement')
+})
+
 // The headless editor composes only when the test says so. The e2e tests cover a real composition.
 test('a write waits for the end of an input method composition', () => {
   const { editor, session } = open()

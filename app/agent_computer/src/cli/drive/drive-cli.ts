@@ -2,7 +2,7 @@ import { DRIVE_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { errorMessage } from '../../common/errors'
 import { positiveInteger } from '../primitives'
 import { DriveCLICommand, type DriveCLICommand as Command } from './drive-cli-protocol'
-import { requestDriveCLI } from './drive-cli-client'
+import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 
 const usage = `Usage:
   ankole-files list [<folder>] [--limit <1-1000>] [--after <cursor>]
@@ -51,7 +51,11 @@ if (import.meta.main) {
       const socketPath = process.env[DRIVE_CLI_SOCKET_ENV]
       if (!socketPath) throw new Error('ankole-files is available only inside an active Ankole turn')
 
-      const result = await requestDriveCLI(socketPath, command)
+      const result = await requestSocketLineBridge(
+        socketPath,
+        JSON.stringify(command),
+        'drive CLI bridge returned an invalid response'
+      )
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     }
   } catch (error) {

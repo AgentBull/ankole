@@ -1,10 +1,11 @@
 defmodule AnkoleWeb.AuthController do
   @moduledoc """
-  Console and OAuth login through durable, purpose-bound browser transactions.
+  Browser authentication through durable, purpose-bound login transactions.
   """
   use AnkoleWeb, :controller
   use OpenApiSpex.ControllerSpecs
 
+  alias AnkoleWeb.Schemas.InternalAPI
   alias Ankole.AuthZ
   alias Ankole.BrowserSessions
   alias Ankole.IdentityProviders
@@ -16,7 +17,8 @@ defmodule AnkoleWeb.AuthController do
   alias AnkoleWeb.Schemas.ConsoleAPI.AuthSessionDeleteResponse
   alias AnkoleWeb.Session, as: WebSession
 
-  plug :put_login_tenant when action != :oidc_callback
+  plug :put_login_tenant
+       when action not in [:oidc_callback, :session, :delete_session, :delete_authentication]
 
   defp put_login_tenant(conn, _opts) do
     case conn.params["flow"] do
@@ -24,8 +26,14 @@ defmodule AnkoleWeb.AuthController do
         transaction = WebSession.login_transaction(conn, flow)
 
         case transaction do
-          {:ok, login} -> :ok = Ankole.Repo.put_tenant_id(login.tenant_id)
-          {:error, _} -> :ok
+          {:ok, %{tenant_id: tenant_id}} when is_binary(tenant_id) ->
+            :ok = Ankole.Repo.put_tenant_id(tenant_id)
+
+          {:ok, _} ->
+            :ok
+
+          {:error, _} ->
+            :ok
         end
 
         assign(conn, :login_transaction, transaction)
@@ -41,69 +49,200 @@ defmodule AnkoleWeb.AuthController do
   defp login_transaction(conn), do: conn.assigns.login_transaction
 
   tags(["Auth"])
-  operation(:session, false)
-  operation(:identity_providers, false)
+
+  operation(:session,
+    operation_id: "browserSession",
+    summary: "Read the current browser session",
+    responses: %{
+      200 => {"Session", "application/json", InternalAPI.BrowserSession},
+      401 => {"Unauthenticated", "application/json", InternalAPI.BrowserSession},
+      :default => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
+  operation(:identity_providers,
+    operation_id: "loginProviders",
+    summary: "loginProviders",
+    parameters: [flow: [in: :query, type: :string]],
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.LoginProviders},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   operation(:oidc_authorization, false)
   operation(:oidc_callback, false)
-  operation(:local_password_login, false)
-  operation(:local_password_change, false)
+
+  operation(:local_password_login,
+    operation_id: "localPasswordLogin",
+    summary: "localPasswordLogin",
+    request_body: {"Request", "application/json", InternalAPI.LocalPasswordLoginRequest},
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.LoginResult},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
+  operation(:local_password_change,
+    operation_id: "localPasswordChange",
+    summary: "localPasswordChange",
+    request_body: {"Request", "application/json", InternalAPI.LocalPasswordChangeRequest},
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.LoginComplete},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
 
   operation(:delete_session,
     summary: "End authentication in the current browser",
     responses: [ok: {"Deleted session", "application/json", AuthSessionDeleteResponse}]
   )
 
+  operation(:select_identity,
+    operation_id: "selectLoginIdentity",
+    summary: "Select an authenticated identity for this authorization",
+    request_body: {"Selection", "application/json", InternalAPI.LoginIdentitySelection},
+    responses: %{
+      200 => {"Selection", "application/json", InternalAPI.LoginComplete},
+      :default => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
+  operation(:delete_authentication,
+    operation_id: "endBrowserAuthentication",
+    summary: "End the selected browser authentication",
+    responses: %{
+      200 => {"Ended", "application/json", InternalAPI.InternalOK},
+      :default => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def session(conn, _params) do
-    case WebSession.admin_session(conn) do
-      %{"principal_uid" => uid} = session ->
-        if AuthZ.site_admin?(uid) do
-          json(conn, %{authenticated: true, principalUID: uid, providerID: session["provider_id"]})
-        else
-          conn |> put_status(401) |> json(%{authenticated: false})
-        end
+    case WebSession.current_authentication(conn) do
+      %{"principal_uid" => uid} = authentication ->
+        json(conn, %{
+          authenticated: true,
+          principalUID: uid,
+          providerID: authentication["provider_id"]
+        })
 
       _ ->
         conn |> put_status(401) |> json(%{authenticated: false})
     end
   end
 
-  def delete_session(conn, _params) do
-    conn |> WebSession.clear_admin_session() |> json(%{ok: true})
+  def delete_session(conn, _params),
+    do: conn |> WebSession.clear_admin_session() |> json(%{ok: true})
+
+  def delete_authentication(conn, _params) do
+    case WebSession.revoke_authentication(conn) do
+      {:ok, conn} -> json(conn, %{ok: true})
+      {:error, reason} -> login_error(conn, reason)
+    end
   end
+
+  def select_identity(conn, %{"flow" => flow, "authenticationRef" => encoded}) do
+    with {:ok, reference} <- BrowserSessions.decode_reference(encoded),
+         true <- WebSession.authentication_proven?(conn, reference),
+         {:ok, transaction} <-
+           BrowserSessions.select_authorization(
+             WebSession.browser_reference(conn),
+             flow,
+             reference
+           ) do
+      json(conn, %{status: "ok", returnTo: return_to(transaction)})
+    else
+      _ -> login_error(conn, :login_expired)
+    end
+  end
+
+  def select_identity(conn, _), do: error(conn, 422, "identity selection is required")
 
   def identity_providers(conn, params) do
     with {:ok, providers} <- providers_for_flow(conn, params["flow"]) do
+      transaction =
+        case login_transaction(conn) do
+          {:ok, transaction} -> transaction
+          _ -> nil
+        end
+
       json(conn, %{
         identity: current_identity(conn),
+        identities: identity_choices(conn, transaction),
+        selectAccount:
+          transaction != nil and LoginPolicy.selection_required?(transaction.request),
         providers:
           Enum.map(providers, fn provider ->
             %{
               providerID: provider["provider_id"],
               adapterID: provider["adapter_id"],
               pluginID: provider["plugin_id"],
-              kind: provider["kind"]
+              kind: provider["kind"],
+              loginPath: provider["login_path"],
+              displayName: provider["display_name"]
             }
           end)
       })
     else
-      {:error, reason} -> error(conn, 500, reason)
+      {:error, reason} -> login_error(conn, reason)
     end
   end
 
+  defp identity_choices(conn, %{purpose: :oauth} = transaction) do
+    Enum.flat_map(WebSession.authentication_references(conn), fn reference ->
+      with %{} = authentication <- BrowserSessions.identity(reference, transaction.tenant_id),
+           :ok <-
+             LoginPolicy.authorize_source(
+               transaction.request["client_id"],
+               authentication["provider_id"]
+             ),
+           {:ok, principal} <- Ankole.Principals.get_principal(authentication["principal_uid"]) do
+        [
+          %{
+            authenticationRef: BrowserSessions.encode_reference(reference),
+            principalUID: principal.uid,
+            displayName: principal.display_name || principal.uid,
+            providerID: authentication["provider_id"]
+          }
+        ]
+      else
+        _ -> []
+      end
+    end)
+  end
+
+  defp identity_choices(_, _), do: []
+
   defp current_identity(conn) do
-    case WebSession.oauth_session(conn) || WebSession.admin_session(conn) do
-      %{"principal_uid" => uid, "provider_id" => provider} ->
-        {:ok, tenant_id} = Ankole.Principals.resolve_tenant(uid)
-
-        {:ok, principal} =
-          Ankole.Repo.with_tenant(tenant_id, fn ->
-            Ankole.Principals.get_principal(uid)
-          end)
-
-        %{displayName: principal.display_name || uid, providerID: provider}
-
-      _ ->
-        nil
+    with %{"principal_uid" => uid, "provider_id" => provider} <-
+           WebSession.current_authentication(conn),
+         {:ok, tenant_id} <- Ankole.Principals.resolve_tenant(uid),
+         {:ok, principal} <-
+           Ankole.Repo.with_tenant(tenant_id, fn -> Ankole.Principals.get_principal(uid) end) do
+      %{displayName: principal.display_name || uid, providerID: provider}
+    else
+      _ -> nil
     end
   end
 
@@ -112,12 +251,15 @@ defmodule AnkoleWeb.AuthController do
   defp providers_for_flow(conn, _flow) do
     with {:ok, transaction} <- login_transaction(conn) do
       case transaction.purpose do
-        :console ->
-          Login.list_login_providers()
+        purpose when purpose in [:console, :pod] ->
+          LoginPolicy.login_providers()
 
         :oauth ->
           with {:ok, client} <- Ankole.OIDC.get_active_client(transaction.request["client_id"]),
                do: LoginPolicy.providers(client, transaction.request)
+
+        :site ->
+          {:ok, Ankole.IdentityProviders.SiteSources.providers()}
       end
     end
   end
@@ -316,7 +458,12 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
-  defp return_to(%{purpose: :oauth, id: id}), do: "/oauth/authorize/resume?flow=" <> id
+  defp return_to(%{purpose: :oauth, id: id} = transaction) do
+    if LoginPolicy.authorization_ready?(transaction),
+      do: "/oauth/authorize/resume?flow=" <> id,
+      else: "/sessions/new?oauth=1&flow=" <> id
+  end
+
   defp return_to(transaction), do: WebSession.safe_return_to(transaction.request["return_to"])
 
   defp required_param(params, key) do
@@ -342,6 +489,8 @@ defmodule AnkoleWeb.AuthController do
 
   defp login_error(conn, reason) when reason in [:account_disabled, :human_access_revoked],
     do: error(conn, 403, "account_disabled")
+
+  defp login_error(conn, :tenant_suspended), do: error(conn, 403, "tenant_suspended")
 
   defp login_error(conn, :not_an_admin), do: error(conn, 403, "not_an_admin")
 

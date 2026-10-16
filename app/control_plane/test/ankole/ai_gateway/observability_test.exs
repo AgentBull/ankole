@@ -203,7 +203,8 @@ defmodule Ankole.AIGateway.ObservabilityTest do
         %{"input" => "hello"},
         request_context: %{
           "headers" => %{"traceparent" => traceparent},
-          "observability_user_id" => nil
+          "observability_user_id" => nil,
+          "signal_id" => signal.id
         },
         stateful: %{conversation_id: signal.session_id},
         subject_type: "agent"
@@ -243,6 +244,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
     Enum.each([root, generation], fn span ->
       refute Map.has_key?(span.attributes, "user.id")
       assert span.attributes["session.id"] == signal.session_id
+      assert span.attributes["ankole.signal.id"] == signal.id
       assert span.attributes["ankole.principal.uid"] == signal.agent_uid
       assert span.attributes["ankole.principal.type"] == "agent"
     end)
@@ -1073,6 +1075,202 @@ defmodule Ankole.AIGateway.ObservabilityTest do
       assert span.attributes["ankole.principal.uid"] == signal.agent_uid
       assert span.attributes["ankole.principal.type"] == "agent"
     end)
+  end
+
+  test "bounded stages correlate both inputs with the committed native reply without exporting their data" do
+    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+    %{principal: agent} = Ankole.SessionsCase.agent_fixture(%{owner_principal_uid: human.uid})
+    enable_export(self(), "opentelemetry")
+    id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Repo.transact(fn _ ->
+               Ankole.ConversationsFixtures.create(human.uid, %{
+                 conversation_id: id,
+                 agent_uid: agent.uid,
+                 message_id: Ecto.UUID.generate(),
+                 text: "private stimulus body"
+               })
+             end)
+
+    [first] = Repo.all(Signal)
+    key = %{agent_uid: agent.uid, session_id: first.session_id}
+    assert {:ok, run} = Ankole.Sessions.Admission.admit(key, first)
+    assert {:ok, {:preparing, run}} = Ankole.Sessions.Model.prepare(run)
+    run = Observability.attach_turn(run)
+    assert run.spec.request_context["signal_id"] == first.id
+    assert run.spec.request_context["session_epoch"] == run.epoch
+
+    assert {:ok, _} =
+             Repo.transact(fn _ ->
+               Ankole.ConversationsFixtures.post(human.uid, id, %{
+                 message_id: Ecto.UUID.generate(),
+                 text: "another private body"
+               })
+             end)
+
+    second = Repo.one!(from(s in Signal, where: s.id != ^first.id))
+
+    assert {:ok, [second], run} =
+             Ankole.Sessions.Run.inject_pending(
+               %{run | pending_event_ids: [second.id]},
+               fn _ -> true end
+             )
+
+    assert {:ok, response} =
+             Ankole.AIGatewayCase.start_response_run(%{
+               subject_uid: agent.uid,
+               conversation_id: run.conversation.id,
+               round_state: run,
+               metadata: %{"request_metadata" => Ankole.Sessions.Run.metadata(run)}
+             })
+
+    assert {:ok, response} =
+             Ankole.AIGateway.ResponseCommit.commit_complete(
+               response,
+               [%{"type" => "output_text", "text" => "done"}]
+             )
+
+    assert {:ok, _} =
+             Ankole.Sessions.Run.finalize(%{run | model_response: response, anchor: response.id})
+
+    Observability.finish_turn(run.span)
+    spans = exported_spans()
+    completed = Enum.filter(spans, &(&1.name == "session.input.completed"))
+
+    assert MapSet.new(Enum.map(completed, & &1.attributes["ankole.signal.id"])) ==
+             MapSet.new([first.id, second.id])
+
+    for span <- completed do
+      assert span.attributes["ankole.signal.root_id"] == first.id
+      assert span.attributes["ankole.signal.reply_id"] == second.id
+      assert span.attributes["ankole.session.epoch"] == run.epoch
+    end
+
+    assert span!(spans, "session.admission.observed_committed")
+
+    assert span!(spans, "session.finalize.commit").attributes["ankole.stage.outcome"] ==
+             "completed"
+
+    stages =
+      Enum.filter(
+        spans,
+        &(String.starts_with?(&1.name, "session.") or String.starts_with?(&1.name, "signal."))
+      )
+
+    refute inspect(stages) =~ "private"
+  end
+
+  test "intake rollback records preparation without claiming a commit; disabled stages preserve failures" do
+    %{principal: agent} = Ankole.SessionsCase.agent_fixture()
+    enable_export(self(), "opentelemetry")
+
+    assert {:error, :rollback} =
+             Repo.transact(fn repo ->
+               assert {:ok, _} =
+                        Ankole.Signals.accept_in_tx(repo, %{
+                          producer: :kernel,
+                          target: %{agent_uid: agent.uid, session_id: "trace-rollback"},
+                          sender: agent.uid,
+                          source: "test:trace",
+                          id: Ecto.UUID.generate(),
+                          type: "custom.trace",
+                          data: %{"token" => "must-not-leave"}
+                        })
+
+               {:error, :rollback}
+             end)
+
+    refute Repo.exists?(Signal)
+    spans = exported_spans()
+    assert span!(spans, "signal.intake.prepared_in_tx")
+    refute Enum.any?(spans, &(&1.name == "signal.intake.committed"))
+    refute inspect(spans) =~ "must-not-leave"
+    Observability.put_provider_for_test(nil)
+
+    assert {:error, :unchanged} =
+             Observability.stage("disabled", %{}, fn -> {:error, :unchanged} end)
+
+    assert_raise RuntimeError, "same failure", fn ->
+      Observability.stage("disabled", %{}, fn -> raise "same failure" end)
+    end
+  end
+
+  test "delivery traces distinguish an unknown send and a stale result after successful recovery" do
+    alias Ankole.Conversations.Delivery
+    alias Ankole.Conversations.Delivery.Intent
+    import Ankole.SignalsFixtures, only: [delivery_adapter: 2, delivery_adapter: 3]
+
+    %{principal: agent} = Ankole.SessionsCase.agent_fixture()
+    event = Ankole.SignalsFixtures.external_session_signal_fixture(agent.uid)
+    enable_export(self(), "opentelemetry")
+    now = DateTime.utc_now(:microsecond)
+
+    for key <- ["trace-unknown", "trace-stale"] do
+      assert {:ok, _} =
+               Delivery.commit(%{
+                 agent_uid: agent.uid,
+                 binding_name: event.reply_binding_name,
+                 outbound_key: key,
+                 source_signal_id: event.id,
+                 operation: :post,
+                 conversation_id: event.conversation_id,
+                 delivery_class: :durable_ai_reply,
+                 payload: %{
+                   "text" => "private reply",
+                   "reply_presentation" =>
+                     Ankole.Conversations.Delivery.ReplyPresentation.new(state: "completed")
+                 },
+                 fallback_visible_text: "private reply"
+               })
+    end
+
+    assert {:ok, %Intent{status: :unknown}} =
+             Delivery.dispatch(
+               agent.uid,
+               event.reply_binding_name,
+               "trace-unknown",
+               delivery_adapter([:post_entry], fn _ -> :unknown end),
+               now: now
+             )
+
+    takeover =
+      delivery_adapter(
+        [:post_entry, :outbound_reconciliation],
+        fn _ -> flunk("recovery must not send again") end,
+        fn _ -> {:ok, %{created_provider_message_id: "trace-recovered"}} end
+      )
+
+    late =
+      delivery_adapter([:post_entry], fn _ ->
+        assert {:ok, %Intent{status: :sent}} =
+                 Delivery.dispatch(agent.uid, event.reply_binding_name, "trace-stale", takeover,
+                   now: DateTime.add(now, 61, :second)
+                 )
+
+        {:error, {:reply_delivery, :retryable, %{"code" => "late_timeout"}}}
+      end)
+
+    assert {:ok, %Intent{status: :sent}} =
+             Delivery.dispatch(agent.uid, event.reply_binding_name, "trace-stale", late, now: now)
+
+    spans = exported_spans()
+
+    unknown =
+      Enum.find(
+        spans,
+        &(&1.name == "delivery.send" and
+            &1.attributes["ankole.delivery.key"] == "trace-unknown")
+      )
+
+    assert unknown.attributes["ankole.stage.outcome"] == "unknown"
+    assert unknown.attributes["ankole.signal.id"] == event.id
+    stale = span!(spans, "delivery.stale_result")
+    assert stale.attributes["ankole.stage.outcome"] == "stale"
+    assert stale.attributes["ankole.delivery.current_status"] == "sent"
+    assert stale.attributes["ankole.signal.id"] == event.id
+    assert span!(spans, "delivery.reconcile").attributes["ankole.delivery.phase"] == "reconcile"
+    refute inspect(spans) =~ "private reply"
   end
 
   defp enable_export(test_pid, provider_name) do

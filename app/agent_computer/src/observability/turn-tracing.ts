@@ -26,7 +26,13 @@ const traceparentPattern = /^([0-9a-f]{2})-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-
 const observabilityUserIDPrefixes = ['principal:', 'channel:'] as const
 const observabilityUserIDMaxCodepoints = 200
 const observationContentLimitBytes = 1_024 * 1_024
-const turnIdentityAttributeNames = new Set(['ankole.principal.uid', 'ankole.principal.type', 'user.id', 'session.id'])
+const turnIdentityAttributeNames = new Set([
+  'ankole.principal.uid',
+  'ankole.principal.type',
+  'user.id',
+  'session.id',
+  'ankole.signal.id'
+])
 
 export type WorkerObservationType = 'agent' | 'tool'
 
@@ -71,7 +77,8 @@ export function workerTurnTrace(turnStart: TurnStart, agentUID: string): WorkerT
       'ankole.principal.uid': agentUID,
       'ankole.principal.type': 'agent',
       ...(propagation.observabilityUserID ? { 'user.id': propagation.observabilityUserID } : {}),
-      'session.id': turnStart.turn.session.session_id
+      'session.id': turnStart.turn.session.session_id,
+      'ankole.signal.id': turnStart.turn.signal_id
     }
   }
 }

@@ -19,12 +19,11 @@ function istHTML(doc: Plot.Doc, expected: string) {
 
 function istSliceHTML(doc: Plot.Doc, expected: string, options?: serialize.slice.Options & { maxDepth?: number }) {
   const wrap = document.createElement('div')
-  const slice = doc.slice(tag(doc, 0), tag(doc, 1)),
-    opts = {
-      ...options,
-      context: doc.contextAt(tag(doc, 0), options?.maxDepth)
-    }
-  const frag = serialize.slice(slice, opts)
+  let slice = Slice.get(doc, tag(doc, 0), tag(doc, 1))
+  if (options?.maxDepth != null && slice.context.length > options.maxDepth) {
+    slice = Slice.of(slice.content, slice.context.slice(0, options.maxDepth))
+  }
+  const frag = serialize.slice(slice, options)
   wrap.appendChild(frag.toDOM())
   ist(wrap.innerHTML, expected)
   ist(frag.toHTML(), expected)
@@ -317,24 +316,26 @@ describe('parse.slice', () => {
     return Slice.of(children.map(ch => (typeof ch == 'string' ? Leaf.text(ch) : ch)))
   }
 
+  const sliceEq = (a: Slice, b: Slice) => Slice.eq(a.content, b.content)
+
   it('can parse a simple slice', () => {
-    ist(parseSlice('<p>One</p><p>Two</p>').slice, slice(['One', Plot.End, p().tag, 'Two']), eq)
+    ist(parseSlice('<p>One</p><p>Two</p>'), slice(['One', Plot.End, p().tag, 'Two']), sliceEq)
   })
 
   it('can parse text at the top level', () => {
-    ist(parseSlice('hello').slice, slice(['hello']), eq)
+    ist(parseSlice('hello'), slice(['hello']), sliceEq)
   })
 
   it("doesn't trim text at the top level", () => {
-    ist(parseSlice('  hello  ', { collapseWhiteSpace: false }).slice, slice(['  hello  ']), eq)
+    ist(parseSlice('  hello  ', { collapseWhiteSpace: false }), slice(['  hello  ']), sliceEq)
   })
 
   it('opens nested nodes', () => {
-    ist(parseSlice('<ul><li><p>One</p></li></ul>').slice, slice(['One']), eq)
+    ist(parseSlice('<ul><li><p>One</p></li></ul>'), slice(['One']), sliceEq)
   })
 
   it("doesn't open leaf nodes", () => {
-    ist(parseSlice('<hr><p>A<br></p>').slice, slice([hr, p().tag, 'A', br]), eq)
+    ist(parseSlice('<hr><p>A<br></p>'), slice([hr, p().tag, 'A', br]), sliceEq)
   })
 
   function isOpen(elt: Element): 'start' | 'end' | 'start end' | null {
@@ -345,41 +346,41 @@ describe('parse.slice', () => {
 
   it('can query the DOM for open structure', () => {
     ist(
-      parseSlice('<blockquote open-start=true open-end=true><p open-end=true>hi</p></blockquote>', { isOpen }).slice,
+      parseSlice('<blockquote open-start=true open-end=true><p open-end=true>hi</p></blockquote>', { isOpen }),
       slice([p().tag, 'hi']),
-      eq
+      sliceEq
     )
   })
 
   it('creates a block parent when seeing multiple unmatched block elements', () => {
-    ist(parseSlice('<div>a</div><div>b</div>').slice, slice(['a', Plot.End, p('b')]), eq)
+    ist(parseSlice('<div>a</div><div>b</div>'), slice(['a', Plot.End, p('b')]), sliceEq)
   })
 
   it('does not prefer an inline parent because of many inline nodes', () => {
     ist(
-      parseSlice('<div><span>a</span><span>b</span><span>c</span><div>d</div></div>').slice,
+      parseSlice('<div><span>a</span><span>b</span><span>c</span><div>d</div></div>'),
       slice(['abc', Plot.End, p('d')]),
-      eq
+      sliceEq
     )
   })
 
   it('does not prefer a list parent because of many list items', () => {
     ist(
-      parseSlice('<li>a</li><li>b</li><p>c</p>').slice,
+      parseSlice('<li>a</li><li>b</li><p>c</p>'),
       slice(['a', Plot.End, Plot.End, li(p('b')), Plot.End, p().tag, 'c']),
-      eq
+      sliceEq
     )
   })
 
   it('drops spaces at the edges of nested blocks', () => {
-    ist(parseSlice('<ul><li> a </li><li> b </li></ul>').slice, slice(['a', Plot.End, Plot.End, li().tag, p('b')]), eq)
+    ist(parseSlice('<ul><li> a </li><li> b </li></ul>'), slice(['a', Plot.End, Plot.End, li().tag, p('b')]), sliceEq)
   })
 
   it('keeps spaces at the edges of a top-level block', () => {
-    ist(parseSlice('<p> world </p>').slice, slice([' world ']), eq)
+    ist(parseSlice('<p> world </p>'), slice([' world ']), sliceEq)
   })
 
   it('does not start a block for an element with an inline display', () => {
-    ist(parseSlice('<span>a</span><div style="display: inline">b</div>').slice, slice(['ab']), eq)
+    ist(parseSlice('<span>a</span><div style="display: inline">b</div>'), slice(['ab']), sliceEq)
   })
 })

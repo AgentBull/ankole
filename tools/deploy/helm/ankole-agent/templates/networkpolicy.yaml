@@ -1,7 +1,7 @@
 {{- if .Values.networkPolicy.enabled }}
-# Only control-plane Pods may open Erlang distribution connections. HTTP stays
-# reachable from any peer: the ingress controller serves the Console, and
-# Workers use every Pod IP for the file relay.
+# This policy allows Erlang distribution from control-plane Pods and HTTP
+# from any peer: the ingress controller serves the Console, and Workers use
+# every Pod IP for the file relay. Other applicable policies can add access.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -30,9 +30,10 @@ spec:
 {{- end }}
 {{- if and .Values.networkPolicy.enabled .Values.worker.localPods }}
 ---
-# Workers accept no connection. They reach the control plane (Channel and file
-# relay), DNS, and public addresses, but not private ranges or the node
-# metadata address: a Worker with node credentials would have the node role.
+# This policy adds no Worker ingress allowance. Egress allows the control plane,
+# TCP/UDP 53 to any destination, and IPv4 addresses outside workerDeniedCIDRs.
+# The DNS allowance also applies inside those CIDRs. Enforcement needs a
+# supporting network plugin; other applicable policies can add allowances.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

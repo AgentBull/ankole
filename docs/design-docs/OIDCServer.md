@@ -45,16 +45,17 @@ issues an OIDC Refresh Token only when the request includes `offline_access`.
 ## Human Login
 
 An existing active Human Principal is the Boruta Resource Owner. The
-authorization endpoint uses the existing local-password and external identity
-providers. A durable browser record stores separate OAuth and Console
-authentication contexts. They can identify only the same Human. An active
-administrator session can open an OAuth context for that Human when Client
-source and freshness rules permit reuse. A normal Human login does not create
-a Console administrator context.
+current browser selection supplies a default authentication, which must resolve
+the Client's fixed tenant. Multiple authentications can remain independent.
+The server does not silently try another account when the current one fails.
+Console permission remains a separate siteadmin check; a native Pod or OAuth
+login cannot grant it.
 
-[Browser Sessions](BrowserSessions.md) defines the lifecycle,
-authentication context, and concurrent-request rules. Console permission remains
-an independent AuthZ check.
+[Browser Sessions](BrowserSessions.md) owns proof cookies, target selection,
+login transactions, and concurrent completion. The selection page lists only
+proofs held by the browser and allowed for the Client. `sub` remains the target
+Human Principal UID; `email` comes from that Human's profile. Site account
+contact data does not replace either claim.
 
 The authorization endpoint completes authorization after login. It does not
 store user consent. The administrator's Client scopes, allowed groups, and
@@ -80,11 +81,13 @@ digest of an Authorization Code or OIDC Refresh Token is stored. Client secrets
 are encrypted and returned only at Client creation or secret rotation. Access
 Tokens, ID Tokens, users, and consent are not duplicated in OIDC storage.
 
-`oidc_sessions` stores each Client, browser generation, Human access version,
+`oidc_sessions` stores each Client, authentication ID and revision, Human access version,
 verified provider, authentication time, authorization expiry, session end, and
-authorization revocation. Its UUID is `sid`. Authorization Codes and Refresh
+authorization revocation. Its UUID is `sid`. The unique association key is Client, authentication ID, and
+revision. Two identities authorizing the same Client cannot share a subject row.
+Selecting or reusing an identity preserves its actual authentication time. Authorization Codes and Refresh
 Tokens reference this row. `oidc_logout_requests` binds a validated logout
-request to one browser generation. `oidc_logout_deliveries` stores the registered
+request to one browser revision. `oidc_logout_deliveries` stores the registered
 endpoint, target session, delivery state, attempts, retry time, deadline, and
 bounded error. These records remain available after token expiry; expiry alone
 is not proof that an RP session ended.
@@ -237,13 +240,20 @@ deadline is part of this contract.
 These contracts use the existing Boruta protocol boundary.
 [Browser Sessions](BrowserSessions.md) owns authentication context and pending
 login state. OIDC owns Client policy, authorization credentials, and RP sessions.
+`Ankole.OIDC.LoginPolicy` decides whether selection, reuse, or reauthentication
+is required. BrowserSessions commits that decision under its browser lock.
+The web controllers use the same policy to choose the next page. Confirming an
+identity satisfies only account selection; freshness and source rules still apply.
 
 ### Authentication Requests
 
 Apply [OIDC Core authentication request semantics](https://openid.net/specs/openid-connect-core-1_0.html#AuthRequest).
-Accept `prompt=login`, `prompt=none`, and no prompt. Reject combined `none` and
-interactive values and unsupported prompt values with `invalid_request`.
-`select_account` and a consent interface are not supported.
+Accept `prompt=login`, `prompt=none`, `prompt=select_account`, and no prompt.
+`select_account` requires explicit selection even when the active identity is
+valid. `login select_account` selects the subject, then requires a real
+reauthentication of that subject. A URL identity hint cannot change the active
+choice. Reject duplicate values, combined `none` and interactive values, and
+unsupported values with `invalid_request`. There is no consent interface.
 
 Parse `max_age` as decimal seconds from 0 through 2147483647. Reject negative,
 fractional, malformed, and larger values. Use the actual authentication time,
@@ -276,10 +286,11 @@ the standard `claims` parameter must not silently bypass a required
 ### Client Identity-Provider Policy
 
 `allowed_identity_provider_ids` belongs to the existing Client configuration.
-An empty list keeps the existing choice of active login providers. A nonempty
-list permits only those configured provider IDs, including the existing local
-password provider ID when explicitly selected. Validate IDs when saving the
-Client. A removed or disabled provider does not cause a fallback to another
+An empty list permits the active login sources. A nonempty list permits only
+its configured tenant provider IDs or build-declared site source IDs. Include
+the local password source explicitly when it is required. The Client editor's
+source catalog includes both authorities. Validate IDs when saving the Client;
+tenant provider configuration cannot register a reserved site source ID. A removed or disabled provider does not cause a fallback to another
 source. A policy with no usable provider fails with an actionable error.
 
 Check the verified authentication source at login entry, session reuse, code
@@ -315,6 +326,8 @@ request; require CSRF proof on confirmation. This also covers absent hints and
 identity conflicts. A valid Client ID and registered redirect are sufficient
 for the no-hint confirmation path; no Client secret enters the browser. Cancel
 leaves the OP session active and displays that result on the OP page.
+Check the confirmed browser revision again after taking the browser row lock.
+A login that commits while confirmation waits makes that confirmation obsolete.
 
 Confirmed logout ends the current browser's Ankole authentication through
 Browser Sessions. It does not disable the Principal or end other devices.
@@ -326,6 +339,8 @@ that every RP received the notification. Echo `state` only to the validated
 post-logout URI. Repeated logout is safe.
 
 Browser logout invalidates pending codes and browser-bound online grants.
+Online grants also require their original Pod proof and current site identity
+binding; removing that binding cannot leave its online credentials usable.
 An explicit `offline_access` grant retains its existing absolute lifetime
 after ordinary logout; Principal disablement revokes it. Logout notifications
 end RP sessions and do not themselves prove revocation of offline grants.

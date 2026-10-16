@@ -35,7 +35,7 @@ defmodule Ankole.DataCase do
 
   @doc "Selects the privileged tenant for a serial test of site administration."
   def set_privileged_tenant(%Ankole.Tenants.Tenant{} = tenant) do
-    {:ok, _} = Ankole.AppConfigure.put_global_by_key("tenants.privileged_slug", tenant.slug)
+    {:ok, _} = Ankole.AppConfigure.put_global_by_key("tenants.privileged_tenant_id", tenant.id)
     :ok
   end
 

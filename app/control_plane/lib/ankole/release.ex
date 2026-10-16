@@ -16,9 +16,7 @@ defmodule Ankole.Release do
   @spec migrate() :: :ok
   def migrate do
     load_app()
-    with_repo(&Ecto.Migrator.run(&1, :up, all: true))
-
-    :ok = Ankole.Upgrade202610.run()
+    with_repo(&Ankole.Migrations.migrate(&1, Ankole.Migrations.paths(), :up, all: true))
 
     :ok
   end

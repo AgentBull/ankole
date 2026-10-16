@@ -4,6 +4,7 @@ defmodule Ankole.Conversations.InputRevisions do
   import Ecto.Query, warn: false
 
   alias Ankole.Signals.Signal
+  alias Ankole.Conversations.MessageInput
   alias Ankole.Conversations.Delivery.Deletion
 
   @doc """
@@ -63,7 +64,7 @@ defmodule Ankole.Conversations.InputRevisions do
         session_id: fact_session_id(fact)
       })
 
-    case Signal.attachment_materialization_state(entry) do
+    case MessageInput.attachment_materialization_state(entry) do
       state when state in ["pending", "complete", "failed"] ->
         case event_for_supplement_source_entry(repo, fact, entry["provider_message_id"]) do
           %Signal{} = event ->
@@ -96,7 +97,7 @@ defmodule Ankole.Conversations.InputRevisions do
       })
 
     with state when state in ["pending", "complete", "failed"] <-
-           Signal.attachment_materialization_state(entry),
+           MessageInput.attachment_materialization_state(entry),
          %Signal{} = event <-
            event_for_supplement_source_entry(repo, fact, entry["provider_message_id"]) do
       merge_into_open_event(repo, event, entry, now, true)
@@ -116,7 +117,7 @@ defmodule Ankole.Conversations.InputRevisions do
          _now
        ) do
     if latest_session_event?(repo, event) do
-      case Signal.attachment_observed_at(entry) do
+      case MessageInput.attachment_observed_at(entry) do
         %DateTime{} = observed_at ->
           if DateTime.compare(completed_at, observed_at) in [:eq, :gt],
             do: {:ok, {:next_turn, :completion_won}},
@@ -152,12 +153,12 @@ defmodule Ankole.Conversations.InputRevisions do
        do: {:ok, :not_supplement}
 
   defp merge_into_open_event(repo, event, entry, now, _refresh?) do
-    if event_entry_content_current?(Signal.input_entries(event), entry) do
+    if event_entry_content_current?(MessageInput.input_entries(event), entry) do
       {:ok, :not_supplement}
     else
       kind =
         if Enum.any?(
-             Signal.input_entries(event),
+             MessageInput.input_entries(event),
              &(&1["provider_message_id"] == entry["provider_message_id"])
            ),
            do: "edit",
@@ -170,7 +171,7 @@ defmodule Ankole.Conversations.InputRevisions do
   end
 
   defp merge_queued_input_in_tx(repo, event, kind, entry, now) do
-    case Signal.revised_input_attrs(event, kind, entry, now) do
+    case MessageInput.revised_input_attrs(event, kind, entry, now) do
       :no_match ->
         {:ok, event}
 

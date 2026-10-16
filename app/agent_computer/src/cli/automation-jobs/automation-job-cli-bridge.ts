@@ -1,3 +1,30 @@
+import type { JsonObject as JSONObject } from '@agentbull/active-support'
+import type { RPCRequestInit } from '../../lanes/rpc_contract'
+import { type RPCRequester, type RPCFrame } from '../../lanes/rpc_lane'
+import type { RunRef, JobTurnRef } from '../../lanes/session_lane'
+import { jsonObjectFromBytes } from '../../fabric/envelope_proto'
+
+export type AutomationJobManagementRPCMethod =
+  | 'automation_job.create'
+  | 'automation_job.list'
+  | 'automation_job.show'
+  | 'automation_job.cancel'
+export type AutomationJobRPCRequester = <M extends AutomationJobManagementRPCMethod>(
+  method: M,
+  payload: RPCRequestInit<M>
+) => Promise<JSONObject>
+
+/** Binds this CLI family to its caller's turn; only reads may repeat after disconnect. */
+export function automationJobRPCRequester(rpc: RPCRequester, turn: JobTurnRef | RunRef): AutomationJobRPCRequester {
+  const frame = 'job_id' in turn ? { jobTurn: turn } : { run: turn }
+  return async (method, payload) => {
+    const response = await rpc(method, payload, frame as RPCFrame<typeof method>, {
+      retryOnDisconnect: method === 'automation_job.list' || method === 'automation_job.show'
+    })
+    return jsonObjectFromBytes(response.bodyJson, `${method} body_json`) ?? {}
+  }
+}
+
 import { lstat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { randomBytes, randomUUID } from 'node:crypto'
@@ -11,7 +38,7 @@ import {
   type SocketLineBridgeResponse
 } from '../../core/socket-line-bridge'
 import { type Drive, joinDrivePath } from '../../drive/drive'
-import { RPCRejectedError, type AutomationJobRPCRequester } from '../../lanes/rpc_lane'
+import { RPCRejectedError } from '../../lanes/rpc_lane'
 import { AutomationJobCLICommand } from './automation-job-cli-protocol'
 
 /** Keeps the drive folder name, with its random suffix, inside one 255-byte path segment. */

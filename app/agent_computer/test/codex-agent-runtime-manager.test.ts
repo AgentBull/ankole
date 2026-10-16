@@ -237,6 +237,47 @@ describe('@ankole/agent-computer Agent Codex runtime manager', () => {
     }
   })
 
+  it('fails every active owner after an unowned event overflow and reaps before replacement', async () => {
+    const fixture = runtimeFixture()
+    const manager = new AgentCodexRuntimeManager()
+    const input = {
+      agentUID: 'agent-1',
+      agentHome: fixture.agentHome,
+      codexHome: fixture.codexHome,
+      sqliteHome: fixture.sqliteHome,
+      aiGatewayBaseURL: 'http://control.test/api/v1/ai-gateway',
+      aiGatewayAPIKey: 'agent-token',
+      appServer: fixture.appServer
+    }
+    const first = await manager.acquire(input)
+    const second = await manager.acquire(input)
+    try {
+      const firstOwner = session()
+      const secondOwner = session()
+      await first.runtime.registerRoot('root-1', firstOwner)
+      await second.runtime.registerRoot('root-2', secondOwner)
+      const processID = first.runtime.client.processID
+
+      await expect(first.runtime.client.request('test/unowned-overflow', {})).rejects.toThrow('256 message bound')
+      await waitUntil(() => firstOwner.lost.length === 1 && secondOwner.lost.length === 1)
+      expect(firstOwner.lost[0]).toMatchObject({ code: 'runtime_lost', retryable: true })
+      expect(secondOwner.lost[0]).toBe(firstOwner.lost[0])
+      expect(firstOwner.notifications).toEqual([])
+      expect(secondOwner.notifications).toEqual([])
+      expect(manager.activeRuntimeCount()).toBe(0)
+      await expect(first.runtime.registerRoot('late-root', session())).rejects.toMatchObject({ code: 'runtime_lost' })
+
+      const replacement = await manager.acquire(input)
+      expect(replacement.runtime.client.processID).not.toBe(processID)
+      await Promise.all([first.release(), second.release()])
+      expect(manager.activeRuntimeCount()).toBe(1)
+      await replacement.release()
+    } finally {
+      await Promise.all([first.release(), second.release()])
+      fixture.cleanup()
+    }
+  })
+
   it('serializes official Plugin installation, Hook trust, and global disable before any Job thread', async () => {
     const fixture = createPluginRuntimeFixture()
     const runtime = new AgentCodexRuntime('agent-1', fixture.client)
@@ -399,6 +440,45 @@ describe('@ankole/agent-computer Agent Codex thread router', () => {
         diagnostic: 'startup failed Authorization: [REDACTED] token=[REDACTED] [REDACTED] [REDACTED]'
       }
     ])
+  })
+
+  it('counts serialized UTF-8 bytes and returns the budget when a root drains', async () => {
+    const fakeClient = { async closeAndWait() {} } as unknown as CodexAppServerClient
+    const runtime = new AgentCodexRuntime('agent-1', fakeClient)
+    const event = { method: 'item/completed', params: { threadId: 'pending-root', text: '' } }
+    const remaining = 64 * 1024 * 1024 - Buffer.byteLength(JSON.stringify(event))
+    event.params.text = '界'.repeat(Math.floor(remaining / 3)) + 'x'.repeat(remaining % 3)
+    runtime.routeNotification(event)
+    const owner = session()
+    await runtime.registerRoot('pending-root', owner)
+    expect(owner.notifications).toEqual([event])
+    runtime.unregisterThread('pending-root', owner)
+
+    event.params.threadId = 'another-root'
+    runtime.routeNotification(event)
+    expect(() => runtime.routeNotification({ method: 'turn/completed', params: { threadId: 'another-root' } })).toThrow(
+      '64 MiB byte bound'
+    )
+    await runtime.close()
+  })
+
+  it('returns all 256 message slots after ownership drains the queued events', async () => {
+    const runtime = new AgentCodexRuntime('agent-1', { async closeAndWait() {} } as unknown as CodexAppServerClient)
+    for (let index = 0; index < 256; index++) {
+      runtime.routeNotification({ method: 'item/completed', params: { threadId: 'pending-root', index } })
+    }
+    const owner = session()
+    await runtime.registerRoot('pending-root', owner)
+    expect(owner.notifications.map(message => (message.params as { index: number }).index)).toEqual(
+      Array.from({ length: 256 }, (_, index) => index)
+    )
+    for (let index = 0; index < 256; index++) {
+      runtime.routeNotification({ method: 'item/completed', params: { threadId: 'another-root', index } })
+    }
+    expect(() => runtime.routeNotification({ method: 'turn/completed', params: { threadId: 'another-root' } })).toThrow(
+      '256 message bound'
+    )
+    await runtime.close()
   })
 
   it('buffers start races, inherits child ownership, fails unknown requests closed, and cleans one Job tree', async () => {
@@ -816,6 +896,11 @@ function handle(message) {
   }
   if (message.method === 'initialized') return
   if (message.method === 'test/exit') return process.exit(43)
+  if (message.method === 'test/unowned-overflow') {
+    for (let index = 0; index < 257; index++) write({ method: 'item/completed', params: { threadId: 'unowned', index } })
+    write({ method: 'turn/completed', params: { threadId: 'root-1' } })
+    return
+  }
   if (message.id !== undefined) write({ id: message.id, result: {} })
 }
 process.stdin.setEncoding('utf8')

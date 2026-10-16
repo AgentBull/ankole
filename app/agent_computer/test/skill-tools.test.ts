@@ -28,7 +28,7 @@ describe('Job skill_view adapter', () => {
     const tools = createSkillTools({ turn, rpc: unusedRPC })
     expect(tools.map(tool => tool.name)).toEqual(['skill_view'])
     expect(tools[0]!.describeActivity({ name: 'pdf', filePath: 'references/private.md' })).toEqual({
-      key: 'signals_gateway.reply.activity.skill_load',
+      key: 'conversations.delivery.reply.activity.skill_load',
       bindings: { name: 'pdf' }
     })
   })

@@ -306,14 +306,10 @@ defmodule Ankole.BackgroundAgentJobs.Control do
 
   defp live_turn_ref_in_tx(repo, job) do
     event =
-      repo.one(
-        from e in Signal,
-          where:
-            e.agent_uid == ^job.agent_uid and
-              e.session_id == ^BackgroundAgentJobs.job_session_id(job.id) and
-              not is_nil(e.last_attempt_at) and is_nil(e.completed_at) and e.input_state == "open",
-          order_by: [asc: e.queue_sequence],
-          limit: 1
+      Ankole.Sessions.Queue.oldest_started(
+        repo,
+        job.agent_uid,
+        BackgroundAgentJobs.job_session_id(job.id)
       )
 
     if event,

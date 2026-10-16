@@ -84,9 +84,12 @@ export class ViewState {
       style = window.getComputedStyle(dom)
     this.styleLTR = style.direction == 'ltr'
 
-    const domRect = dom.getBoundingClientRect()
-    this.contentDOMHeight = domRect.height
     let result = 0
+    const domRect = dom.getBoundingClientRect()
+    if (Math.abs(this.contentDOMHeight - domRect.height) > 0.5) {
+      result |= UpdateFlag.Geometry
+      this.contentDOMHeight = domRect.height
+    }
 
     if (this.editorWidth != wg.scrollDOM.clientWidth) {
       this.editorWidth = wg.scrollDOM.clientWidth
@@ -95,7 +98,7 @@ export class ViewState {
 
     const contentWidth = domRect.width
     if (
-      this.contentDOMWidth != contentWidth ||
+      Math.abs(this.contentDOMWidth - contentWidth) > 0.5 ||
       this.editorHeight != wg.scrollDOM.clientHeight ||
       this.editorOffset != wg.scrollDOM.offsetTop
     ) {

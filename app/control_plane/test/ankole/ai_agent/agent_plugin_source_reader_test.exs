@@ -95,6 +95,75 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReaderTest do
     assert plugin.manifest["hooks"] == ["./hooks/session.json", "./hooks/tools.json"]
   end
 
+  test "an unreadable manifest is an error rather than an absent Plugin" do
+    root = tmp_root!("broken-manifest")
+    plugin_root = Path.join([root, "agent-plugins", "broken"])
+    File.mkdir_p!(Path.join(plugin_root, ".codex-plugin"))
+    File.ln_s!("missing", Path.join(plugin_root, ".codex-plugin/plugin.json"))
+
+    assert {:error, {:agent_plugin_manifest_unreadable, "broken", :enoent}} =
+             SourceReader.read_trusted_agent_plugins(roots: [root])
+  end
+
+  test "a broken Skill file prevents a partial Plugin inventory" do
+    source = Path.expand("../../../../library/agent-plugins/deep-research", __DIR__)
+    root = tmp_root!("broken-skill")
+    plugin_root = Path.join([root, "agent-plugins", "deep-research"])
+    File.mkdir_p!(Path.dirname(plugin_root))
+    File.cp_r!(source, plugin_root)
+    skill_path = Path.join(plugin_root, "skills/create-deep-research/SKILL.md")
+    File.rm!(skill_path)
+    File.ln_s!("missing", skill_path)
+
+    assert {:error, {:agent_plugin_skills_unreadable, :enoent}} =
+             SourceReader.read_trusted_agent_plugins(roots: [root])
+  end
+
+  test "a broken manifest directory cannot hide an installed Plugin" do
+    root = tmp_root!("broken-manifest-directory")
+    plugin_root = Path.join([root, "agent-plugins", "broken"])
+    File.mkdir_p!(plugin_root)
+    File.ln_s!("missing", Path.join(plugin_root, ".codex-plugin"))
+
+    assert {:error, {:agent_plugin_manifest_unreadable, "broken", :enoent}} =
+             SourceReader.read_trusted_agent_plugins(roots: [root])
+  end
+
+  test "a directory at the manifest file path is not a Plugin manifest" do
+    root = tmp_root!("manifest-is-directory")
+    manifest_dir = Path.join([root, "agent-plugins", "not-a-plugin", ".codex-plugin"])
+    File.mkdir_p!(Path.join(manifest_dir, "plugin.json"))
+
+    assert {:ok, []} = SourceReader.read_trusted_agent_plugins(roots: [root])
+
+    File.rmdir!(Path.join(manifest_dir, "plugin.json"))
+    File.ln_s!(".", Path.join(manifest_dir, "plugin.json"))
+    assert {:ok, []} = SourceReader.read_trusted_agent_plugins(roots: [root])
+  end
+
+  test "a file at the manifest directory path is not a Plugin package" do
+    root = tmp_root!("manifest-parent-is-file")
+    plugin_root = Path.join([root, "agent-plugins", "not-a-plugin"])
+    File.mkdir_p!(plugin_root)
+    path = Path.join(plugin_root, ".codex-plugin")
+    File.write!(path, "Not a manifest directory")
+
+    assert {:ok, []} = SourceReader.read_trusted_agent_plugins(roots: [root])
+
+    File.rm!(path)
+    File.write!(Path.join(plugin_root, "metadata.txt"), "Not a manifest directory")
+    File.ln_s!("metadata.txt", path)
+    assert {:ok, []} = SourceReader.read_trusted_agent_plugins(roots: [root])
+  end
+
+  test "a broken Plugin root link is not a removed root" do
+    root = tmp_root!("broken-root")
+    File.ln_s!("missing", Path.join(root, "agent-plugins"))
+
+    assert {:error, {:agent_plugin_root_unreadable, _, :enoent}} =
+             SourceReader.read_trusted_agent_plugins(roots: [root])
+  end
+
   defp tmp_root!(name) do
     root =
       Path.join(

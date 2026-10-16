@@ -12,7 +12,6 @@ defmodule Ankole.IdentityProviders.Directory do
 
   alias Ankole.AuthZ
   alias Ankole.Logging
-  alias Ankole.Plugins.MapHelpers
   alias Ankole.Principals
 
   defmodule Group do
@@ -45,7 +44,7 @@ defmodule Ankole.IdentityProviders.Directory do
   adapter normalized from the provider payload. When `opts` carries
   `:group_external_ids`, memberships are replaced with exactly those external
   groups (an empty list clears them); without the key memberships stay
-  untouched, which is what login-path upserts want. `:directory_group_index`
+  untouched. A partial login observation must omit unobserved fields. `:directory_group_index`
   is forwarded so sync loops can reuse one prefetched index.
   """
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -63,7 +62,7 @@ defmodule Ankole.IdentityProviders.Directory do
 
       with {:ok, observed} <-
              Principals.upsert_platform_subject_human(
-               Map.put(attrs, :authoritative_profile, true)
+               Map.put_new(attrs, :authoritative_profile, true)
              ),
            :ok <- bind_attested_email(repo, provider_id, observed.principal.uid, attrs),
            :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
@@ -276,15 +275,18 @@ defmodule Ankole.IdentityProviders.Directory do
            external_id: group.external_id,
            group_id: principal_group_id,
            metadata:
-             MapHelpers.compact_metadata_map(%{
-               "provider" => provider_id,
-               "externalID" => group.external_id,
-               "name" => group.display_name,
-               "parentExternalID" => group.parent_external_id,
-               "status" => status,
-               "syncedAt" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
-               "external_directory" => external_directory_metadata(provider_id, group)
-             })
+             Map.reject(
+               %{
+                 "provider" => provider_id,
+                 "externalID" => group.external_id,
+                 "name" => group.display_name,
+                 "parentExternalID" => group.parent_external_id,
+                 "status" => status,
+                 "syncedAt" => DateTime.utc_now(:microsecond) |> DateTime.to_iso8601(),
+                 "external_directory" => external_directory_metadata(provider_id, group)
+               },
+               fn {_key, value} -> is_nil(value) or value == [] end
+             )
          }) do
       {:ok, _binding} -> :ok
       {:error, _reason} = error -> error
@@ -303,12 +305,15 @@ defmodule Ankole.IdentityProviders.Directory do
   end
 
   defp external_directory_metadata(provider_id, group) do
-    MapHelpers.compact_metadata_map(%{
-      "provider" => provider_id,
-      "kind" => group.kind,
-      "external_id" => group.external_id,
-      "parentExternalID" => group.parent_external_id
-    })
+    Map.reject(
+      %{
+        "provider" => provider_id,
+        "kind" => group.kind,
+        "external_id" => group.external_id,
+        "parentExternalID" => group.parent_external_id
+      },
+      fn {_key, value} -> is_nil(value) or value == [] end
+    )
   end
 
   defp maybe_log_skipped_members(_provider_id, _group_id, 0), do: :ok

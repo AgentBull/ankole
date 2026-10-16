@@ -4,6 +4,7 @@
     "jsx": "react-jsx",
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
     "types": ["bun", "react", "react-dom"]
   },
   "include": [
@@ -15,10 +16,14 @@
     "console/**/*.tsx",
     "entrypoints/**/*.ts",
     "entrypoints/**/*.tsx",
+    "integration/**/*.ts",
+    "integration/**/*.tsx",
     "setup/**/*.ts",
     "setup/**/*.tsx",
-    "workplace/**/*.ts",
-    "workplace/**/*.tsx",
-    "vite.config.ts"
+    "pod/**/*.ts",
+    "pod/**/*.tsx",
+    "vite.config.ts",
+    "playwright.config.ts",
+    "scripts/**/*.ts"
   ]
 }

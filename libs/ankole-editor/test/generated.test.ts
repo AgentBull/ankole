@@ -53,6 +53,18 @@ test.each([
   [[{ text: 'A*:Z', format: 0 }]],
   [
     [
+      { text: '\\', format: 4 },
+      { text: 'a', format: 0 }
+    ]
+  ],
+  [
+    [
+      { text: 'AZ', format: 13 },
+      { text: 'AZ', format: 1 }
+    ]
+  ],
+  [
+    [
       { text: 'A[Z', format: 24 },
       { text: 'AZ', format: 0 }
     ]

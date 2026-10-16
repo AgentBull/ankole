@@ -40,7 +40,7 @@ defmodule Ankole.Signals.Types do
   def supersedes_pending_interaction?(type), do: Map.get(@supersedes, type, false)
 
   @doc false
-  def interaction_preserving_turn_types do
-    for {type, false} <- @supersedes, do: type
+  def interaction_superseding_types do
+    for {type, true} <- @supersedes, do: type
   end
 end

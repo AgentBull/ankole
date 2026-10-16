@@ -197,7 +197,7 @@ test file. `bun run test:docker` runs the unit suite in Docker.
 
 Run `bun run test:integration` for host integration tests. They use local
 protocol fixtures and real Codex, MCPorter, `apply_patch`, and shell processes.
-The host needs Codex 0.162.1, MCPorter 0.14.3 running with Bun, native
+The host needs Codex 0.163.0, MCPorter 0.14.3 running with Bun, native
 `apply_patch`, and GNU `stat` (`gstat` on macOS). `ANKOLE_CODEX_BINARY` can select
 a local Codex binary. The command sets `TMPDIR=/tmp` to keep socket paths short.
 
@@ -217,9 +217,13 @@ below explicit tool inputs. The control plane rejects reserved names at storage
 and binding resolution. A binding-derived Lark tenant token is refreshed in a private
 execution file and is not frozen in a long-lived shell environment.
 
-Devkit resolves the immutable GHCR image for the current Git inputs when one is
-published. If the Worker inputs changed, it builds a content-addressed local
-image. For an explicit manual build, use a disposable name:
+Devkit resolves the immutable GHCR Worker image for the current Git inputs when
+one is published. If the Worker inputs changed, it builds a content-addressed
+local image. That build uses the pinned Agent OS base when `Dockerfile.base`
+matches the pin, and builds the base from the current recipe when it does not.
+Codex, MCPorter, OfficeCLI, Typst, kubectl, and the AWS CLI are layers of the
+Worker image. For an explicit manual build on the pinned base, use a disposable
+name:
 
 ```shell
 docker build \

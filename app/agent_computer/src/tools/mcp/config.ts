@@ -2,7 +2,7 @@ import { readFile, realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { YAML } from 'bun'
 import { z } from 'zod'
-import type { RuntimeSkillSummary } from '../../lanes/rpc_lane'
+import { type RuntimeSkillSummary } from '../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import {
   isValidSkillName,
   resolveSkillFilesystemRoot,

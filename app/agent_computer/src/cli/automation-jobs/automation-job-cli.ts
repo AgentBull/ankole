@@ -1,7 +1,7 @@
 import { positiveInteger } from '../primitives'
 import { AUTOMATION_JOB_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { AutomationJobCLICommand, type AutomationJobCLICommand as Command } from './automation-job-cli-protocol'
-import { requestAutomationJobCLI } from './automation-job-cli-client'
+import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import { errorMessage } from '../../common/errors'
 
 const usage = `Usage:
@@ -95,7 +95,11 @@ if (import.meta.main) {
       const socketPath = process.env[AUTOMATION_JOB_CLI_SOCKET_ENV]
       if (!socketPath) throw new Error('automation job CLI is available only inside an active Ankole turn')
 
-      const result = await requestAutomationJobCLI(socketPath, command)
+      const result = await requestSocketLineBridge(
+        socketPath,
+        JSON.stringify(command),
+        'automation job CLI bridge returned an invalid response'
+      )
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     }
   } catch (error) {

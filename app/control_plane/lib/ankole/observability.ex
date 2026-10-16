@@ -98,9 +98,90 @@ defmodule Ankole.Observability do
 
   def start_turn(_signal, _turn_start_spec), do: nil
 
+  @doc "Measures a bounded domain stage using identity and outcome facts only."
+  def stage(name, attributes, fun, parent \\ nil) do
+    span =
+      if provider(),
+        do:
+          safe(nil, fn ->
+            context =
+              case parent do
+                %{span: span} -> :otel_tracer.set_current_span(Ctx.new(), span)
+                _ -> Ctx.new()
+              end
+
+            :otel_tracer.start_span(context, tracer(), name, %{
+              attributes: attributes,
+              kind: :internal
+            })
+          end)
+
+    try do
+      result = fun.()
+      finish_stage(span, result)
+      result
+    catch
+      kind, reason ->
+        finish_stage(span, {:error, :exception})
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  @doc "Returns already loaded Signal identities without a storage lookup."
+  def signal_attributes(signal) do
+    %{
+      "ankole.tenant.id" => signal.tenant_id,
+      "ankole.principal.uid" => signal.agent_uid,
+      "session.id" => signal.session_id,
+      "ankole.signal.id" => signal.id,
+      "ankole.signal.source_event_id" => signal.source_event_id,
+      "ankole.session.attempt" => signal.attempt_count
+    }
+  end
+
+  defp finish_stage(nil, _result), do: :ok
+
+  defp finish_stage(span, result) do
+    safe(:ok, fn ->
+      {status, fields} = stage_result(result)
+      Span.set_attributes(span, Map.put(fields, "ankole.stage.outcome", status))
+      if status == "error", do: mark_error(span, "stage_failed")
+      Span.end_span(span)
+    end)
+  end
+
+  defp stage_result({:ok, %Signal{} = signal}), do: {"ok", signal_attributes(signal)}
+
+  defp stage_result({:ok, %{event: %Signal{} = signal, epoch: epoch}}),
+    do: {"admitted", Map.put(signal_attributes(signal), "ankole.session.epoch", epoch)}
+
+  defp stage_result({:ok, {phase, %Ankole.Conversations.Delivery.Intent{} = intent, _, _}}),
+    do:
+      {to_string(phase),
+       %{
+         "ankole.signal.id" => intent.source_signal_id,
+         "ankole.delivery.attempt" => intent.attempt_count
+       }}
+
+  defp stage_result({:ok, %{status: status}}), do: {to_string(status), %{}}
+  defp stage_result({:error, _}), do: {"error", %{}}
+  defp stage_result({:unknown, _}), do: {"unknown", %{}}
+  defp stage_result(:unknown), do: {"unknown", %{}}
+  defp stage_result({:stale, _}), do: {"stale", %{}}
+  defp stage_result(:stale), do: {"stale", %{}}
+  defp stage_result(_), do: {"ok", %{}}
+
   @doc "Starts an execution's turn span and attaches its request trace context."
   @spec attach_turn(map()) :: map()
   def attach_turn(%{span: nil} = execution) do
+    request_context =
+      Map.merge(execution.spec.request_context, %{
+        "signal_id" => execution.signal_id,
+        "session_epoch" => execution.epoch,
+        "session_attempt" => execution.event.attempt_count
+      })
+
+    execution = %{execution | spec: Map.put(execution.spec, :request_context, request_context)}
     span = start_turn(execution.event, execution.spec)
 
     context =
@@ -273,6 +354,8 @@ defmodule Ankole.Observability do
         principal_type: "agent",
         user_id: user_id,
         signal_id: signal.id,
+        session_attempt: signal.attempt_count,
+        session_epoch: map_value(request_context, "session_epoch"),
         session_id: signal.session_id,
         originator: nil,
         caller: "sessions.turn",
@@ -394,6 +477,8 @@ defmodule Ankole.Observability do
     context
     |> trace_attributes()
     |> Map.put("gen_ai.operation.name", "invoke_agent")
+    |> put_present("ankole.session.attempt", context.session_attempt)
+    |> put_present("ankole.session.epoch", context.session_epoch)
     |> put_present("ankole.background_agent_job.id", context.job_id)
     |> put_present("ankole.background_agent_job.attempts", context.attempts)
   end

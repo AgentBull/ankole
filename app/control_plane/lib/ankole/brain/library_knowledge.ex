@@ -86,23 +86,27 @@ defmodule Ankole.Brain.LibraryKnowledge do
   # is instance-level world content, so the per-Agent overrides that gate
   # tools and skills do not gate it.
   defp discover_sets do
+    root = LibrarySourceReader.library_root()
+
     builtin = %{
       kind: :knowledge,
       set_id: @builtin_set_id,
       name: "Library knowledge",
-      dir: Path.join(LibrarySourceReader.library_root(), "knowledge")
+      dir: Path.join(root, "knowledge")
     }
 
-    knowledge_sets = Enum.filter([builtin | plugin_sets()], &File.dir?(&1.dir))
-
-    case lazy_skill_set() do
-      {:ok, set} -> {:ok, knowledge_sets ++ [set]}
-      {:error, _reason} = error -> error
+    with {:ok, _entries} <- File.ls(root),
+         {:ok, plugins} <- AgentPlugins.sources(),
+         opts = [agent_plugin_sources: plugins],
+         {:ok, capabilities} <- AgentPlugins.global_capabilities(opts),
+         {:ok, skill_set} <- lazy_skill_set(opts) do
+      knowledge_sets = present_knowledge_sets([builtin | plugin_sets(plugins, capabilities)])
+      {:ok, knowledge_sets ++ [skill_set]}
     end
   end
 
-  defp lazy_skill_set do
-    case Library.shipped_skill_sources() do
+  defp lazy_skill_set(opts) do
+    case Library.shipped_skill_sources(opts) do
       {:ok, sources} ->
         {:ok,
          %{
@@ -117,27 +121,26 @@ defmodule Ankole.Brain.LibraryKnowledge do
     end
   end
 
-  defp plugin_sets do
-    with {:ok, plugins} <- AgentPlugins.sources(),
-         {:ok, capabilities} <- AgentPlugins.global_capabilities() do
-      enabled =
-        capabilities
-        |> Enum.filter(& &1["effective_enabled"])
-        |> MapSet.new(& &1["id"])
+  defp plugin_sets(plugins, capabilities) do
+    enabled =
+      capabilities
+      |> Enum.filter(& &1["effective_enabled"])
+      |> MapSet.new(& &1["id"])
 
-      for %{id: id, root: root} <- plugins, MapSet.member?(enabled, id) do
-        %{
-          kind: :knowledge,
-          set_id: "agent-plugin:" <> id,
-          name: id <> " knowledge",
-          dir: Path.join(root, "knowledge")
-        }
-      end
-    else
-      {:error, reason} ->
-        Logging.warning("brain.library_knowledge.plugin_scan_failed", %{reason: inspect(reason)})
-        []
+    for %{id: id, root: root} <- plugins, MapSet.member?(enabled, id) do
+      %{
+        kind: :knowledge,
+        set_id: "agent-plugin:" <> id,
+        name: id <> " knowledge",
+        dir: Path.join(root, "knowledge")
+      }
     end
+  end
+
+  defp present_knowledge_sets(sets) do
+    # Keep an unreadable set registered. Its read reports a local error and
+    # cannot withdraw its pages, while the other sets can still synchronize.
+    Enum.reject(sets, &match?({:error, :enoent}, File.lstat(&1.dir)))
   end
 
   defp sync_set(set) do
@@ -171,9 +174,14 @@ defmodule Ankole.Brain.LibraryKnowledge do
   end
 
   defp project_set(%{kind: :knowledge} = set, source) do
-    files = knowledge_files(set.dir)
-    {pages, rejected} = parse_pages(files)
-    project_pages(set, source, pages, rejected, fingerprint(files))
+    case knowledge_files(set.dir) do
+      {:ok, files} ->
+        {pages, rejected} = parse_pages(files)
+        project_pages(set, source, pages, rejected, fingerprint(files))
+
+      {:error, reason} ->
+        %{set: set.set_id, status: :error, reason: inspect(reason)}
+    end
   end
 
   defp project_pages(set, source, pages, rejected, fingerprint) do
@@ -258,22 +266,67 @@ defmodule Ankole.Brain.LibraryKnowledge do
   end
 
   defp knowledge_files(dir) do
-    dir
-    |> Path.join("**/*.md")
-    |> Path.wildcard()
-    |> Enum.sort()
-    |> Enum.flat_map(fn path ->
-      case File.read(path) do
-        {:ok, content} when byte_size(content) <= @max_file_bytes ->
-          [{Path.relative_to(path, dir), content}]
+    with {:ok, paths} <- knowledge_paths(dir) do
+      paths
+      |> Enum.sort()
+      |> Enum.map(fn path ->
+        case File.read(path) do
+          {:ok, content} when byte_size(content) <= @max_file_bytes ->
+            {:ok, {Path.relative_to(path, dir), content}}
 
-        {:ok, _oversized} ->
-          [{Path.relative_to(path, dir), :oversized}]
+          {:ok, _oversized} ->
+            {:ok, {Path.relative_to(path, dir), :oversized}}
 
-        {:error, _reason} ->
-          []
-      end
-    end)
+          {:error, reason} ->
+            {:error, {:knowledge_inventory_unreadable, path, reason}}
+        end
+      end)
+      |> Ankole.Attrs.collect_results()
+    end
+  end
+
+  # Match the shipped **/*.md policy, but do not treat a failed directory
+  # listing as an empty inventory. Readable file and directory links remain valid.
+  defp knowledge_paths(dir) do
+    with {:ok, entries} <- File.ls(dir) do
+      entries
+      |> Enum.reject(&String.starts_with?(&1, "."))
+      |> Enum.reduce_while({:ok, []}, fn entry, {:ok, paths} ->
+        path = Path.join(dir, entry)
+
+        case knowledge_entry_paths(path) do
+          {:ok, found} -> {:cont, {:ok, found ++ paths}}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
+    else
+      {:error, reason} -> {:error, {:knowledge_inventory_unreadable, dir, reason}}
+    end
+  end
+
+  defp knowledge_entry_paths(path) do
+    markdown? = String.ends_with?(path, ".md")
+
+    case File.stat(path) do
+      {:ok, %File.Stat{type: :directory}} ->
+        knowledge_paths(path)
+
+      {:ok, %File.Stat{type: :regular}} ->
+        {:ok, if(markdown?, do: [path], else: [])}
+
+      {:ok, _stat} ->
+        {:ok, []}
+
+      {:error, :enoent} ->
+        # The file pattern does not include dangling non-Markdown links.
+        case File.lstat(path) do
+          {:ok, %File.Stat{type: :symlink}} when not markdown? -> {:ok, []}
+          _result -> {:error, {:knowledge_inventory_unreadable, path, :enoent}}
+        end
+
+      {:error, reason} ->
+        {:error, {:knowledge_inventory_unreadable, path, reason}}
+    end
   end
 
   defp parse_pages(files) do

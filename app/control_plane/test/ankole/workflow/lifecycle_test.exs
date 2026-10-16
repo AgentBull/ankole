@@ -720,13 +720,17 @@ defmodule Ankole.WorkflowTest do
              Workflow.defer_task_event(dispatch_event!(sibling), deferred_at, :agent_capacity)
 
     assert {:ok, %{accepted: true, call: failed, run: same_run}} =
-             Workflow.fail_unstarted_task(
-               call.id,
-               agent.uid,
-               "workflow_model_profile_unavailable",
-               "Workflow task model profile review is unavailable.",
-               failed_at
-             )
+             Repo.transact(fn repo ->
+               Workflow.fail_unstarted_task_in_tx(
+                 repo,
+                 call.id,
+                 agent.uid,
+                 "workflow_model_profile_unavailable",
+                 "Workflow task model profile review is unavailable.",
+                 failed_at
+               )
+             end)
+             |> Workflow.cleanup_terminal_transition()
 
     assert same_run.id == run.id
     assert failed.id == call.id

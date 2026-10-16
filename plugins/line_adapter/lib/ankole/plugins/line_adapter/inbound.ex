@@ -10,7 +10,7 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.UTF16Text
   alias Ankole.Conversations.AdapterContext
-  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.{Attachments, Observe}
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Delivery.ActionToken
 
@@ -136,84 +136,35 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
     end
   end
 
-  # The pending observation is durable before the webhook returns 200; the
-  # download runs after, so LINE does not time out and redeliver the batch
-  # while Ankole fetches a large file.
   defp emit_with_materialization(input, consumer) do
-    {input, observed_at} = Observe.reuse_stored_attachments(input, @provider_fact_states)
-
-    if Observe.attachments_need_bytes?(input.attachments) do
-      pending =
-        update_in(
-          input.metadata,
-          &Observe.put_attachment_materialization(&1, "pending", observed_at)
-        )
-
-      case emit_entry(pending, consumer) do
-        {:ok,
-         %{
-           message_observation: %{
-             message: %Ankole.Conversations.Message{attachments: attachments}
-           }
-         }} = result
-        when is_list(attachments) ->
-          start_materialization(input, attachments, consumer, observed_at)
-          result
-
-        {:ok, _held_or_ignored} = result ->
-          result
-
-        {:error, _reason} = error ->
-          error
-      end
-    else
-      emit_entry(input, consumer)
-    end
-  end
-
-  # The download never runs in the webhook process: LINE waits for the answer
-  # and redelivers a slow one. If the task cannot start, the webhook fails
-  # instead, LINE delivers the event again, and the pending observation that
-  # is already durable makes that redelivery fetch the file.
-  defp start_materialization(input, attachments, consumer, observed_at) do
-    {:ok, _pid} =
-      Task.Supervisor.start_child(
-        Ankole.Plugins.LineAdapter.MaterializationTaskSupervisor,
-        Ankole.Repo.bind_tenant(fn ->
-          materialize_and_emit(input, attachments, consumer, observed_at)
-        end)
-      )
-
-    :ok
-  end
-
-  defp materialize_and_emit(input, attachments, consumer, observed_at) do
-    attachments = materialize_attachments(attachments, consumer)
-
-    input
-    |> Map.put(:attachments, attachments)
-    |> update_in(
-      [:metadata],
-      &Observe.put_attachment_materialization(
-        &1,
-        Observe.materialization_state(attachments),
-        observed_at
-      )
+    Observe.emit_entry_deferred(
+      input,
+      &emit_entry(&1, consumer),
+      &materialize_attachments(&1, consumer),
+      &start_materialization(&1, consumer),
+      @provider_fact_states
     )
-    |> emit_entry(consumer)
-    |> case do
-      {:ok, _result} ->
-        :ok
+  end
 
-      {:error, reason} ->
-        Logging.warning(
-          "line_adapter.attachment.materialization_emit_failed",
-          "LINE attachment observation could not be stored",
-          %{binding: consumer.context.binding_name, reason: inspect(reason)}
-        )
+  defp start_materialization(task, consumer) do
+    Task.Supervisor.start_child(
+      Ankole.Plugins.LineAdapter.MaterializationTaskSupervisor,
+      fn ->
+        case task.() do
+          {:ok, _result} ->
+            :ok
 
-        :ok
-    end
+          {:error, reason} ->
+            Logging.warning(
+              "line_adapter.attachment.materialization_emit_failed",
+              "LINE attachment observation could not be stored",
+              %{binding: consumer.context.binding_name, reason: inspect(reason)}
+            )
+
+            :ok
+        end
+      end
+    )
   end
 
   defp emit_entry(input, consumer) do
@@ -454,7 +405,7 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
   defp materialize_attachments(attachments, consumer) do
     client = Config.client(consumer.config)
 
-    Observe.materialize_attachments(attachments, "line", &download_attachment(&1, client),
+    Attachments.materialize_attachments(attachments, "line", &download_attachment(&1, client),
       restriction: "Ankole downloads LINE content up to 25 MB."
     )
   end

@@ -19,7 +19,7 @@ type JSONValue = string | number | boolean | null | JSONValue[] | JSONObject
  * (camelCase fields, bigint 64-bit integers). Turn-lane consumers import
  * through this module and convert to the snake_case domain DTOs at the lane
  * boundary. RPC business payloads are the generated `rpc.proto` messages
- * themselves, accessed through the `rpc_lane` registry without a DTO layer.
+ * themselves, accessed through the `rpc_contract` declaration without a DTO layer.
  */
 export {
   ControlShutdownSchema,

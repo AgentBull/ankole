@@ -89,6 +89,21 @@ accounts. Confirmed removal from the configured Ankole admission scope also
 disables the whole Principal. There is no provider-only disabled state.
 Separate accounts with no trusted link require explicit operator review.
 
+## Browser authentication evidence
+
+A site authentication can hold separate access proofs for Humans in several
+Pods. Each proof fixes the Principal UID and the version verified during real
+login. Disablement invalidates only that Human's proofs; the account's other Pod
+identities can remain valid. A login completed during disablement records no
+proof for the disabled Human.
+
+Restoration does not update these proofs. A new real authentication, or an
+explicit connection using a second current Pod proof, must verify the restored
+version. Ordinary navigation cannot copy the latest `access_version` into an
+old proof. The existing Principal lock and transaction revocation check enforce
+this boundary; no separate recovery clock is required. See
+[Browser Sessions](BrowserSessions.md#site-sources-and-human-recovery).
+
 ## Store Disable Reasons Separately from Sync Health
 
 Keep `active` and `disabled` as the Principal access states. Store the reason,

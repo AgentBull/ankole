@@ -71,6 +71,8 @@ defmodule AnkoleWeb.OIDCController do
   end
 
   def authorize(conn, params) do
+    params = Map.delete(params, "selection_confirmed")
+
     with {:ok, client, scope} <- validate_authorization_request(params) do
       continue_authorization(conn, params, client, scope)
     else
@@ -81,21 +83,25 @@ defmodule AnkoleWeb.OIDCController do
 
   def resume_authorize(conn, %{"flow" => flow}) do
     result =
-      BrowserSessions.consume_authorization(WebSession.browser_reference(conn), flow, fn params,
-                                                                                         auth ->
-        with {:ok, client, scope} <- validate_authorization_request(params),
-             :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]),
-             :ok <- LoginPolicy.completed_authentication_allowed?(auth, params),
-             {:ok, resource_owner} <- ResourceOwners.from_authentication(auth),
-             :ok <- authorize_gateway_scope(client, resource_owner.sub, scope) do
-          {:ok,
-           Boruta.Oauth.authorize(
-             %{conn | query_params: Map.put(params, "scope", scope)},
-             resource_owner,
-             __MODULE__
-           )}
+      BrowserSessions.consume_authorization(
+        WebSession.browser_reference(conn),
+        flow,
+        authorization_reference(conn, flow),
+        fn params, auth ->
+          with {:ok, client, scope} <- validate_authorization_request(params),
+               :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]),
+               :ok <- LoginPolicy.completed_authentication_allowed?(auth, params),
+               {:ok, resource_owner} <- ResourceOwners.from_authentication(auth),
+               :ok <- authorize_gateway_scope(client, resource_owner.sub, scope) do
+            {:ok,
+             Boruta.Oauth.authorize(
+               %{conn | query_params: Map.put(params, "scope", scope)},
+               resource_owner,
+               __MODULE__
+             )}
+          end
         end
-      end)
+      )
 
     case result do
       {:ok, conn} ->
@@ -218,6 +224,7 @@ defmodule AnkoleWeb.OIDCController do
   @impl true
   def userinfo_fetched(conn, response) do
     conn
+    |> no_store()
     |> put_resp_content_type(UserinfoResponse.content_type(response))
     |> send_resp(200, encode_userinfo(UserinfoResponse.payload(response)))
   end
@@ -230,8 +237,12 @@ defmodule AnkoleWeb.OIDCController do
   defp continue_authorization(conn, params, client, scope) do
     params = Map.put(params, "scope", scope)
 
-    case current_resource_owner(conn, client, params) do
-      {:ok, resource_owner, conn} ->
+    case {Ankole.Tenants.accepting_work?(client.tenant_id),
+          current_resource_owner(conn, client, params)} do
+      {false, _} ->
+        redirect_authorization_error(conn, params, "access_denied", "Pod is unavailable")
+
+      {true, {:ok, resource_owner, conn}} ->
         with :ok <- authorize_gateway_scope(client, resource_owner.sub, scope) do
           Boruta.Oauth.authorize(%{conn | query_params: params}, resource_owner, __MODULE__)
         else
@@ -239,12 +250,18 @@ defmodule AnkoleWeb.OIDCController do
             redirect_authorization_error(conn, params, "access_denied", message(reason))
         end
 
-      :error ->
-        if params["prompt"] == "none" do
+      {true, :error} ->
+        if LoginPolicy.silent?(params) do
           redirect_authorization_error(conn, params, "login_required", "Human login is required")
         else
           with {:ok, _providers} <- LoginPolicy.providers(client, params),
-               {:ok, conn, transaction} <- WebSession.begin_login(conn, :oauth, params) do
+               {:ok, conn, transaction} <-
+                 WebSession.begin_login(
+                   conn,
+                   :oauth,
+                   params,
+                   reauthentication_target(conn, client, params)
+                 ) do
             redirect(conn, to: "/sessions/new?oauth=1&flow=" <> transaction.id)
           else
             {:error, reason} ->
@@ -254,38 +271,32 @@ defmodule AnkoleWeb.OIDCController do
     end
   end
 
-  defp current_resource_owner(conn, client, params) do
-    case WebSession.oauth_session(conn) do
-      %{} = authentication ->
-        result =
-          with true <- LoginPolicy.can_reuse?(authentication, params),
-               :ok <- LoginPolicy.authorize_source(client, authentication["provider_id"]),
-               do: ResourceOwners.from_authentication(authentication)
-
-        case result do
-          {:ok, resource_owner} -> {:ok, resource_owner, conn}
-          _ -> current_admin_resource_owner(conn, client, params)
-        end
-
-      _missing ->
-        current_admin_resource_owner(conn, client, params)
+  defp reauthentication_target(conn, client, params) do
+    with true <- LoginPolicy.requires_login?(params),
+         false <- LoginPolicy.select_account?(params),
+         %{} = auth <- WebSession.oauth_session(conn),
+         :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]) do
+      [expected_authentication_id: auth["authentication_id"]]
+    else
+      _ -> []
     end
   end
 
-  defp current_admin_resource_owner(conn, client, params) do
-    case WebSession.site_admin_session(conn) do
-      %{"principal_uid" => _uid} = session ->
-        with true <- LoginPolicy.can_reuse?(session, params),
-             :ok <- LoginPolicy.authorize_source(client, session["provider_id"]),
-             {:ok, resource_owner} <- ResourceOwners.from_authentication(session),
-             {:ok, _} <- BrowserSessions.reuse_console(WebSession.browser_reference(conn)) do
-          {:ok, resource_owner, conn}
-        else
-          _inactive -> :error
-        end
+  defp current_resource_owner(conn, client, params) do
+    with %{} = authentication <- WebSession.oauth_session(conn),
+         true <- LoginPolicy.can_reuse?(authentication, params),
+         :ok <- LoginPolicy.authorize_source(client, authentication["provider_id"]),
+         {:ok, resource_owner} <- ResourceOwners.from_authentication(authentication) do
+      {:ok, resource_owner, conn}
+    else
+      _ -> :error
+    end
+  end
 
-      _missing ->
-        :error
+  defp authorization_reference(conn, flow) do
+    case WebSession.login_transaction(conn, flow) do
+      {:ok, transaction} -> WebSession.transaction_reference(conn, transaction)
+      _ -> nil
     end
   end
 

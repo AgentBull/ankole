@@ -2,7 +2,6 @@ defmodule Ankole.Sessions do
   @moduledoc "Wakes the single driver for committed Session input. PostgreSQL owns the inbox."
   import Ecto.Query
   alias Ankole.Sessions.Admission
-  alias Ankole.Sessions.Driver
   alias Ankole.Sessions.Jobs.EnsureDriver
   alias Ankole.Signals.Signal
   alias Ankole.Repo
@@ -19,7 +18,7 @@ defmodule Ankole.Sessions do
 
     event =
       Repo.one(
-        from event in Signal,
+        from(event in Signal,
           where:
             event.agent_uid == ^uid and event.session_id == ^session and
               event.input_state == "open" and is_nil(event.completed_at),
@@ -35,6 +34,7 @@ defmodule Ankole.Sessions do
             asc: event.queue_sequence
           ],
           limit: 1
+        )
       )
 
     case event do
@@ -51,6 +51,20 @@ defmodule Ankole.Sessions do
     end
   end
 
+  @doc "The shared registry identity for ordinary and background Job drivers."
+  def driver_name(key), do: {Ankole.Sessions.Driver, key.agent_uid, key.session_id}
+
+  @doc "Finds the existing driver without starting it."
+  def driver_pid(key), do: :global.whereis_name(driver_name(key))
+
+  @doc "Returns the active model history identity without creating history."
+  def active_model_conversation_id(key) do
+    case Ankole.Sessions.ModelHistory.active_conversation(key.agent_uid, key.session_id) do
+      %{id: id} -> id
+      nil -> nil
+    end
+  end
+
   def ensure_driver(key) do
     case Repo.get(Ankole.Principals.Principal, key.agent_uid) do
       %{type: :agent, tenant_id: tenant_id} -> ensure_in_tenant(key, tenant_id)
@@ -59,7 +73,7 @@ defmodule Ankole.Sessions do
   end
 
   defp ensure_in_tenant(key, tenant_id) do
-    case Driver.whereis(key) do
+    case Ankole.Sessions.driver_pid(key) do
       :undefined ->
         case DynamicSupervisor.start_child(
                Ankole.Sessions.Drivers,
@@ -119,7 +133,7 @@ defmodule Ankole.Sessions do
   end
 
   def job_turn(job) do
-    case Driver.whereis(%{
+    case Ankole.Sessions.driver_pid(%{
            agent_uid: job.agent_uid,
            session_id: Ankole.BackgroundAgentJobs.job_session_id(job.id)
          }) do

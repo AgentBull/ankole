@@ -240,7 +240,7 @@ export function WorkerEnvEditorPage() {
     }
   }, [item, list.isLoading, mode])
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'worker-env', name, scope },
+    sourceKey: `worker-env:${scope}:${name ?? 'new'}`,
     source: workerEnvDraft,
     absent: () => mode === 'edit' && list.isSuccess && !list.isFetching && !item
   })

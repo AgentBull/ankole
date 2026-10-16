@@ -21,13 +21,15 @@ defmodule Ankole.Conversations.Observe do
   alias Ankole.Conversations.InputRevisions
   alias Ankole.Conversations.Delivery.Preview
   alias Ankole.Signals.Signal
+  alias Ankole.I18n
+  alias Ankole.Logging
   alias Ankole.Repo
-  alias Ankole.Signals.Envelope
+  alias Ankole.Conversations.Envelope
   alias Ankole.Signals.Bindings
   alias Ankole.Signals.Commands
   alias Ankole.Conversations.FactNormalizer
   alias Ankole.Signals.BindingFilters
-  alias Ankole.Signals.IdentityAdmission
+  alias Ankole.Conversations.IdentityAdmission
   alias Ankole.Conversations.InboundBatches
   alias Ankole.Conversations.Observation
   alias Ankole.Conversations.Delivery
@@ -49,7 +51,8 @@ defmodule Ankole.Conversations.Observe do
   `{:ok, %{status: :filtered}}` (a successful no-op, not an error), and the actor
   runtime is woken only when the signal actually produced new Signal.
   """
-  @spec emit_entry(String.t(), String.t(), map(), keyword()) :: ingress_result()
+  @spec emit_entry(String.t(), String.t(), FactNormalizer.entry_input(), keyword()) ::
+          ingress_result()
   def emit_entry(agent_uid, binding_name, input, options \\ []) when is_map(input) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
@@ -65,8 +68,9 @@ defmodule Ankole.Conversations.Observe do
           |> accept_entry(fact, now)
           |> deliver_inputs()
 
-        {:held, result} ->
-          {:ok, result}
+        {:held, fact, status, notice?} ->
+          if notice?, do: notify_held_sender(fact, now)
+          {:ok, %{status: status}}
 
         {:error, _reason} = error ->
           error
@@ -85,7 +89,8 @@ defmodule Ankole.Conversations.Observe do
   `options[:provider_lifecycle_kind]` for diagnostics, while the actor-facing
   contract remains `conversation.message.removed`.
   """
-  @spec emit_entry_removed(String.t(), String.t(), map(), keyword()) :: ingress_result()
+  @spec emit_entry_removed(String.t(), String.t(), FactNormalizer.removal_input(), keyword()) ::
+          ingress_result()
   def emit_entry_removed(agent_uid, binding_name, input, options \\ []) do
     provider_lifecycle_kind =
       Keyword.get(options, :provider_lifecycle_kind) ||
@@ -105,7 +110,8 @@ defmodule Ankole.Conversations.Observe do
   (`:ignored_unknown_entry`) rather than treated as an error, since the gateway
   has no entry to attach it to.
   """
-  @spec emit_reaction(String.t(), String.t(), map(), keyword()) :: ingress_result()
+  @spec emit_reaction(String.t(), String.t(), FactNormalizer.reaction_input(), keyword()) ::
+          ingress_result()
   def emit_reaction(agent_uid, binding_name, input, options \\ []) when is_map(input) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
@@ -139,7 +145,8 @@ defmodule Ankole.Conversations.Observe do
   @doc """
   Concrete adapter API for provider actions such as card clicks.
   """
-  @spec emit_action(String.t(), String.t(), map(), keyword()) :: ingress_result()
+  @spec emit_action(String.t(), String.t(), FactNormalizer.action_input(), keyword()) ::
+          ingress_result()
   def emit_action(agent_uid, binding_name, input, options \\ []) when is_map(input) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
@@ -182,40 +189,6 @@ defmodule Ankole.Conversations.Observe do
     end
   end
 
-  @doc """
-  Returns whether any attachment still needs its bytes stored.
-
-  An attachment is satisfied when the file service holds its bytes. A true
-  result means the adapter must emit a `pending` observation first, download
-  and store the bytes, and then emit the final observation with the same
-  `observed_at`.
-  """
-  @spec attachments_need_bytes?([map()]) :: boolean()
-  def attachments_need_bytes?(attachments) when is_list(attachments) do
-    Enum.any?(attachments, &(not attachment_satisfied?(&1)))
-  end
-
-  @doc "Stores each download result and removes transient provider credentials."
-  @spec materialize_attachments([map()], String.t(), (map() -> tuple()), keyword()) :: [map()]
-  def materialize_attachments(attachments, adapter_id, download_fun, opts \\ []) do
-    Enum.map(attachments, fn attachment ->
-      result =
-        if attachment_satisfied?(attachment) do
-          attachment
-        else
-          materialize_attachment(attachment, adapter_id, download_fun, opts)
-        end
-
-      Map.drop(result, Keyword.get(opts, :drop_keys, []))
-    end)
-  end
-
-  @doc "Returns the final state of an entry's attachment observation."
-  @spec materialization_state([map()]) :: String.t()
-  def materialization_state(attachments) do
-    if Enum.all?(attachments, &attachment_satisfied?/1), do: "complete", else: "failed"
-  end
-
   @doc "Commits pending and final attachment observations with one time anchor."
   @spec emit_entry_with_attachments(
           String.t(),
@@ -226,7 +199,7 @@ defmodule Ankole.Conversations.Observe do
         ) ::
           ingress_result()
   def emit_entry_with_attachments(agent_uid, binding_name, input, materialize, opts \\ []) do
-    if attachments_need_bytes?(input.attachments) do
+    if Attachments.attachments_need_bytes?(input.attachments) do
       observed_at = Keyword.get(opts, :observed_at, DateTime.utc_now(:microsecond))
       pending = attachment_observation(input, "pending", observed_at)
 
@@ -237,7 +210,7 @@ defmodule Ankole.Conversations.Observe do
 
           input
           |> Map.put(:attachments, attachments)
-          |> attachment_observation(materialization_state(attachments), observed_at)
+          |> attachment_observation(Attachments.materialization_state(attachments), observed_at)
           |> then(&emit_entry(agent_uid, binding_name, &1, opts))
 
         result ->
@@ -248,168 +221,57 @@ defmodule Ankole.Conversations.Observe do
     end
   end
 
-  @doc "Reuses stored media and the first observation time on provider redelivery."
-  @spec reuse_stored_attachments(map(), [String.t()]) :: {map(), DateTime.t()}
-  def reuse_stored_attachments(%{attachments: []} = input, _provider_fact_states),
-    do: {input, DateTime.utc_now(:microsecond)}
+  @doc "Commits pending media before starting a tenant-bound download task."
+  @spec emit_entry_deferred(
+          FactNormalizer.entry_input(),
+          (FactNormalizer.entry_input() -> ingress_result()),
+          ([map()] -> [map()]),
+          ((-> ingress_result()) -> {:ok, pid()} | {:error, term()}),
+          [String.t()]
+        ) :: ingress_result()
+  def emit_entry_deferred(input, emit, materialize, start_task, provider_fact_states) do
+    {input, observed_at} = Attachments.reuse_stored_attachments(input, provider_fact_states)
 
-  def reuse_stored_attachments(input, provider_fact_states) do
-    conversation =
-      Repo.get_by(Conversation, provider_conversation_id: input.provider_conversation_id)
+    if Attachments.attachments_need_bytes?(input.attachments) do
+      case emit.(attachment_observation(input, "pending", observed_at)) do
+        {:ok,
+         %{
+           message_observation: %{
+             message: %Ankole.Conversations.Message{attachments: attachments}
+           }
+         }} = result
+        when is_list(attachments) ->
+          # Task start failure must fail the provider request so it can retry.
+          with {:ok, _pid} <-
+                 start_task.(
+                   Repo.bind_tenant(fn ->
+                     attachments = materialize.(attachments)
 
-    existing =
-      if conversation, do: External.get_message(Repo, conversation.id, input.provider_message_id)
+                     input
+                     |> Map.put(:attachments, attachments)
+                     |> attachment_observation(
+                       Attachments.materialization_state(attachments),
+                       observed_at
+                     )
+                     |> emit.()
+                   end)
+                 ) do
+            result
+          end
 
-    case existing do
-      %{message: %{attachments: stored}, external_ref: %{metadata: stored_metadata}}
-      when is_list(stored) and stored != [] ->
-        by_ref = Map.new(stored, &{&1["provider_ref"], &1})
-
-        attachments =
-          Enum.map(input.attachments, fn attachment ->
-            case Map.get(by_ref, attachment["provider_ref"]) do
-              %{"materialization_state" => "complete"} = kept ->
-                if Attachments.stored?(kept), do: kept, else: attachment
-
-              %{"materialization_state" => state} = kept ->
-                if state in provider_fact_states, do: kept, else: attachment
-
-              _missing_failed_or_unfinished ->
-                attachment
-            end
-          end)
-
-        observation = stored_metadata["attachment_materialization"]
-
-        metadata =
-          if is_map(observation),
-            do: Map.put(input.metadata, "attachment_materialization", observation),
-            else: input.metadata
-
-        {%{input | attachments: attachments, metadata: metadata}, observation_time(observation)}
-
-      _no_mirror ->
-        {input, DateTime.utc_now(:microsecond)}
-    end
-  rescue
-    exception ->
-      Ankole.Logging.warning(
-        "conversations.attachments.reuse_lookup_failed",
-        "Attachment reuse lookup failed",
-        %{provider_message_id: input.provider_message_id, reason: Exception.message(exception)}
-      )
-
-      {input, DateTime.utc_now(:microsecond)}
-  end
-
-  defp materialize_attachment(attachment, adapter_id, download_fun, opts) do
-    with {:ok, %{body: body, filename: filename, content_type: content_type, put: put}} <-
-           download_fun.(attachment),
-         {:ok, stored} <-
-           store_attachment(Map.merge(attachment, put), body,
-             name: filename,
-             content_type: content_type
-           ) do
-      Map.put(stored, "materialization_state", "complete")
+        result ->
+          result
+      end
     else
-      {:error, :provider_download_limit} ->
-        attachment
-        |> Map.put("materialization_state", "provider_download_limit")
-        |> Map.put("restriction", Keyword.fetch!(opts, :restriction))
-
-      reason ->
-        attachment_failed(attachment, adapter_id, reason)
+      emit.(input)
     end
-  rescue
-    exception -> attachment_failed(attachment, adapter_id, exception)
-  end
-
-  defp attachment_failed(attachment, adapter_id, reason) do
-    Ankole.Logging.warning(
-      "conversations.attachments.materialization_failed",
-      "Attachment materialization failed",
-      %{
-        adapter: adapter_id,
-        provider_ref: attachment["provider_ref"],
-        source_message_id: attachment["source_message_id"],
-        reason: inspect(reason)
-      }
-    )
-
-    Map.put(attachment, "materialization_state", "failed")
-  end
-
-  defp attachment_satisfied?(attachment) do
-    Attachments.stored?(attachment) or
-      attachment["materialization_state"] in [
-        "provider_download_limit",
-        "provider_external_content"
-      ]
   end
 
   defp attachment_observation(input, state, observed_at) do
-    %{input | metadata: put_attachment_materialization(input.metadata, state, observed_at)}
-  end
-
-  defp observation_time(%{"observed_at" => value}) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, observed_at, _offset} -> observed_at
-      _invalid -> DateTime.utc_now(:microsecond)
-    end
-  end
-
-  defp observation_time(_observation), do: DateTime.utc_now(:microsecond)
-
-  @doc """
-  Stores downloaded attachment bytes in the file service.
-
-  `content` is a binary or `{:file, path}`. The result is the attachment with
-  `blob_ref` (the SHA-256 digest), `path` (its drive path under `inbox/`), and
-  `size`. `name:` overrides the attachment's own `name` in the path, and
-  `content_type:` fills `content_type` when the attachment declares none.
-  Every Agent that receives the attachment gets the same stored bytes, so an
-  adapter stores them once whichever Agent asked first.
-  """
-  @spec store_attachment(map(), binary() | {:file, Path.t()}, keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def store_attachment(attachment, content, opts \\ []) when is_map(attachment) do
-    with {:ok, %{sha256: sha256, size: size}} <- Ankole.Files.store(content) do
-      name = present(Keyword.get(opts, :name)) || present(attachment["name"]) || "attachment"
-
-      attachment =
-        attachment
-        |> Map.put("blob_ref", sha256)
-        |> Map.put("path", Ankole.Files.content_path("inbox", sha256, name))
-        |> Map.put("size", size)
-
-      attachment =
-        case {Attachments.content_type(attachment), present(opts[:content_type])} do
-          {nil, content_type} when is_binary(content_type) ->
-            Map.put(attachment, "content_type", content_type)
-
-          _declared_or_unknown ->
-            attachment
-        end
-
-      {:ok, attachment}
-    end
-  end
-
-  @doc """
-  Puts the two-phase attachment observation into entry metadata.
-
-  `state` is `"pending"` before the download and `"complete"` or `"failed"`
-  after it. `observed_at` is the moment the adapter first saw the attachment.
-  It anchors the inbound batch window and the materialization cap, so the
-  final observation must carry the same value as the pending one.
-  """
-  @spec put_attachment_materialization(map(), String.t(), DateTime.t()) :: map()
-  def put_attachment_materialization(metadata, state, %DateTime{} = observed_at)
-      when is_map(metadata) and state in ["pending", "complete", "failed"] do
-    Map.put(metadata, "attachment_materialization", %{
-      "state" => state,
-      "observed_at" => DateTime.to_iso8601(observed_at)
-    })
+    %{
+      input
+      | metadata: Attachments.put_attachment_materialization(input.metadata, state, observed_at)
+    }
   end
 
   defp emit_lifecycle(agent_uid, binding_name, input, provider_lifecycle_kind, options) do
@@ -594,7 +456,7 @@ defmodule Ankole.Conversations.Observe do
 
   defp apply_entry_policy(repo, _binding, fact, :record_only, now) do
     with {:ok, channel} <- conversation_in_tx(repo, fact),
-         {:ok, entry} <- record_message_in_tx(repo, fact, now) do
+         {:ok, entry} <- External.observe_entry_in_tx(repo, fact, now) do
       {:ok, %{status: :recorded, conversation: channel, message_observation: entry}}
     end
   end
@@ -637,7 +499,7 @@ defmodule Ankole.Conversations.Observe do
     fact = Map.put(fact, :command_payload, command_payload)
 
     with {:ok, channel} <- conversation_in_tx(repo, fact),
-         {:ok, entry} <- record_message_in_tx(repo, fact, now),
+         {:ok, entry} <- External.observe_entry_in_tx(repo, fact, now),
          {:ok, append_result} <-
            Envelope.accept(repo, binding, fact, type, channel, entry, now) do
       {:ok,
@@ -795,11 +657,9 @@ defmodule Ankole.Conversations.Observe do
     |> collect_results()
   end
 
-  defp present(value) when is_binary(value) and value != "", do: value
-  defp present(_value), do: nil
   @tombstone_ttl_seconds 86_400
 
-  def bind_conversation_in_tx(repo, binding, fact, now) do
+  defp bind_conversation_in_tx(repo, binding, fact, now) do
     with {:ok, conversation} <-
            External.observe_conversation_in_tx(
              repo,
@@ -824,33 +684,6 @@ defmodule Ankole.Conversations.Observe do
              Map.get(fact, :session_id) || Ankole.Sessions.Key.conversation(conversation.id)
        }}
     end
-  end
-
-  def record_message_in_tx(repo, fact, now) do
-    External.observe_in_tx(
-      repo,
-      fact.conversation_id,
-      %{
-        agent_uid: fact.agent_uid,
-        provider_message_id: fact.provider_message_id,
-        reply_to_provider_message_id: Map.get(fact, :reply_to_provider_message_id),
-        provider_thread_id: fact.provider_thread_id,
-        text: fact.text,
-        rich_content: Attachments.rich_content(fact.text, fact.formatted_content || %{}),
-        attachments: fact.attachments || [],
-        links: fact.links || [],
-        author: fact.author || %{},
-        mentions: fact.mentions || [],
-        metadata:
-          Map.merge(fact.metadata || %{}, %{
-            "binding_name" => fact.binding_name,
-            "sender_key" => fact.sender_key
-          }),
-        raw_payload: fact.raw_payload || %{},
-        provider_time: fact.provider_time
-      },
-      now
-    )
   end
 
   defp conversation_in_tx(_repo, %{conversation_id: nil}), do: {:ok, nil}
@@ -921,5 +754,64 @@ defmodule Ankole.Conversations.Observe do
       %Conversation{id: id} -> %{fact | conversation_id: id}
       nil -> fact
     end
+  end
+
+  # The notice needs a channel mirror row to route the reply; the held entry
+  # itself is never mirrored.
+  defp notify_held_sender(fact, now) do
+    result =
+      Repo.transact(fn repo ->
+        with {:ok, binding} <- Bindings.get_binding(fact.agent_uid, fact.binding_name),
+             {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
+             {:ok, intent} <- Delivery.commit_in_tx(repo, held_notice_attrs(fact)) do
+          {:ok, intent}
+        end
+      end)
+
+    case result do
+      {:ok, _intent} ->
+        :ok
+
+      {:error, reason} ->
+        Logging.warning(
+          "signals.identity_admission.notice_failed",
+          "unmapped sender notice could not be committed",
+          %{binding: fact.binding_name, reason: inspect(reason)}
+        )
+
+        :ok
+    end
+  end
+
+  defp held_notice_attrs(fact) do
+    outbound_key = "unmapped_sender:#{fact.conversation_id}:#{fact.provider_message_id}"
+
+    %{
+      agent_uid: fact.agent_uid,
+      binding_name: fact.binding_name,
+      outbound_key: outbound_key,
+      operation: :reply,
+      delivery_class: :generic,
+      conversation_id: fact.conversation_id,
+      provider_thread_id: fact.provider_thread_id,
+      reply_to_provider_message_id: fact.provider_message_id,
+      payload: %{
+        "metadata" => %{
+          "source" => "unmapped_sender_notice",
+          "unmatched_sender" => notice_sender(fact.author)
+        }
+      },
+      fallback_visible_text: I18n.t("conversations.delivery.reply.unmapped_sender"),
+      idempotency_key: outbound_key
+    }
+  end
+
+  # The notice replies to a message that is never mirrored, so an adapter
+  # whose route needs a recipient reads the sender from the row itself.
+  defp notice_sender(author) when is_map(author) do
+    author
+    |> Map.take(["platform_subject", "email", "display_name"])
+    |> Enum.reject(fn {_key, value} -> not is_binary(value) end)
+    |> Map.new()
   end
 end

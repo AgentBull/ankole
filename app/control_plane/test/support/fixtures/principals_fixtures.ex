@@ -157,6 +157,19 @@ defmodule Ankole.PrincipalsFixtures do
     end
 
     if owner_uid do
+      tenant_id = Ankole.Repo.tenant_id!()
+
+      Ankole.BrowserSessions.Authentication
+      |> where(
+        [authentication],
+        authentication.tenant_id == ^tenant_id and authentication.subject_id == ^owner_uid
+      )
+      |> Ankole.Repo.delete_all()
+
+      Ankole.BrowserSessions.PodAuthentication
+      |> where([proof], proof.principal_uid == ^owner_uid)
+      |> Ankole.Repo.delete_all()
+
       Ankole.Principals.Principal
       |> where([principal], principal.uid == ^owner_uid)
       |> Ankole.Repo.delete_all()

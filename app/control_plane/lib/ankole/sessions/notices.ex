@@ -1,6 +1,7 @@
 defmodule Ankole.Sessions.Notices do
   @moduledoc false
 
+  alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.AIAgent.TokenQuota
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.DeadLetterNoticeConfig
@@ -20,34 +21,18 @@ defmodule Ankole.Sessions.Notices do
          %Signal{} = event,
          now
        ) do
-    failure = %{
-      "ok" => false,
-      "code" => "workflow_task_model_profile_unavailable",
-      "summary" => "Model profile #{profile} is unavailable: #{inspect(reason)}",
-      "retryable" => false
-    }
-
     result =
       Repo.transact(fn repo ->
-        with {:ok, call_id} <- Ankole.Workflow.parse_task_session_id(event.session_id),
-             {:ok, %{call: call}} <- Ankole.Workflow.get_task_for_agent(call_id, event.agent_uid) do
-          if call.status == "running",
-            do:
-              Ankole.Workflow.submit_result_in_tx(
-                repo,
-                call_id,
-                event.agent_uid,
-                event.session_id,
-                failure
-              ),
-            else:
-              Ankole.Workflow.fail_unstarted_task(
-                call_id,
-                event.agent_uid,
-                failure["code"],
-                failure["summary"],
-                now
-              )
+        with {:ok, call_id} <- Ankole.Workflow.parse_task_session_id(event.session_id) do
+          Ankole.Workflow.model_unavailable_in_tx(
+            repo,
+            call_id,
+            event.agent_uid,
+            event.session_id,
+            profile,
+            reason,
+            now
+          )
         end
       end)
       |> Ankole.Workflow.cleanup_terminal_transition()
@@ -128,7 +113,7 @@ defmodule Ankole.Sessions.Notices do
 
     case Ankole.Signals.lock_signal_in_tx(repo, event.id) do
       %Signal{last_attempt_at: nil, completed_at: nil, input_state: "open"} = current ->
-        with :ok <- reject_unstarted_workflow_task(current, now),
+        with {:ok, workflow_transition} <- reject_unstarted_workflow_task(repo, current, now),
              {:ok, completed} <-
                Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, current, now) do
           notice =
@@ -141,6 +126,7 @@ defmodule Ankole.Sessions.Notices do
           {:ok,
            %{
              status: :tenant_suspended,
+             workflow_transition: workflow_transition,
              signal: completed,
              posted: notice_posted(notice),
              notice_error: notice_error(notice)
@@ -157,23 +143,24 @@ defmodule Ankole.Sessions.Notices do
     end
   end
 
-  defp reject_unstarted_workflow_task(event, now) do
+  defp reject_unstarted_workflow_task(repo, event, now) do
     case Ankole.Workflow.parse_task_session_id(event.session_id) do
       {:ok, call_id} ->
-        case Ankole.Workflow.fail_unstarted_task(
+        case Ankole.Workflow.fail_unstarted_task_in_tx(
+               repo,
                call_id,
                event.agent_uid,
                "tenant_suspended",
                "The tenant does not accept new work.",
                now
              ) do
-          {:ok, _} -> :ok
-          {:error, {:workflow_task_not_queued, "running"}} -> :ok
+          {:ok, transition} -> {:ok, transition}
+          {:error, {:workflow_task_not_queued, "running"}} -> {:ok, nil}
           {:error, _} = error -> error
         end
 
       _ ->
-        :ok
+        {:ok, nil}
     end
   end
 
@@ -235,7 +222,7 @@ defmodule Ankole.Sessions.Notices do
 
   defp maybe_commit_notice(repo, %Signal{} = signal, commit_notice) do
     with {:ok, targets} <- Ankole.Sessions.Presentation.targets_in_tx(repo, signal) do
-      if Enum.any?(targets, &Ankole.Conversations.Target.reply_eligible?(&1, signal)),
+      if Enum.any?(targets, &StatementTarget.reply_eligible?(&1, signal)),
         do: commit_notice.(repo, signal),
         else: {:ok, %Ankole.Conversations.PostResult{}}
     end

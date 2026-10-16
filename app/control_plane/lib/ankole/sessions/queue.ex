@@ -2,16 +2,12 @@ defmodule Ankole.Sessions.Queue do
   @moduledoc """
   The durable Signal queue for each execution Session.
 
-  Signals accepts normalized Signals for an execution Session. Sessions
-  wakes its single Driver. AIGateway owns the durable response facts.
+  Signals owns intake and source deduplication. This module owns queue reads,
+  the Session advisory lock, and input completion. Intake uses the same lock
+  for `queue_sequence` allocation as higher-level Session transitions.
 
-  Append is idempotent on the source ingress key. Every append takes the actor
-  session's PostgreSQL advisory lock; `queue_sequence` allocation and
-  higher-level session transitions therefore share one deterministic order.
-
-  Several `*_in_tx` functions take a `repo` and run inside a caller-owned
-  transaction so actor completion and provider-visible side effects can share
-  one database boundary where needed.
+  The `*_in_tx` functions run in the caller's transaction so input completion
+  and provider-visible effects can commit together. AIGateway owns model facts.
   """
 
   import Ecto.Query, warn: false
@@ -41,22 +37,6 @@ defmodule Ankole.Sessions.Queue do
     :ok
   end
 
-  @doc "Applies execution-session effects after Intake appends a Signal under the Session lock."
-  def appended_in_tx(repo, signal) do
-    with {:ok, _} <-
-           Ankole.Conversations.Delivery.Interactions.supersede_older_in_tx(
-             repo,
-             signal,
-             signal.inserted_at
-           ) do
-      Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
-        repo,
-        %{agent_uid: signal.agent_uid, session_id: signal.session_id},
-        signal.available_at
-      )
-    end
-  end
-
   @doc """
   Completes a locked Signal inside a caller-owned transaction.
 
@@ -84,7 +64,7 @@ defmodule Ankole.Sessions.Queue do
   Completes a provider-entry lifecycle event without treating its tombstone as cancelation.
 
   `conversation.message.removed` rows exist because the provider entry was tombstoned
-  after earlier actor state already completed it. Re-applying the source-entry
+  after earlier execution already completed it. Re-applying the source-entry
   tombstone guard here would cancel the lifecycle notice itself.
   """
   @spec complete_entry_lifecycle_event_in_tx(module(), Signal.t(), keyword()) ::
@@ -228,24 +208,45 @@ defmodule Ankole.Sessions.Queue do
   defp maybe_put_completion_anchor(attrs, _key, nil), do: attrs
   defp maybe_put_completion_anchor(attrs, key, value), do: Map.put(attrs, key, value)
 
+  @doc "All open inputs due now, in queue order."
+  def due(key, now \\ DateTime.utc_now(:microsecond)) do
+    open_query(key.agent_uid, key.session_id)
+    |> where([e], e.available_at <= ^now)
+    |> Repo.all()
+  end
+
+  @doc "The oldest open input, including future or unstarted work."
+  def oldest_open(repo, uid, session),
+    do: open_query(uid, session) |> limit(1) |> repo.one()
+
+  @doc "The oldest admitted open input, including a deferred retry."
+  def oldest_started(repo, uid, session) do
+    open_query(uid, session)
+    |> where([e], not is_nil(e.last_attempt_at))
+    |> limit(1)
+    |> repo.one()
+  end
+
+  defp open_query(uid, session) do
+    from(e in Signal,
+      where:
+        e.agent_uid == ^uid and e.session_id == ^session and
+          e.input_state == "open" and is_nil(e.completed_at),
+      order_by: [asc: e.queue_sequence]
+    )
+  end
+
   def next_ready_event(uid, session, now \\ DateTime.utc_now(:microsecond), opts \\ []) do
-    query =
-      from(e in Signal,
-        where:
-          e.agent_uid == ^uid and e.session_id == ^session and e.input_state == "open" and
-            is_nil(e.completed_at),
-        order_by: [asc: e.queue_sequence],
-        limit: 1
-      )
-
-    query =
-      if Keyword.get(opts, :strict_queue_order?, false),
-        do: query,
-        else: where(query, [e], e.available_at <= ^now)
-
-    case Repo.one(query) do
-      %Signal{} = event -> if DateTime.compare(event.available_at, now) != :gt, do: event
-      nil -> nil
+    if Keyword.get(opts, :strict_queue_order?, false) do
+      case oldest_open(Repo, uid, session) do
+        %Signal{} = event -> if DateTime.compare(event.available_at, now) != :gt, do: event
+        nil -> nil
+      end
+    else
+      open_query(uid, session)
+      |> where([e], e.available_at <= ^now)
+      |> limit(1)
+      |> Repo.one()
     end
   end
 
@@ -297,9 +298,10 @@ defmodule Ankole.Sessions.Queue do
 
     existing =
       repo.all(
-        from m in Ankole.Conversations.Message,
+        from(m in Ankole.Conversations.Message,
           where: m.conversation_id == ^signal.conversation_id and m.id in ^background,
           select: m.id
+        )
       )
 
     if background -- existing == [], do: :ok, else: {:error, :signal_context_canceled}

@@ -26,7 +26,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Plugins.WeComAdapter.ConnectionOwner
   alias Ankole.Conversations.AdapterContext
-  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.{Attachments, Observe}
   alias WeComOpenAPI.Bot
   alias WeComOpenAPI.Bot.Event
   alias WeComOpenAPI.Media
@@ -519,14 +519,14 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
 
   defp materialize_attachments(input, _consumer) do
     attachments =
-      Observe.materialize_attachments(input.attachments, "wecom", &download_attachment/1,
+      Attachments.materialize_attachments(input.attachments, "wecom", &download_attachment/1,
         drop_keys: ["temp_url", "aeskey"]
       )
 
     {:ok, %{input | attachments: attachments}}
   end
 
-  # The temporary URL and key are removed from every result by Observe.
+  # The temporary URL and key are removed from every result by Attachments.
   defp download_attachment(%{"temp_url" => url} = attachment) when is_binary(url) do
     result =
       case attachment["aeskey"] do

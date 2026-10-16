@@ -204,7 +204,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert {:ok, _stored} = AppConfigure.put_global_by_key(legacy_config_key, legacy_config)
 
     assert {:ok, %Binding{}} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: agent.uid,
                name: "lark-main",
                adapter: "lark",
@@ -251,7 +251,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert {:ok, _stored} = AppConfigure.put_global_by_key(legacy_config_key, legacy_config)
 
     assert {:ok, %Binding{}} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: legacy_agent_uid,
                name: "lark-main",
                adapter: "lark",
@@ -402,7 +402,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     claimed_config = lark_config("cli_claimed_while_owner_unknown")
 
     assert {:ok, %Binding{}} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: owner.uid,
                name: "lark-main",
                adapter: "lark",
@@ -744,7 +744,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert is_pid(registry)
 
     assert {:ok, _binding} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: agent.uid,
                name: "failing-main",
                adapter: "failing-env",
@@ -773,7 +773,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     )
 
     assert {:ok, _binding} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: agent.uid,
                name: "disabled-main",
                adapter: "disabled-env",
@@ -802,7 +802,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     )
 
     assert {:ok, _binding} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: agent.uid,
                name: "reserved-main",
                adapter: "reserved-env",

@@ -45,8 +45,8 @@ export function createLsTool(context: ComputerToolContext): WorkerAgentTool<type
     describeActivity: params => {
       const path = compactActivityPath(params.path)
       return path
-        ? { key: 'signals_gateway.reply.activity.file_list_target', bindings: { path } }
-        : { key: 'signals_gateway.reply.activity.file_list' }
+        ? { key: 'conversations.delivery.reply.activity.file_list_target', bindings: { path } }
+        : { key: 'conversations.delivery.reply.activity.file_list' }
     },
     async execute(_toolCallId, params): Promise<AgentToolResult<LsDetails>> {
       const requested = params.path?.trim() || '.'

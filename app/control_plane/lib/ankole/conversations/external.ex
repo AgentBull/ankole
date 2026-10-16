@@ -38,6 +38,33 @@ defmodule Ankole.Conversations.External do
     :raw_payload
   ]
 
+  def observe_entry_in_tx(repo, fact, now) do
+    observe_in_tx(
+      repo,
+      fact.conversation_id,
+      %{
+        agent_uid: fact.agent_uid,
+        provider_message_id: fact.provider_message_id,
+        reply_to_provider_message_id: Map.get(fact, :reply_to_provider_message_id),
+        provider_thread_id: fact.provider_thread_id,
+        text: fact.text,
+        rich_content: Attachments.rich_content(fact.text, fact.formatted_content || %{}),
+        attachments: fact.attachments || [],
+        links: fact.links || [],
+        author: fact.author || %{},
+        mentions: fact.mentions || [],
+        metadata:
+          Map.merge(fact.metadata || %{}, %{
+            "binding_name" => fact.binding_name,
+            "sender_key" => fact.sender_key
+          }),
+        raw_payload: fact.raw_payload || %{},
+        provider_time: fact.provider_time
+      },
+      now
+    )
+  end
+
   def get_conversation(repo, provider_conversation_id),
     do:
       repo.get_by(Conversation,
@@ -63,7 +90,7 @@ defmodule Ankole.Conversations.External do
 
   def existing_direct_conversation(binding, principal_uid) do
     Ankole.Repo.all(
-      from c in Conversation,
+      from(c in Conversation,
         join: event in Ankole.Signals.Signal,
         on: event.tenant_id == c.tenant_id and event.conversation_id == c.id,
         distinct: true,
@@ -72,6 +99,7 @@ defmodule Ankole.Conversations.External do
             event.agent_uid == ^binding.agent_uid and event.reply_binding_name == ^binding.name and
             fragment("?->>'dm_peer_principal_uid'", c.metadata) == ^principal_uid,
         limit: 2
+      )
     )
     |> case do
       [conversation] -> {:ok, conversation}
@@ -144,13 +172,14 @@ defmodule Ankole.Conversations.External do
 
   def get_message(repo, conversation_id, provider_message_id) do
     repo.one(
-      from message in Message,
+      from(message in Message,
         join: ref in ExternalMessageRef,
         on: ref.message_id == message.id and ref.tenant_id == message.tenant_id,
         where:
           ref.conversation_id == ^conversation_id and
             ref.provider_message_id == ^provider_message_id,
         select: %{message: message, external_ref: ref}
+      )
     )
   end
 
@@ -159,13 +188,14 @@ defmodule Ankole.Conversations.External do
     limit = Keyword.get(opts, :limit, 500)
 
     repo.all(
-      from message in Message,
+      from(message in Message,
         left_join: ref in ExternalMessageRef,
         on: ref.message_id == message.id and ref.tenant_id == message.tenant_id,
         where: message.conversation_id == ^conversation_id and message.seq > ^after_seq,
         order_by: [asc: message.seq],
         limit: ^limit,
         select: %{message: message, external_ref: ref}
+      )
     )
   end
 
@@ -381,7 +411,7 @@ defmodule Ankole.Conversations.External do
   defp lock_conversation(repo, id),
     do:
       repo.one(
-        from conversation in Conversation, where: conversation.id == ^id, lock: "FOR UPDATE"
+        from(conversation in Conversation, where: conversation.id == ^id, lock: "FOR UPDATE")
       )
 
   defp message_sequence(repo, conversation, %Message{seq: nil}),

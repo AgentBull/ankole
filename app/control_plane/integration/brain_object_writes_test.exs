@@ -1,0 +1,169 @@
+defmodule Ankole.BrainObjectWritesIntegrationTest do
+  use Ankole.DataCase, async: false
+  @moduletag sandbox: false
+
+  import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
+
+  alias Ankole.Brain.Objects
+  alias Ankole.Brain.SchemaPacks
+  alias Ankole.Brain.Schemas.Object
+  alias Ankole.Brain.Schemas.ObjectVersion
+  alias Ecto.Adapters.SQL.Sandbox
+
+  setup %{tenant: tenant} do
+    on_exit(fn ->
+      Sandbox.unboxed_run(Repo, fn ->
+        Repo.with_tenant(tenant.id, fn ->
+          {:ok, :removed} =
+            Repo.transact(fn repo ->
+              repo.delete_all(Object)
+
+              for table <-
+                    ~w(brain_schema_calibration_domains brain_schema_link_types brain_schema_types brain_schema_packs) do
+                repo.query!("DELETE FROM #{table} WHERE tenant_id = $1::text::uuid", [tenant.id])
+              end
+
+              repo.delete!(tenant)
+              {:ok, :removed}
+            end)
+        end)
+      end)
+    end)
+
+    {:ok, _} = SchemaPacks.install_packs([])
+
+    {:ok, original} =
+      Objects.create_object(
+        %{slug: "notes/commit-order", type: "note", title: "Commit order", body: "Original"},
+        :system
+      )
+
+    {:ok, object} =
+      Objects.update_object(
+        original.slug,
+        %{body: "Current", expected_content_hash: original.content_hash},
+        :system
+      )
+
+    [version] = Repo.all(from(v in ObjectVersion, where: v.object_id == ^object.id))
+
+    %{object: object, version: version}
+  end
+
+  for operation <- [:update, :rollback] do
+    @operation operation
+    test "#{operation} waiting behind a delete cannot change the hidden content", context do
+      deleted = hold(fn -> Objects.soft_delete(context.object.slug, reason: "Obsolete") end)
+
+      waiting =
+        start(fn ->
+          case @operation do
+            :update ->
+              Objects.update_object(
+                context.object.slug,
+                %{body: "Stale update", expected_content_hash: context.object.content_hash},
+                :system
+              )
+
+            :rollback ->
+              Objects.rollback(context.object.slug, context.version.id, :system)
+          end
+        end)
+
+      assert_blocked_by(waiting, deleted)
+      send(deleted.task.pid, :commit)
+      assert {:ok, _} = Task.await(deleted.task, 5_000)
+      assert {:error, :object_deleted} = Task.await(waiting.task, 5_000)
+
+      stored = Repo.get!(Object, context.object.id)
+      assert stored.body == "Current"
+      assert stored.deleted_at
+      assert stored.meta["forgotten_reason"] == "Obsolete"
+
+      assert Repo.all(from(v in ObjectVersion, where: v.object_id == ^stored.id)) == [
+               context.version
+             ]
+    end
+  end
+
+  test "a save that commits first remains the content later deleted", context do
+    saved =
+      hold(fn ->
+        Objects.update_object(
+          context.object.slug,
+          %{
+            body: "Committed before deletion",
+            expected_content_hash: context.object.content_hash
+          },
+          :system
+        )
+      end)
+
+    deleted = start(fn -> Objects.soft_delete(context.object.slug) end)
+    assert_blocked_by(deleted, saved)
+    send(saved.task.pid, :commit)
+    assert {:ok, _} = Task.await(saved.task, 5_000)
+    assert {:ok, _} = Task.await(deleted.task, 5_000)
+    stored = Repo.get!(Object, context.object.id)
+    assert stored.body == "Committed before deletion"
+    assert stored.deleted_at
+    assert Repo.aggregate(from(v in ObjectVersion, where: v.object_id == ^stored.id), :count) == 2
+  end
+
+  # Match the existing transaction suites: these tasks use independent,
+  # committed PostgreSQL connections rather than a shared Sandbox owner.
+  defp start(fun) do
+    parent = self()
+    tenant_id = Repo.tenant_id!()
+
+    task =
+      Task.async(fn ->
+        Repo.with_tenant(tenant_id, fn ->
+          Sandbox.unboxed_run(Repo, fn ->
+            %{rows: [[backend_pid]]} = Repo.query!("SELECT pg_backend_pid()")
+            send(parent, {:database_task, self(), backend_pid})
+            fun.()
+          end)
+        end)
+      end)
+
+    pid = task.pid
+    assert_receive {:database_task, ^pid, backend_pid}, 5_000
+    %{task: task, backend_pid: backend_pid}
+  end
+
+  defp hold(fun) do
+    parent = self()
+
+    operation =
+      start(fn ->
+        Repo.transact(fn _repo ->
+          result = fun.()
+          send(parent, {:transaction_held, self()})
+
+          receive do
+            :commit -> result
+          after
+            10_000 -> raise "test did not release its transaction"
+          end
+        end)
+      end)
+
+    pid = operation.task.pid
+    assert_receive {:transaction_held, ^pid}, 5_000
+    operation
+  end
+
+  defp assert_blocked_by(waiter, holder) do
+    assert {:ok, true} =
+             wait_until(deadline(5_000), fn ->
+               %{rows: [[blocked]]} =
+                 Repo.query!("SELECT $1 = ANY(pg_blocking_pids($2))", [
+                   holder.backend_pid,
+                   waiter.backend_pid
+                 ])
+
+               blocked
+             end)
+  end
+end

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { seedEditorDraft } from '../use-editor-draft'
 import { AgentLibraryEditorModel, type AgentLibraryDocumentsSnapshot } from './agent-library-editor-model'
 
 function documents(mission: string, soul: string, design = 'Design A'): AgentLibraryDocumentsSnapshot {
@@ -17,7 +18,7 @@ function documents(mission: string, soul: string, design = 'Design A'): AgentLib
 describe('AgentLibraryEditorModel', () => {
   test('keeps the page dirty until every changed document is saved or discarded', () => {
     const model = new AgentLibraryEditorModel()
-    model.initialize('alpha', documents('Mission A', 'Soul A'))
+    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
     expect(model.dirty.value).toBeFalse()
     model.beginEdit('mission')
     expect(model.dirty.value).toBeFalse()
@@ -34,33 +35,33 @@ describe('AgentLibraryEditorModel', () => {
     model.beginEdit('design')
     model.setDraft('design', 'Design draft')
     expect(model.dirty.value).toBeTrue()
-    model.initialize('beta', documents('Mission B', 'Soul B'))
+    model.initialize('agent:beta', documents('Mission B', 'Soul B'))
     expect(model.dirty.value).toBeFalse()
     model[Symbol.dispose]()
   })
 
-  test('preserves an edited document during same-agent refetch and refreshes the other document', () => {
+  test('same-agent query refetch preserves the seeded library documents and operator edits', () => {
     const model = new AgentLibraryEditorModel()
-    model.initialize('alpha', documents('Mission A', 'Soul A'))
+    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
     model.beginEdit('mission')
     model.setDraft('mission', 'Mission draft')
 
-    model.initialize('alpha', documents('Mission from refetch', 'Soul from refetch'))
+    seedEditorDraft(model, 'agent:alpha', documents('Mission from refetch', 'Soul from refetch'), false)
 
     expect(model.documents.mission.draft.value).toBe('Mission draft')
     expect(model.documents.mission.contentHash.value).toBe('mission:Mission A')
-    expect(model.documents.soul.sourceContent.value).toBe('Soul from refetch')
+    expect(model.documents.soul.sourceContent.value).toBe('Soul A')
     expect(model.documents.design.sourceContent.value).toBe('Design A')
     model[Symbol.dispose]()
   })
 
   test('resets every document when the route selects another agent', () => {
     const model = new AgentLibraryEditorModel()
-    model.initialize('alpha', documents('Mission A', 'Soul A'))
+    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
     model.beginEdit('soul')
     model.setDraft('soul', 'Unsaved soul')
 
-    model.initialize('beta', documents('Mission B', 'Soul B', 'Design B'))
+    model.initialize('agent:beta', documents('Mission B', 'Soul B', 'Design B'))
 
     expect(model.sourceKey.value).toBe('agent:beta')
     expect(model.documents.mission.draft.value).toBe('Mission B')
@@ -72,7 +73,7 @@ describe('AgentLibraryEditorModel', () => {
 
   test('saves, cancels, and reloads one document without changing the other draft', () => {
     const model = new AgentLibraryEditorModel()
-    model.initialize('alpha', documents('Mission A', 'Soul A'))
+    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
     model.beginEdit('mission')
     model.beginEdit('soul')
     model.setDraft('mission', 'Mission draft')
@@ -105,7 +106,7 @@ describe('AgentLibraryEditorModel', () => {
 
   test('applies a saved source without discarding edits made after submission', () => {
     const model = new AgentLibraryEditorModel()
-    model.initialize('alpha', documents('Mission A', 'Soul A'))
+    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
     model.beginEdit('mission')
     model.setDraft('mission', 'Submitted mission')
     const submission = model.snapshot('mission')

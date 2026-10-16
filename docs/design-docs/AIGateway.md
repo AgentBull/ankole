@@ -772,6 +772,17 @@ interpreting it.
 AIGateway also keeps request and provider details in the metadata object. That
 object must not contain a second Response item list.
 
+Clients can read the `Message` and `Conversation` types returned by AIGateway.
+`ResponseChain` owns branch selection and active subject ownership checks.
+Its metadata-only read crosses checkpoints and returns caller metadata only
+from complete ordinary rows. Checkpoint metadata remains available for audit;
+it does not prove that the request input after compaction completed.
+
+History expansion stops in the database at the first complete checkpoint and
+includes that checkpoint. A read that explicitly crosses checkpoints retains
+the 10,000 raw ancestor limit and cycle protection. The public immutable chain
+read remains capped at 500 rows.
+
 The Session Driver sends its frozen model profile in the local
 `response_metadata` option. AIGateway records `model_profile` beside `request_model` in
 Response metadata, outside `request_metadata`. Console shows that value beside
@@ -1055,12 +1066,30 @@ replays the current input.
 
 Explicit continuation does not rewrite the caller-selected branch.
 
-`conversation_tail/2` returns the run's visible Response segment, current leaf,
-and recorded call IDs. Recovery executes only unrecorded calls. Error and
+`visible_response_suffix/3` accepts one opaque caller-metadata string selector
+and returns matching rows, ordinary responses, the current leaf, and recorded
+call IDs. It stops in the database at the first complete ordinary response that
+does not match. Checkpoints, invisible ancestors, and unmatched journals do not
+end the suffix. The leaf remains available when no rows match. Recovery executes
+only unrecorded calls. Error and
 retracted request rows retain the input IDs that the model read; those IDs
 remain consumption facts even when the request is no longer visible. A model
 Response creation checks the Driver epoch in the same transaction. Its later
 terminal commit belongs to the Response itself.
+
+The two transaction contracts have different owners. Model preparation and
+compaction planning occur before admission. Admission checks the caller fence,
+writes the optional checkpoint and generating Response, and records the caller
+snapshot in one transaction. It publishes `response_started` after commit.
+For tool results, the caller owns the transaction that writes the journal,
+completes waits, records progress, and deletes receipts. An existing journal
+does not complete waits again. The caller publishes after its transaction commits.
+
+`Events` is the live subscription interface. Subscription requires an active
+owned conversation; unsubscription also works after that conversation ends.
+`CompactionRequests` owns explicit compaction operations, and `ResponseItems`
+owns item types and tool pairing. Console keeps its tenant-scoped audit queries,
+including ended conversations, failed and retracted rows, and old branches.
 
 ## Store the Result before Reporting Completion
 

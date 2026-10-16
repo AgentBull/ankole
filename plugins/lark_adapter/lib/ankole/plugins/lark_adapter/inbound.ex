@@ -12,7 +12,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   alias Ankole.Plugins.MapHelpers
 
   alias Ankole.Conversations.AdapterContext
-  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.{Attachments, Observe}
   alias FeishuOpenAPI.CardAction
   alias FeishuOpenAPI.Event
 
@@ -234,11 +234,11 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     prepared
     |> Enum.reduce_while({:ok, []}, fn
       %{consumer: consumer, input: input, observed_at: observed_at} = item, {:ok, items} ->
-        if Observe.attachments_need_bytes?(input.attachments) do
+        if Attachments.attachments_need_bytes?(input.attachments) do
           input
           |> update_in(
             [:metadata],
-            &Observe.put_attachment_materialization(&1, "pending", observed_at)
+            &Attachments.put_attachment_materialization(&1, "pending", observed_at)
           )
           |> emit_normalized_message(consumer, false)
           |> case do
@@ -294,9 +294,9 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
           else:
             update_in(
               input.metadata,
-              &Observe.put_attachment_materialization(
+              &Attachments.put_attachment_materialization(
                 &1,
-                Observe.materialization_state(attachments),
+                Attachments.materialization_state(attachments),
                 observed_at
               )
             )
@@ -1005,7 +1005,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   defp maybe_materialize_attachments(attachments, _message, %{config: config}) do
     client = Config.client(config)
 
-    {:ok, Observe.materialize_attachments(attachments, "lark", &download_attachment(&1, client))}
+    {:ok,
+     Attachments.materialize_attachments(attachments, "lark", &download_attachment(&1, client))}
   end
 
   defp download_attachment(attachment, client) do
@@ -1056,7 +1057,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
            conversation_id
          ) do
       %{id: id} ->
-        Ankole.Conversations.Attachments.recent(id, author_id, provider_time,
+        Attachments.recent(id, author_id, provider_time,
           window_seconds: Map.fetch!(consumer, :recent_attachment_window_seconds),
           limit: max
         )

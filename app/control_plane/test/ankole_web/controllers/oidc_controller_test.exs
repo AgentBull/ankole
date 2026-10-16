@@ -602,7 +602,8 @@ defmodule AnkoleWeb.OIDCControllerTest do
     assert {:ok, _} = Tokens.verify_access(tokens["access_token"], Tokens.userinfo_audience())
 
     confirmation =
-      get(recycle(prepared), "/.internal-apis/oidc-logout/" <> id) |> json_response(200)
+      get(recycle(prepared), "/.internal-apis/oidc-logout/" <> id)
+      |> AnkoleWeb.InternalAPIContract.json_response(200)
 
     assert confirmation["identity"]["principalUID"] == human.principal.uid
 
@@ -627,7 +628,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
 
     assert %{"identity" => nil} =
              get(recycle(repeated), "/.internal-apis/oidc-logout/" <> repeated_id)
-             |> json_response(200)
+             |> AnkoleWeb.InternalAPIContract.json_response(200)
 
     repeated =
       post(recycle(repeated), "/oauth/logout/confirm", %{
@@ -671,7 +672,8 @@ defmodule AnkoleWeb.OIDCControllerTest do
     id = redirect_query(prepared)["request"]
 
     confirmation =
-      get(recycle(prepared), "/.internal-apis/oidc-logout/" <> id) |> json_response(200)
+      get(recycle(prepared), "/.internal-apis/oidc-logout/" <> id)
+      |> AnkoleWeb.InternalAPIContract.json_response(200)
 
     assert confirmation["identity"]["principalUID"] == current.principal.uid
 
@@ -837,6 +839,181 @@ defmodule AnkoleWeb.OIDCControllerTest do
 
     assert redirect_query(response)["error"] == "access_denied"
     refute redirect_query(response)["code"]
+  end
+
+  test "select_account uses a held proof explicitly and separates two identities for one Client",
+       %{conn: conn, tenant: tenant} do
+    :ok = Ankole.DataCase.set_privileged_tenant(tenant)
+    {:ok, true} = Ankole.Setup.Config.put_completed(true)
+    a = human_fixture(%{display_name: "Identity A"})
+    b = human_fixture(%{display_name: "Identity B"})
+    client = create_client!(%{})
+    conn = init_test_session(conn, %{})
+    {conn, a_ref} = add_authentication(conn, a.principal)
+    {conn, b_ref} = add_authentication(conn, b.principal)
+
+    authorization =
+      get(
+        conn,
+        "/oauth/authorize",
+        Map.put(authorization_request(client.id, "openid"), "prompt", "select_account")
+      )
+
+    flow = redirect_query(authorization)["flow"]
+    assert is_binary(flow)
+    refute redirect_query(authorization)["code"]
+    page = authorization |> recycle() |> get("/sessions/new", %{"flow" => flow})
+    assert html_response(page, 200) =~ "entrypoints/auth.tsx"
+    choices = page |> recycle() |> get("/.internal-apis/identity-providers", %{"flow" => flow})
+
+    assert %{"selectAccount" => true, "identities" => identities} =
+             AnkoleWeb.InternalAPIContract.json_response(choices, 200)
+
+    assert Enum.sort(Enum.map(identities, & &1["principalUID"])) ==
+             Enum.sort([a.principal.uid, b.principal.uid])
+
+    selected =
+      choices
+      |> recycle()
+      |> post("/.internal-apis/sessions/identity-selection", %{
+        "flow" => flow,
+        "authenticationRef" => Ankole.BrowserSessions.encode_reference(a_ref)
+      })
+
+    assert %{"returnTo" => resume} = AnkoleWeb.InternalAPIContract.json_response(selected, 200)
+    issued_a = selected |> recycle() |> get(resume)
+    assert is_binary(redirect_query(issued_a)["code"])
+    Repo.put_tenant_id(tenant.id)
+    [session_a] = Repo.all(Ankole.OIDC.Session)
+    assert session_a.principal_uid == a.principal.uid
+    assert session_a.authentication_id == a_ref["id"]
+
+    # Select B through a protected operation; a URL hint cannot change it back to A.
+    {:ok, _} =
+      Ankole.BrowserSessions.activate(WebSession.browser_reference(issued_a), b_ref, tenant.id)
+
+    issued_b =
+      issued_a
+      |> recycle()
+      |> get(
+        "/oauth/authorize",
+        authorization_request(client.id, "openid")
+        |> Map.put("prompt", "none")
+        |> Map.put("authentication_ref", Ankole.BrowserSessions.encode_reference(a_ref))
+      )
+
+    assert is_binary(redirect_query(issued_b)["code"])
+    Repo.put_tenant_id(tenant.id)
+    sessions = Repo.all(Ankole.OIDC.Session)
+
+    assert Enum.sort(Enum.map(sessions, & &1.principal_uid)) ==
+             Enum.sort([a.principal.uid, b.principal.uid])
+
+    assert Enum.find(sessions, &(&1.principal_uid == b.principal.uid)).authentication_id ==
+             b_ref["id"]
+  end
+
+  test "login select_account pins the chosen subject and requires a real authentication", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    :ok = Ankole.DataCase.set_privileged_tenant(tenant)
+    {:ok, true} = Ankole.Setup.Config.put_completed(true)
+    a = human_fixture()
+    b = human_fixture()
+    client = create_client!(%{})
+    conn = init_test_session(conn, %{})
+    {conn, a_ref} = add_authentication(conn, a.principal)
+    {conn, _} = add_authentication(conn, b.principal)
+
+    authorization =
+      get(
+        conn,
+        "/oauth/authorize",
+        Map.put(authorization_request(client.id, "openid"), "prompt", "login select_account")
+      )
+
+    flow = redirect_query(authorization)["flow"]
+
+    selected =
+      authorization
+      |> recycle()
+      |> post("/.internal-apis/sessions/identity-selection", %{
+        "flow" => flow,
+        "authenticationRef" => Ankole.BrowserSessions.encode_reference(a_ref)
+      })
+
+    assert %{"returnTo" => return_to} = AnkoleWeb.InternalAPIContract.json_response(selected, 200)
+    assert return_to =~ "/sessions/new?"
+
+    assert {:ok, %{status: :pending, expected_authentication_id: expected}} =
+             WebSession.login_transaction(selected, flow)
+
+    assert expected == a_ref["id"]
+    Repo.put_tenant_id(tenant.id)
+    browser = WebSession.browser_reference(selected)
+    {:ok, _} = Ankole.BrowserSessions.bind_provider(browser, flow, "local")
+
+    wrong = %{
+      "principal_uid" => b.principal.uid,
+      "provider_id" => "local",
+      "access_version" => b.principal.access_version,
+      "auth_time" => System.system_time(:second)
+    }
+
+    assert {:error, :login_subject_mismatch} =
+             Ankole.BrowserSessions.complete_login(browser, flow, wrong)
+
+    {:ok, _} = Ankole.BrowserSessions.revoke(browser, a_ref)
+
+    assert {:error, :login_expired} =
+             Ankole.BrowserSessions.complete_login(
+               browser,
+               flow,
+               Map.put(wrong, "principal_uid", a.principal.uid)
+             )
+  end
+
+  test "OIDC prompt combinations reject unsupported and contradictory values", %{conn: conn} do
+    client = create_client!(%{})
+
+    for prompt <- [
+          "none select_account",
+          "none login",
+          "consent",
+          "select_account select_account"
+        ] do
+      response =
+        get(
+          recycle(conn),
+          "/oauth/authorize",
+          Map.put(authorization_request(client.id, "openid"), "prompt", prompt)
+        )
+
+      assert redirect_query(response)["error"] == "invalid_request"
+    end
+  end
+
+  defp add_authentication(conn, principal) do
+    {:ok, conn, transaction} = WebSession.begin_login(conn, :pod, %{}, mode: :add)
+
+    {:ok, _} =
+      Ankole.BrowserSessions.bind_provider(
+        WebSession.browser_reference(conn),
+        transaction.id,
+        "local"
+      )
+
+    {:ok, conn, _} =
+      WebSession.complete_login(conn, transaction.id, %{
+        "principal_uid" => principal.uid,
+        "provider_id" => "local",
+        "external_id" => principal.uid,
+        "access_version" => principal.access_version,
+        "auth_time" => System.system_time(:second)
+      })
+
+    {conn, WebSession.authentication_reference(conn)}
   end
 
   defp gateway_authorization_fixture do

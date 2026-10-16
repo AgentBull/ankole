@@ -55,11 +55,24 @@ defmodule Ankole.Sessions.ModelHistoryTest do
         metadata: metadata
       })
 
-    assert {:ok, tail} = ModelHistory.conversation_tail(conversation, "event_1")
+    assert {:ok, tail} =
+             Ankole.AIGateway.visible_response_suffix(
+               conversation.subject_uid,
+               conversation.id,
+               {"signal_id", "event_1"}
+             )
+
     assert Enum.map(tail.responses, & &1.id) == [completed.id]
     assert tail.recorded_call_ids == MapSet.new(["c1"])
     assert tail.leaf == journal.id
-    assert {:ok, empty} = ModelHistory.conversation_tail(conversation, "another_event")
+
+    assert {:ok, empty} =
+             Ankole.AIGateway.visible_response_suffix(
+               conversation.subject_uid,
+               conversation.id,
+               {"signal_id", "another_event"}
+             )
+
     assert empty.responses == []
   end
 

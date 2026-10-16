@@ -51,7 +51,7 @@ export function createApplyPatchTool(
     isReadOnly: false,
     retrySafe: false,
     isDestructive: true,
-    describeActivity: () => ({ key: 'signals_gateway.reply.activity.file_update' }),
+    describeActivity: () => ({ key: 'conversations.delivery.reply.activity.file_update' }),
     async execute(_toolCallID, patch, signal): Promise<AgentToolResult<ApplyPatchDetails>> {
       const computer = context.computer
       const result = await computer.runCommand({

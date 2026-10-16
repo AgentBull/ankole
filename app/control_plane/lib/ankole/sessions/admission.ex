@@ -32,6 +32,26 @@ defmodule Ankole.Sessions.Admission do
   def admit(key, event, opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
+    attributes =
+      event
+      |> Ankole.Observability.signal_attributes()
+      |> Map.put(
+        "ankole.queue.age_ms",
+        max(DateTime.diff(now, event.inserted_at, :millisecond), 0)
+      )
+      |> Map.put(
+        "ankole.queue.ready_ms",
+        max(DateTime.diff(now, event.available_at, :millisecond), 0)
+      )
+
+    Ankole.Observability.stage("session.admission.observed_committed", attributes, fn ->
+      do_admit(key, event, Keyword.put(opts, :now, now))
+    end)
+  end
+
+  defp do_admit(key, event, opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
     cond do
       not Signal.produced_by_kernel?(event) and
           Run.kind(key.session_id) in [:job, :workflow_task] ->
@@ -43,11 +63,17 @@ defmodule Ankole.Sessions.Admission do
       true ->
         with {:ok, event} <- Run.type(event).prepare_input(event, now),
              {:ok, plan} <- Run.type(event).plan(event, opts) do
-          prepared =
-            with :ok <- TokenQuota.ensure_available(key.agent_uid),
-                 do: Context.runtime(key, plan.opts)
+          attributes = Ankole.Observability.signal_attributes(event)
 
-          Repo.transact(fn repo -> admit_in_tx(repo, key, event, plan, prepared, now) end)
+          prepared =
+            Ankole.Observability.stage("session.admission.prepare", attributes, fn ->
+              with :ok <- TokenQuota.ensure_available(key.agent_uid),
+                   do: Context.runtime(key, plan.opts)
+            end)
+
+          Ankole.Observability.stage("session.admission.claim", attributes, fn ->
+            Repo.transact(fn repo -> admit_in_tx(repo, key, event, plan, prepared, now) end)
+          end)
         else
           {:closed, result} -> {:ok, result}
           error -> error
@@ -125,7 +151,7 @@ defmodule Ankole.Sessions.Admission do
            event <-
            Ankole.Signals.lock_signal_in_tx(repo, snapshot.id),
          true <- uid == key.agent_uid and session == key.session_id,
-         {:ok, :not_committed} <- Run.type(event).finalize_input_in_tx(repo, event, plan),
+         {:ok, :not_committed} <- finalize_workflow_input_in_tx(repo, event, plan),
          true <- is_nil(event.completed_at) and event.input_state == "open",
          :ok <- authorize_attempt_in_tx(repo, event),
          :ok <- agent_active(repo, uid),
@@ -174,6 +200,16 @@ defmodule Ankole.Sessions.Admission do
     end
   end
 
+  defp finalize_workflow_input_in_tx(repo, event, %{kind: :workflow_task} = plan),
+    do: Ankole.Sessions.WorkflowTask.finalize_input_in_tx(repo, event, plan)
+
+  defp finalize_workflow_input_in_tx(_repo, _event, _plan), do: {:ok, :not_committed}
+
+  defp fail_exhausted_workflow_in_tx(repo, event, %{kind: :workflow_task} = plan, reason),
+    do: Ankole.Sessions.WorkflowTask.fail_exhausted_in_tx(repo, event, plan, reason)
+
+  defp fail_exhausted_workflow_in_tx(_repo, _event, _plan, _reason), do: :ok
+
   defp prepared_spec({:error, {:model_profile_unavailable, _profile, reason}} = error, kind)
        when kind in [:main, :scheduled, :ambient] do
     if FailureDiagnostics.provider_capacity?(reason),
@@ -201,7 +237,7 @@ defmodule Ankole.Sessions.Admission do
         "attempt_count" => event.attempt_count
       }
 
-      with :ok <- Run.type(run).fail_exhausted_in_tx(repo, event, plan, reason),
+      with :ok <- fail_exhausted_workflow_in_tx(repo, event, plan, reason),
            {:ok, result} <- Run.finalize_recovered_in_tx(repo, run, :dead_letter, reason) do
         {:ok, %{result | status: :dead_letter}}
       end

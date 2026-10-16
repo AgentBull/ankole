@@ -11,7 +11,7 @@ import {
   prepareAgentPlugins
 } from '../src/core/codex-runner/runtime/agent-plugin-materializer'
 import { assertCodexJobProjectResumeState } from '../src/core/codex-runner/job/job-project'
-import type { AgentPluginCatalogEntry } from '../src/lanes/rpc_lane'
+import { type AgentPluginCatalogEntry } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 describe('@ankole/agent-computer Agent Plugin materializer', () => {
   it('keeps another Worker package, marketplace, and in-flight copy intact during rebuild', () => {

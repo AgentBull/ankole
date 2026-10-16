@@ -543,7 +543,7 @@ defmodule Ankole.E2E.WaitHelpers do
 
     driver =
       if event do
-        case Ankole.Sessions.Driver.whereis(event) do
+        case Ankole.Sessions.driver_pid(event) do
           :undefined ->
             :absent
 

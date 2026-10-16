@@ -128,7 +128,7 @@ export function createGrepTool(
     retrySafe: true,
     isDestructive: false,
     describeActivity: () => ({
-      key: 'signals_gateway.reply.activity.command_search_code_family',
+      key: 'conversations.delivery.reply.activity.command_search_code_family',
       bindings: { family: 'grep' }
     }),
     async execute(_toolCallId, params): Promise<AgentToolResult<GrepDetails>> {

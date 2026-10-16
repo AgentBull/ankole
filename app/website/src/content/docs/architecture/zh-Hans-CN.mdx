@@ -19,7 +19,7 @@ Harness 识别每个行动主体，执行访问规则，恢复中断的长任务
 
 每个私有部署实例包含一个逻辑控制面，并为每个 Agent 提供一台 Agent Computer Worker。控制面管理身份、状态和调度，并负责创建 Worker。每台 Worker 为它的 Agent 提供执行环境。
 
-Workplace 和外部适配器记录对话发言；Signals 接纳发言、外部事件和定时刺激，Sessions 执行相应工作。身份提供商提供人员与组织目录。AIGateway 统一处理模型、Embedding、Rerank、图像和 Web 工具调用。
+Pod 和外部适配器记录对话发言；Signals 接纳发言、外部事件和定时刺激，Sessions 执行相应工作。身份提供商提供人员与组织目录。AIGateway 统一处理模型、Embedding、Rerank、图像和 Web 工具调用。
 
 ## 控制面与 Agent Computer Worker
 
@@ -53,7 +53,7 @@ RuntimeFabric 通过每个 Worker 一条 Phoenix Channel 连接控制面与 Work
 
 ### 对话保存参与者的发言
 
-对话是人和 Agent 共享的空间。`Ankole.Conversations` 保存参与者与发言。Workplace 直接写入原生发言；适配器观察外部对话中的发言，内容仍以外部平台为准。
+对话是人和 Agent 共享的空间。`Ankole.Conversations` 保存参与者与发言。Pod 直接写入原生发言；适配器观察外部对话中的发言，内容仍以外部平台为准。
 
 对话发言与 Agent 的工作分开记录。发言属于参与者；模型调用、工具结果和压缩属于执行会话在 AIGateway 中的模型会话状态。执行会话不跨对话，一个对话中的工作不会进入另一个对话。
 

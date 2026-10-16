@@ -7,7 +7,7 @@ defmodule Ankole.Conversations.LifecycleTest do
   alias Ankole.Signals.Signal
   alias Ankole.Repo
 
-  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.{Attachments, Observe}
   alias Ankole.Conversations.InboundBatch
   alias Ankole.Conversations.InputTombstone
   alias Ankole.Conversations.Delivery.Intent
@@ -175,7 +175,7 @@ defmodule Ankole.Conversations.LifecycleTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       %{principal: human} = human_fixture()
-      alice = %{principal_uid: human.uid, id: "provider-alice", display_name: "Alice"}
+      alice = provider_author_fixture(human.uid, "provider-alice", %{display_name: "Alice"})
 
       assert {:ok, %{status: :accepted}} =
                Observe.emit_entry(
@@ -610,7 +610,7 @@ defmodule Ankole.Conversations.LifecycleTest do
                  now: @base_time
                )
 
-      {:ok, stored} = Observe.store_attachment(%{"name" => "report.pdf"}, "report")
+      {:ok, stored} = Attachments.store_attachment(%{"name" => "report.pdf"}, "report")
 
       assert {:ok, %{message_observation: %{message: entry}}} =
                Observe.emit_entry(

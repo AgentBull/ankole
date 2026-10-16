@@ -1,6 +1,6 @@
 defmodule Mix.Tasks.Ankole.Openapi.Check do
   @moduledoc """
-  Checks that the console's committed OpenAPI document matches the control plane.
+  Checks that the browser applications' committed OpenAPI documents matches the control plane.
   """
 
   use Mix.Task
@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
   alias OpenApiSpex, as: OpenAPISpex
   alias OpenAPISpex.OpenApi, as: OpenAPI
 
-  @shortdoc "Checks the committed console OpenAPI document"
+  @shortdoc "Checks the committed browser OpenAPI documents"
   @requirements ["app.config"]
 
   @impl Mix.Task
@@ -29,22 +29,27 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
       )
 
     try do
-      committed_path = committed_spec_path()
-      generated = AnkoleWeb.APISpec.spec() |> OpenAPI.to_map() |> normalize()
+      for {name, module} <- [
+            {"console", AnkoleWeb.APISpec},
+            {"internal", AnkoleWeb.InternalAPISpec}
+          ] do
+        committed_path = committed_spec_path(name)
+        generated = module.spec() |> OpenAPI.to_map() |> normalize()
 
-      if args == ["--write"] do
-        File.write!(committed_path, Ankole.JSON.encode!(generated) <> "\n")
-        Mix.shell().info("Wrote #{committed_path}")
-      else
-        committed = committed_path |> File.read!() |> Ankole.JSON.decode!() |> normalize()
+        if args == ["--write"] do
+          File.write!(committed_path, Ankole.JSON.encode!(generated) <> "\n")
+          Mix.shell().info("Wrote #{committed_path}")
+        else
+          committed = committed_path |> File.read!() |> Ankole.JSON.decode!() |> normalize()
 
-        if generated != committed do
-          Mix.raise(
-            "#{committed_path} does not match AnkoleWeb.APISpec; run mix ankole.openapi.check --write and regenerate the client"
-          )
+          if generated != committed do
+            Mix.raise(
+              "#{committed_path} does not match #{inspect(module)}; run mix ankole.openapi.check --write and regenerate the client"
+            )
+          end
+
+          Mix.shell().info("#{name} OpenAPI document is current")
         end
-
-        Mix.shell().info("Console OpenAPI document is current")
       end
     after
       Supervisor.stop(supervisor)
@@ -61,10 +66,10 @@ defmodule Mix.Tasks.Ankole.Openapi.Check do
     |> Map.delete("servers")
   end
 
-  defp committed_spec_path do
+  defp committed_spec_path(name) do
     Mix.Project.project_file()
     |> Path.dirname()
-    |> Path.join("../webapps/openapi/console.json")
+    |> Path.join("../webapps/openapi/#{name}.json")
     |> Path.expand()
   end
 end

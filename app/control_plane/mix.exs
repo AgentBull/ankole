@@ -5,6 +5,13 @@ defmodule Ankole.MixProject do
     [
       app: :ankole,
       version: "0.1.1",
+      ankole_edition: edition(),
+      build_path: "_build/#{edition()}",
+      test_paths: test_paths(),
+      test_load_filters: [
+        &(String.ends_with?(&1, "_test.exs") and not String.starts_with?(&1, "test/fixtures/"))
+      ],
+      test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
       elixir: "~> 1.20",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
@@ -36,9 +43,13 @@ defmodule Ankole.MixProject do
   end
 
   defp elixirc_paths(:test),
-    do: ["lib", "test/support" | e2e_support_paths()] ++ plugin_elixirc_paths()
+    do:
+      ["lib", "test/support" | e2e_support_paths()] ++
+        plugin_elixirc_paths() ++
+        internal_paths(["control_plane/lib", "control_plane/test/support"])
 
-  defp elixirc_paths(_), do: ["lib"] ++ plugin_elixirc_paths()
+  defp elixirc_paths(_),
+    do: ["lib"] ++ plugin_elixirc_paths() ++ internal_paths(["control_plane/lib"])
 
   # Repo-root e2e support modules (harness, scenarios) and the fake Feishu
   # platform owned by tools/fake-feishu compile into :test alongside
@@ -56,19 +67,84 @@ defmodule Ankole.MixProject do
   defp plugin_elixirc_paths do
     repo_root = Path.expand("../..", __DIR__)
 
-    [
-      Path.join(repo_root, "plugins/*/lib"),
-      Path.join(repo_root, "internals/plugins/*/lib")
-    ]
+    ([Path.join(repo_root, "plugins/*/lib")] ++ internal_paths(["plugins/*/lib"]))
     |> Enum.flat_map(&Path.wildcard/1)
     |> Enum.filter(&File.dir?/1)
+  end
+
+  defp edition do
+    case System.get_env("ANKOLE_EDITION", "foss") do
+      "foss" -> :foss
+      "saas" -> :saas
+      _ -> raise "ANKOLE_EDITION must be foss or saas"
+    end
+  end
+
+  defp internal_paths(paths) do
+    if edition() == :saas do
+      Enum.map(paths, &Path.expand("../../internals/#{&1}", __DIR__))
+    else
+      []
+    end
+  end
+
+  defp test_paths, do: ["test"] ++ internal_paths(["control_plane/test"])
+
+  defp prepare_webapps(_args) do
+    if edition() == :saas do
+      for relative <- [
+            "control_plane/lib",
+            "control_plane/config.exs",
+            "control_plane/priv/repo/migrations",
+            "control_plane/test/test_helper.exs",
+            "webapps/entries.json",
+            "locales"
+          ] do
+        unless File.exists?(Path.expand("../../internals/#{relative}", __DIR__)),
+          do: raise("Missing SaaS source: internals/#{relative}")
+      end
+    end
+
+    {output, status} =
+      System.cmd("bun", ["run", "scripts/prepare-edition.ts"],
+        cd: Path.expand("../webapps", __DIR__),
+        stderr_to_stdout: true
+      )
+
+    if status != 0, do: Mix.raise(output)
+  end
+
+  defp validate_build(_args) do
+    :ok = Ankole.Migrations.validate!()
+    :ok = Ankole.IdentityProviders.SiteSources.validate!()
+
+    if edition() == :saas do
+      for {key, callbacks} <- [
+            http_entry: [init: 1, call: 2, __routes__: 0],
+            host_policy: [classify: 1],
+            edition_config: [definitions: 0, patterns: 0]
+          ] do
+        module = Application.fetch_env!(:ankole, key)
+
+        unless Code.ensure_loaded?(module) and
+                 Enum.all?(callbacks, fn {name, arity} ->
+                   function_exported?(module, name, arity)
+                 end),
+               do: Mix.raise("Invalid SaaS build module for #{key}: #{inspect(module)}")
+      end
+    end
   end
 
   defp releases do
     [
       ankole: [
         applications: [aws_credentials: :load],
-        steps: [:assemble, &remove_dependency_native_copies/1, &copy_runtime_config_support/1]
+        steps: [
+          :assemble,
+          &remove_dependency_native_copies/1,
+          &copy_runtime_config_support/1,
+          &copy_build_resources/1
+        ]
       ]
     ]
   end
@@ -101,6 +177,31 @@ defmodule Ankole.MixProject do
 
     File.mkdir_p!(Path.dirname(target))
     File.cp!(source, target)
+    release
+  end
+
+  defp copy_build_resources(%Mix.Release{} = release) do
+    :ok = Ankole.Migrations.validate!()
+    application = Path.join(release.path, "lib/ankole-#{release.applications.ankole[:vsn]}")
+    artifacts = Path.expand("_build/#{edition()}", __DIR__)
+
+    for {source, destination} <- [
+          {Path.join(artifacts, "webapps/assets"), "priv/static/assets"},
+          {Path.join(artifacts, "locales"), "priv/locales"}
+        ] do
+      target = Path.join(application, destination)
+      File.rm_rf!(target)
+      File.cp_r!(source, target)
+    end
+
+    target = Path.join(application, "priv/repo/internal_migrations")
+    File.rm_rf!(target)
+
+    if edition() == :saas do
+      [source] = internal_paths(["control_plane/priv/repo/migrations"])
+      File.cp_r!(source, target)
+    end
+
     release
   end
 
@@ -158,10 +259,23 @@ defmodule Ankole.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup"],
+      compile: [&prepare_webapps/1, "compile", &validate_build/1],
       "ecto.migrate": [
         fn args ->
           Mix.Task.run("loadpaths", args)
-          Mix.Tasks.Ecto.Migrate.run(args, &Ankole.Upgrade202610.migrate/4)
+          Mix.Tasks.Ecto.Migrate.run(args, &Ankole.Migrations.migrate/4)
+        end
+      ],
+      "ecto.rollback": [
+        fn args ->
+          Mix.Task.run("loadpaths", args)
+          Mix.Tasks.Ecto.Rollback.run(args, &Ankole.Migrations.migrate/4)
+        end
+      ],
+      "ecto.migrations": [
+        fn args ->
+          Mix.Task.run("loadpaths", args)
+          Mix.Tasks.Ecto.Migrations.run(args, &Ankole.Migrations.status/3)
         end
       ],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],

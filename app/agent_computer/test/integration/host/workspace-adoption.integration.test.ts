@@ -16,7 +16,8 @@ import {
   WorkspaceOpenSchema,
   WorkspaceReady_Reason
 } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
-import { RuntimeRPCClient, rpcOperations, type ControlPlaneOwnedRPCMethod } from '../../../src/lanes/rpc_lane'
+import { RuntimeRPCClient } from '../../../src/lanes/rpc_lane'
+import { rpcOperations, type ControlPlaneOwnedRPCMethod } from '../../../src/lanes/rpc_contract'
 import { WorkerDrainState } from '../../../src/worker/drain'
 import { Workspaces } from '../../../src/worker/workspaces'
 import type { WorkerConfig } from '../../../src/worker/config'

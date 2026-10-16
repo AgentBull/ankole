@@ -3,14 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startAutomationJobCLIBridge } from '../src/cli/automation-jobs/automation-job-cli-bridge'
-import { requestAutomationJobCLI } from '../src/cli/automation-jobs/automation-job-cli-client'
+import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
 import { AUTOMATION_JOB_CLI_HELP, commandFromArgs } from '../src/cli/automation-jobs/automation-job-cli'
+import { RPCRejectedError, RPCTimeoutError } from '../src/lanes/rpc_lane'
 import {
-  RPCRejectedError,
-  RPCTimeoutError,
   type AutomationJobManagementRPCMethod,
   type AutomationJobRPCRequester
-} from '../src/lanes/rpc_lane'
+} from '../src/cli/automation-jobs/automation-job-cli-bridge'
 import { FakeDrive } from './support/fake-drive'
 
 describe('automation job CLI', () => {
@@ -229,3 +228,11 @@ describe('automation job CLI', () => {
     expect(normalized).toContain('show-automation-job-cli --id <automation-job-id> [--runs <1-100>]')
   })
 })
+
+function requestAutomationJobCLI(socketPath: string, command: unknown) {
+  return requestSocketLineBridge(
+    socketPath,
+    JSON.stringify(command),
+    'automation job CLI bridge returned an invalid response'
+  )
+}

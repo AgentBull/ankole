@@ -1,14 +1,211 @@
 defmodule Ankole.Conversations.Attachments do
-  @moduledoc "Owns stable attachment identities and conversation-scoped drive references."
+  @moduledoc "Owns attachment bytes, stable identities, and conversation-scoped drive references."
   import Ecto.Query
   alias Ecto.Adapters.SQL
   alias Ankole.{Files, Repo}
-  alias Ankole.Conversations.{ExternalMessageRef, Message}
+  alias Ankole.Conversations.{Conversation, External, ExternalMessageRef, Message}
   @attachment_id_sequence "conversation_attachment_id_seq"
   @attachment_id_min 10_000
   @attachment_id_max 9_007_199_254_740_991
   @attachment_identity_fields ~w(provider_ref provider_file_id provider_file_key provider_uri blob_ref storage_ref)
   @attachment_materialization_fields ~w(attachment_id blob_ref path content_type size size_bytes bytes)
+
+  @doc """
+  Returns whether any attachment still needs its bytes stored.
+
+  Stored bytes, provider download limits, and external-content references
+  require no download. A true result means the adapter must emit a `pending`
+  observation first, download and store the bytes, and then emit the final
+  observation with the same `observed_at`.
+  """
+  @spec attachments_need_bytes?([map()]) :: boolean()
+  def attachments_need_bytes?(attachments) when is_list(attachments) do
+    Enum.any?(attachments, &(not attachment_satisfied?(&1)))
+  end
+
+  @doc "Stores each download result and removes transient provider credentials."
+  @spec materialize_attachments([map()], String.t(), (map() -> tuple()), keyword()) :: [map()]
+  def materialize_attachments(attachments, adapter_id, download_fun, opts \\ []) do
+    Enum.map(attachments, fn attachment ->
+      result =
+        if attachment_satisfied?(attachment) do
+          attachment
+        else
+          materialize_attachment(attachment, adapter_id, download_fun, opts)
+        end
+
+      Map.drop(result, Keyword.get(opts, :drop_keys, []))
+    end)
+  end
+
+  @doc "Returns the final state of an entry's attachment observation."
+  @spec materialization_state([map()]) :: String.t()
+  def materialization_state(attachments) do
+    if Enum.all?(attachments, &attachment_satisfied?/1), do: "complete", else: "failed"
+  end
+
+  @doc "Reuses stored media and the first observation time on provider redelivery."
+  @spec reuse_stored_attachments(map(), [String.t()]) :: {map(), DateTime.t()}
+  def reuse_stored_attachments(%{attachments: []} = input, _provider_fact_states),
+    do: {input, DateTime.utc_now(:microsecond)}
+
+  def reuse_stored_attachments(input, provider_fact_states) do
+    conversation =
+      Repo.get_by(Conversation, provider_conversation_id: input.provider_conversation_id)
+
+    existing =
+      if conversation, do: External.get_message(Repo, conversation.id, input.provider_message_id)
+
+    case existing do
+      %{message: %{attachments: stored}, external_ref: %{metadata: stored_metadata}}
+      when is_list(stored) and stored != [] ->
+        by_ref = Map.new(stored, &{&1["provider_ref"], &1})
+
+        attachments =
+          Enum.map(input.attachments, fn attachment ->
+            case Map.get(by_ref, attachment["provider_ref"]) do
+              %{"materialization_state" => "complete"} = kept ->
+                if stored?(kept), do: kept, else: attachment
+
+              %{"materialization_state" => state} = kept ->
+                if state in provider_fact_states, do: kept, else: attachment
+
+              _missing_failed_or_unfinished ->
+                attachment
+            end
+          end)
+
+        observation = stored_metadata["attachment_materialization"]
+
+        metadata =
+          if is_map(observation),
+            do: Map.put(input.metadata, "attachment_materialization", observation),
+            else: input.metadata
+
+        {%{input | attachments: attachments, metadata: metadata}, observation_time(observation)}
+
+      _no_mirror ->
+        {input, DateTime.utc_now(:microsecond)}
+    end
+  rescue
+    exception ->
+      Ankole.Logging.warning(
+        "conversations.attachments.reuse_lookup_failed",
+        "Attachment reuse lookup failed",
+        %{provider_message_id: input.provider_message_id, reason: Exception.message(exception)}
+      )
+
+      {input, DateTime.utc_now(:microsecond)}
+  end
+
+  defp materialize_attachment(attachment, adapter_id, download_fun, opts) do
+    with {:ok, %{body: body, filename: filename, content_type: content_type, put: put}} <-
+           download_fun.(attachment),
+         {:ok, stored} <-
+           store_attachment(Map.merge(attachment, put), body,
+             name: filename,
+             content_type: content_type
+           ) do
+      Map.put(stored, "materialization_state", "complete")
+    else
+      {:error, :provider_download_limit} ->
+        attachment
+        |> Map.put("materialization_state", "provider_download_limit")
+        |> Map.put("restriction", Keyword.fetch!(opts, :restriction))
+
+      reason ->
+        attachment_failed(attachment, adapter_id, reason)
+    end
+  rescue
+    exception -> attachment_failed(attachment, adapter_id, exception)
+  end
+
+  defp attachment_failed(attachment, adapter_id, reason) do
+    Ankole.Logging.warning(
+      "conversations.attachments.materialization_failed",
+      "Attachment materialization failed",
+      %{
+        adapter: adapter_id,
+        provider_ref: attachment["provider_ref"],
+        source_message_id: attachment["source_message_id"],
+        reason: inspect(reason)
+      }
+    )
+
+    Map.put(attachment, "materialization_state", "failed")
+  end
+
+  defp attachment_satisfied?(attachment) do
+    stored?(attachment) or
+      attachment["materialization_state"] in [
+        "provider_download_limit",
+        "provider_external_content"
+      ]
+  end
+
+  defp observation_time(%{"observed_at" => value}) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, observed_at, _offset} -> observed_at
+      _invalid -> DateTime.utc_now(:microsecond)
+    end
+  end
+
+  defp observation_time(_observation), do: DateTime.utc_now(:microsecond)
+
+  @doc """
+  Stores downloaded attachment bytes in the file service.
+
+  `content` is a binary or `{:file, path}`. The result is the attachment with
+  `blob_ref` (the SHA-256 digest), `path` (its drive path under `inbox/`), and
+  `size`. `name:` overrides the attachment's own `name` in the path, and
+  `content_type:` fills `content_type` when the attachment declares none.
+  Every Agent that receives the attachment gets the same stored bytes, so an
+  adapter stores them once whichever Agent asked first.
+  """
+  @spec store_attachment(map(), binary() | {:file, Path.t()}, keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def store_attachment(attachment, content, opts \\ []) when is_map(attachment) do
+    with {:ok, %{sha256: sha256, size: size}} <- Files.store(content) do
+      name = present(Keyword.get(opts, :name)) || present(attachment["name"]) || "attachment"
+
+      attachment =
+        attachment
+        |> Map.put("blob_ref", sha256)
+        |> Map.put("path", Files.content_path("inbox", sha256, name))
+        |> Map.put("size", size)
+
+      attachment =
+        case {content_type(attachment), present(opts[:content_type])} do
+          {nil, content_type} when is_binary(content_type) ->
+            Map.put(attachment, "content_type", content_type)
+
+          _declared_or_unknown ->
+            attachment
+        end
+
+      {:ok, attachment}
+    end
+  end
+
+  @doc """
+  Puts the two-phase attachment observation into entry metadata.
+
+  `state` is `"pending"` before the download and `"complete"` or `"failed"`
+  after it. `observed_at` is the moment the adapter first saw the attachment.
+  It anchors the inbound batch window and the materialization cap, so the
+  final observation must carry the same value as the pending one.
+  """
+  @spec put_attachment_materialization(map(), String.t(), DateTime.t()) :: map()
+  def put_attachment_materialization(metadata, state, %DateTime{} = observed_at)
+      when is_map(metadata) and state in ["pending", "complete", "failed"] do
+    Map.put(metadata, "attachment_materialization", %{
+      "state" => state,
+      "observed_at" => DateTime.to_iso8601(observed_at)
+    })
+  end
+
+  defp present(value) when is_binary(value) and value != "", do: value
+  defp present(_value), do: nil
 
   def prepare_in_tx(repo, agent_uid, conversation_id, message_id, attachments, existing) do
     attachments

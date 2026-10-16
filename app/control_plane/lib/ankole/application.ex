@@ -6,6 +6,7 @@ defmodule Ankole.Application do
   @impl true
   def start(_type, _args) do
     :ok = AnkoleWeb.SiteAdminConsole.validate!()
+    :ok = Ankole.IdentityProviders.SiteSources.validate!()
     :ok = AnkoleWeb.RequestLogger.attach()
 
     identity_provider_startup_sync_opts =

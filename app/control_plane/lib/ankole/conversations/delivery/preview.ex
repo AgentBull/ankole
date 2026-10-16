@@ -34,7 +34,6 @@ defmodule Ankole.Conversations.Delivery.Preview do
   alias Ankole.Sessions.Scheduled
   alias Ankole.Logging
   alias Ankole.Signals.Adapters
-  alias Ankole.Sessions.ModelHistory
   alias Ankole.Conversations.Delivery.Text
   alias Ankole.Conversations.Delivery
   alias Ankole.Conversations.Delivery.Adapter
@@ -203,10 +202,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
           conversation_id
 
         %Signal{} ->
-          case ModelHistory.active_conversation(new_owner.agent_uid, new_owner.session_id) do
-            %{id: conversation_id} when is_binary(conversation_id) -> conversation_id
-            _missing -> nil
-          end
+          Ankole.Sessions.active_model_conversation_id(new_owner)
 
         nil ->
           nil
@@ -921,7 +917,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   defp cast_for_event(nil, _message), do: :ok
 
   defp preview_driver(event, opts) do
-    driver = Keyword.get(opts, :driver) || Ankole.Sessions.Driver.whereis(event)
+    driver = Keyword.get(opts, :driver) || Ankole.Sessions.driver_pid(event)
     if is_pid(driver), do: {driver, Process.monitor(driver)}, else: nil
   end
 

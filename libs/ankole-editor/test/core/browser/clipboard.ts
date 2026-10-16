@@ -20,7 +20,7 @@ function paste(wg: Wordgard, values: Record<string, string>) {
 
 function copy(state: GardState, from: number, to: number) {
   const data = new DataTransfer()
-  writeClipboard(state, state.doc.slice(from, to), state.doc.contextAt(from), data)
+  writeClipboard(state, Slice.get(state.doc, from, to), data)
   return data
 }
 
@@ -78,8 +78,8 @@ describe('clipboard', () => {
     })
     const data = new DataTransfer()
     data.setData('text/plain', 'text')
-    ist(readClipboard(state, data, state.doc.resolve(2), false)!.slice, Slice.of([Leaf.text('text')]), eq)
-    ist(readClipboard(state, data, state.doc.resolve(5), false)!.slice, Slice.of([Leaf.text('parsed')]), eq)
+    ist(readClipboard(state, data, state.doc.resolve(2), false), Slice.of([Leaf.text('text')]), eq)
+    ist(readClipboard(state, data, state.doc.resolve(5), false), Slice.of([Leaf.text('parsed')]), eq)
   })
 
   it('reads back the exact slice that it writes', () => {
@@ -88,7 +88,7 @@ describe('clipboard', () => {
     const data = copy(state, tag(d, 1), tag(d, 2))
     ist(/wg-slice=/.test(data.getData('text/html')))
     const read = readClipboard(state, data, state.doc.resolve(1), false)!
-    ist(read.slice, d.slice(tag(d, 1), tag(d, 2)), eq)
+    ist(Slice.eq(read.content, d.slice(tag(d, 1), tag(d, 2))), true)
     ist(read.context.join(), 'Paragraph')
   })
 
@@ -104,7 +104,7 @@ describe('clipboard', () => {
     const data = new DataTransfer()
     data.setData('text/html', `<p wg-content="true" wg-slice='[{"type":"Unknown"}]'>a  b</p>`)
     const read = readClipboard(state, data, state.doc.resolve(1), false)!
-    ist(read.slice, Slice.of([Leaf.text('a  b')]), eq)
+    ist(Slice.eq(read.content, [Leaf.text('a  b')]), true)
   })
 
   it('gives clipboard filters the slice context', () => {
@@ -112,9 +112,9 @@ describe('clipboard', () => {
     const state = GardState.create({
       doc: doc(p('x')),
       config: [
-        Wordgard.clipboardInputFilter.of(content => {
-          seen.push(content.context.join())
-          return { slice: content.slice, context: [] }
+        Wordgard.clipboardInputFilter.of(slice => {
+          seen.push(slice.context.join())
+          return Slice.of(slice.content, [])
         })
       ]
     })
@@ -123,6 +123,6 @@ describe('clipboard', () => {
     const read = readClipboard(state, data, state.doc.resolve(1), false)!
     ist(seen.join(), 'Paragraph')
     ist(read.context.length, 0)
-    ist(read.slice, Slice.of([Leaf.text('a'), Plot.End, p('b').tag, Leaf.text('b')]), eq)
+    ist(Slice.eq(read.content, [Leaf.text('a'), Plot.End, p('b').tag, Leaf.text('b')]), true)
   })
 })

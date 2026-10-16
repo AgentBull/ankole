@@ -19,7 +19,11 @@ defmodule AnkoleWeb.Endpoint do
   # production behind TLS) — it must be a literal here, so it cannot be runtime-tuned.
   @session_options [
     store: AnkoleWeb.SessionCookieStore,
-    key: "_ankole_key",
+    key:
+      if(Application.compile_env(:ankole, :secure_cookies, false),
+        do: "__Host-ankole",
+        else: "_ankole_key"
+      ),
     key_context: "_ankole_key",
     same_site: "Lax",
     max_age: 86_400,
@@ -40,17 +44,25 @@ defmodule AnkoleWeb.Endpoint do
   socket "/runtime-fabric/worker", AnkoleWeb.RuntimeFabricSocket,
     auth_token: true,
     websocket: [
+      connect_info: [:uri],
       max_frame_size: 16 * 1024 * 1024,
       timeout: 60_000,
       compress: false
     ],
     longpoll: false
 
+  plug AnkoleWeb.Plugs.RequestHost
+
+  plug Plug.Static,
+    at: "/assets",
+    from: {AnkoleWeb.Assets, :directory, []},
+    gzip: not code_reloading?
+
   plug Plug.Static,
     at: "/",
     from: :ankole,
     gzip: not code_reloading?,
-    only: AnkoleWeb.static_paths(),
+    only: AnkoleWeb.static_paths() -- ["assets"],
     raise_on_missing_only: code_reloading?
 
   if code_reloading? do
@@ -78,5 +90,5 @@ defmodule AnkoleWeb.Endpoint do
   plug Plug.Head
   plug Plug.Session, @session_options
   plug AnkoleWeb.SiteAdminConsole
-  plug AnkoleWeb.Router
+  plug Application.compile_env(:ankole, :http_entry, AnkoleWeb.Router)
 end

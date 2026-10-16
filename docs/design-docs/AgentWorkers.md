@@ -610,6 +610,34 @@ A Driver uses `probe` for environment calls and `adopt` for the current Job
 attempt. Stop and instance termination still cancel execution; a Session slot
 is released only after its commands or Codex thread have ended.
 
+The `command` tool runs one foreground command. A Python 3 supervisor starts
+the command in its own process group and keeps the leader unreaped until group
+cleanup finishes. Normal leader exit also ends remaining group members. A
+timeout sends TERM, then KILL after five seconds if needed; the result is 124
+or 137. Cancellation returns 130. The supervisor uses isolated Python startup,
+so workspace modules and caller Python settings cannot change its imports.
+Commands that deliberately create another session can leave this group; the
+instance remains the containment boundary. Persistent work belongs to a
+Background Job, not a detached child of the foreground tool.
+
+Command stdout and stderr each retain their first and last MiB. The result's
+`outputCapture` records `observedBytes`, `droppedBytes`, and `drained`.
+`drained` means both streams reached EOF; it does not mean no bytes were dropped.
+After the supervisor exits, remaining reads
+have a one-second drain deadline; a cut-short capture reports an unknown
+remaining size. `outputLogPath` names the retained capture before model-facing
+text truncation. It does not promise a complete log. The loss notice stays
+outside that truncated text. Binary file-transfer operations use their exact
+byte path and do not use this collector or supervisor.
+
+Turn-local CLI bridges share a Worker-wide limit of 64 admitted requests. An
+incomplete request has ten seconds from connection acceptance to provide its
+newline. A full request keeps the existing operation budget; the read deadline
+does not cancel a running handler. A request keeps its slot until both the
+handler and socket finish, including after bridge replacement. Busy and read
+timeout errors occur before dispatch and do not imply an operation ran. The
+bridge does not retry operations with an unknown result.
+
 The Worker reconnects after normal and abnormal WebSocket closure. A rejected
 generation exits at once. Five minutes without admission also ends the
 process. An event-loop gap over 30 seconds resets the disconnect timer and

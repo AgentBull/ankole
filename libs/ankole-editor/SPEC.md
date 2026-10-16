@@ -697,16 +697,17 @@ During an IME composition, Enter, Escape, and keys with `keyCode=229` do not sub
 | `revision` | The revision number. It increases by 1 each time a dispatched update changes the page. |
 | `read()` | Returns `{ revision, markdown, xml }`. |
 | `apply({ format, source, revision })` | Refer to the steps below. |
-| `dispose()` | Stops the count. |
+| `dispose()` | Stops the count and rejects later writes through this instance. Reads remain available. |
 
 `apply` does these steps in this order:
 
-1. If an IME composition is not complete, it throws an error.
-2. If `revision` is not equal to the `revision` of the session, it throws an error.
-3. It parses `source` as `format` (`'markdown'` or `'xml'`).
-4. It prints the new page. If the print is not possible, it throws an error.
-5. It replaces the full page in one update that you can undo.
-6. It returns `{ revision, markdown, xml, warnings }`.
+1. If this instance was replaced or disposed, it throws an error.
+2. If an IME composition is not complete, it throws an error.
+3. If `revision` is not equal to the `revision` of the session, it throws an error.
+4. It parses `source` as `format` (`'markdown'` or `'xml'`).
+5. It prints the new page. If the print is not possible, it throws an error.
+6. It replaces the full page in one update that you can undo.
+7. It returns `{ revision, markdown, xml, warnings }`.
 
 When `apply` throws an error, the page does not change.
 
@@ -730,7 +731,8 @@ A host imports only these entry points. `readTree(editor.state.doc)` reads the p
 - This package is an internal Ankole workspace library and keeps `private: true`. Its public package name is `@ankole/block-editor`. An internal host declares `"@ankole/block-editor": "workspace:*"` in its own `package.json`.
 - This package is a TypeScript source package, and the host builds it. `bun run build` checks the types of the library, the example host, and the tests. `bun run build:playground` builds the example host separately.
 - The `package.json` and `bun.lock` in the Ankole root control the dependencies. The package directory has no lockfile of its own. `@ankole/uikit` uses `workspace:*`.
-- `react` and `react-dom` 19.3.0 are peer dependencies. The host and the editor use the same instance of each. `crelt`, `style-mod`, and `@marijn/find-cluster-break` are dependencies of this package, because the editing engine uses them.
+- The root pins `mdast-util-gfm-strikethrough` to `2.0.1`. This version keeps strikethrough at punctuation and tag boundaries when text follows it. A separate host must also use this version or a later version with the same fix.
+- `react` and `react-dom` 19.3.0 are peer dependencies. The host and the editor use the same instance of each. `style-mod` and `@marijn/find-cluster-break` are dependencies of this package, because the editing engine uses them.
 - A host that uses the React component and the UI Kit styles must also declare `"@ankole/uikit": "workspace:*"`. It must also have direct dependencies on the React peer dependencies above.
 - The host CSS loads `@ankole/uikit/styles.css` first, and then `@ankole/block-editor/styles.css`. The editor styles apply only in `.ankole-editor` and `.ankole-editor-overlay`. They do not change `html`, `body`, or `#root`.
 - Each install must apply the patches in `patches/`. The `patchedDependencies` field in the Ankole root declares them, and `bun install` in the root applies them. A separate host that installs the package from a tarball must declare them in its own `patchedDependencies`:

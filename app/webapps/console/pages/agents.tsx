@@ -238,7 +238,7 @@ function AgentEditor({ uid }: { uid?: string }) {
     [mode, selectedAgent, workerProviders.data]
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'agent', uid },
+    sourceKey: uid ? `agent:${uid}` : 'new',
     source: agentDraft,
     absent: () => mode === 'edit' && requestErrorCode(agentDetail.error) === 'not_found'
   })

@@ -6,11 +6,11 @@ defmodule Ankole.Sessions.Scheduled do
   import Ecto.Query
   import Ankole.Sessions.Common, only: [reject_nil_values: 1]
 
+  alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.Repo
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.Text
-  alias Ankole.Conversations.Delivery.Intent
 
   # How many previous fires the identical-reply detection reads. The streak
   # only has to prove "consecutive", not measure history, so a short bounded
@@ -46,7 +46,7 @@ defmodule Ankole.Sessions.Scheduled do
     {tools, hosted} = super(run, tools, hosted)
     {:ok, targets} = Ankole.Sessions.Presentation.targets_in_tx(Repo, run.event)
 
-    if Enum.any?(targets, &(not Ankole.Conversations.Target.accepts_attachments?(&1))) do
+    if Enum.any?(targets, &(not StatementTarget.accepts_attachments?(&1))) do
       {Enum.reject(tools, &(&1["name"] == "reply_attachment")),
        Enum.reject(hosted, &(&1["type"] == "image_generation"))}
     else
@@ -231,7 +231,7 @@ defmodule Ankole.Sessions.Scheduled do
   def consecutive_identical_replies(%Signal{}), do: 0
 
   defp identical_reply_streak(%Signal{} = input, schedule_name) do
-    replies =
+    signal_ids =
       Signal
       |> where([event], event.agent_uid == ^input.agent_uid)
       |> where([event], event.session_id == ^input.session_id)
@@ -244,8 +244,11 @@ defmodule Ankole.Sessions.Scheduled do
       )
       |> order_by([event], desc: event.queue_sequence)
       |> limit(@identical_reply_scan_limit)
+      |> select([event], event.id)
       |> Repo.all()
-      |> Enum.map(&fire_reply_text/1)
+
+    candidates = Ankole.Conversations.reply_candidate_texts(signal_ids)
+    replies = Enum.map(signal_ids, &Map.get(candidates, &1))
 
     case replies do
       [latest | _rest] when is_binary(latest) ->
@@ -257,33 +260,6 @@ defmodule Ankole.Sessions.Scheduled do
 
       _no_reply ->
         0
-    end
-  end
-
-  defp fire_reply_text(%Signal{id: event_id}) do
-    native =
-      Repo.one(
-        from(m in Ankole.Conversations.Message,
-          where: m.signal_id == ^event_id,
-          order_by: [desc: m.created_at],
-          limit: 1,
-          select: m.text
-        )
-      )
-
-    native || external_reply_text(event_id)
-  end
-
-  defp external_reply_text(event_id) do
-    Intent
-    |> where([entry], entry.source_signal_id == ^event_id)
-    |> where([entry], not is_nil(entry.fallback_visible_text))
-    |> order_by([entry], desc: entry.inserted_at)
-    |> limit(1)
-    |> Repo.one()
-    |> case do
-      %Intent{fallback_visible_text: text} -> text
-      nil -> nil
     end
   end
 

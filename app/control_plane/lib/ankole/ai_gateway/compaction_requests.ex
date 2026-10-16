@@ -370,7 +370,7 @@ defmodule Ankole.AIGateway.CompactionRequests do
                    "auto" => false,
                    "manual" => true
                  }),
-                 CompactionArtifacts.issuer_of(context)
+                 runtime["provider_id"]
                )
            }) do
       manual_checkpoint_result(conversation_id, checkpoint)
@@ -404,7 +404,7 @@ defmodule Ankole.AIGateway.CompactionRequests do
                CompactionArtifacts.checkpoint_metadata(
                  request,
                  %{"auto" => false, "manual" => true, "source" => "upstream"},
-                 CompactionArtifacts.issuer_of(context)
+                 runtime["provider_id"]
                )
            }) do
       manual_checkpoint_result(conversation_id, checkpoint)

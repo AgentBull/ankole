@@ -8,6 +8,8 @@ defmodule AnkoleWeb.SetupController do
   """
 
   use AnkoleWeb, :controller
+  use OpenApiSpex.ControllerSpecs
+  alias AnkoleWeb.Schemas.InternalAPI
 
   alias Ankole.I18n
   alias Ankole.IdentityProviders.LocalPassword
@@ -34,6 +36,22 @@ defmodule AnkoleWeb.SetupController do
   @doc """
   Returns setup state needed before the SPA can decide which step to show.
   """
+  operation(:state,
+    operation_id: "setupState",
+    summary: "setupState",
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.SetupState},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def state(conn, _params) do
     with {:ok, completed?} <- SetupConfig.completed?(),
          {:ok, current_locale} <- I18n.configured_default_locale() do
@@ -64,6 +82,23 @@ defmodule AnkoleWeb.SetupController do
   session; a wrong code also clears any partial setup session so a failed attempt
   can't leave a usable one behind.
   """
+  operation(:create_session,
+    operation_id: "createSetupSession",
+    summary: "createSetupSession",
+    request_body: {"Request", "application/json", InternalAPI.SetupSessionRequest},
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.InternalOK},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def create_session(conn, params) do
     with {:ok, false} <- SetupConfig.completed?(),
          {:ok, expected_code} <- SetupConfig.bootstrap_activation_code(),
@@ -99,6 +134,22 @@ defmodule AnkoleWeb.SetupController do
   @doc """
   Clears the short-lived setup session without touching stored setup state.
   """
+  operation(:delete_session,
+    operation_id: "deleteSetupSession",
+    summary: "deleteSetupSession",
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.InternalOK},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def delete_session(conn, _params) do
     conn
     |> WebSession.clear_setup_session()
@@ -108,6 +159,22 @@ defmodule AnkoleWeb.SetupController do
   @doc """
   Reprints the current bootstrap activation code to the server log.
   """
+  operation(:create_activation_code_log_entry,
+    operation_id: "logSetupActivationCode",
+    summary: "logSetupActivationCode",
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.InternalOK},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def create_activation_code_log_entry(conn, _params) do
     case Bootstrap.log_current_activation_code() do
       :ok -> json(conn, %{ok: true})
@@ -120,6 +187,22 @@ defmodule AnkoleWeb.SetupController do
   @doc """
   Lists discovered plugins and the currently enabled setup selection.
   """
+  operation(:plugins,
+    operation_id: "setupPlugins",
+    summary: "setupPlugins",
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.SetupPlugins},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def plugins(conn, _params) do
     with :ok <- require_setup_session(conn),
          {:ok, enabled_ids} <- Plugins.enabled_ids() do
@@ -142,6 +225,23 @@ defmodule AnkoleWeb.SetupController do
   @doc """
   Persists which discovered plugins should be enabled for this installation.
   """
+  operation(:update_plugins,
+    operation_id: "updateSetupPlugins",
+    summary: "updateSetupPlugins",
+    request_body: {"Request", "application/json", InternalAPI.SetupPluginsRequest},
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.SetupPluginsSelection},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def update_plugins(conn, %{"pluginIDs" => plugin_ids}) when is_list(plugin_ids) do
     with :ok <- require_setup_session(conn),
          {:ok, enabled_ids} <- persist_enabled_plugin_ids(plugin_ids) do
@@ -157,6 +257,22 @@ defmodule AnkoleWeb.SetupController do
   @doc """
   Lists built-in and plugin identity-provider adapters available to setup.
   """
+  operation(:identity_provider_adapters,
+    operation_id: "setupIdentityAdapters",
+    summary: "setupIdentityAdapters",
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.SetupIdentityAdapters},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def identity_provider_adapters(conn, _params) do
     with :ok <- require_setup_session(conn) do
       json(conn, %{
@@ -170,6 +286,24 @@ defmodule AnkoleWeb.SetupController do
   @doc """
   Saves an identity-provider instance during setup.
   """
+  operation(:put_identity_provider,
+    operation_id: "putSetupIdentityProvider",
+    summary: "putSetupIdentityProvider",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    request_body: {"Request", "application/json", InternalAPI.SetupIdentityProviderRequest},
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.SetupIdentityProvider},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def put_identity_provider(conn, %{"provider_id" => provider_id} = params) do
     adapter_id = params["adapterID"]
     config = params["config"] || %{}
@@ -190,6 +324,23 @@ defmodule AnkoleWeb.SetupController do
   @doc """
   Starts setup-time OIDC and stores the state in the setup session.
   """
+  operation(:oidc_authorization,
+    operation_id: "setupOIDCAuthorization",
+    summary: "setupOIDCAuthorization",
+    parameters: [provider_id: [in: :path, type: :string, required: true]],
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.SetupAuthorization},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def oidc_authorization(conn, %{"provider_id" => provider_id}) do
     with :ok <- require_setup_session(conn),
          {:ok, provider_id} <- IdentityProviders.normalize_provider_id(provider_id),
@@ -219,6 +370,22 @@ defmodule AnkoleWeb.SetupController do
   Lists the Brain schema packs a setup can select: the always-installed base
   pack and the selectable industry packs with their seed descriptions.
   """
+  operation(:brain_packs,
+    operation_id: "setupBrainPacks",
+    summary: "setupBrainPacks",
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.SetupBrainPacks},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def brain_packs(conn, _params) do
     with :ok <- require_setup_session(conn) do
       packs =
@@ -250,6 +417,23 @@ defmodule AnkoleWeb.SetupController do
   Stores the industry pack selection in the setup session; completion
   materializes it whichever identity path finishes the wizard.
   """
+  operation(:put_brain_packs,
+    operation_id: "updateSetupBrainPacks",
+    summary: "updateSetupBrainPacks",
+    request_body: {"Request", "application/json", InternalAPI.SetupBrainPackSelection},
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.SetupBrainPackSelection},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def put_brain_packs(conn, params) do
     with :ok <- require_setup_session(conn),
          {:ok, packs} <- validate_brain_packs(params["packs"]) do
@@ -290,6 +474,23 @@ defmodule AnkoleWeb.SetupController do
   the browser in. The account upsert makes a retry after a partial failure
   land on the same principal instead of a duplicate-email error.
   """
+  operation(:create_local_admin,
+    operation_id: "createSetupLocalAdmin",
+    summary: "createSetupLocalAdmin",
+    request_body: {"Request", "application/json", InternalAPI.SetupLocalAdminRequest},
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.SetupComplete},
+      400 => {"Error", "application/json", InternalAPI.InternalError},
+      401 => {"Error", "application/json", InternalAPI.InternalError},
+      403 => {"Error", "application/json", InternalAPI.InternalError},
+      409 => {"Error", "application/json", InternalAPI.InternalError},
+      422 => {"Error", "application/json", InternalAPI.InternalError},
+      429 => {"Error", "application/json", InternalAPI.InternalError},
+      500 => {"Error", "application/json", InternalAPI.InternalError},
+      503 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
+
   def create_local_admin(conn, params) do
     with :ok <- require_setup_session(conn),
          {:ok, email} <- validate_local_admin_email(params["email"]),

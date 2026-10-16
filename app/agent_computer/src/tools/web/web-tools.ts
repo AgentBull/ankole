@@ -55,7 +55,7 @@ export async function createWebTools(opts: CreateWebToolsOptions): Promise<Worke
       isReadOnly: true,
       isDestructive: false,
       describeActivity: params => ({
-        key: 'signals_gateway.reply.activity.web_search',
+        key: 'conversations.delivery.reply.activity.web_search',
         bindings: { query: activityExcerpt(params.query, 48) }
       }),
       execute: (_id, params, signal) => readTool(opts.rpc, opts.turn, 'web_search', params, { signal })
@@ -167,11 +167,11 @@ function webFetchActivity(urls: string[]): ActivityDescription {
     key:
       urls.length === 1
         ? target
-          ? 'signals_gateway.reply.activity.web_fetch_target'
-          : 'signals_gateway.reply.activity.web_fetch'
+          ? 'conversations.delivery.reply.activity.web_fetch_target'
+          : 'conversations.delivery.reply.activity.web_fetch'
         : target
-          ? 'signals_gateway.reply.activity.web_fetch_many_target'
-          : 'signals_gateway.reply.activity.web_fetch_many',
+          ? 'conversations.delivery.reply.activity.web_fetch_many_target'
+          : 'conversations.delivery.reply.activity.web_fetch_many',
     ...(target ? { bindings: { target, count: urls.length } } : { bindings: { count: urls.length } })
   }
 }
@@ -191,11 +191,11 @@ function completedWebFetchActivity(urls: string[], details: WebToolDetails): Act
     key:
       urls.length === 1
         ? target
-          ? 'signals_gateway.reply.activity.web_fetch_target'
-          : 'signals_gateway.reply.activity.web_fetch'
+          ? 'conversations.delivery.reply.activity.web_fetch_target'
+          : 'conversations.delivery.reply.activity.web_fetch'
         : target
-          ? 'signals_gateway.reply.activity.web_fetch_many_target'
-          : 'signals_gateway.reply.activity.web_fetch_many',
+          ? 'conversations.delivery.reply.activity.web_fetch_many_target'
+          : 'conversations.delivery.reply.activity.web_fetch_many',
     ...(target ? { bindings: { target, count: urls.length } } : { bindings: { count: urls.length } })
   }
 }

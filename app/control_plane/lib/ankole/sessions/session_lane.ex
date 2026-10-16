@@ -5,7 +5,6 @@ defmodule Ankole.Sessions.SessionLane do
   pending call, and Fence rejects closed inputs at the next durable write.
   Job messages keep their persisted attempt check.
   """
-  alias Ankole.Sessions.Driver
   alias Ankole.Sessions.RunRef
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.RuntimeFabric.V1, as: Proto
@@ -30,7 +29,7 @@ defmodule Ankole.Sessions.SessionLane do
   def handle(_envelope, _connection), do: {:error, :unsupported_envelope}
 
   defp forward(ref, type, payload) do
-    case Driver.whereis(%{agent_uid: ref.agent_uid, session_id: ref.session_id}) do
+    case Ankole.Sessions.driver_pid(%{agent_uid: ref.agent_uid, session_id: ref.session_id}) do
       :undefined ->
         :ok
 

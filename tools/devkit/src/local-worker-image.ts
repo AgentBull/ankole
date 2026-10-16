@@ -12,17 +12,20 @@ export type WorkerBaseImageLock = { image: string; revision: string }
 
 const upstreamWorkerRepository = 'ghcr.io/agentbull/ankole-agent-computer-worker'
 const localWorkerRepository = 'ankole-agent-computer'
+const localBaseRepository = 'ankole-agent-os-base'
 const baseImageRepository = 'ghcr.io/agentbull/ankole-agent-os-base'
 const inputHashLabel = 'io.ankole.local-worker.input-hash'
 const inputScopeLabel = 'io.ankole.local-worker.input-scope'
 const releaseRevisionLabel = 'org.opencontainers.image.revision'
 const baseDigestLabel = 'io.ankole.agent-os-base.digest'
+const baseRecipeLabel = 'io.ankole.agent-os-base.recipe'
 const workerBaseImageLock = path.join(repoRootPath, 'app', 'agent_computer', 'base-image.lock')
 const workerBaseDockerfile = 'app/agent_computer/Dockerfile.base'
 
 const sharedInputRoots = [
   '.dockerignore',
   'app/agent_computer/Dockerfile',
+  'app/agent_computer/Dockerfile.base',
   'app/agent_computer/base-image.lock',
   'app/agent_computer/matplotlibrc',
   'app/agent_computer/package.json',
@@ -41,14 +44,13 @@ export async function resolveLocalWorkerImage(options: {
 }): Promise<string> {
   await requireDocker()
 
-  const baseImage = readWorkerBaseImageLock()
   if (await workerInputsMatchHEAD(options.scope)) {
     const revision = await headRevision()
     const upstreamImage = `${upstreamWorkerRepository}:${revision}`
     if (await pullAndVerifyUpstreamImage(upstreamImage, revision)) return upstreamImage
   }
 
-  await warnIfBaseImageLockIsStale(baseImage)
+  const baseImage = await resolveWorkerBaseImage(options.allowBuild)
   const inputHash = await workerImageInputHash(options.scope)
   const localImage = localWorkerImageRef(options.scope, inputHash)
   if (await localImageMatches(localImage, options.scope, inputHash)) return localImage
@@ -57,7 +59,7 @@ export async function resolveLocalWorkerImage(options: {
     throw new Error(`Worker image ${localImage} is missing and local builds are disabled.`)
   }
 
-  await runChild('docker', buildWorkerImageBuildArgs(localImage, options.scope, inputHash, baseImage.image), {
+  await runChild('docker', buildWorkerImageBuildArgs(localImage, options.scope, inputHash, baseImage), {
     cwd: repoRootPath
   })
   if (!(await localImageMatches(localImage, options.scope, inputHash))) {
@@ -232,21 +234,82 @@ export async function pinWorkerBaseImage(revisionName: string): Promise<WorkerBa
   return lock
 }
 
-/** Warns when the pinned base was built from a Dockerfile.base other than the one in the working tree. */
-export async function warnIfBaseImageLockIsStale(lock: WorkerBaseImageLock): Promise<void> {
+/**
+ * Uses the pinned base only when its recipe is the working tree's
+ * `Dockerfile.base`. A different recipe is a cache miss: build that file
+ * locally. The digest of a base does not exist until something builds it, so
+ * the lock cannot name the base of the commit that changes the recipe.
+ */
+export function workerBaseSource(pinnedRecipe: string | null, currentRecipe: string | null): 'lock' | 'local' {
+  if (currentRecipe && pinnedRecipe === currentRecipe) return 'lock'
+  return 'local'
+}
+
+async function resolveWorkerBaseImage(allowBuild: boolean): Promise<string> {
+  const lock = readWorkerBaseImageLock()
   const [pinnedRecipe, currentRecipe] = await Promise.all([
     committedBaseRecipe(lock.revision),
     gitOutput(['hash-object', '--', workerBaseDockerfile])
   ])
-  if (pinnedRecipe === currentRecipe) return
+  if (workerBaseSource(pinnedRecipe, currentRecipe) === 'lock') return lock.image
+  if (!currentRecipe) throw new Error(`cannot hash ${workerBaseDockerfile}`)
+
+  const localImage = `${localBaseRepository}:local-${currentRecipe}`
+  if (await localBaseImageMatches(localImage, currentRecipe)) return localImage
+  if (!allowBuild) {
+    throw new Error(
+      `Agent OS base for ${workerBaseDockerfile} is not built and local builds are disabled. The pinned base does not match the current recipe.`
+    )
+  }
 
   const pin = `app/agent_computer/base-image.lock pins the Agent OS base of commit ${lock.revision.slice(0, 9)}`
   console.warn(
     styledWarn(
       pinnedRecipe === null
-        ? `${pin}, which is not in the local Git history, so devkit cannot compare it with ${workerBaseDockerfile}.`
-        : `${pin}, which has a different ${workerBaseDockerfile}. Local Worker images build on that base until ` +
-            `\`bun run kit pin-base-image\` pins the base that CI publishes for the current one.`
+        ? `${pin}, which is not in the local Git history. Building ${workerBaseDockerfile} locally as ${localImage}.`
+        : `${pin}, which has a different ${workerBaseDockerfile}. Building the current recipe locally as ${localImage}.`
+    )
+  )
+  await runChild(
+    'docker',
+    [
+      'build',
+      '-f',
+      path.join(repoRootPath, workerBaseDockerfile),
+      '-t',
+      localImage,
+      '--label',
+      `${baseRecipeLabel}=${currentRecipe}`,
+      repoRootPath
+    ],
+    { cwd: repoRootPath }
+  )
+  if (!(await localBaseImageMatches(localImage, currentRecipe))) {
+    throw new Error(`Docker built ${localImage} without the requested Agent OS base recipe`)
+  }
+  return localImage
+}
+
+async function localBaseImageMatches(image: string, recipe: string): Promise<boolean> {
+  const labels = await dockerImageLabels(image)
+  return labels?.[baseRecipeLabel] === recipe
+}
+
+/** Warns when the next local Worker build will build `Dockerfile.base` instead of using the pin. */
+export async function warnIfBaseImageLockIsStale(lock: WorkerBaseImageLock): Promise<void> {
+  const [pinnedRecipe, currentRecipe] = await Promise.all([
+    committedBaseRecipe(lock.revision),
+    gitOutput(['hash-object', '--', workerBaseDockerfile])
+  ])
+  if (workerBaseSource(pinnedRecipe, currentRecipe) === 'lock') return
+
+  const pin = `app/agent_computer/base-image.lock pins the Agent OS base of commit ${lock.revision.slice(0, 9)}`
+  console.warn(
+    styledWarn(
+      pinnedRecipe === null
+        ? `${pin}, which is not in the local Git history. The next local Worker build builds ${workerBaseDockerfile}.`
+        : `${pin}, which has a different ${workerBaseDockerfile}. The next local Worker build builds the current recipe. ` +
+            '`bun run kit pin-base-image` records the base after CI publishes it.'
     )
   )
 }

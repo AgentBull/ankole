@@ -246,11 +246,14 @@ defmodule Ankole.PluginFixtures.MockSignalProvider.Inbound do
             principal.uid
         end
 
-    %{
-      principal_uid: uid,
-      id: fetch(event, :author_id) || "mock-user",
-      display_name: fetch(event, :author_display_name) || "Mock User"
-    }
+    Ankole.SignalsFixtures.provider_author_fixture(
+      uid,
+      fetch(event, :author_id) || "mock-user",
+      %{
+        provider: "mock-signal-provider",
+        display_name: fetch(event, :author_display_name) || "Mock User"
+      }
+    )
   end
 
   defp fetch(map, key) do

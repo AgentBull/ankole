@@ -143,11 +143,13 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
         Job
         |> maybe_filter_console_agent(agent_uid)
         |> maybe_filter_console_status(status)
+        |> maybe_filter_activity(Keyword.get(opts, :activity, false))
         |> maybe_filter_console_search(search)
         |> maybe_before_console_cursor(cursor)
         |> order_by([job], desc: job.queued_at, desc: job.id)
         |> limit(^(limit + 1))
         |> select([job], map(job, ^@console_list_columns))
+        |> maybe_select_activity(Keyword.get(opts, :activity, false))
         |> Repo.all()
 
       page = Enum.take(rows, limit)
@@ -159,6 +161,54 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
 
       {:ok, %{jobs: page, next_cursor: next_cursor}}
     end
+  end
+
+  @doc "Reads live background Jobs without task, trajectory or result payloads."
+  def list_activity(agent_uid, opts \\ []) do
+    with {:ok, page} <-
+           list_for_console(Keyword.merge(opts, agent_uid: agent_uid, activity: true)) do
+      {:ok,
+       %{
+         page
+         | jobs:
+             Enum.map(page.jobs, fn row ->
+               row
+               |> Map.take([
+                 :id,
+                 :agent_uid,
+                 :title,
+                 :status,
+                 :owner_session_id,
+                 :source_signal_id,
+                 :attempts,
+                 :error_code,
+                 :error_summary,
+                 :queued_at,
+                 :started_at,
+                 :updated_at
+               ])
+               |> Map.put(:resource_kind, "background_job")
+             end)
+       }}
+    end
+  end
+
+  defp maybe_filter_activity(query, false), do: query
+
+  defp maybe_filter_activity(query, true),
+    do: where(query, [job], job.status in ["queued", "running", "waiting_on_user"])
+
+  defp maybe_select_activity(query, false), do: query
+
+  defp maybe_select_activity(query, true) do
+    select_merge(query, [job], %{
+      owner_session_id: job.owner_session_id,
+      source_signal_id: job.source_signal_id,
+      updated_at: job.updated_at,
+      error_code: fragment("left(?->>'code', 200)", job.error),
+      error_summary:
+        fragment("left(COALESCE(?->>'summary', ?->>'message'), 1000)", job.error, job.error)
+    })
   end
 
   @spec get(pos_integer()) :: Job.t() | nil
@@ -194,8 +244,9 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   def get_for_agent(repo, job_id, agent_uid, opts)
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
     query =
-      from job in Job,
+      from(job in Job,
         where: job.id == ^job_id and job.agent_uid == ^agent_uid
+      )
 
     query
     |> maybe_lock(Keyword.get(opts, :lock))
@@ -218,7 +269,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_integer(offset) and
              offset >= 0 do
     query =
-      from job in Job,
+      from(job in Job,
         where: job.id == ^job_id and job.agent_uid == ^agent_uid,
         select: {
           map(job, ^@result_read_columns),
@@ -231,6 +282,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
           fragment("octet_length(?->>'output_text')", job.result),
           fragment("coalesce(? - 'output_text', '{}'::jsonb)", job.result)
         }
+      )
 
     case Repo.one(query) do
       {job, output_window, total_bytes, result_fields} ->

@@ -111,4 +111,39 @@ config :ankole, Oban,
      ]}
   ]
 
+edition = Mix.Project.config()[:ankole_edition]
+artifacts = Path.expand("../_build/#{edition}", __DIR__)
+public_entries = Path.expand("../../webapps/entries.json", __DIR__)
+entries = public_entries |> File.read!() |> :json.decode()
+
+if edition == :saas do
+  source = Path.expand("../../../internals/control_plane/config.exs", __DIR__)
+  unless File.regular?(source), do: raise("Missing SaaS source: #{source}")
+  import_config source
+
+  private_entries = Path.expand("../../../internals/webapps/entries.json", __DIR__)
+  private = private_entries |> File.read!() |> :json.decode()
+  duplicates = Map.keys(entries) -- (Map.keys(entries) -- Map.keys(private))
+  if duplicates != [], do: raise("Duplicate webapp entries: #{inspect(duplicates)}")
+
+  config :ankole,
+         :webapp_entries,
+         Map.merge(
+           entries,
+           Map.new(private, fn {name, file} ->
+             {name, "/@fs/" <> Path.expand(file, Path.dirname(private_entries))}
+           end)
+         )
+
+  config :ankole,
+         :internal_migrations_path,
+         Path.expand("../../../internals/control_plane/priv/repo/migrations", __DIR__)
+else
+  config :ankole, :webapp_entries, entries
+end
+
+config :ankole, :edition, edition
+config :ankole, :webapp_assets_path, Path.join(artifacts, "webapps/assets")
+config :ankole, :i18n, locales_dir: Path.join(artifacts, "locales")
+
 import_config "#{config_env()}.exs"

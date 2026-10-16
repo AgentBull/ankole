@@ -6,7 +6,7 @@ defmodule Ankole.OIDC.LogoutRequest do
 
   schema "oidc_logout_requests" do
     field :browser_id, Ankole.Ecto.UUIDv7
-    field :browser_generation, :integer
+    field :browser_revision, :integer
     field :client_id, Ankole.Ecto.UUIDv7
     field :redirect_uri, :string
     field :state, :string

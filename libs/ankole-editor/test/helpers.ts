@@ -107,5 +107,5 @@ export function press(editor: Wordgard, key: string): boolean {
     getModifierState: () => false,
     preventDefault() {}
   }
-  return KeyBinding.runScopeHandlers(editor, event as unknown as KeyboardEvent, 'editor')
+  return KeyBinding.handle(editor, event as unknown as KeyboardEvent)
 }

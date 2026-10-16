@@ -129,7 +129,7 @@ defmodule Ankole.Conversations.DeliveryWakeupRecoveryIntegrationTest do
              })
 
     assert {:ok, _binding} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: agent.uid,
                name: "bot",
                adapter: "lark",

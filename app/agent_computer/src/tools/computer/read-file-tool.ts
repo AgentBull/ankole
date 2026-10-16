@@ -40,8 +40,8 @@ export function createReadFileTool(
     describeActivity: params => {
       const path = compactActivityPath(params.path)
       return path
-        ? { key: 'signals_gateway.reply.activity.file_read_target', bindings: { path } }
-        : { key: 'signals_gateway.reply.activity.file_read' }
+        ? { key: 'conversations.delivery.reply.activity.file_read_target', bindings: { path } }
+        : { key: 'conversations.delivery.reply.activity.file_read' }
     },
     async execute(_toolCallId, params, signal): Promise<AgentToolResult<ReadFileDetails>> {
       const computer = context.computer

@@ -119,8 +119,11 @@ defmodule Ankole.Sessions.Worker do
 
   def decode(:tool_progress, payload) do
     case Ankole.JSON.decode(payload.presentation_json) do
-      {:ok, %{"kind" => kind, "payload" => value}} -> {:presentation, kind, value}
-      _ -> :ignore
+      {:ok, %{"kind" => kind, "payload" => value}} when is_binary(kind) and is_map(value) ->
+        {:presentation, kind, value}
+
+      _ ->
+        :ignore
     end
   end
 

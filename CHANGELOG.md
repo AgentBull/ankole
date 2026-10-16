@@ -1,5 +1,63 @@
 # Changelog
 
+## Version 2.0.0-alpha.8 (2026-10-16)
+
+- Rename Workplace to Pod and let active Human members sign in and work
+  without site administration access. Keep each open page bound to its
+  authenticated identity and tenant.
+- Store independent browser authentications and add OIDC account selection.
+  Keep per-identity sign-out separate from browser-wide sign-out. Late login
+  responses and RP logout delivery leave accounts signed in after logout usable.
+  Validate each pinned request without scanning other accounts. Existing
+  browser sessions must sign in again after the migration.
+- Build FOSS and SaaS from separate source and asset sets in one Mix
+  application. Package the selected locales and migration directories in
+  each release, with one Repo and migration ledger. Support concurrent frontend
+  preparation and check private TypeScript through the same lint entry. Keep
+  build fixtures outside normal test discovery.
+- Keep message input revision calculations in Conversations while preserving
+  queued and in-flight execution, attachment waiting, and recovery behavior.
+- Preserve shipped knowledge after an incomplete inventory read and keep
+  independent sets synchronizing. Remove unused lesson text rewriting and
+  share the blob collector's live-reference rule between both delete phases.
+- Keep save results within the initiating Console editor. Include metadata in
+  Brain edit conflicts, reject ordinary writes to deleted pages until restore,
+  and reject writes through replaced or disposed block-editor sessions.
+- Migrate site administration from a mutable tenant slug to its stable ID,
+  and run browser retention once after all tenants' OIDC cleanup.
+- Show current Session phases and tool activity in Pod, including late
+  joins and reconnects. Add per-Agent background activity to Console with
+  separate Job, Workflow, and Automation states, permissions, and pagination.
+- Preserve profile fields and department access when enterprise login returns
+  a partial observation. Keep unread conversation input after compaction and
+  deliver scheduled replies to every eligible native or external target.
+- Prepare generated image bytes outside the final Session transaction, retain
+  fenced recovery and atomic reply references, and clean up Workflow tasks only
+  after commit. Correlate Signal, model, Worker, and delivery stages through
+  existing diagnostic identities.
+- Return attachment task admission errors for provider retry. Consolidate
+  attachment storage and native activity display in their existing owners,
+  share image ID validation, and separate foreground commands from exact-byte reads.
+- Consolidate queue reads, recovery fields, RPC declarations, and private HTTP
+  clients; remove unused production APIs and CLI wrappers. Split provider UI,
+  Console schemas, and Rust protocol code by responsibility, and preserve edits
+  and navigation when earlier requests complete after the page changes.
+- Sync the block editor engine with Wordgard through `d1acec0`. A slice carries
+  its context, a change set stores tokens, isolating blocks stay closed, and a
+  content height change keeps the cursor in place. Preserve strikethrough when
+  Markdown export places punctuation or a tag before adjacent text.
+- End foreground command groups before returning and report gaps in retained
+  command output. Enforce JSON-RPC byte limits and shared CLI request bounds
+  without shortening running operations. Keep fast retry completions from
+  leaving Background Jobs running, and deduplicate repeated terminal events.
+  Clarify the deployed scope and DNS exception of the optional Worker network
+  policy.
+- Upgrade bundled Codex to 0.163.0 and match its app-server protocol
+  declarations to that version. Install Codex, MCPorter, OfficeCLI, Typst,
+  kubectl, and the AWS CLI in the Worker image. Local builds use the pinned
+  Agent OS base when `Dockerfile.base` matches it, and build that recipe
+  locally when it does not.
+
 ## Version 2.0.0-alpha.7 (2026-10-16)
 
 - Let the external-conversation migration run as long as the site's data

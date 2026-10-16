@@ -1,3 +1,4 @@
+import { client } from './api/generated/client.gen'
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 import {
   applyDataTenantNavigation,
@@ -13,11 +14,14 @@ const previousFetch = globalThis.fetch
 let currentURL: URL
 let requestedURL: URL | undefined
 let storage: Map<string, string>
+let selectedAuthentication: string
 
 beforeEach(() => {
   currentURL = new URL('https://ankole.test/operator/agents?sort=name')
+  client.setConfig({ baseUrl: currentURL.origin })
   requestedURL = undefined
-  storage = new Map([['ankole.console.data-tenant', 'tenant-a']])
+  selectedAuthentication = 'account-a.1'
+  storage = new Map([['ankole.console.data-tenant:account-a.1', 'tenant-a']])
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
@@ -54,7 +58,14 @@ beforeEach(() => {
   })
   Object.defineProperty(globalThis, 'document', {
     configurable: true,
-    value: { querySelector: () => ({ content: 'session-csrf' }) }
+    value: {
+      querySelector: (selector: string) =>
+        selector.includes('ankole-authentication')
+          ? { content: selectedAuthentication }
+          : selector.includes('csrf-token')
+            ? { content: 'session-csrf' }
+            : null
+    }
   })
 })
 
@@ -68,9 +79,13 @@ afterEach(() => {
 
 test('ending a site session keeps the next login from inheriting the old data tenant', async () => {
   const requests: Array<{ path: string; method: string; csrf: string | null }> = []
-  globalThis.fetch = (async (path: string, init?: RequestInit) => {
+  globalThis.fetch = (async (request: Request) => {
     expect(dataTenantID()).toBeNull()
-    requests.push({ path, method: init?.method ?? 'GET', csrf: new Headers(init?.headers).get('x-csrf-token') })
+    requests.push({
+      path: new URL(request.url).pathname,
+      method: request.method,
+      csrf: request.headers.get('x-csrf-token')
+    })
     return Response.json({})
   }) as typeof fetch
 
@@ -130,4 +145,12 @@ test('explicit author context and site requests cannot inherit the selected data
   await request('https://ankole.test/api/v1/principals/author', { headers: { 'x-ankole-tenant': 'author-tenant' } })
   await request('https://ankole.test/api/v1/site/tenants')
   expect(tenants).toEqual(['author-tenant', null])
+})
+
+test('a new document for another authentication has its own Console data selection', () => {
+  expect(dataTenantID()).toBe('tenant-a')
+  selectedAuthentication = 'account-b.2'
+  expect(dataTenantID()).toBeNull()
+  selectedAuthentication = 'account-a.1'
+  expect(dataTenantID()).toBe('tenant-a')
 })

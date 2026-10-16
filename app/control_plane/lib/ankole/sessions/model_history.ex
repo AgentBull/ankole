@@ -8,79 +8,14 @@ defmodule Ankole.Sessions.ModelHistory do
   hosted Brain tool.
   """
 
-  import Ecto.Query, warn: false
-
   alias Ankole.AIGateway
-  alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.AIGateway.Schemas.Artifact
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.BackgroundAgentJobs
   alias Ankole.Principals
   alias Ankole.Repo
   alias Ankole.Signals.Signal
-  alias Ankole.Sessions.Queue
   alias Ankole.Sessions.RunRef
-  alias Ankole.Sessions.SessionWorkspace
-  alias Ankole.Conversations.Delivery.Text
   alias Ankole.Conversations.Conversation, as: PublicConversation
-  alias Ankole.Conversations.Delivery.ClarifyPrompt
-  alias Ankole.Conversations.Delivery.Attachment
-
-  alias Ankole.Files
-
-  @doc """
-  Reads a caller's visible run suffix.
-
-  Tool-result journals and compaction checkpoints do not end the suffix.
-  The caller metadata remains opaque; only its run identity is compared.
-  """
-  def conversation_tail(%Conversation{} = conversation, signal_id) do
-    {:ok, history} =
-      AIGateway.visible_response_chain(conversation.subject_uid, conversation.id,
-        stop_at_checkpoint: false
-      )
-
-    leaf =
-      case List.last(history) do
-        nil -> nil
-        message -> message.id
-      end
-
-    rows =
-      history
-      |> Enum.reverse()
-      |> Enum.reduce_while([], fn row, rows ->
-        cond do
-          row.type == "checkpoint" -> {:cont, rows}
-          AIGateway.response_metadata(row)["signal_id"] == signal_id -> {:cont, [row | rows]}
-          row.metadata["tool_result_journal"] == true -> {:cont, rows}
-          true -> {:halt, rows}
-        end
-      end)
-
-    responses = Enum.reject(rows, &(&1.metadata["tool_result_journal"] == true))
-    latest = List.last(responses)
-
-    recorded_call_ids =
-      rows
-      |> Enum.filter(fn row ->
-        latest && row.metadata["tool_result_journal"] == true &&
-          row.previous_message_id == latest.id
-      end)
-      |> Enum.flat_map(& &1.content)
-      |> Enum.filter(&Ankole.AIGateway.ResponseItems.output_item?/1)
-      |> Enum.map(fn item -> item[Ankole.AIGateway.ResponseItems.pair_identity_field(item)] end)
-      |> MapSet.new()
-
-    {:ok,
-     %{
-       rows: rows,
-       responses: responses,
-       recorded_call_ids: recorded_call_ids,
-       leaf: leaf
-     }}
-  end
 
   @max_chain_depth 500
   @scheduled_event_types ~w(check_back_later.wakeup cron.fire)
@@ -89,15 +24,6 @@ defmodule Ankole.Sessions.ModelHistory do
           conversation: Conversation.t(),
           final_response: Message.t(),
           response_chain: [Message.t()]
-        }
-
-  @type completion :: %{
-          conversation: Conversation.t(),
-          final_response: Message.t(),
-          response_chain: [Message.t()],
-          final_text: String.t() | nil,
-          clarify_prompt: map() | nil,
-          attachments: [map()]
         }
 
   @type session_key :: %{required(:agent_uid) => String.t(), required(:session_id) => String.t()}
@@ -155,59 +81,6 @@ defmodule Ankole.Sessions.ModelHistory do
       {:ok, conversation}
     end
   end
-
-  @doc false
-  def record_tool_results_and_complete_events_in_tx(
-        repo,
-        subject_uid,
-        current_event_id,
-        event_ids,
-        request
-      ) do
-    with %Signal{} = current_event <- repo.get(Signal, current_event_id),
-         :ok <-
-           Queue.lock_session_in_tx(
-             repo,
-             current_event.agent_uid,
-             current_event.session_id
-           ),
-         %Signal{} <- Ankole.Signals.lock_signal_in_tx(repo, current_event_id),
-         {:ok, target_events} <- lock_target_events(repo, event_ids),
-         {:ok, journal} <-
-           AIGateway.record_tool_results_in_tx(
-             repo,
-             subject_uid,
-             request,
-             %{"completed_signal_ids" => event_ids}
-           ),
-         :ok <- complete_target_events(repo, target_events, journal.disposition) do
-      {:ok, journal}
-    else
-      nil -> {:error, :signal_not_found}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp lock_target_events(repo, event_ids) do
-    events = Enum.map(event_ids, &Ankole.Signals.lock_signal_in_tx(repo, &1))
-
-    if Enum.all?(events, &match?(%Signal{}, &1)),
-      do: {:ok, events},
-      else: {:error, :signal_not_found}
-  end
-
-  defp complete_target_events(repo, events, :inserted) do
-    now = DateTime.utc_now(:microsecond)
-
-    Enum.reduce_while(events, :ok, fn event, :ok ->
-      case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now) do
-        {:ok, %Signal{}} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-  end
-
-  defp complete_target_events(_repo, _events, :existing), do: :ok
 
   # The `conversation_id: nil` clause covers a non-channel-triggering event
   # (for example, an internal command). Its conversation has no channel or DM
@@ -293,45 +166,6 @@ defmodule Ankole.Sessions.ModelHistory do
   end
 
   @doc false
-  @spec daily_reset_candidates_in_tx(module(), DateTime.t(), keyword()) :: [Conversation.t()]
-  def daily_reset_candidates_in_tx(repo, %DateTime{} = boundary_at, opts \\ []) do
-    limit =
-      case Keyword.get(opts, :limit, 1_000) do
-        value when is_integer(value) and value > 0 -> value
-        _invalid -> 1_000
-      end
-
-    Conversation
-    |> join(:inner, [conversation], workspace in SessionWorkspace,
-      on:
-        workspace.agent_uid == conversation.subject_uid and
-          workspace.session_id == conversation.conversation_key
-    )
-    |> where([conversation], is_nil(conversation.ended_at))
-    |> where([conversation], conversation.inserted_at < ^boundary_at)
-    |> where(
-      [_conversation, workspace],
-      is_nil(workspace.conversation_id) or
-        workspace.conversation_id not in subquery(Ankole.Conversations.native_ids_query())
-    )
-    |> where(
-      [conversation],
-      not like(
-        conversation.conversation_key,
-        ^"#{BackgroundAgentJobs.job_session_prefix()}%"
-      )
-    )
-    |> order_by(
-      [conversation],
-      asc: conversation.subject_uid,
-      asc: conversation.conversation_key
-    )
-    |> limit(^limit)
-    |> lock("FOR UPDATE")
-    |> repo.all()
-  end
-
-  @doc false
   @spec publish_failed_response(Message.t() | nil) :: :ok | {:error, term()}
   def publish_failed_response(nil), do: :ok
 
@@ -414,33 +248,6 @@ defmodule Ankole.Sessions.ModelHistory do
 
       nil ->
         {:ok, suffix_retraction_noop(:conversation_not_found)}
-    end
-  end
-
-  @doc """
-  Loads and validates the immutable Responses facts named by turn completion,
-  then projects the reply content from them. The turn commit validates whether
-  that projection is valid for the Signal, including an empty projection.
-
-  The database read happens before the Session transaction. Terminal AIGateway
-  rows are immutable, while the later Session transaction owns all fence checks
-  and provider-visible side effects.
-  """
-  @spec load_turn_completion(RunRef.t(), String.t()) ::
-          {:ok, completion()} | {:error, term()}
-  def load_turn_completion(
-        %{agent_uid: _, session_id: _, signal_id: _} = turn_ref,
-        final_response_id
-      ) do
-    with {:ok, turn_chain} <- load_turn_chain(turn_ref, final_response_id),
-         {:ok, projection} <-
-           project_completion(
-             turn_ref.agent_uid,
-             turn_chain.response_chain,
-             turn_chain.final_response,
-             Ankole.Conversations.ExternalTarget.origin(turn_chain.conversation)
-           ) do
-      {:ok, Map.merge(turn_chain, projection)}
     end
   end
 
@@ -795,157 +602,6 @@ defmodule Ankole.Sessions.ModelHistory do
         %Message{previous_message_id: previous} when not is_nil(previous),
         List.last(turn_chain)
       )
-  end
-
-  defp project_completion(subject_uid, turn_chain, final_response, origin) do
-    source_items =
-      turn_chain
-      |> Enum.reverse()
-      |> Enum.flat_map(&message_items/1)
-      |> dedupe_function_call_outputs()
-
-    final_text = Text.visible_text(final_response.content)
-
-    with {:ok, clarify_prompt} <- ClarifyPrompt.from_response_items(source_items),
-         {:ok, attachments} <- Attachment.attachments_from_response_items(source_items),
-         {:ok, generated_image_attachments} <-
-           materialize_generated_images(subject_uid, turn_chain, origin),
-         attachments = attachments ++ generated_image_attachments do
-      {:ok,
-       %{
-         final_text: final_text,
-         clarify_prompt: clarify_prompt,
-         attachments: attachments
-       }}
-    end
-  end
-
-  defp message_items(%Message{content: content}) when is_list(content), do: content
-  defp message_items(_message), do: []
-
-  defp materialize_generated_images(subject_uid, turn_chain, origin) do
-    turn_chain
-    |> Enum.reverse()
-    |> Enum.flat_map(&generated_image_items/1)
-    |> Enum.reduce_while({:ok, [], MapSet.new()}, fn
-      %{"id" => image_id}, {:ok, attachments, seen} when is_binary(image_id) ->
-        if MapSet.member?(seen, image_id) do
-          {:cont, {:ok, attachments, seen}}
-        else
-          case materialize_generated_image(subject_uid, image_id, origin) do
-            {:ok, attachment} ->
-              {:cont, {:ok, [attachment | attachments], MapSet.put(seen, image_id)}}
-
-            {:error, _reason} = error ->
-              {:halt, error}
-          end
-        end
-
-      _item, _acc ->
-        {:halt, {:error, :invalid_completed_image_generation_call}}
-    end)
-    |> case do
-      {:ok, attachments, _seen} -> {:ok, Enum.reverse(attachments)}
-      {:error, _reason} = error -> error
-    end
-  end
-
-  defp generated_image_items(%Message{content: content, metadata: metadata})
-       when is_list(content) and is_map(metadata) do
-    content
-    |> Enum.drop(request_item_count(metadata))
-    |> Enum.filter(&completed_generated_image?/1)
-  end
-
-  defp generated_image_items(_message), do: []
-
-  defp request_item_count(%{"request_item_count" => count})
-       when is_integer(count) and count >= 0,
-       do: count
-
-  defp request_item_count(_metadata), do: 0
-
-  defp completed_generated_image?(%{
-         "type" => "image_generation_call",
-         "status" => "completed"
-       }),
-       do: true
-
-  defp completed_generated_image?(_item), do: false
-
-  # Retried completions keep the same path in the source channel's directory.
-  defp materialize_generated_image(subject_uid, image_id, origin) do
-    with {:ok, %Artifact{} = artifact} <-
-           generated_image_artifact(subject_uid, image_id),
-         {:ok, extension} <- generated_image_extension(image_id, artifact.mime_type),
-         filename = "#{Artifacts.public_id(artifact)}.#{extension}",
-         {:ok, file} <- store_generated_image(subject_uid, image_id, filename, artifact, origin) do
-      {:ok,
-       %{
-         "path" => file.path,
-         "blob_ref" => Base.encode16(file.sha256, case: :lower),
-         "name" => filename,
-         "mime_type" => artifact.mime_type,
-         "size" => file.size
-       }}
-    end
-  end
-
-  defp generated_image_artifact(subject_uid, image_id) do
-    case Artifacts.get_generated_image(subject_uid, image_id, payload?: true) do
-      {:ok, %Artifact{} = artifact} ->
-        {:ok, artifact}
-
-      {:error, reason} ->
-        {:error, {:generated_image_artifact_unavailable, image_id, reason}}
-    end
-  end
-
-  defp generated_image_extension(_image_id, "image/png"), do: {:ok, "png"}
-  defp generated_image_extension(_image_id, "image/jpeg"), do: {:ok, "jpg"}
-  defp generated_image_extension(_image_id, "image/webp"), do: {:ok, "webp"}
-  defp generated_image_extension(_image_id, "image/gif"), do: {:ok, "gif"}
-
-  defp generated_image_extension(image_id, mime_type),
-    do: {:error, {:unsupported_generated_image_mime_type, image_id, mime_type}}
-
-  defp store_generated_image(agent_uid, image_id, filename, %Artifact{} = artifact, origin) do
-    channel_id = if origin, do: origin.id
-
-    with {:ok, %{sha256: sha256}} <- Files.store(artifact.payload),
-         {:ok, %{files: [file]}} <-
-           Files.commit(agent_uid, [
-             %{
-               path:
-                 Files.chat_path(channel_id, Files.content_path("generated", sha256, filename)),
-               sha256: sha256,
-               source: "generated",
-               conversation_id: channel_id,
-               content_type: artifact.mime_type
-             }
-           ]) do
-      {:ok, file}
-    else
-      {:error, reason} -> {:error, {:generated_image_materialization_failed, image_id, reason}}
-    end
-  end
-
-  defp dedupe_function_call_outputs(items) do
-    {deduped, _seen_call_ids} =
-      Enum.reduce(items, {[], MapSet.new()}, fn
-        %{"type" => "function_call_output", "call_id" => call_id} = item, {acc, seen}
-        when is_binary(call_id) ->
-          if MapSet.member?(seen, call_id) do
-            {acc, seen}
-          else
-            {[item | acc], MapSet.put(seen, call_id)}
-          end
-
-        item, {acc, seen} ->
-          {[item | acc], seen}
-      end)
-
-    Enum.reverse(deduped)
   end
 
   defp response_id(%Message{id: id}), do: "resp_#{id}"

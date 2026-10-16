@@ -110,6 +110,14 @@ function testSelMarks(
   ist((state.selection as GardSelection.Text).marks, expect, (a, b) => a == b || (a && b && Mark.sameSet(a, b)))
 }
 
+const Isolating = Plot.define('Isolating', {
+    inlineContent: true,
+    isolating: true,
+    group: Node.Group.Content,
+    shape: { element: 'div' }
+  }),
+  iso = builder(Isolating)
+
 const TextOnly = Plot.define('TextOnly', {
     inlineContent: Leaf.Text,
     shape: { element: 'div' },
@@ -157,6 +165,7 @@ const AtomMark = Mark.define('AtomMark', {
 const schema = Schema.define([
   ...basicSchema.nodes,
   ...basicSchema.marks,
+  Isolating,
   TextOnly,
   BlockMark,
   PreservedMark,
@@ -277,6 +286,10 @@ describe('splitTextblock', () => {
     test(doc(h1(0, 'a')), splitTextblock, doc(p(), h1(0, 'a')))
   })
 
+  it('does not split an isolating block', () => {
+    test(doc(iso('a', 0, 'b')), splitTextblock)
+  })
+
   it('preserves marks', () => {
     test(doc(pp(p('a', 0, 'b'))), splitTextblock, doc(pp(p('a')), pp(p(0, 'b'))))
   })
@@ -341,6 +354,10 @@ describe('deleteSelection', () => {
 })
 
 describe('joinBackward', () => {
+  it('does nothing in an isolating block', () => {
+    test(doc(p('a'), iso(0, 'b')), joinBackward)
+  })
+
   it('can join two paragraphs', () => {
     test(doc(p('a'), p(0, 'b')), joinBackward, doc(p('a', 0, 'b')))
   })
@@ -406,6 +423,10 @@ describe('joinListItems', () => {
 })
 
 describe('joinForward', () => {
+  it('does nothing in an isolating block', () => {
+    test(doc(iso('a', 0), p('b')), joinForward)
+  })
+
   it('can join two paragraphs', () => {
     test(doc(p('a', 0), p('b')), joinForward, doc(p('a', 0, 'b')))
   })

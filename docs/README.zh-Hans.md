@@ -14,7 +14,7 @@ Ankole 是面向企业内部的私有化 Agent 系统，让 Agent 可以执行�
 主体（Principal）表示“谁对这次操作负责”，可以是人、Agent 或系统服务。授权管理
 模块（AuthZ）判断这个主体可以做什么。
 
-Agent 可以从 Workplace 原生消息、外部平台消息、定时任务和 Background Agent Job 接收工作。即使进程失败，
+Agent 可以从 Pod 原生消息、外部平台消息、定时任务和 Background Agent Job 接收工作。即使进程失败，
 它也能继续执行。PostgreSQL 保存重启后仍然需要的数据。
 
 ## 系统地图
@@ -48,7 +48,7 @@ Conversations --> Signals --> Sessions --> AIGateway --> 模型提供商
 Schedule 在任务到期时通过同一入口创建 `Signal`。`BackgroundAgentJob` 执行发起它的
 执行会话回合之外的工作。AppConfigure 保存管理员可以在运行期间修改的设置。
 
-Workplace 原生消息经 Conversations 和 Signals 进入 Sessions。原生消息与平台消息保存在同一公开发言模型中，
+Pod 原生消息经 Conversations 和 Signals 进入 Sessions。原生消息与平台消息保存在同一公开发言模型中，
 各 Agent 的模型历史与共享对话记录分开保存。
 
 ## 各进程负责什么
@@ -235,7 +235,7 @@ tools/e2e/run --real-llm
 | [Tenants](design-docs/Tenants.md) | 站点管理、数据上下文、隔离与租户生命周期 |
 | [AIGateway](design-docs/AIGateway.md) | 模型提供商、Response 历史、上下文压缩和生成文件 |
 | [Agent Token Quota](design-docs/AgentTokenQuota.md) | 按 Agent 的 token 额度、周期、重置与拒绝契约 |
-| [Conversations](design-docs/Conversations.md) | 共享发言、平台观察、投递与 Workplace SSE |
+| [Conversations](design-docs/Conversations.md) | 共享发言、平台观察、投递与 Pod SSE |
 | [Signals](design-docs/Signals.md) | 统一接纳、授权、路由规则与 CloudEvents Endpoint |
 | [Sessions](design-docs/Sessions.md) | Agent 执行、模型轮次、未读历史与恢复 |
 | [BrainV3](design-docs/BrainV3.md) | 租户共享知识、作用域披露、学习与 Dreaming |

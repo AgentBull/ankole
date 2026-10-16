@@ -93,7 +93,7 @@ export function compactActivityPath(path: string | undefined): string | undefine
 export function commandActivityDescription(command: string | undefined): ActivityDescription {
   const activity = summarizeCommand(command)
   return {
-    key: `signals_gateway.reply.activity.command_${activity.action}${activity.family ? '_family' : ''}`,
+    key: `conversations.delivery.reply.activity.command_${activity.action}${activity.family ? '_family' : ''}`,
     ...(activity.family ? { bindings: { family: activity.family } } : {})
   }
 }

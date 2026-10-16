@@ -36,7 +36,7 @@ export function AgentLibraryEditor({
   const [activeKind, setActiveKind] = useState<AgentLibraryDocumentKind>('mission')
   const documents = useQuery(ankoleWebAgentLibraryControllerIndexOptions({ path: { agent_uid: agentUID } }))
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'agent-library', agentUID },
+    sourceKey: `agent:${agentUID}`,
     source: documents.data?.library_documents as AgentLibraryDocumentsSnapshot | undefined,
     absent: () => requestErrorCode(documents.error) === 'not_found'
   })

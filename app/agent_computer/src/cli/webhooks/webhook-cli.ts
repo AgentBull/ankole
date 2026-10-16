@@ -1,7 +1,7 @@
 import { positiveInteger } from '../primitives'
 import { WEBHOOK_CLI_SOCKET_ENV } from '../../core/execution/turn_runtime_env'
 import { WebhookCLICommand, type WebhookCLICommand as WebhookCLICommandValue } from './webhook-cli-protocol'
-import { requestWebhookCLI } from './webhook-cli-client'
+import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 import { errorMessage } from '../../common/errors'
 
 const usage = `Usage:
@@ -90,7 +90,11 @@ if (import.meta.main) {
       const socketPath = process.env[WEBHOOK_CLI_SOCKET_ENV]
       if (!socketPath) throw new Error('webhook CLI is available only inside an active Ankole turn')
 
-      const result = await requestWebhookCLI(socketPath, command)
+      const result = await requestSocketLineBridge(
+        socketPath,
+        JSON.stringify(command),
+        'webhook CLI bridge returned an invalid response'
+      )
       process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
     }
   } catch (error) {

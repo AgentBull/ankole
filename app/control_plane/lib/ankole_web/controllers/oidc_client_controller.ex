@@ -30,6 +30,30 @@ defmodule AnkoleWeb.OIDCClientController do
     ]
   )
 
+  operation(:login_sources,
+    operation_id: "oidcLoginSources",
+    summary: "List authentication sources for OIDC Client policy",
+    responses: [
+      ok: {"Sources", "application/json", AnkoleWeb.Schemas.ConsoleAPI.OIDCLoginSources},
+      default: {"Error", "application/json", ErrorEnvelope}
+    ]
+  )
+
+  def login_sources(conn, _params) do
+    with :ok <- ConsolePolicy.authorize(conn, "oidc_clients", "read"),
+         {:ok, configured} <- Ankole.IdentityProviders.list_configured_providers() do
+      sources =
+        Enum.map(configured, &Map.take(&1, ["provider_id", "enabled"])) ++
+          Enum.map(Ankole.IdentityProviders.SiteSources.providers(), fn source ->
+            %{"provider_id" => source["provider_id"], "enabled" => true}
+          end)
+
+      json(conn, %{sources: sources})
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   operation(:create,
     summary: "Create an OIDC Client",
     request_body: {"OIDC Client", "application/json", OIDCClientCreateRequest, required: true},

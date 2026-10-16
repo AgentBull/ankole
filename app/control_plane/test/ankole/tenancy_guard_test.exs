@@ -16,7 +16,7 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole_web/controllers/oidc_controller.ex:put_client_tenant" => 1,
     "across_tenants:lib/ankole_web/controllers/oidc_logout_controller.ex:confirmation" => 1,
     "across_tenants:lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
-    "across_tenants:lib/ankole/agent_workers/function_compute.ex:list_instances" => 1,
+    "across_tenants:lib/ankole/agent_workers.ex:inventory_with_workers" => 1,
     "across_tenants:lib/ankole/agent_workers/lambda.ex:rows" => 1,
     "across_tenants:lib/ankole/agent_workers/providers.ex:delete" => 1,
     "across_tenants:lib/ankole/agent_workers/providers.ex:list_projections" => 1,
@@ -24,10 +24,10 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/agent_workers/providers.ex:update" => 2,
     "across_tenants:lib/ankole/agent_workers/providers/seed.ex:import_file" => 1,
     "across_tenants:lib/ankole/agent_workers/sweep_job.ex:rows" => 1,
-    "across_tenants:lib/ankole/agent_workers/vercel.ex:list_instances" => 1,
     "across_tenants:lib/ankole/authz/snapshot.ex:load_authorization_snapshot" => 1,
     "across_tenants:lib/ankole/brain/config.ex:model_provider_references" => 1,
-    "across_tenants:lib/ankole/browser_sessions.ex:authentication" => 1,
+    "across_tenants:lib/ankole/browser_sessions.ex:site_principals" => 1,
+    "across_tenants:lib/ankole/browser_sessions.ex:save_pod_authentications" => 1,
     "across_tenants:lib/ankole/browser_sessions.ex:cleanup_expired" => 1,
     "across_tenants:lib/ankole/conversations/delivery/dispatch.ex:reconcile_wakeups" => 1,
     "across_tenants:lib/ankole/files/agent_home_import.ex:agents" => 1,
@@ -36,8 +36,8 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/oidc/logout.ex:deliver_browser" => 1,
     "across_tenants:lib/ankole/oidc/rp_logout.ex:confirmation" => 1,
     "across_tenants:lib/ankole/oidc/rp_logout.ex:prepare" => 1,
-    "across_tenants:lib/ankole/oidc/rp_logout.ex:request_tenant" => 1,
     "across_tenants:lib/ankole/oidc/sessions.ex:end_browser_in_tx" => 1,
+    "across_tenants:lib/ankole/oidc/sessions.ex:end_authentication_in_tx" => 1,
     "across_tenants:lib/ankole/oidc/tokens.ex:validate_access_claims" => 1,
     "across_tenants:lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" => 1,
     "across_tenants:lib/ankole/principals.ex:resolve_tenant" => 1,
@@ -63,6 +63,8 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:lib/ankole/ai_agent/library.ex:lock_agent_document" => 1,
     "raw_sql:lib/ankole/ai_gateway/provider_configs.ex:provider_references" => 1,
     "raw_sql:lib/ankole/ai_gateway/response_chain.ex:chain_messages" => 1,
+    "raw_sql:lib/ankole/ai_gateway/response_chain.ex:chain_metadata" => 1,
+    "raw_sql:lib/ankole/ai_gateway/response_chain.ex:suffix_messages" => 1,
     "raw_sql:lib/ankole/app_configure.ex:lock_global_key" => 1,
     "raw_sql:lib/ankole/app_configure.ex:update_tenant_in_tx" => 1,
     "raw_sql:lib/ankole/background_agent_jobs/dispatch.ex:lock_start_idempotency" => 1,
@@ -110,7 +112,7 @@ defmodule Ankole.TenancyGuardTest do
   }
 
   # Independent classification: changing a tenant schema to :site must fail.
-  @site_tables ~w(site_app_configurations browser_login_transactions browser_sessions
+  @site_tables ~w(site_app_configurations browser_login_transactions browser_sessions browser_authentications
     ai_gateway_providers oidc_signing_keys site_worker_envs files
     worker_providers tenants oban_jobs oban_peers schema_migrations)
 
@@ -242,7 +244,7 @@ defmodule Ankole.TenancyGuardTest do
       "The durable row id is generated globally, not from a tenant-local name.",
     "oidc_refresh_tokens_pkey" =>
       "A random protocol token digest must resolve before tenant discovery.",
-    "oidc_sessions_client_id_browser_id_browser_generation_provider_" =>
+    "oidc_sessions_client_id_authentication_id_authentication_revisi" =>
       "The key includes a globally unique OIDC client id.",
     "oidc_sessions_pkey" =>
       "The durable row id is generated globally, not from a tenant-local name.",
@@ -439,8 +441,15 @@ defmodule Ankole.TenancyGuardTest do
           call <- query_escapes(ast, file),
           do: call
 
-    assert Enum.frequencies(calls) == @reviewed_query_escapes,
-           "Review new raw SQL, SQL fragments and across_tenants calls at their domain owner"
+    actual = Enum.frequencies(calls)
+
+    changes =
+      for key <- Enum.uniq(Map.keys(actual) ++ Map.keys(@reviewed_query_escapes)),
+          actual[key] != @reviewed_query_escapes[key],
+          do: {key, @reviewed_query_escapes[key], actual[key]}
+
+    assert actual == @reviewed_query_escapes,
+           "Review query escapes at their domain owner: #{inspect(changes)}"
   end
 
   test "Database peer elects a leader and cron inserts without a tenant" do

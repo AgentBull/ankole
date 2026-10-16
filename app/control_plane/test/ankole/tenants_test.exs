@@ -188,6 +188,39 @@ defmodule Ankole.TenantsTest do
     assert id == first.id
   end
 
+  test "renaming the privileged tenant leaves its assignment unchanged when another tenant reuses the slug",
+       %{
+         tenant: privileged
+       } do
+    alias Ankole.AppConfigure.SiteConfig
+    key = "tenants.privileged_tenant_id"
+    assignment = Repo.get_by!(SiteConfig, scope: "global", key: key)
+    %{principal: administrator} = human_fixture()
+    {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(administrator.uid)
+
+    assert {:ok, renamed} =
+             Tenants.update(privileged, %{slug: "renamed-#{Ecto.UUID.generate()}"})
+
+    assert Repo.get_by!(SiteConfig, scope: "global", key: key) == assignment
+    refute Repo.get_by(SiteConfig, scope: "global", key: "tenants.privileged_slug")
+    assert {:ok, %{id: id}} = Tenants.privileged()
+    assert id == renamed.id
+
+    assert {:ok, reused} = Tenants.create(%{slug: privileged.slug, display_name: "Reused slug"})
+    assert {:ok, _} = Tenants.suspend(reused)
+    assert {:error, :privileged_tenant_protected} = Tenants.suspend(renamed)
+    assert {:error, :privileged_tenant_protected} = Tenants.delete(renamed)
+    assert AuthZ.site_admin?(administrator.uid)
+
+    target = new_tenant()
+    %{principal: next_administrator} = Repo.with_tenant(target.id, fn -> human_fixture() end)
+    assert {:ok, _} = Tenants.transfer_site_administration(target, next_administrator.uid)
+    refute Repo.get_by(Group, name: "siteadmin")
+    refute AuthZ.site_admin?(administrator.uid)
+    assert AuthZ.site_admin?(next_administrator.uid)
+    assert {:ok, _} = Tenants.delete(renamed)
+  end
+
   test "deleting an author tenant stops foreign work but preserves its author and history", %{
     tenant: first
   } do
@@ -344,8 +377,8 @@ defmodule Ankole.TenantsTest do
       )
     end)
 
-    assert {:error, :browser_session_expired} =
-             BrowserSessions.logout(BrowserSessions.reference(browser))
+    assert {:ok, _} = BrowserSessions.logout(BrowserSessions.reference(browser))
+    assert nil == BrowserSessions.current_reference(BrowserSessions.reference(browser))
   end
 
   test "cleanup completion is idempotent per revocation and an old retry preserves newly authorized work" do
@@ -497,7 +530,6 @@ defmodule Ankole.TenantsTest do
       client_id: client.id,
       principal_uid: human.uid,
       browser_id: browser.id,
-      browser_generation: browser.generation,
       access_version: human.access_version,
       provider_id: "local",
       auth_time: System.system_time(:second),

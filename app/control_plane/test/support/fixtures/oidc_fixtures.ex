@@ -24,7 +24,7 @@ defmodule Ankole.OIDCFixtures do
     {:ok, flow} = BrowserSessions.begin_login(ref, :oauth, %{})
     {:ok, _} = BrowserSessions.bind_provider(ref, flow.id, provider_id)
 
-    {:ok, %{browser: browser}} =
+    {:ok, %{authentication: browser_authentication}} =
       BrowserSessions.complete_login(ref, flow.id, %{
         "principal_uid" => principal_uid,
         "provider_id" => provider_id,
@@ -33,7 +33,9 @@ defmodule Ankole.OIDCFixtures do
         "auth_time" => System.system_time(:second)
       })
 
-    authentication = BrowserSessions.authentication(BrowserSessions.reference(browser), :oauth)
+    authentication =
+      BrowserSessions.authentication(BrowserSessions.reference(browser_authentication), :oauth)
+
     OIDC.Sessions.ensure(client_id, authentication, scope)
   end
 end

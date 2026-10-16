@@ -160,6 +160,7 @@ defmodule Ankole.IdentityProviders.Config do
 
   defp validate_activation(attrs) when is_map(attrs) do
     with {:ok, provider_id} <- fetch_id(attrs, "provider_id"),
+         :ok <- tenant_source_id(provider_id),
          {:ok, adapter_id} <- fetch_id(attrs, "adapter_id"),
          {:ok, plugin_id} <- fetch_id(attrs, "plugin_id"),
          {:ok, config_key} <- fetch_non_empty_string(attrs, "config_key"),
@@ -176,6 +177,12 @@ defmodule Ankole.IdentityProviders.Config do
   end
 
   defp validate_activation(_attrs), do: {:error, :invalid_activation}
+
+  defp tenant_source_id(provider_id) do
+    if Ankole.IdentityProviders.SiteSources.registered?(provider_id),
+      do: {:error, :reserved_identity_provider_id},
+      else: :ok
+  end
 
   defp unique_provider_id(%{"provider_id" => provider_id}, seen) do
     case MapSet.member?(seen, provider_id) do

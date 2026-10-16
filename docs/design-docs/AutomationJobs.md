@@ -206,3 +206,21 @@ result, exit code, error, and bounded logs.
 - Infrastructure failures can use at most five attempts.
 - A successful `emitEvent` call means the Signal is durable.
 - The platform stores no script state, DAG, mutex, or trigger rule.
+
+### Live activity in Console Home
+
+Home can inspect queued and running Automation runs for an explicitly selected
+Agent, under the existing `agent:<agent_uid>:automation_jobs` read permission.
+The query starts from runs and joins their definitions without filtering the
+definition status. A cancelled definition can therefore still show its admitted
+running attempt, consistent with the cancellation contract above. Activity is
+filtered before the independent cursor page; labels, owner Session, attempt
+identity, bounded error text and known Schedule trigger ID are available without
+loading scripts, event bodies or stdout/stderr.
+
+The activity view is read-only and links to the existing definition detail. Its
+observation time describes the read, not proof that an external effect succeeded.
+It is one of three explicit background activity groups alongside
+[Workflow](Workflow.md#console-activity-inspection) and
+[Background Agent Job](BackgroundAgentJob.md); pending Schedule rules and ordinary
+conversation Turns are outside this view.

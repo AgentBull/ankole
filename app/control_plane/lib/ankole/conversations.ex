@@ -2,6 +2,7 @@ defmodule Ankole.Conversations do
   @moduledoc "Owns conversations, participation, and committed messages."
   import Ecto.Query
 
+  alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.AIGateway
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Message
@@ -51,6 +52,41 @@ defmodule Ankole.Conversations do
   end
 
   def message_for_signal(_event), do: nil
+
+  @doc "Returns the latest reply candidate text for each requested Signal."
+  @spec reply_candidate_texts([String.t()]) :: %{String.t() => String.t() | nil}
+  def reply_candidate_texts([]), do: %{}
+
+  def reply_candidate_texts(signal_ids) when is_list(signal_ids) do
+    messages =
+      Repo.all(
+        from message in Message,
+          where: message.signal_id in ^signal_ids,
+          distinct: message.signal_id,
+          order_by: [asc: message.signal_id, desc: message.created_at],
+          select: {message.signal_id, message.text}
+      )
+      |> Map.new()
+
+    fallback_ids = Enum.filter(signal_ids, &is_nil(Map.get(messages, &1)))
+
+    fallback =
+      if fallback_ids == [] do
+        %{}
+      else
+        Repo.all(
+          from intent in Ankole.Conversations.Delivery.Intent,
+            where: intent.source_signal_id in ^fallback_ids,
+            where: not is_nil(intent.fallback_visible_text),
+            distinct: intent.source_signal_id,
+            order_by: [asc: intent.source_signal_id, desc: intent.inserted_at],
+            select: {intent.source_signal_id, intent.fallback_visible_text}
+        )
+        |> Map.new()
+      end
+
+    Map.new(signal_ids, &{&1, Map.get(messages, &1) || Map.get(fallback, &1)})
+  end
 
   def agents do
     Repo.all(
@@ -169,14 +205,14 @@ defmodule Ankole.Conversations do
   @doc "Commits a statement to its native host or external Delivery destination."
   def post_in_tx(
         repo,
-        %Ankole.Conversations.Target{kind: :external} = target,
+        %StatementTarget{kind: :external} = target,
         %Ankole.Conversations.Statement{} = statement
       ),
       do: Ankole.Conversations.Delivery.Posting.post_in_tx(repo, target, statement)
 
   def post_in_tx(
         repo,
-        %Ankole.Conversations.Target{kind: :native} = target,
+        %StatementTarget{kind: :native} = target,
         %Ankole.Conversations.Statement{} = statement
       ) do
     text = Ankole.Conversations.Statement.text(statement)
@@ -305,6 +341,7 @@ defmodule Ankole.Conversations do
   def unsubscribe(id), do: Phoenix.PubSub.unsubscribe(Ankole.PubSub, topic(id))
   def publish_message(event), do: publish(event, :message)
   def publish_status(event), do: publish(event, :status)
+  def publish_activity(event, snapshot), do: publish(event, {:activity, self(), snapshot})
 
   def publish_statement(%Message{conversation_id: id}) do
     Repo.assert_outside_transaction!()

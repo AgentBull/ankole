@@ -1,4 +1,14 @@
 import path from 'node:path'
+import {
+  artifactRoot,
+  assetsDirectory,
+  edition,
+  localeDirectory,
+  prepareEdition,
+  prepareLocales,
+  repositoryRoot,
+  webappEntries
+} from './scripts/edition.ts'
 import { fileURLToPath } from 'node:url'
 import babel from '@rolldown/plugin-babel'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
@@ -6,18 +16,14 @@ import { defineConfig, type Plugin, type UserConfig, type ViteDevServer } from '
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
-const outputPath = path.resolve(dirname, '../control_plane/priv/static/assets')
+const outputPath = assetsDirectory
+prepareEdition()
 const devServerOrigin = 'http://127.0.0.1:3035'
 const phoenixShutdownGraceMs = 2_000
 const phoenixRestartGuardKey = Symbol.for('ankole.vite.phoenix-restart-guard')
 let phoenixShutdownGuardInstalled = false
 
-const entries = {
-  auth: path.resolve(dirname, 'entrypoints/auth.tsx'),
-  console: path.resolve(dirname, 'entrypoints/console.tsx'),
-  setup: path.resolve(dirname, 'entrypoints/setup.tsx'),
-  workplace: path.resolve(dirname, 'entrypoints/workplace.tsx')
-}
+const entries = webappEntries()
 
 // No consumer outside the dynamic import in `common/markdown-renderer.tsx`, so
 // this group stays out of eager entries. A package missing from the list only
@@ -127,8 +133,14 @@ function phoenixShellPlugin(): Plugin {
       process.stdin.resume()
       installPhoenixShutdownGuard()
       installPhoenixRestartGuard(server)
+      server.watcher.add(path.join(repositoryRoot, 'app/locales'))
+      if (process.env.ANKOLE_EDITION === 'saas') server.watcher.add(path.join(repositoryRoot, 'internals/locales'))
     },
-    handleHotUpdate({ file, modules }) {
+    handleHotUpdate({ file, modules, server }) {
+      if (file.endsWith('.toml') && /\/locales\//.test(file)) {
+        prepareLocales()
+        server.ws.send({ type: 'full-reload' })
+      }
       if (!/app\/control_plane\/lib\/ankole_web\/.*\.(eex|ex|heex)$/.test(file)) return
 
       // Phoenix live_reload owns Elixir/template reload behavior. If a Vite
@@ -176,24 +188,18 @@ function forcedExitTimer(): ReturnType<typeof setTimeout> {
   return timer
 }
 
-function tomlPlugin(): Plugin {
-  return {
-    name: 'ankole-toml',
-    transform(code, id) {
-      if (!id.endsWith('.toml')) return
-
-      return {
-        code: `export default ${JSON.stringify(Bun.TOML.parse(code))}`,
-        map: null
-      }
-    }
-  }
-}
-
 export default defineConfig(({ command }): UserConfig => ({
   base: command === 'build' ? '/assets/' : '/',
   plugins: [
-    tomlPlugin(),
+    {
+      name: 'ankole-edition-styles',
+      enforce: 'pre',
+      transform(code, id) {
+        if (edition === 'saas' && id.replaceAll('\\', '/').endsWith('/uikit/src/styles.css')) {
+          return `${code}\n@source ${JSON.stringify(path.join(repositoryRoot, 'internals/webapps'))};\n`
+        }
+      }
+    },
     react(),
     babel({
       presets: [reactCompilerPreset()]
@@ -201,8 +207,10 @@ export default defineConfig(({ command }): UserConfig => ({
     phoenixShellPlugin()
   ],
   publicDir: false,
+  resolve: { alias: { '@ankole/locales': localeDirectory } },
   root: dirname,
   server: {
+    fs: { allow: [repositoryRoot, artifactRoot] },
     cors: {
       origin: ['http://localhost:4000', 'http://127.0.0.1:4000']
     },

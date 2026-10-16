@@ -186,7 +186,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
     [loadedGrant, mode]
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'permission-grant', id: grantID },
+    sourceKey: grantID ? `grant:${grantID}` : 'new',
     source: grantDraft,
     absent: () => mode === 'edit' && requestErrorCode(grant.error) === 'not_found'
   })

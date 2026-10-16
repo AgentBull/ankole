@@ -1,6 +1,6 @@
 import { ms, type JsonObject as JSONObject } from '@agentbull/active-support'
 import { errorMessage, toError } from '../common/errors'
-import { turnAcceptedEnvelope, workerProgressEnvelope } from '../fabric/envelopes'
+import { turnAcceptedEnvelope, workerProgressEnvelope } from '../lanes/session_lane'
 import { isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
 import type { Envelope } from '../fabric/envelope_proto'
 import {

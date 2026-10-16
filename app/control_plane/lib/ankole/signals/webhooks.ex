@@ -9,6 +9,7 @@ defmodule Ankole.Signals.Webhooks do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.AutomationJobs
   alias Ankole.AutomationJobs.Schemas.Run, as: AutomationJobRun
   alias Ankole.Ecto.UUIDv7
@@ -316,7 +317,7 @@ defmodule Ankole.Signals.Webhooks do
   defp validate_expiry(_attrs, _now), do: {:error, :invalid_webhook_expiry}
 
   defp validate_public_target(%{"session_id" => session}) when is_binary(session) do
-    case Ankole.Signals.Target.parse(%{session_id: session}) do
+    case ExecutionTarget.parse(%{session_id: session}) do
       :error ->
         {:error, :invalid_signal_target}
 

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, sym
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { startDriveCLIBridge } from '../src/cli/drive/drive-cli-bridge'
-import { requestDriveCLI } from '../src/cli/drive/drive-cli-client'
+import { requestSocketLineBridge } from '../src/core/socket-line-bridge'
 import { commandFromArgs } from '../src/cli/drive/drive-cli'
 import { assertDrivePath, Drive, maxFilesPerPut } from '../src/drive/drive'
 import { downloadFolder, materializeFolder } from '../src/drive/folder-sync'
@@ -496,3 +496,7 @@ describe('ankole-files', () => {
       }
     }))
 })
+
+function requestDriveCLI(socketPath: string, command: unknown) {
+  return requestSocketLineBridge(socketPath, JSON.stringify(command), 'drive CLI bridge returned an invalid response')
+}

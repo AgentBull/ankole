@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import type { WorkerProviderKind } from '../api/generated/types.gen'
-import { resolveEditorDraftIdentity, seedEditorDraft } from '../use-editor-draft'
+import { seedEditorDraft } from '../use-editor-draft'
 import { newWorkerProviderDraft, workerProviderDraft, WorkerProviderEditorModel } from './worker-provider-editor-model'
 
 const docker: WorkerProviderKind = {
@@ -20,18 +20,13 @@ test('a provider refetch keeps operator YAML and credential edits, and never see
     is_default: false,
     agent_count: 0
   }
-  const identity = { resource: 'worker-provider' as const, providerID: provider.provider_id }
-  seedEditorDraft(model, resolveEditorDraftIdentity(identity), workerProviderDraft(provider), false)
+  const sourceKey = `provider:${provider.provider_id}`
+  seedEditorDraft(model, sourceKey, workerProviderDraft(provider), false)
   expect(model.config.value).toBe(provider.config)
   expect(model.credentials.value).toEqual({})
   model.config.value += 'idleReleaseAfter: 5m\n'
   model.setCredential('api_token', 'replacement')
-  seedEditorDraft(
-    model,
-    resolveEditorDraftIdentity(identity),
-    workerProviderDraft({ ...provider, config: 'instance: standard\n' }),
-    false
-  )
+  seedEditorDraft(model, sourceKey, workerProviderDraft({ ...provider, config: 'instance: standard\n' }), false)
   expect(model.config.value).toBe('# Operator comment\ninstance: lite\nidleReleaseAfter: 5m\n')
   expect(model.credentials.value).toEqual({ api_token: 'replacement' })
   expect(model.dirty.value).toBe(true)
@@ -43,12 +38,7 @@ test('a provider refetch keeps operator YAML and credential edits, and never see
 
 test('new provider drafts start from the selected type example and discard credentials when the type changes', () => {
   const model = new WorkerProviderEditorModel()
-  seedEditorDraft(
-    model,
-    resolveEditorDraftIdentity({ resource: 'worker-provider' }),
-    newWorkerProviderDraft(docker),
-    false
-  )
+  seedEditorDraft(model, 'new', newWorkerProviderDraft(docker), false)
   expect(model.config.value).toBe(docker.example)
   model.setCredential('api_token', 'only-for-the-previous-type')
   model.selectKind({ ...docker, kind: 'kubernetes', example: 'namespace: workers\n' })
@@ -68,12 +58,7 @@ test('a removed stored credential is a null change until the operator keeps the 
     is_default: false,
     agent_count: 0
   }
-  seedEditorDraft(
-    model,
-    resolveEditorDraftIdentity({ resource: 'worker-provider', providerID: 'aws' }),
-    workerProviderDraft(provider),
-    false
-  )
+  seedEditorDraft(model, 'provider:aws', workerProviderDraft(provider), false)
   model.setCredential('sessionToken', null)
   expect(model.credentials.value).toEqual({ sessionToken: null })
   expect(model.dirty.value).toBe(true)

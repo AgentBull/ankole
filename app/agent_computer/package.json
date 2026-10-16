@@ -34,13 +34,13 @@
     "@opentelemetry/sdk-trace-base": "^2.12.0",
     "phoenix": "1.8.15",
     "pino": "^10.4.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@bufbuild/buf": "1.73.0",
+    "@bufbuild/buf": "1.74.0",
     "@bufbuild/protoc-gen-es": "2.16.0",
-    "@types/bun": "latest",
+    "@types/bun": "1.4.3",
     "@types/phoenix": "^1.6.7",
-    "gpt-tokenizer": "4.0.0"
+    "gpt-tokenizer": "4.0.3"
   }
 }

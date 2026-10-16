@@ -87,7 +87,7 @@ function AgentModelProfilesEditor({
     [loading, profiles]
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'model-profiles', agentUID: agent.uid },
+    sourceKey: `agent:${agent.uid}`,
     source: modelProfileDrafts
   })
 

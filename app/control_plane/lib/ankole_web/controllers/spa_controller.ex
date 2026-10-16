@@ -22,106 +22,116 @@ defmodule AnkoleWeb.SpaController do
     console: %{entry: "console", title: "Ankole Console"},
     sessions: %{entry: "auth", title: "Ankole Sign In"},
     setup: %{entry: "setup", title: "Ankole Setup"},
-    workplace: %{entry: "workplace", title: "Ankole"}
+    pod: %{entry: "pod", title: "Ankole"}
   }
 
-  @doc """
-  Sends the operator to the only valid first screen for the installation state.
-
-  Before setup completes the only legitimate destination is `/setup`; afterwards
-  it is the sign-in screen. `/` itself never renders a shell — it only redirects.
-  """
   def home(conn, _params) do
-    case setup_completed?() do
-      true -> redirect(conn, to: ~p"/sessions/new")
-      false -> redirect(conn, to: ~p"/setup")
-    end
+    if setup_completed?(), do: redirect(conn, to: ~p"/pod"), else: redirect(conn, to: ~p"/setup")
   end
 
   def logout_confirmation(conn, _params), do: render_spa(conn, :sessions)
   def logged_out(conn, _params), do: render_spa(conn, :sessions)
   def logout_error(conn, _params), do: render_spa(conn, :sessions)
 
-  @doc """
-  Serves the sign-in SPA only after setup is complete and no admin is signed in.
-
-  The `cond` clauses are an ordered server-side gate: un-setup installs go to
-  setup, already-signed-in admins go to the Workplace, and only the
-  remaining case (setup done, not signed in) actually renders the sign-in shell.
-  """
   def sessions_new(conn, params) do
-    # The shell reads only site settings. A new login starts in the privileged
-    # tenant; the flow decides only the response status here.
-    :ok = WebSession.put_privileged_tenant()
-
-    transaction =
-      if is_binary(params["flow"]),
-        do: WebSession.login_transaction(conn, params["flow"]),
-        else: nil
-
     cond do
       not setup_completed?() ->
         redirect(conn, to: ~p"/setup")
 
-      active_admin_session?(conn) and params["oauth"] != "1" and params["switch"] != "1" ->
-        redirect(conn, to: ~p"/workplace")
+      is_binary(params["flow"]) ->
+        render_login_transaction(conn, params["flow"])
 
-      not is_binary(params["flow"]) and params["oauth"] != "1" ->
-        with {:ok, conn, transaction} <-
-               WebSession.begin_login(conn, :console, %{
-                 "return_to" => WebSession.safe_return_to(params["return_to"])
-               }) do
-          query =
-            URI.encode_query(Map.merge(Map.take(params, ["switch"]), %{"flow" => transaction.id}))
-
-          redirect(conn, to: "/sessions/new?" <> query)
-        end
+      params["purpose"] == "console" ->
+        begin_login(conn, :console, params)
 
       true ->
-        case transaction do
-          {:ok, _transaction} ->
-            render_spa(conn, :sessions)
-
-          {:error, _} ->
-            conn
-            |> put_status(401)
-            |> render_spa(:sessions)
-        end
+        pod_login(conn, params)
     end
   end
 
-  @doc """
-  Serves the console SPA only for active human admins.
+  defp pod_login(conn, params) do
+    with :ok <- put_pod_target(conn) do
+      if params["switch"] != "1" and is_map(WebSession.pod_session(conn)) do
+        target =
+          if params["tenant_id"],
+            do: "/pod?" <> URI.encode_query(%{"tenant_id" => Ankole.Repo.tenant_id!()}),
+            else: "/pod"
 
-  This is the server-side authentication gate for the console — it is enforced
-  on the shell request itself, so the React app is never even delivered to an
-  unauthenticated visitor. When not signed in, redirect to sign-in carrying a
-  `return_to` so the operator lands back on the page they wanted post-login.
-  """
-  def console(conn, _params), do: render_signed_in_spa(conn, :console)
+        redirect(conn, to: target)
+      else
+        begin_login(conn, :pod, params)
+      end
+    else
+      _ -> send_resp(conn, 404, "Pod not found")
+    end
+  end
 
-  @doc """
-  Serves the Workplace SPA, which sign-in opens by default.
+  defp render_login_transaction(conn, flow) do
+    case WebSession.login_transaction(conn, flow) do
+      {:ok, transaction} ->
+        if transaction.tenant_id, do: Ankole.Repo.put_tenant_id(transaction.tenant_id)
+        render_spa(conn, :sessions)
 
-  Only site administrators can sign in, so the Workplace has the same
-  server-side gate as the Console. Its shell does not receive the Console path.
-  """
-  def workplace(conn, _params), do: render_signed_in_spa(conn, :workplace)
+      _ ->
+        conn |> put_status(401) |> render_spa(:sessions)
+    end
+  end
 
-  defp render_signed_in_spa(conn, spa) do
+  def console(conn, _params) do
     :ok = WebSession.put_privileged_tenant()
 
     cond do
       not setup_completed?() ->
         redirect(conn, to: ~p"/setup")
 
-      not active_admin_session?(conn) ->
-        redirect(conn, to: sessions_new_path(%{"return_to" => current_return_to(conn)}))
+      is_nil(WebSession.site_admin_session(conn)) ->
+        begin_login(conn, :console, %{"return_to" => current_return_to(conn)})
 
       true ->
-        render_spa(conn, spa)
+        render_spa(conn, :console)
     end
   end
+
+  def pod(conn, params) do
+    with true <- setup_completed?(),
+         {:ok, tenant_id} <- AnkoleWeb.Plugs.RequirePodSession.target_tenant(conn),
+         :ok <- Ankole.Repo.put_tenant_id(tenant_id) do
+      case WebSession.pod_session(conn) do
+        nil -> begin_login(conn, :pod, Map.put(params, "return_to", current_return_to(conn)))
+        _ -> render_spa(conn, :pod)
+      end
+    else
+      false -> redirect(conn, to: ~p"/setup")
+      _ -> send_resp(conn, 404, "Pod not found")
+    end
+  end
+
+  defp begin_login(conn, purpose, params) do
+    target =
+      if purpose == :console, do: WebSession.put_privileged_tenant(), else: put_pod_target(conn)
+
+    with :ok <- target,
+         {:ok, conn, transaction} <-
+           WebSession.begin_login(conn, purpose, %{
+             "return_to" => login_return_to(purpose, params["return_to"])
+           }) do
+      redirect(conn, to: "/sessions/new?flow=" <> transaction.id)
+    else
+      _ -> send_resp(conn, 404, "Pod not found")
+    end
+  end
+
+  defp put_pod_target(conn) do
+    with {:ok, id} <- AnkoleWeb.Plugs.RequirePodSession.target_tenant(conn),
+         do: Ankole.Repo.put_tenant_id(id)
+  end
+
+  defp login_return_to(:console, nil), do: AnkoleWeb.SiteAdminConsole.path()
+
+  defp login_return_to(:pod, nil),
+    do: "/pod?" <> URI.encode_query(%{"tenant_id" => Ankole.Repo.tenant_id!()})
+
+  defp login_return_to(_, return_to), do: WebSession.safe_return_to(return_to)
 
   @doc """
   Serves the setup SPA while the installation is still uninitialized.
@@ -140,8 +150,10 @@ defmodule AnkoleWeb.SpaController do
     end
   end
 
-  defp render_spa(conn, spa) do
-    html(conn, spa_document(conn, Map.fetch!(@spas, spa)))
+  def render_spa(conn, spa) do
+    conn = put_resp_header(conn, "cache-control", "private, no-store")
+    descriptor = if is_atom(spa), do: Map.fetch!(@spas, spa), else: spa
+    html(conn, spa_document(conn, descriptor))
   end
 
   defp spa_document(conn, %{entry: entry, title: title}) do
@@ -170,7 +182,7 @@ defmodule AnkoleWeb.SpaController do
       to_string(conn.status || 200),
       "\">\n",
       "    <title>",
-      title,
+      html_escape(title),
       "</title>\n",
       # The theme class must be on <html> before the first paint. The React
       # ThemeProvider applies it only after the bundle loads, so without this
@@ -180,6 +192,7 @@ defmodule AnkoleWeb.SpaController do
       "    <script>try{var t=localStorage.getItem(\"ankole-theme\");" <>
         "if(t===\"dark\"){var d=document.documentElement;" <>
         "d.dataset.theme=\"dark\";d.style.colorScheme=\"dark\"}}catch(e){}</script>\n",
+      authentication_meta(conn),
       console_path_meta(entry),
       Assets.entry_tags(conn, entry),
       Assets.locale_preload_tags(locale),
@@ -189,6 +202,24 @@ defmodule AnkoleWeb.SpaController do
       "  </body>\n",
       "</html>\n"
     ]
+  end
+
+  defp authentication_meta(conn) do
+    case WebSession.authentication_reference(conn) do
+      nil ->
+        []
+
+      ref ->
+        tenant = Ankole.Repo.tenant_id() || ""
+
+        [
+          "<meta name=\"ankole-authentication\" content=\"",
+          Ankole.BrowserSessions.encode_reference(ref),
+          "\"><meta name=\"ankole-pod\" content=\"",
+          tenant,
+          "\">\n"
+        ]
+    end
   end
 
   defp console_path_meta("console") do
@@ -209,15 +240,6 @@ defmodule AnkoleWeb.SpaController do
       {:error, _reason} -> false
     end
   end
-
-  defp active_admin_session?(conn), do: not is_nil(WebSession.site_admin_session(conn))
-
-  defp sessions_new_path(%{"return_to" => return_to}) do
-    safe_return_to = WebSession.safe_return_to(return_to)
-    ~p"/sessions/new?return_to=#{safe_return_to}"
-  end
-
-  defp sessions_new_path(_params), do: ~p"/sessions/new"
 
   defp current_return_to(%Plug.Conn{query_string: ""} = conn), do: conn.request_path
 

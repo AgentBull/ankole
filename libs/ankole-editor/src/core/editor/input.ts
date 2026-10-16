@@ -323,7 +323,7 @@ export class InputState {
         touchesSel = from <= sel.to && to >= sel.from
       if (read) {
         wg.dispatch({
-          changes: { from, to, insert: read.slice, fit: read.context },
+          changes: { from, to, insert: read, fit: true },
           selection: touchesSel
             ? (cx, changes) => {
                 return GardSelection.near(cx, changes.mapPos(to, 1), -1)
@@ -446,6 +446,7 @@ export class InputState {
   clearComposition() {
     const comp = this.composing!
     this.composing = null
+    this.compositionPendingKey = true
     this.compositionEndedAt = Date.now()
     if (!comp.target) return false
     // WebKit can remove the composition's text node when it deletes
@@ -509,7 +510,7 @@ function replacementContent(state: GardState, event: InputEvent, from: number, t
     const start = state.doc.resolve(from),
       replaced = from < to ? start.nodeAfter : null
     const marks = replaced && replaced.is(Leaf.Text) ? replaced.marks : start.marks()
-    return { slice: text ? Slice.of([Leaf.text(text, marks)]) : Slice.empty, context: [] as readonly Plot.Tag[] }
+    return text ? Slice.of([Leaf.text(text, marks)]) : Slice.empty
   }
   if (!transfer) {
     if (text == null) return null
@@ -808,48 +809,27 @@ function basicMouseSelection(wg: Wordgard, event: MouseEvent) {
 
 export const dropHandler =
   GardState.Facet.define<
-    (
-      wg: Wordgard,
-      event: DragEvent,
-      pos: number,
-      move: { from: number; to: number } | null,
-      slice: Slice,
-      context: readonly Plot.Tag[]
-    ) => boolean
+    (wg: Wordgard, event: DragEvent, pos: number, move: { from: number; to: number } | null, slice: Slice) => boolean
   >()
 
 export const pasteHandler =
-  GardState.Facet.define<
-    (wg: Wordgard, event: ClipboardEvent | InputEvent, slice: Slice, context: readonly Plot.Tag[]) => boolean
-  >()
+  GardState.Facet.define<(wg: Wordgard, event: ClipboardEvent | InputEvent, slice: Slice) => boolean>()
 
 // Paste clipboard data over a range. Paste handlers run only when the
 // range is the selection's replacement range.
 function pasteData(wg: Wordgard, event: ClipboardEvent | InputEvent, data: DataTransfer, from: number, to: number) {
-  const content = readClipboard(wg.state, data, wg.state.doc.resolve(from), wg.inputState.shiftKey)
+  const slice = readClipboard(wg.state, data, wg.state.doc.resolve(from), wg.inputState.shiftKey)
   const isSel = from == wg.state.selection.replacementRange.from && to == wg.state.selection.replacementRange.to
-  if (
-    isSel &&
-    wg.state
-      .facet(pasteHandler)
-      .some(h => h(wg, event, content ? content.slice : Slice.empty, content ? content.context : []))
-  ) {
+  if (isSel && wg.state.facet(pasteHandler).some(h => h(wg, event, slice || Slice.empty))) {
     return
   }
-  if (content) {
+  if (slice) {
     wg.dispatch({
-      changes: { from, to, insert: content.slice, fit: content.context },
+      changes: { from, to, insert: slice, fit: true },
       selection: isSel ? (cx, changes) => GardSelection.near(cx, changes.mapPos(to, 1), -1) : undefined,
       userEvent: 'input.paste',
       scrollIntoView: isSel
     })
-  }
-}
-
-function selectionSlice(state: GardState) {
-  return {
-    slice: state.doc.slice(state.selection.from, state.selection.to),
-    context: state.doc.contextAt(state.selection.from)
   }
 }
 
@@ -858,8 +838,7 @@ function copy(wg: Wordgard, event: ClipboardEvent) {
   wg.flush()
   const { state } = wg
   if (!state.selection.empty && event.clipboardData) {
-    const { slice, context } = selectionSlice(state)
-    writeClipboard(state, slice, context, event.clipboardData)
+    writeClipboard(state, state.selection.toSlice(state.doc), event.clipboardData)
     if (event.type == 'cut') Command.dispatch(wg, deleteCut)
   }
   return true
@@ -984,7 +963,7 @@ const inputTypeCommands: { [inputType: string]: Command.Bound | Command } = {
 const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: HTMLElementEventMap[e]) => boolean } = {
   keydown(wg, event) {
     if ((browser.ios || browser.android) && (event.key == 'Backspace' || event.key == 'Enter')) return false
-    return KeyBinding.runScopeHandlers(wg, event, 'editor')
+    return KeyBinding.handle(wg, event)
   },
 
   mousedown(wg, event) {
@@ -1028,8 +1007,7 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
     inputState.draggedContent = selection
 
     if (event.dataTransfer) {
-      const { slice, context } = selectionSlice(wg.state)
-      writeClipboard(wg.state, slice, context, event.dataTransfer)
+      writeClipboard(wg.state, wg.state.selection.toSlice(wg.state.doc), event.dataTransfer)
       event.dataTransfer.effectAllowed = 'copyMove'
     }
     return false
@@ -1057,15 +1035,15 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
 
   drop(wg, event) {
     if (!event.dataTransfer || wg.state.readOnly) return true
-    const content = readClipboard(wg.state, event.dataTransfer, wg.state.sel.head, false)
-    if (!content) return false
+    const slice = readClipboard(wg.state, event.dataTransfer, wg.state.sel.head, false)
+    if (!slice) return false
 
     const dropPos = wg.posAtCoords({ x: event.clientX, y: event.clientY }).pos
     const { draggedContent } = wg.inputState
     const del =
       draggedContent && dragMovesSelection(wg, event) ? { from: draggedContent.from, to: draggedContent.to } : null
-    if (wg.state.facet(dropHandler).some(f => f(wg, event, dropPos, del, content.slice, content.context))) return true
-    const ins = { from: dropPos, insert: content.slice, fit: content.context }
+    if (wg.state.facet(dropHandler).some(f => f(wg, event, dropPos, del, slice))) return true
+    const ins = { from: dropPos, insert: slice, fit: true }
     const changes = ChangeSet.create(wg.state.doc, del ? [del, ins] : ins)
     wg.focus()
     wg.dispatch({
@@ -1168,7 +1146,6 @@ const baseObservers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: 
   },
 
   blur(wg) {
-    wg.observer.clearSelectionRange()
     updateForFocusChange(wg)
   },
 

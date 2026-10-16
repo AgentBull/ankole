@@ -2,36 +2,29 @@ import { Slice, Leaf, Plot, Node, Pos, serialize, parse, Token } from '../doc'
 import { GardState } from '../state'
 import browser from './browser'
 
-/** Clipboard content: a slice and the tags of the plots that are open at its start, innermost first. */
-export type ClipboardContent = { slice: Slice; context: readonly Plot.Tag[] }
-
-export const clipboardOutputFilter =
-  GardState.Facet.define<(content: ClipboardContent, state: GardState) => ClipboardContent>()
+export const clipboardOutputFilter = GardState.Facet.define<(slice: Slice, state: GardState) => Slice>()
 export const clipboardOutputHTMLFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
-export const clipboardTextSerializer =
-  GardState.Facet.define<(slice: Slice, context: readonly Plot.Tag[], state: GardState) => string | null>()
+export const clipboardTextSerializer = GardState.Facet.define<(slice: Slice, state: GardState) => string | null>()
 export const clipboardOutputTextFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
 
-export const clipboardInputFilter =
-  GardState.Facet.define<(content: ClipboardContent, state: GardState) => ClipboardContent>()
+export const clipboardInputFilter = GardState.Facet.define<(slice: Slice, state: GardState) => Slice>()
 export const clipboardInputHTMLFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
 export const clipboardTextParser = GardState.Facet.define<(text: string, state: GardState) => Slice | null>()
 export const clipboardInputTextFilter = GardState.Facet.define<(html: string, state: GardState) => string>()
 
-export function writeClipboard(state: GardState, slice: Slice, context: readonly Plot.Tag[], data: DataTransfer) {
-  for (const filter of state.facet(clipboardOutputFilter)) ({ slice, context } = filter({ slice, context }, state))
+export function writeClipboard(state: GardState, slice: Slice, data: DataTransfer) {
+  for (const filter of state.facet(clipboardOutputFilter)) slice = filter(slice, state)
 
   let includeContext = 0
-  for (let i = 0; i < context.length; i++) {
-    const next = context[i]!
-    if (next.type.defining && (!includeContext || next.type != context[includeContext - 1]!.type)) {
+  for (let i = 0; i < slice.context.length; i++) {
+    const next = slice.context[i]!
+    if (next.type.defining && (!includeContext || next.type != slice.context[includeContext - 1]!.type)) {
       includeContext = i + 1
     } else if (next.type.defining || !next.isTextblock) break
   }
   const doc = detachedDoc(),
     dom = serialize
       .slice(slice, {
-        context,
         includeContext,
         openAttr: 'wg-open'
       })
@@ -73,7 +66,7 @@ export function writeClipboard(state: GardState, slice: Slice, context: readonly
     const depth = Math.max(closed, includeContext)
     first.setAttribute(
       'wg-slice',
-      JSON.stringify({ slice: slice.toJSON(), context: context.slice(0, depth).map(tag => tag.toJSON()) })
+      JSON.stringify({ slice: slice.toJSON(), context: slice.context.slice(0, depth).map(tag => tag.toJSON()) })
     )
   }
 
@@ -86,7 +79,7 @@ export function writeClipboard(state: GardState, slice: Slice, context: readonly
 
   let text: string | undefined | null
   for (const serialize of state.facet(clipboardTextSerializer)) {
-    text = serialize(slice, context, state)
+    text = serialize(slice, state)
     if (text != null) break
   }
   if (text == null) text = slice.textContent({ blockSeparator: '\n\n' })
@@ -98,11 +91,10 @@ function isOpen(elt: Element) {
   return (elt.getAttribute('wg-open') || null) as 'start' | 'end' | 'start end' | null
 }
 
-export function readClipboard(state: GardState, data: DataTransfer, targetContext: Pos, plain: boolean) {
+export function readClipboard(state: GardState, data: DataTransfer, targetContext: Pos, plain: boolean): Slice | null {
   let html = data.getData('text/html')
   let text = data.getData('text/plain') || data.getData('Text') || data.getData('text/uri-list').replace(/\r?\n/g, ' ')
-  let slice: Slice,
-    context: readonly Plot.Tag[] = []
+  let slice: Slice
   const inCode = targetContext.parent.node.type.hasRole(Node.Role.Code)
   if (text && (inCode || !html || plain)) {
     for (const filter of state.facet(clipboardInputTextFilter)) text = filter(text, state)
@@ -116,29 +108,28 @@ export function readClipboard(state: GardState, data: DataTransfer, targetContex
 
     const fromWordgard = dom.querySelector('[wg-content=true]')
     const exact = fromWordgard && readSliceData(state, fromWordgard.getAttribute('wg-slice'))
-    if (exact) ({ slice, context } = exact)
+    if (exact) slice = exact
     else {
-      ;({ slice, context } = parse.slice(state.schema, dom, {
+      slice = parse.slice(state.schema, dom, {
         collapseWhiteSpace: !fromWordgard,
         isOpen: fromWordgard ? isOpen : undefined
-      }))
+      })
     }
     // Code takes text only. Without a text form, use the text of the HTML, one line for each block.
     if (inCode) {
       text = slice.textContent({ blockSeparator: '\n' })
       for (const filter of state.facet(clipboardInputTextFilter)) text = filter(text, state)
       slice = readClipboardText(state, text, targetContext, plain)
-      context = []
     }
   }
-  for (const filter of state.facet(clipboardInputFilter)) ({ slice, context } = filter({ slice, context }, state))
-  return { slice, context }
+  for (const filter of state.facet(clipboardInputFilter)) slice = filter(slice, state)
+  return slice
 }
 
 // Read the slice that `writeClipboard` stores in `wg-slice`. Returns
 // null when it is missing or does not fit the schema, so that the HTML
 // is parsed instead.
-function readSliceData(state: GardState, value: string | null): ClipboardContent | null {
+function readSliceData(state: GardState, value: string | null): Slice | null {
   if (!value) return null
   const { schema } = state
   try {
@@ -153,7 +144,7 @@ function readSliceData(state: GardState, value: string | null): ClipboardContent
       if (tok.tokenType == Token.Type.Node) schema.validate(tok)
       else if (tok.tokenType == Token.Type.Open) schema.validateTag(tok)
     }
-    return { slice, context: context as Plot.Tag[] }
+    return Slice.of(slice.content, context as Plot.Tag[])
   } catch {
     return null
   }

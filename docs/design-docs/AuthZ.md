@@ -305,7 +305,8 @@ See [Principal](Principal.md) for identity and status rules.
 
 ## Site Administration
 
-`tenants.privileged_slug` selects the privileged tenant. It is not writable in
+`tenants.privileged_tenant_id` selects the privileged tenant by its stable ID. A
+slug change does not change this assignment. The key is not writable in
 the generic settings editor. `Tenants.transfer_site_administration/2` owns the
 transaction that locks this configuration and the target tenant, makes the
 selected active human a site administrator, and transfers the role. Suspending

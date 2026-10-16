@@ -215,13 +215,11 @@ defmodule Ankole.AIGateway.CompactionRender do
   def item_text(_item, _opts), do: ""
 
   @spec content_text(term(), keyword()) :: binary()
-  def content_text(content, opts \\ [])
-
-  def content_text(content, opts) when is_binary(content) do
+  defp content_text(content, opts) when is_binary(content) do
     truncate_text(content, Keyword.get(opts, :cap_tokens))
   end
 
-  def content_text(content, opts) when is_list(content) do
+  defp content_text(content, opts) when is_list(content) do
     content
     |> Enum.map(&content_part_text/1)
     |> Enum.reject(&(&1 == ""))
@@ -229,17 +227,17 @@ defmodule Ankole.AIGateway.CompactionRender do
     |> truncate_text(Keyword.get(opts, :cap_tokens))
   end
 
-  def content_text(content, _opts), do: stringify(content)
+  defp content_text(content, _opts), do: stringify(content)
 
   @spec content_part_text(term()) :: binary()
-  def content_part_text(%{"type" => type, "text" => text})
-      when type in ["input_text", "output_text", "text"] and is_binary(text),
-      do: text
+  defp content_part_text(%{"type" => type, "text" => text})
+       when type in ["input_text", "output_text", "text"] and is_binary(text),
+       do: text
 
-  def content_part_text(%{"text" => text}) when is_binary(text), do: text
-  def content_part_text(%{"type" => type}) when is_binary(type), do: "[#{type} omitted]"
-  def content_part_text(part) when is_map(part) and map_size(part) > 0, do: "[content omitted]"
-  def content_part_text(_part), do: ""
+  defp content_part_text(%{"text" => text}) when is_binary(text), do: text
+  defp content_part_text(%{"type" => type}) when is_binary(type), do: "[#{type} omitted]"
+  defp content_part_text(part) when is_map(part) and map_size(part) > 0, do: "[content omitted]"
+  defp content_part_text(_part), do: ""
 
   @spec truncate_text(binary(), pos_integer() | nil) :: binary()
   def truncate_text(text, nil) when is_binary(text), do: text
@@ -267,9 +265,9 @@ defmodule Ankole.AIGateway.CompactionRender do
   def approx_tokens(text) when is_binary(text), do: max(div(byte_size(text), 4), 1)
 
   @spec stringify(term()) :: binary()
-  def stringify(value) when is_binary(value), do: value
-  def stringify(nil), do: ""
-  def stringify(value), do: Ankole.JSON.encode!(value)
+  defp stringify(value) when is_binary(value), do: value
+  defp stringify(nil), do: ""
+  defp stringify(value), do: Ankole.JSON.encode!(value)
 
   defp item_block(index, text) do
     """

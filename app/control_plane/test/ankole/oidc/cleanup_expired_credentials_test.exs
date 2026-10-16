@@ -108,7 +108,7 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
       %LogoutRequest{}
       |> Ecto.Changeset.change(
         browser_id: anonymous.id,
-        browser_generation: anonymous.generation,
+        browser_revision: anonymous.revision,
         expires_at: old
       )
       |> Repo.insert!()
@@ -126,8 +126,13 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
     expired_login |> Ecto.Changeset.change(expires_at: old) |> Repo.update!()
 
     counts = OIDC.cleanup_expired_credentials(now)
-    assert counts.browser_sessions == 3
     assert counts.oidc_sessions == 2
+    refute Map.has_key?(counts, :browser_sessions)
+    assert Repo.get(BrowserSessions.Session, expired.browser_id)
+    assert Repo.get(BrowserSessions.Session, anonymous.id)
+
+    assert :ok = CleanupExpiredCredentials.perform(%Oban.Job{})
+
     refute Repo.get(Session, expired.id)
     refute Repo.get(BrowserSessions.Session, expired.browser_id)
     refute Repo.get(BrowserSessions.Session, anonymous.id)
@@ -146,14 +151,100 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
       if delivery.status == :delivered do
         refute Repo.get(Session, session.id)
         refute Repo.get(LogoutDelivery, delivery.id)
+        refute Repo.get(BrowserSessions.Session, session.browser_id)
       else
         assert Repo.get(Session, session.id)
         assert Repo.get(LogoutDelivery, delivery.id)
+        assert Repo.get(BrowserSessions.Session, session.browser_id)
       end
     end
 
     assert Repo.get(RefreshToken, "protected-refresh")
     assert OIDC.cleanup_expired_credentials(now).oidc_sessions == 0
+  end
+
+  test "site cleanup runs once after every tenant and preserves a shared browser's remaining RP",
+       %{
+         tenant: original
+       } do
+    alias Ankole.BrowserSessions
+    alias Ankole.OIDC.Session
+
+    {:ok, browser} = BrowserSessions.create()
+    old = DateTime.add(DateTime.utc_now(:microsecond), -2 * 24 * 60 * 60)
+    Repo.update!(Ecto.Changeset.change(browser, expires_at: old))
+    suspended = create_tenant()
+    deleting = create_tenant()
+
+    sessions =
+      for tenant <- [original, suspended, deleting] do
+        Repo.with_tenant(tenant.id, fn ->
+          human = human_fixture()
+          client_id = create_client!()
+          {:ok, session} = Ankole.OIDCFixtures.session(human.principal.uid, client_id, "openid")
+
+          Repo.update!(
+            Ecto.Changeset.change(session,
+              browser_id: browser.id,
+              expires_at: old,
+              ended_at: if(tenant.id == deleting.id, do: DateTime.utc_now(), else: old)
+            )
+          )
+        end)
+      end
+
+    Repo.update!(Ecto.Changeset.change(suspended, suspended_at: DateTime.utc_now()))
+    Repo.update!(Ecto.Changeset.change(deleting, deleting_at: DateTime.utc_now()))
+    tenant_count = length(Ankole.Tenants.list())
+    handler = {__MODULE__, self(), make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ankole, :repo, :query],
+        &__MODULE__.capture_cleanup/4,
+        self()
+      )
+
+    try do
+      assert :ok = CleanupExpiredCredentials.perform(%Oban.Job{})
+      assert_receive {:browser_cleanup, cutoff}
+      refute_receive {:browser_cleanup, _}
+
+      for _ <- 1..tenant_count do
+        assert_receive {:credential_cleanup, ^cutoff}
+      end
+
+      for session <- sessions do
+        Repo.with_tenant(session.tenant_id, fn ->
+          if session.tenant_id == deleting.id do
+            assert Repo.get(Session, session.id)
+          else
+            refute Repo.get(Session, session.id)
+          end
+        end)
+      end
+
+      assert Repo.get(BrowserSessions.Session, browser.id)
+      assert Repo.tenant_id!() == original.id
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  def capture_cleanup(_event, _measurements, %{query: query, params: params}, owner) do
+    if self() == owner do
+      cond do
+        String.starts_with?(query, ~s(DELETE FROM "browser_sessions")) ->
+          send(owner, {:browser_cleanup, hd(params)})
+
+        String.starts_with?(query, ~s(DELETE FROM "oidc_authorization_codes")) ->
+          send(owner, {:credential_cleanup, hd(params)})
+
+        true ->
+          :ok
+      end
+    end
   end
 
   defp create_client! do

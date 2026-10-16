@@ -61,14 +61,13 @@ function deleteTarget(wg: Wordgard, event: InputEvent, userEvent: 'delete.cut' |
 /** Insert the dropped content at the drop point and select it. */
 function drop(wg: Wordgard, event: InputEvent) {
   const at = targetRange(wg, event) ?? wg.state.selection.replacementRange
-  const content =
-    event.dataTransfer && readClipboard(wg.state, event.dataTransfer, wg.state.doc.resolve(at.from), false)
-  if (!content) return
+  const slice = event.dataTransfer && readClipboard(wg.state, event.dataTransfer, wg.state.doc.resolve(at.from), false)
+  if (!slice) return
   const changes = ChangeSet.create(wg.state.doc, {
     from: at.from,
     to: at.to,
-    insert: content.slice,
-    fit: content.context
+    insert: slice,
+    fit: true
   })
   wg.dispatch({
     changes,

@@ -67,7 +67,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     target_conversation_id = Ecto.UUID.generate()
 
     assert %{"conversation" => %{"id" => ^target_conversation_id}} =
-             Compose.api!(deployment, :post, "/.internal-apis/workplace/conversations", %{
+             Compose.api!(deployment, :post, "/.internal-apis/pod/conversations", %{
                conversationID: target_conversation_id,
                agentUID: uid,
                messageID: Ecto.UUID.generate(),
@@ -82,7 +82,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
                  Compose.api!(
                    deployment,
                    :get,
-                   "/.internal-apis/workplace/conversations/#{target_conversation_id}"
+                   "/.internal-apis/pod/conversations/#{target_conversation_id}"
                  )
 
                detail["status"]["state"] == "idle" and
@@ -581,7 +581,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     code = """
     key = %{agent_uid: #{inspect(uid)}, session_id: #{inspect(input["session_id"])}}
     snapshot =
-      case Ankole.Sessions.Driver.whereis(key) do
+      case Ankole.Sessions.driver_pid(key) do
         :undefined -> %{state: :absent}
         pid ->
           try do

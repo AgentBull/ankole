@@ -15,7 +15,6 @@
  */
 import { Mark, Node, Plot, type Pos, type Schema, Slice, Token } from '../core/doc'
 import { Wordgard } from '../core/editor'
-import type { ClipboardContent } from '../core/editor/clipboard'
 import type { GardState } from '../core/state'
 import { CellSelection } from '../core/table'
 import * as T from '../core/types'
@@ -27,11 +26,11 @@ import { pageDocument } from './convert'
 const isOpen = (token: Token): token is Plot.Tag => token.tokenType == Token.Type.Open
 const isClose = (token: Token) => token.tokenType == Token.Type.Close
 
-/** The number of plots that the slice closes without opening them: the plots open at its start. */
-function closedCount(slice: Slice) {
+/** The number of plots that the tokens close without opening them: the plots open at the start. */
+function closedCount(tokens: readonly Token[]) {
   let open = 0,
     closed = 0
-  for (const token of slice.content) {
+  for (const token of tokens) {
     if (isOpen(token)) open++
     else if (isClose(token)) open ? open-- : closed++
   }
@@ -48,8 +47,8 @@ function closedCount(slice: Slice) {
 function wholeContainers(doc: Plot.Doc, from: number, to: number) {
   const covers = (plot: Pos.Plot) =>
     !plot.node.inlineContent &&
-    (from <= plot.start || doc.slice(plot.start, from).content.every(isOpen)) &&
-    (to >= plot.end || doc.slice(to, plot.end).content.every(isClose))
+    (from <= plot.start || doc.slice(plot.start, from).every(isOpen)) &&
+    (to >= plot.end || doc.slice(to, plot.end).every(isClose))
   let start = from,
     end = to
   for (let plot = doc.resolve(from).parent; plot.parent; plot = plot.parent) if (covers(plot)) start = plot.before
@@ -58,7 +57,7 @@ function wholeContainers(doc: Plot.Doc, from: number, to: number) {
 }
 
 /** The selected cells, by row, in a copy of their table. */
-function selectedCells(doc: Plot.Doc, selection: CellSelection): ClipboardContent {
+function selectedCells(doc: Plot.Doc, selection: CellSelection): Slice {
   // Rows by position: equal rows may be one node object.
   const rows = new Map<number, { row: Plot; cells: Node[] }>()
   let table: Pos.Plot | null = null
@@ -71,20 +70,20 @@ function selectedCells(doc: Plot.Doc, selection: CellSelection): ClipboardConten
     rows.set(row.before, entry)
   }
   const copy = table!.node.tag.create([...rows.values()].map(({ row, cells }) => row.tag.create(cells)))
-  return { slice: Slice.of([copy]), context: [] }
+  return Slice.of([copy])
 }
 
-function copied(state: GardState): ClipboardContent | null {
+function copied(state: GardState): Slice | null {
   const { selection, doc, schema } = state
   if (selection.empty) return null
   if (selection instanceof CellSelection) return selectedCells(doc, selection)
   const { from, to } = wholeContainers(doc, selection.from, selection.to)
-  const slice = doc.slice(from, to)
+  const tokens = doc.slice(from, to)
   const context = doc.contextAt(from)
   // Only the plots that the slice closes are part of the copy. The ones above are parents that a
   // copied row, cell or list item takes along.
-  const closed = closedCount(slice)
-  return normalize(schema, slice, context.slice(0, closed), context.slice(closed))
+  const closed = closedCount(tokens)
+  return normalize(schema, tokens, context.slice(0, closed), context.slice(closed))
 }
 
 // ---------------------------------------------------------------------------
@@ -100,10 +99,10 @@ type Frame = { tag: Plot.Tag | null; children: Node[] }
  */
 function normalize(
   schema: Schema,
-  slice: Slice,
+  tokens: readonly Token[],
   context: readonly Plot.Tag[],
   parents: readonly Plot.Tag[] = []
-): ClipboardContent {
+): Slice {
   const stack: Frame[] = [{ tag: null, children: [] }]
   for (let i = context.length - 1; i >= 0; i--) stack.push({ tag: context[i]!, children: [] })
   const close = () => {
@@ -111,7 +110,7 @@ function normalize(
     // An open plot that the slice left empty, such as a list, may not allow that.
     if (children.length || tag!.type.canBeEmpty) stack.at(-1)!.children.push(clean(tag!.create(children)))
   }
-  for (const token of slice.content) {
+  for (const token of tokens) {
     if (isOpen(token)) stack.push({ tag: token, children: [] })
     else if (isClose(token)) close()
     else stack.at(-1)!.children.push(clean(token as Node))
@@ -135,7 +134,7 @@ function normalize(
  * Whole nodes as pasted content: only text blocks at the edges are open. A single empty text block
  * stays whole, so that the paste inserts it.
  */
-function edges(nodes: readonly Node[], openStart: boolean, openEnd: boolean): ClipboardContent {
+function edges(nodes: readonly Node[], openStart: boolean, openEnd: boolean): Slice {
   const tokens: Token[] = [],
     context: Plot.Tag[] = []
   const single = nodes.length == 1 && nodes[0]!.isPlot && !nodes[0]!.content.length
@@ -152,7 +151,7 @@ function edges(nodes: readonly Node[], openStart: boolean, openEnd: boolean): Cl
       tokens.push(node)
     }
   })
-  return { slice: Slice.of(tokens), context }
+  return Slice.of(tokens, context)
 }
 
 const startPattern = vocabulary.ol!.attributes.start!
@@ -195,7 +194,8 @@ function readMarkdown(text: string): Slice | null {
   }
   if (!hasMarkdown(page) || unknownNames(page).length) return null
   // Open at both ends, as pasted HTML.
-  return edges(pageDocument(page).content, true, true).slice
+  // The tokens already name their open edges. The parser result does not also carry that context.
+  return Slice.of(edges(pageDocument(page).content, true, true).content)
 }
 
 /**
@@ -214,14 +214,12 @@ function plainText(slice: Slice): string {
 }
 
 export const clipboard: GardState.Extension = [
-  Wordgard.clipboardOutputFilter.of((content, state) => copied(state) ?? content),
+  Wordgard.clipboardOutputFilter.of((slice, state) => copied(state) ?? slice),
   Wordgard.clipboardTextSerializer.of(plainText),
   // Text sources (plain text, Markdown) already choose their edges: they close more plots than
   // they name in the context.
-  Wordgard.clipboardInputFilter.of((content, state) =>
-    closedCount(content.slice) > content.context.length
-      ? content
-      : normalize(state.schema, content.slice, content.context)
+  Wordgard.clipboardInputFilter.of((slice, state) =>
+    closedCount(slice.content) > slice.context.length ? slice : normalize(state.schema, slice.content, slice.context)
   ),
   Wordgard.clipboardTextParser.of(readMarkdown)
 ]

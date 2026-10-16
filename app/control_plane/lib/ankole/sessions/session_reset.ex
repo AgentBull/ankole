@@ -1,6 +1,11 @@
 defmodule Ankole.Sessions.SessionReset do
   @moduledoc false
 
+  import Ecto.Query
+  alias Ankole.AIGateway.Schemas.Conversation
+  alias Ankole.Sessions.SessionWorkspace
+  alias Ankole.BackgroundAgentJobs
+
   import Ankole.Sessions.Common, only: [collect_results: 1]
 
   alias Ankole.AIGateway
@@ -103,7 +108,40 @@ defmodule Ankole.Sessions.SessionReset do
   end
 
   defp due_daily_reset_conversations(repo, %DateTime{} = boundary_at, opts) do
-    ModelHistory.daily_reset_candidates_in_tx(repo, boundary_at, opts)
+    limit =
+      case Keyword.get(opts, :limit, 1_000) do
+        value when is_integer(value) and value > 0 -> value
+        _invalid -> 1_000
+      end
+
+    Conversation
+    |> join(:inner, [conversation], workspace in SessionWorkspace,
+      on:
+        workspace.agent_uid == conversation.subject_uid and
+          workspace.session_id == conversation.conversation_key
+    )
+    |> where([conversation], is_nil(conversation.ended_at))
+    |> where([conversation], conversation.inserted_at < ^boundary_at)
+    |> where(
+      [_conversation, workspace],
+      is_nil(workspace.conversation_id) or
+        workspace.conversation_id not in subquery(Ankole.Conversations.native_ids_query())
+    )
+    |> where(
+      [conversation],
+      not like(
+        conversation.conversation_key,
+        ^"#{BackgroundAgentJobs.job_session_prefix()}%"
+      )
+    )
+    |> order_by(
+      [conversation],
+      asc: conversation.subject_uid,
+      asc: conversation.conversation_key
+    )
+    |> limit(^limit)
+    |> lock("FOR UPDATE")
+    |> repo.all()
   end
 
   defp enqueue_session_reset_due_in_tx(

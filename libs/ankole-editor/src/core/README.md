@@ -1,6 +1,6 @@
 # Core
 
-This directory holds the editing engine. It is a fork of [Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit 7993139 (2026-10-07), under the MIT license in [LICENSE](LICENSE).
+This directory holds the editing engine. It is a fork of [Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit d1acec0 (2026-10-15), under the MIT license in [LICENSE](LICENSE).
 
 The fork is part of the package source. It uses the package's TypeScript settings, formatting and test runners. It does not follow upstream mechanically: to take an upstream change, apply it by hand and add a test.
 
@@ -26,12 +26,12 @@ Input:
 - `insertReplacementText` and `insertFromYank` accept `data` as well as `dataTransfer`. A non-cancelable replacement, or an `input` event without a matching `beforeinput`, is read from the DOM when it changes text inside existing text nodes.
 - Backspace takes the last combining mark off a character without emoji, as Chromium and Firefox do.
 - Word selection and word motion use `Intl.Segmenter` without a fallback. Every supported browser has it.
+- A key binding uses the canonical modifier names `Shift`, `Alt`, `Ctrl`, `Cmd`, `Meta`, and `Mod`. The name stored for the meta key matches the name read from the key event.
 
 Clipboard:
 
 - A `paste` event handler shares its code with `insertFromPaste`. Copy and paste read a DOM selection that the editor has not read yet.
 - Copied HTML carries the exact slice as JSON in a `wg-slice` attribute, which a paste reads first. Text-only copies get a wrapping span to carry it.
-- Clipboard filters receive and return the slice context.
 - In code, pasted text is literal, with line breaks as line break nodes. HTML without a text form pastes into code as its text.
 - A cut deletes through the `deleteCut` command, so that extensions can change how a cut deletes.
 - HTML parsing: each kind of child counts once when the parser guesses the parent of a slice; `display: inline` elements do not start a block; nested blocks lose stray spaces at the slice edges; a `<br>` that only keeps an empty line visible is dropped. The default schema reads `<b>`, `<i>`, `<del>`, `<strike>`, bold only from `bold` and weight 700, multi-value `text-decoration`, and `vertical-align` for subscript and superscript.

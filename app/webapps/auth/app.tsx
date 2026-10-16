@@ -5,11 +5,11 @@ import { Skeleton } from '@ankole/uikit/components/skeleton'
 import { RiArrowRightSLine } from '@remixicon/react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { humanizeTechnicalLabel } from '../common/humanize-technical-label'
-import { internalAPIGet } from '../common/internal-api-client'
+import { loginProviders, selectLoginIdentity } from '../common/api/generated/sdk.gen'
 import { requestErrorMessage } from '../common/request-errors'
 import { ThemeToggle } from '../common/theme-toggle'
 import { LocalPasswordForm } from './local-password-form'
@@ -17,15 +17,8 @@ import { PasswordChangeForm } from './password-change-form'
 import { SessionScreen } from './session-screen'
 import { LoginModel } from './state/login-model'
 
-type LoginProvider = {
-  adapterID: string
-  kind: 'password' | 'oidc'
-  pluginID: string
-  providerID: string
-}
-
 /**
- * Renders the admin sign-in SPA: a password form when the local provider is
+ * Renders the sign-in SPA: a password form when the local provider is
  * enabled, OIDC provider buttons for the rest, and the first-sign-in password
  * change view.
  */
@@ -47,16 +40,17 @@ function LoginApp() {
   const flow = new URLSearchParams(window.location.search).get('flow') ?? ''
   const providers = useQuery({
     queryKey: ['identity-providers', flow],
-    queryFn: () =>
-      internalAPIGet<{ providers: LoginProvider[]; identity: { displayName: string; providerID: string } | null }>(
-        `/.internal-apis/identity-providers?flow=${encodeURIComponent(flow)}`
-      )
+    queryFn: () => loginProviders({ query: { flow } })
+  })
+  const selection = useMutation({
+    mutationFn: (authenticationRef: string) => selectLoginIdentity({ body: { flow, authenticationRef } }),
+    onSuccess: data => window.location.assign(data.returnTo)
   })
   const providerList = providers.data?.providers ?? []
   const hasPasswordProvider = providerList.some(provider => provider.kind === 'password')
   // The password provider must never render as an OIDC button: it has no
   // authorization URL, so the filter goes by kind rather than "everything".
-  const ssoProviders = providerList.filter(provider => provider.kind === 'oidc')
+  const ssoProviders = providerList.filter(provider => provider.kind === 'oidc' || provider.kind === 'site')
   const changingPassword = model.view.value === 'change_password'
 
   return (
@@ -105,6 +99,22 @@ function LoginApp() {
                   </AlertDescription>
                 </Alert>
               ) : null}
+              {providers.data?.identities?.length ? (
+                <div className="mb-5 grid gap-2">
+                  <p>{t('auth.select_identity')}</p>
+                  {providers.data.identities.map(identity => (
+                    <Button
+                      key={identity.authenticationRef}
+                      type="button"
+                      variant="outline"
+                      disabled={selection.isPending}
+                      onClick={() => selection.mutate(identity.authenticationRef)}>
+                      {identity.displayName} · {identity.providerID}
+                    </Button>
+                  ))}
+                  {selection.error ? <p role="alert">{requestErrorMessage(selection.error)}</p> : null}
+                </div>
+              ) : null}
               {hasPasswordProvider ? <LocalPasswordForm model={model} /> : null}
               {hasPasswordProvider && ssoProviders.length > 0 ? (
                 <div className="ak-login-divider" role="separator">
@@ -119,11 +129,17 @@ function LoginApp() {
                       key={provider.providerID}
                       type="button"
                       onClick={() => {
-                        window.location.assign(oidcAuthorizationPath(provider.providerID))
+                        window.location.assign(
+                          provider.loginPath
+                            ? siteAuthorizationPath(provider.loginPath, flow)
+                            : oidcAuthorizationPath(provider.providerID)
+                        )
                       }}>
                       <span>
                         <strong>
-                          {t('auth.sign_in_with', { provider: humanizeTechnicalLabel(provider.adapterID) })}
+                          {t('auth.sign_in_with', {
+                            provider: provider.displayName || humanizeTechnicalLabel(provider.adapterID)
+                          })}
                         </strong>
                         <small>
                           {t('auth.provider_details', {
@@ -165,4 +181,11 @@ function oidcAuthorizationPath(providerID: string): string {
   if (pageQuery.get('oauth') === '1') query.set('oauth', '1')
 
   return `/sessions/oidc/${encodeURIComponent(providerID)}/authorization?${query}`
+}
+
+function siteAuthorizationPath(loginPath: string, flow: string): string {
+  const url = new URL(loginPath, window.location.origin)
+  if (url.origin !== window.location.origin) throw new Error('Site login must use the current origin')
+  url.searchParams.set('flow', flow)
+  return url.pathname + url.search
 }

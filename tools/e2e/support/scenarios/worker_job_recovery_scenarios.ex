@@ -55,7 +55,7 @@ defmodule Ankole.E2E.Scenarios.WorkerJobRecovery do
       DockerWorker.exec!(ctx.container, ["cat", "#{workspace}/old-command.pid"]) |> String.trim()
 
     driver =
-      Ankole.Sessions.Driver.whereis(%{
+      Ankole.Sessions.driver_pid(%{
         agent_uid: uid,
         session_id: Ankole.BackgroundAgentJobs.job_session_id(job.id)
       })

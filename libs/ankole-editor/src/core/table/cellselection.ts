@@ -1,6 +1,6 @@
 import { GardState, GardSelection, Transaction } from '../state'
 import { Decoration, Wordgard } from '../editor'
-import { Node, Plot, Pos, ChangeSet, ValidationError } from '../doc'
+import { Node, Plot, Pos, Slice, ChangeSet, ValidationError } from '../doc'
 import { Command, moveByUnit, moveByLine, moveByWord, moveToLineSide } from '../command'
 
 import { TableMap } from './tablemap'
@@ -142,6 +142,26 @@ export class CellSelection extends GardSelection {
   get domSelection() {
     const { from, to } = this.replacementRange
     return { anchor: from, anchorSide: 1, head: to, headSide: -1 } as const
+  }
+
+  toSlice(doc: Plot.Doc) {
+    const base = doc.resolve(this.anchorCell),
+      table = base.parent!.parent!
+    const map = TableMap.get(table.node, table.start)
+    const rect = map.rectBetween(this.anchorCell, this.headCell)
+    const rows: Plot[] = []
+    const added = new Set<number>()
+    for (let row = rect.startRow; row < rect.endRow; row++) {
+      const rowContent: Plot[] = []
+      for (let col = rect.startCol; col < rect.endCol; col++) {
+        const cell = map.cellAt(col, row)
+        if (cell == null || added.has(cell)) continue
+        added.add(cell)
+        rowContent.push(map.getCell(cell))
+      }
+      rows.push((table.node.content[row] as Plot).tag.create(rowContent))
+    }
+    return Slice.of(rows, [table.node.tag])
   }
 
   eq(other: GardSelection) {

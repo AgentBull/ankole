@@ -47,15 +47,18 @@
     "analyze:cycles": "bun run kit analyze cycles"
   },
   "dependencies": {
-    "turbo": "^2.11.7"
+    "turbo": "^2.11.8"
   },
   "devDependencies": {
-    "@types/bun": "1.4.2",
-    "oxfmt": "^0.72.0",
-    "oxlint": "^1.87.0",
+    "@types/bun": "1.4.3",
+    "oxfmt": "^0.73.0",
+    "oxlint": "^1.88.0",
     "typescript": "^7.0.2"
   },
   "packageManager": "bun@1.4.2",
+  "overrides": {
+    "mdast-util-gfm-strikethrough": "2.0.1"
+  },
   "patchedDependencies": {
     "mdast-util-to-markdown@2.2.0": "libs/ankole-editor/patches/mdast-util-to-markdown@2.2.0.patch"
   }

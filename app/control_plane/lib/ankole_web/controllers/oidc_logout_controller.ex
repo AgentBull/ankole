@@ -1,6 +1,11 @@
 defmodule AnkoleWeb.OIDCLogoutController do
   @moduledoc false
   use AnkoleWeb, :controller
+  use OpenApiSpex.ControllerSpecs
+  alias AnkoleWeb.Schemas.InternalAPI
+
+  operation(:request, false)
+  operation(:confirm, false)
   alias Ankole.OIDC.Logout
   alias Ankole.OIDC.RPLogout
   alias AnkoleWeb.Session, as: WebSession
@@ -22,6 +27,16 @@ defmodule AnkoleWeb.OIDCLogoutController do
       {:error, _} -> conn |> put_status(400) |> AnkoleWeb.SpaController.logout_error(%{})
     end
   end
+
+  operation(:confirmation,
+    operation_id: "logoutConfirmation",
+    summary: "logoutConfirmation",
+    parameters: [id: [in: :path, type: :string, required: true]],
+    responses: %{
+      200 => {"Success", "application/json", InternalAPI.LogoutConfirmation},
+      401 => {"Error", "application/json", InternalAPI.InternalError}
+    }
+  )
 
   def confirmation(conn, %{"id" => id}) do
     with {:ok, request} <-
@@ -82,7 +97,7 @@ defmodule AnkoleWeb.OIDCLogoutController do
     case RPLogout.confirm(WebSession.browser_reference(conn), id) do
       {:ok, %{request: request, browser: browser}} ->
         Logout.deliver_browser(browser.id)
-        conn = WebSession.clear_admin_session(conn)
+        conn = WebSession.clear_authentication_cookies(conn)
 
         case RPLogout.redirect_uri(request) do
           nil -> redirect(conn, to: "/sessions/logged-out")

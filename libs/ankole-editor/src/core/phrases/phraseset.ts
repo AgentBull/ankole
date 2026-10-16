@@ -24,6 +24,8 @@ const phraseOverride = GardState.Facet.define<
 export class PhraseSet<Tags extends string> {
   private constructor(readonly phrases: { [tag in Tags]: string }) {}
 
+  private refs: Map<Tags, PhraseSet.Ref> = new Map()
+
   /**
    * Look up a translation for phrase with the given tag.
    *
@@ -50,7 +52,9 @@ export class PhraseSet<Tags extends string> {
    * called with an editor state to get the phrase text.
    */
   ref<Tag extends Tags>(tag: Tag): PhraseSet.Ref {
-    return (state, ...insert) => this.get(state, tag, ...insert)
+    let found = this.refs.get(tag)
+    if (!found) this.refs.set(tag, (found = (state, ...insert) => this.get(state, tag, ...insert)))
+    return found
   }
 
   /**

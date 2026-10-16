@@ -520,9 +520,6 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
 
   def put_issuer(metadata, _issuer), do: metadata
 
-  def issuer_of(%{runtime: runtime}) when is_map(runtime), do: Map.get(runtime, "provider_id")
-  def issuer_of(_context), do: nil
-
   def checkpoint_within_budget(candidate, summary, current_input, threshold) do
     checkpoint_items =
       candidate.brain_context_pack ++

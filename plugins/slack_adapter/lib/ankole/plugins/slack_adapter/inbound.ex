@@ -179,7 +179,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
             consumer.context.agent_uid,
             consumer.context.binding_name,
             input,
-            &Observe.materialize_attachments(&1, "slack", fn attachment ->
+            &Attachments.materialize_attachments(&1, "slack", fn attachment ->
               download_attachment(attachment, client)
             end)
           )

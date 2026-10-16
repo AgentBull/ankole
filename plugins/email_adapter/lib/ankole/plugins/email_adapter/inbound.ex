@@ -12,7 +12,7 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Conversations.AdapterContext
   alias Ankole.Conversations.{Conversation, ExternalMessageRef}
-  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.{Attachments, Observe}
 
   @references_limit 40
 
@@ -140,7 +140,7 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
       consumer.context.agent_uid,
       consumer.context.binding_name,
       input,
-      &Observe.materialize_attachments(&1, "email", fn attachment ->
+      &Attachments.materialize_attachments(&1, "email", fn attachment ->
         download_attachment(attachment, bytes)
       end)
     )

@@ -455,7 +455,7 @@ defmodule Ankole.ConversationsTest do
     )
 
     assert :undefined =
-             Ankole.Sessions.Driver.whereis(%{
+             Ankole.Sessions.driver_pid(%{
                agent_uid: agent.uid,
                session_id: Ankole.Sessions.Key.conversation(attrs.conversation_id)
              })

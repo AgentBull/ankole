@@ -697,7 +697,7 @@ The inbound path is:
 2. The control plane assigns a numeric attachment ID and records a pending
    provider observation in PostgreSQL.
 3. The adapter stores the bytes in the file service with
-   `Conversations.Observe.store_attachment/3`.
+   `Conversations.Attachments.store_attachment/3`.
 4. The adapter replaces the pending observation with `blob_ref` and the drive
    `path` under `chats/<conversation_id>/inbox/`, or with a failed materialization state.
 

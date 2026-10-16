@@ -5,11 +5,11 @@ defmodule Ankole.BrowserSessions.Session do
   @timestamps_opts [type: :utc_datetime_usec]
 
   schema "browser_sessions" do
-    field :generation, :integer, default: 1
+    field :revision, :integer, default: 0
+    field :logout_revision, :integer, default: 0
+    field :active_authentication_id, Ankole.Ecto.UUIDv7
+    field :active_tenant_id, Ankole.Ecto.UUIDv7
     field :expires_at, :utc_datetime_usec
-    field :revoked_at, :utc_datetime_usec
-    field :admin_auth, :map
-    field :oauth_auth, :map
     timestamps()
   end
 end

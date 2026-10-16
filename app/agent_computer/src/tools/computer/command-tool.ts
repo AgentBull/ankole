@@ -6,6 +6,7 @@ import { z } from 'zod'
 import { defineWorkerTool, type AgentToolResult, type WorkerAgentTool } from '../../core'
 import { commandActivityDescription } from '../activity-summary'
 import type { ComputerToolContext } from './context'
+import type { CommandOutputCapture } from './commands'
 import { AGENT_RUNTIME_DIRNAME } from './fff-search'
 import { truncateOutputDetailed } from './format'
 
@@ -34,7 +35,8 @@ const CommandParams = z
 interface CommandDetails {
   durationMs?: number
   exitCode?: number
-  fullOutputPath?: string
+  outputLogPath?: string
+  outputCapture?: CommandOutputCapture
 }
 
 /** Each call runs through isolated `runCommand`, so cwd, env, and aliases do not leak into the next call. */
@@ -71,7 +73,7 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
       const durationMs = Date.now() - startedAt
       const raw = await result.output('both', { signal })
       const truncation = truncateOutputDetailed(raw)
-      const fullOutputPath =
+      const outputLogPath =
         truncation.omittedChars > 0 ? await persistCommandLog(context.agentHome, toolCallId, raw) : undefined
       const text = formatForegroundCommandResult({
         command: params.command,
@@ -79,11 +81,17 @@ export function createCommandTool(context: ComputerToolContext): WorkerAgentTool
         exitCode: result.exitCode,
         output: truncation.text,
         timeoutSeconds,
-        fullOutputPath
+        outputLogPath,
+        outputCapture: result.outputCapture
       })
       return {
         content: [{ type: 'text', text }],
-        details: { durationMs, exitCode: result.exitCode, ...(fullOutputPath ? { fullOutputPath } : {}) }
+        details: {
+          durationMs,
+          exitCode: result.exitCode,
+          ...(outputLogPath ? { outputLogPath } : {}),
+          ...(result.outputCapture ? { outputCapture: result.outputCapture } : {})
+        }
       }
     }
   })
@@ -120,7 +128,8 @@ function formatForegroundCommandResult(input: {
   exitCode: number
   output: string
   timeoutSeconds: number
-  fullOutputPath?: string
+  outputLogPath?: string
+  outputCapture?: CommandOutputCapture
 }): string {
   const lines = [`exit_code=${input.exitCode}`, `duration=${formatDuration(input.durationMs)}`]
   const note = exitCodeNote(input.command, input.exitCode)
@@ -131,8 +140,16 @@ function formatForegroundCommandResult(input: {
     )
   }
   if (input.output.length > 0) lines.push(input.output)
-  if (input.fullOutputPath) {
-    lines.push(`[output before truncation saved to: ${input.fullOutputPath} — read it with read_file or grep]`)
+  if (input.outputCapture?.droppedBytes) {
+    lines.push(
+      `[output capture omitted ${input.outputCapture.droppedBytes} of ${input.outputCapture.observedBytes} observed bytes; omitted bytes are unavailable]`
+    )
+  }
+  if (input.outputCapture?.drained === false) {
+    lines.push('[output capture ended before EOF; remaining output size is unknown]')
+  }
+  if (input.outputLogPath) {
+    lines.push(`[captured output saved to: ${input.outputLogPath} — read it with read_file or grep]`)
   }
   return lines.join('\n')
 }

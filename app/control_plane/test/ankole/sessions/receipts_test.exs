@@ -4,6 +4,9 @@ defmodule Ankole.Sessions.ReceiptsTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.Sessions.Receipts
+  alias Ankole.Sessions.PendingCall
+  alias Ankole.Sessions.Run
+  alias Ankole.Sessions.ToolRound
   alias Ankole.Sessions.Tools
 
   alias Ankole.Sessions.Workspaces
@@ -147,26 +150,52 @@ defmodule Ankole.Sessions.ReceiptsTest do
       |> hd()
       |> Ankole.Sessions.Tool.new(Ankole.Sessions.Presentation)
 
-    run =
-      Map.merge(run, %{
-        model_response: %{id: "response-attachment"},
-        event: Repo.get!(Ankole.Signals.Signal, run.signal_id),
-        tools: [tool]
-      })
-
     call = %{
       "name" => "reply_attachment",
       "call_id" => "attachment-1",
       "arguments" => ~s({"drive_path":"reports/q3.txt"})
     }
 
-    assert {:ok, selected, args} = Tools.prepare(run, call)
+    run =
+      struct!(
+        Run,
+        Map.merge(run, %{
+          model_response: %{id: "response-attachment"},
+          event: Repo.get!(Ankole.Signals.Signal, run.signal_id),
+          tools: [tool],
+          calls: [call]
+        })
+      )
+
+    assert {:execute, %{tool: selected, args: args}, pending, [activity]} =
+             ToolRound.next(run, PendingCall.new_round(run.calls, false))
+
+    assert %{
+             "kind" => "tool.activity",
+             "payload" => %{
+               "operation_id" => "attachment-1",
+               "phase" => "running",
+               "label_key" => "conversations.delivery.reply.activity.attachment_prepare"
+             }
+           } = activity
+
     assert selected.executor == Ankole.Sessions.Presentation
     result = Tools.execute(run, call, selected, args)
     refute result.is_error
     assert [attachment] = result.details["attachments"]
     assert attachment["path"] == "reports/q3.txt"
     assert attachment["blob_ref"] == Base.encode16(original.sha256, case: :lower)
+
+    assert {completed, empty_pending, [activity]} =
+             ToolRound.accept(run, pending, "attachment-1", result)
+
+    assert empty_pending == %{}
+    assert completed.results["attachment-1"] == result
+    assert completed.visible_delivery?
+    assert activity["payload"]["phase"] == "completed"
+
+    assert activity["payload"]["label_key"] ==
+             "conversations.delivery.reply.activity.attachment_prepare"
 
     Ankole.FilesFixtures.drive_file_fixture(run.agent_uid, "reports/q3.txt", "operator revision")
     assert Tools.execute(run, call, selected, args) == result

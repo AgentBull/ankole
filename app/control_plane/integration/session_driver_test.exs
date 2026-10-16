@@ -11,7 +11,6 @@ defmodule Ankole.Sessions.DriverTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Sessions.Admission
-  alias Ankole.Sessions.Driver
   alias Ankole.Sessions.Reconciler
   alias Ankole.Sessions.Receipts
   alias Ankole.Sessions.Run
@@ -176,7 +175,7 @@ defmodule Ankole.Sessions.DriverTest do
       Repo.bind_tenant(fn ->
         RuntimeCase.stop_new_drivers(drivers)
 
-        case Driver.whereis(key) do
+        case Ankole.Sessions.driver_pid(key) do
           pid when is_pid(pid) -> DynamicSupervisor.terminate_child(Ankole.Sessions.Drivers, pid)
           _missing -> :ok
         end
@@ -635,7 +634,7 @@ defmodule Ankole.Sessions.DriverTest do
           assert :ok =
                    DynamicSupervisor.terminate_child(
                      Ankole.Sessions.Drivers,
-                     Driver.whereis(key)
+                     Ankole.Sessions.driver_pid(key)
                    )
 
           :ok = WorkerRoute.unregister_local_worker(old_route)
@@ -984,7 +983,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert {:ok, input} = Ankole.Signals.accept(attrs(key))
     _ = await_request(key)
     assert_receive {:model_waiting, first_model}, 10000
-    first = Driver.whereis(key)
+    first = Ankole.Sessions.driver_pid(key)
     old_run = stored_run(key, input)
 
     assert {:ok, ^first} =
@@ -1021,7 +1020,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert :ok = :rpc.call(remote, Application, :stop, [:ankole], 30000)
     assert Repo.reload!(input).attempt_count == 0
     :ok = :peer.stop(peer)
-    assert eventually(fn -> Driver.whereis(key) == :undefined end)
+    assert eventually(fn -> Ankole.Sessions.driver_pid(key) == :undefined end)
     reconcile_at = DateTime.add(DateTime.utc_now(:microsecond), 61)
     # The crash backoff is made due in durable state; exercise the site worker.
     Repo.update!(change(Repo.reload!(input), available_at: DateTime.add(reconcile_at, -62)))
@@ -1619,7 +1618,7 @@ defmodule Ankole.Sessions.DriverTest do
             send(parent, {:workflow_tool_committed, self()})
           end
 
-          if self() == Driver.whereis(key) and String.starts_with?(query, "SELECT") and
+          if self() == Ankole.Sessions.driver_pid(key) and String.starts_with?(query, "SELECT") and
                String.contains?(query, "FROM \"workflow_agent_calls\"") and
                String.contains?(query, "INNER JOIN \"workflow_runs\"") and
                not String.contains?(query, "FOR UPDATE") and
@@ -1898,7 +1897,7 @@ defmodule Ankole.Sessions.DriverTest do
 
     assert_receive {:finalizing_before_commit, finalizing}, 5000
     ref = Process.monitor(finalizing)
-    driver = Driver.whereis(key)
+    driver = Ankole.Sessions.driver_pid(key)
     send(driver, {:inbox, stop.id})
     send(driver, {:inbox, stop.id})
     refute_receive {:DOWN, ^ref, :process, ^finalizing, _}, 100
@@ -2456,7 +2455,7 @@ defmodule Ankole.Sessions.DriverTest do
       on_exit(fn -> :telemetry.detach(handler) end)
       {:ok, event} = Ankole.Signals.accept(attrs(key))
       assert_receive {:committed_cut, writer}, 10000
-      driver = Driver.whereis(key)
+      driver = Ankole.Sessions.driver_pid(key)
       monitor = Process.monitor(driver)
       Process.exit(driver, :kill)
       assert_receive {:DOWN, ^monitor, :process, ^driver, :killed}, 5000
@@ -2833,7 +2832,13 @@ defmodule Ankole.Sessions.DriverTest do
     assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, call}}}, 5000
     assert call.mode == "execute"
     assert call.name == "command"
-    assert :ok = DynamicSupervisor.terminate_child(Ankole.Sessions.Drivers, Driver.whereis(key))
+
+    assert :ok =
+             DynamicSupervisor.terminate_child(
+               Ankole.Sessions.Drivers,
+               Ankole.Sessions.driver_pid(key)
+             )
+
     refunded = Repo.get!(Signal, event.id)
     assert refunded.attempt_count == 0
     refute_receive {:actor_lane, %Proto.Envelope{body: {:tool_cancel, _}}}, 50
@@ -2902,7 +2907,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert {:ok, _} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
     ready_workspace(key)
     assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, call}}}, 5000
-    driver = Driver.whereis(key)
+    driver = Ankole.Sessions.driver_pid(key)
     monitor = Process.monitor(driver)
 
     before_history =
@@ -3008,7 +3013,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert {:ok, _} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
 
     # The join notification must reach the Driver before the old query returns.
-    {:executing_tools, _} = :sys.get_state(Driver.whereis(key))
+    {:executing_tools, _} = :sys.get_state(Ankole.Sessions.driver_pid(key))
     send(lookup, :release_worker_lookup)
     ready_workspace(key)
     assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, call}}}, 5000
@@ -3174,7 +3179,7 @@ defmodule Ankole.Sessions.DriverTest do
                %{worker_id: key.agent_uid}
              )
 
-    driver = Driver.whereis(key)
+    driver = Ankole.Sessions.driver_pid(key)
     send(driver, {:worker_changed, key.agent_uid})
     send(driver, {:worker_changed, key.agent_uid})
     refute_receive {:actor_lane, %Proto.Envelope{body: {:workspace_open, _}}, _}, 100
@@ -3319,7 +3324,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert start.turn.signal_id == event.id
     assert start.turn.job_id == job.id
     assert start.turn.attempt == 1
-    assert Driver.whereis(job_key) == driver
+    assert Ankole.Sessions.driver_pid(job_key) == driver
     assert Repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id).status == "running"
     send(driver, {:job_turn, job.id, 1})
     assert_receive {:actor_lane, %Proto.Envelope{body: {:turn_start, observed}}}, 2000
@@ -3430,7 +3435,7 @@ defmodule Ankole.Sessions.DriverTest do
         other_key
       end)
 
-    assert Driver.whereis(key) == :undefined
+    assert Ankole.Sessions.driver_pid(key) == :undefined
     assert :ok = perform_job(Reconciler, %{})
 
     assert_enqueued(
@@ -3511,12 +3516,11 @@ defmodule Ankole.Sessions.DriverTest do
     common = %{
       provider_conversation_id: channel_id,
       provider_thread_id: "b01-thread:" <> suffix,
-      author: %{
-        principal_uid: owner_uid,
-        human_access_version: owner_version,
-        id: owner_uid,
-        display_name: "Owner"
-      },
+      author:
+        Ankole.SignalsFixtures.provider_author_fixture(owner_uid, "b01-owner:" <> suffix, %{
+          provider: "mock-signal-provider",
+          display_name: "Owner"
+        }),
       channel: %{kind: :im_group, reply_mode: :entry, name: "B01 withdrawal"},
       provider_time: now
     }
@@ -3814,7 +3818,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert {:ok, event} = Ankole.Signals.accept(attrs(key))
     _first = await_request(key)
     assert_receive {:receipt_before_commit, tool_pid}, 10000
-    pid = Driver.whereis(key)
+    pid = Ankole.Sessions.driver_pid(key)
     :ok = :sys.suspend(pid)
     send(tool_pid, :commit_receipt)
     receipt = wait_for_receipt(key.agent_uid)
@@ -3847,7 +3851,7 @@ defmodule Ankole.Sessions.DriverTest do
       {:model_request, request} -> request
     after
       timeout ->
-        pid = Driver.whereis(key)
+        pid = Ankole.Sessions.driver_pid(key)
 
         inputs =
           Repo.all(

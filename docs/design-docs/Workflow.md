@@ -386,3 +386,20 @@ Agent to reduce fanout, return summaries, or split the work into more runs.
 
 Workflow v1 has no batch-wide token budget. Each task still uses the ordinary
 turn limits from its request context.
+
+## Console activity inspection
+
+The Home background activity area reads Workflow facts for one Agent in the
+current tenant. Its separate read permission is `agent:<agent_uid>:workflow`.
+Live calls are queried independently of the parent run state, so a running call
+admitted before Human access was revoked remains visible under its cancelled
+parent. The projection also includes running runs with no live calls and terminal
+runs whose `cleanup_completed_at` is still unset. Calls and runs have independent
+cursors; native status counts, sleep notes, deadlines, attention and bounded error
+summaries explain persisted facts without inferring that an old update is stuck.
+
+This endpoint reads no scripts, full results or memo bodies and performs no
+cancellation, wakeup or cleanup. A delegated Background Job retains its Workflow
+task Session as `owner_session_id`; these related rows are not added into a
+single busy count. See [Background Agent Job](BackgroundAgentJob.md) and
+[Automation Jobs](AutomationJobs.md) for the other independently authorized groups.

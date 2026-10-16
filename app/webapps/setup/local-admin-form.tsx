@@ -8,7 +8,7 @@ import * as v from 'valibot'
 import { defaultConfig } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import i18n from '../common/i18n'
-import { internalAPIPost, internalAPIPut } from '../common/internal-api-client'
+import { putSetupIdentityProvider, createSetupLocalAdmin } from '../common/api/generated/sdk.gen'
 import { PasswordInput } from '../common/password-input'
 import { PasswordStrengthMeter } from '../common/password-strength-meter'
 import type { IdentityAdapter } from './app'
@@ -58,18 +58,16 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
   })
   const mutation = useMutation({
     mutationFn: async (input: AdminInput) => {
-      await internalAPIPut(
-        `/.internal-apis/setup/identity-providers/${encodeURIComponent(adapter.defaultProviderID)}`,
-        {
-          adapterID: adapter.adapterID,
-          config: defaultConfig(adapter.fields),
-          enabled: true
+      await putSetupIdentityProvider({
+        path: { provider_id: adapter.defaultProviderID },
+        body: { adapterID: adapter.adapterID, config: defaultConfig(adapter.fields), enabled: true }
+      })
+      return createSetupLocalAdmin({
+        body: {
+          display_name: input.displayName.trim() || undefined,
+          email: input.email,
+          password: input.password
         }
-      )
-      return internalAPIPost<{ returnTo: string }>('/.internal-apis/setup/local-admin', {
-        display_name: input.displayName.trim() || undefined,
-        email: input.email,
-        password: input.password
       })
     },
     onSuccess: result => window.location.assign(result.returnTo)

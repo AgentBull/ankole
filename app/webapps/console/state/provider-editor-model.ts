@@ -19,6 +19,7 @@ export function nextProviderID(providerKind: string, existingProviderIDs: Iterab
 }
 
 export const ProviderEditorModel = createModel(() => {
+  let source = Symbol()
   const sourceKey = signal<string>()
   const initial = emptyDraft()
   const providerID = signal(initial.providerID)
@@ -62,10 +63,12 @@ export const ProviderEditorModel = createModel(() => {
     validationError,
     initialize(nextSourceKey: string, draft: ProviderEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
+      source = Symbol()
       sourceKey.value = nextSourceKey
       apply(draft)
     },
     changeKind(draft: ProviderEditorDraft) {
+      source = Symbol()
       apply(draft)
     },
     setOption(key: string, value: string) {
@@ -74,13 +77,26 @@ export const ProviderEditorModel = createModel(() => {
     clearValidation() {
       validationError.value = undefined
     },
-    markSaved() {
-      initialDraft.value = {
+    async save<Result>(
+      request: (draft: ProviderEditorDraft) => Promise<Result>,
+      onSaved: (result: Result, clean: boolean) => void
+    ) {
+      const requestedSource = source
+      const sentDraft = {
         providerID: providerID.value,
         providerKind: providerKind.value,
         baseURL: baseURL.value,
         options: { ...options.value }
       }
+      const result = await request(sentDraft)
+      if (source !== requestedSource) return
+      initialDraft.value = sentDraft
+      onSaved(result, !dirty.peek())
+    },
+    resetSource() {
+      source = Symbol()
+      sourceKey.value = undefined
+      apply(emptyDraft())
     }
   }
 })

@@ -235,6 +235,29 @@ Plugin IDs must be unique across the declared modules.
 Duplicate IDs stop application startup.
 The Registry keeps the active list in memory for the current process.
 
+### Fixed source builds
+
+`ANKOLE_EDITION=foss|saas` selects the source build; the default is `foss`.
+A FOSS build compiles public Plugins and ignores `internals` source and
+migrations. A SaaS build also compiles `internals/control_plane/lib` and selected
+private Plugin source into the same `:ankole` application. Missing private source
+fails the build. There is one Mix project, OTP application, Repo, and migration
+ledger.
+
+Fixed build composition is separate from `plugins.enabled_ids`. The selected
+HTTP entry, Host policy, site authentication sources, AppConfigure declarations,
+frontend entries, locales, and migration paths cannot disappear because an
+operator disables a Plugin. These use their owning subsystem's concrete build
+configuration; they are not new generic Plugin callbacks. AppConfigure reloads
+the fixed declarations when its Registry recovers, then restores active Plugin
+declarations as before.
+
+See [Browser Sessions](BrowserSessions.md) for site sources and
+[CONTRIBUTING](../../CONTRIBUTING.md#source-builds) for source, resource, and
+migration commands. Private modules have distinct names. They call public domain
+functions; they do not replace a compiled module or use Ruby-style method
+injection.
+
 ### Enable a Control Plane Plugin
 
 The global AppConfigure key `plugins.enabled_ids` lists active Plugins. A

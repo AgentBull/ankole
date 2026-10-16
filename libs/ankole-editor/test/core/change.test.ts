@@ -1,6 +1,6 @@
 import { describe, it } from 'bun:test'
 import ist from 'ist'
-import { Plot, Mark, Leaf, Node, ChangeSet, type Token, Schema } from '../../src/core/doc'
+import { Plot, Mark, Leaf, Node, Slice, ChangeSet, type Token, Schema } from '../../src/core/doc'
 import { CodeBlockLanguage, Emphasis, Strong, ImageAlt } from '../../src/core/types/schema'
 import { TableRow } from './types'
 import { Link, Table, BlockCell } from './types'
@@ -194,7 +194,7 @@ describe('ChangeSet', () => {
       const d = doc(p('a'))
       const src = doc(h1('hello'))
       ist(
-        ChangeSet.create(d, { from: 3, insert: src.slice(1, 5), fit: src.contextAt(1) }).apply(d),
+        ChangeSet.create(d, { from: 3, insert: Slice.get(src, 1, 5), fit: true }).apply(d),
         doc(p('a'), h1('hell')),
         eq
       )
@@ -235,7 +235,7 @@ describe('ChangeSet', () => {
       const d = doc(p('...'))
       const src = doc(ul(li(p('one')), li(p('two'))))
       ist(
-        ChangeSet.create(d, { from: 1, insert: src.slice(3, 13), fit: src.contextAt(3) }).apply(d),
+        ChangeSet.create(d, { from: 1, insert: Slice.get(src, 3, 13), fit: true }).apply(d),
         doc(ul(li(p('one')), li(p('two...')))),
         eq
       )
@@ -244,24 +244,20 @@ describe('ChangeSet', () => {
     it("doesn't expand when not covering or closing the entire node", () => {
       const d = doc(p('hi'))
       const src = doc(h1('!'))
-      ist(
-        ChangeSet.create(d, { from: 1, to: 2, insert: src.slice(1, 2), fit: src.contextAt(1) }).apply(d),
-        doc(p('!i')),
-        eq
-      )
+      ist(ChangeSet.create(d, { from: 1, to: 2, insert: Slice.get(src, 1, 2), fit: true }).apply(d), doc(p('!i')), eq)
     })
 
     it('expands placement into an empty textblock', () => {
       const d = doc(p())
       const src = doc(h1('!'))
-      ist(ChangeSet.create(d, { from: 1, insert: src.slice(1, 2), fit: src.contextAt(1) }).apply(d), doc(h1('!')), eq)
+      ist(ChangeSet.create(d, { from: 1, insert: Slice.get(src, 1, 2), fit: true }).apply(d), doc(h1('!')), eq)
     })
 
     it('properly closes fitted nodes', () => {
       const d = doc(p('a'), p('b'))
       const src = doc(ul(li(p('c'))))
       ist(
-        ChangeSet.create(d, { from: 1, to: 2, insert: src.slice(2, 4), fit: src.contextAt(2) }).apply(d),
+        ChangeSet.create(d, { from: 1, to: 2, insert: Slice.get(src, 2, 4), fit: true }).apply(d),
         doc(ul(li(p('c'))), p('b')),
         eq
       )
@@ -289,7 +285,7 @@ describe('ChangeSet', () => {
       const d = tdoc(table(tr(tdB(p())))),
         src = tdoc(ul(li(p('a')), li(p('b'))))
       const ch = ChangeSet.create(d, {
-        correct: { from: 3, to: 5, insert: src.slice(3, 9), fit: src.contextAt(3) },
+        correct: { from: 3, to: 5, insert: Slice.get(src, 3, 9), fit: true },
         local: true
       })
       ist(ch.apply(d), tdoc(table(tr(tdB(ul(li(p('a')), li(p('b'))))))), eq)

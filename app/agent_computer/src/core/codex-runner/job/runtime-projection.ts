@@ -1,7 +1,7 @@
 import { compareCodePointStrings } from '../../../common/ordering'
 import { isRecord } from '@agentbull/active-support'
 import { jsonObjectFromBytes } from '../../../fabric/envelope_proto'
-import type { BackgroundAgentJobResponse } from '../../../lanes/rpc_lane'
+import { type BackgroundAgentJobResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { ResolvedAgentWorkerEnv } from '../../execution/worker_env'
 
 /**

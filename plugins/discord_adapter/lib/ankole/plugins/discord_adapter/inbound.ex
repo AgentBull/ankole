@@ -7,7 +7,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
   alias Ankole.Plugins.DiscordAdapter.Emoji
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Conversations.AdapterContext
-  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.{Attachments, Observe}
   alias Ankole.Conversations.Delivery.ActionToken
 
   # Discord serves attachments from its CDN without a documented size ceiling,
@@ -129,7 +129,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
       consumer.context.agent_uid,
       consumer.context.binding_name,
       input,
-      &Observe.materialize_attachments(
+      &Attachments.materialize_attachments(
         &1,
         "discord",
         fn attachment ->

@@ -297,6 +297,187 @@ defmodule Ankole.Sessions.ConversationContextTest do
              )
   end
 
+  for upstream? <- [false, true] do
+    @tag timeout: 60_000
+    test "automatic #{if upstream?, do: "native", else: "local"} checkpoint does not consume a report after provider failure",
+         context do
+      upstream? = unquote(upstream?)
+      alias Ankole.AIGateway.{CompactionPolicy, CredentialPool, ProviderConfigs, ResponseStream}
+      alias Ankole.AIGateway.Schemas.{CompactionArtifact, Message}
+
+      :ok = CredentialPool.reset_for_test()
+      config = CompactionPolicy.config()
+
+      assert {:ok, _} =
+               CompactionPolicy.put_config(
+                 Map.merge(config, %{
+                   "threshold" => 0.5,
+                   "max_threshold_tokens" => 10,
+                   "tail_rows" => 1,
+                   "upstream" => upstream?
+                 })
+               )
+
+      on_exit(fn -> CompactionPolicy.delete_config() end)
+      {:ok, mode} = Agent.start_link(fn -> :fail end)
+      on_exit(fn -> if Process.alive?(mode), do: Agent.stop(mode) end)
+      test_pid = self()
+
+      base_url =
+        Ankole.AIGatewayCase.start_upstream_server(fn request ->
+          cond do
+            is_list(request.body["input"]) and
+                List.last(request.body["input"]) == %{"type" => "compaction_trigger"} ->
+              send(test_pid, :native_compacted)
+
+              {:sse, 200,
+               Ankole.AIGatewayCase.openai_compaction_stream_events("native-checkpoint", [
+                 %{"type" => "compaction", "encrypted_content" => "older-history-only"}
+               ])}
+
+            request.body["model"] == "gpt-compact-light" ->
+              send(test_pid, :local_compacted)
+
+              {:sse, 200,
+               Ankole.AIGatewayCase.openai_response_stream_events(
+                 "summary",
+                 "gpt-compact-light",
+                 "## Earlier conversation\nEarlier questions and answers."
+               )}
+
+            Agent.get(mode, & &1) == :fail ->
+              send(test_pid, {:failed_request, request.body})
+
+              {:json, 400,
+               %{
+                 "error" => %{
+                   "type" => "invalid_request_error",
+                   "message" => "Injected provider open failure"
+                 }
+               }}
+
+            true ->
+              send(test_pid, {:successful_request, request.body})
+
+              {:sse, 200,
+               Ankole.AIGatewayCase.openai_response_stream_events(
+                 "completed",
+                 "gpt-main",
+                 "Report received."
+               )}
+          end
+        end)
+
+      provider_id = "context-compaction-#{Ecto.UUID.generate()}"
+
+      assert {:ok, _} =
+               ProviderConfigs.create_provider(%{
+                 provider_id: provider_id,
+                 provider_kind: "openai",
+                 base_url: "#{base_url}/v1",
+                 credential_pool: %{"entries" => [%{"label" => "Test", "api_key" => "sk-test"}]},
+                 connection_options: %{"transport" => %{}}
+               })
+
+      for {profile, model} <- [{"primary", "gpt-main"}, {"light", "gpt-compact-light"}] do
+        assert {:ok, _} =
+                 Ankole.AIAgent.ModelProfiles.put_model_profile(context.agent.uid, profile, %{
+                   provider_id: provider_id,
+                   model: model
+                 })
+      end
+
+      for index <- 1..3 do
+        {:ok, previous} =
+          start_response_run(%{
+            subject_uid: context.agent.uid,
+            conversation_id: context.model_conversation_id,
+            request_items: [
+              %{
+                "type" => "message",
+                "role" => "user",
+                "content" => [
+                  %{"type" => "input_text", "text" => "Earlier question #{index}"}
+                ]
+              }
+            ],
+            metadata: %{
+              "request_metadata" => %{
+                "conversation_read" => %{
+                  "id" => context.conversation.id,
+                  "max_seq" => 1
+                }
+              }
+            }
+          })
+
+        assert {:ok, _} =
+                 ResponseCommit.commit_complete(previous, [], %{
+                   "usage" => %{"total_tokens" => 320_004}
+                 })
+      end
+
+      report =
+        append_report(context, "Background report must survive failed compaction admission")
+
+      run = context_run(context)
+
+      request = %{
+        "model" => "primary",
+        "store" => true,
+        "conversation" => "conv_#{context.model_conversation_id}",
+        "input" => [],
+        "metadata" => %{"signal_id" => run.signal_id}
+      }
+
+      first = ConversationContext.append(run, request)
+      assert Ankole.JSON.encode!(first["input"]) =~ report.text
+      assert {:error, _} = AIGateway.open_websocket_stream(context.agent.uid, first)
+      assert_receive unquote(if upstream?, do: :native_compacted, else: :local_compacted)
+      assert_receive {:failed_request, failed_request}
+      assert Ankole.JSON.encode!(failed_request["input"]) =~ report.text
+
+      failed =
+        Repo.get_by!(Message, conversation_id: context.model_conversation_id, status: "error")
+
+      checkpoint = Repo.get!(Message, failed.previous_message_id)
+      assert checkpoint.type == "checkpoint"
+      assert checkpoint.status == "complete"
+      assert AIGateway.response_metadata(checkpoint) == first["metadata"]
+      artifact = Repo.get!(CompactionArtifact, checkpoint.id)
+      refute Ankole.JSON.encode!(artifact.content) =~ report.text
+
+      assert ConversationContext.read_seq(
+               context.agent.uid,
+               context.model_conversation_id,
+               context.conversation.id
+             ) == 1
+
+      Agent.update(mode, fn _ -> :success end)
+      retry = ConversationContext.append(run, request)
+      assert Ankole.JSON.encode!(retry["input"]) =~ report.text
+      assert {:ok, stream, meta} = AIGateway.open_websocket_stream(context.agent.uid, retry)
+      assert {:ok, _, _} = ResponseStream.await_terminal(stream, meta, 5_000)
+      assert_receive {:successful_request, successful_request}
+      assert Ankole.JSON.encode!(successful_request["input"]) =~ report.text
+      assert ConversationContext.append(run, request)["input"] == []
+      final_id = Ankole.AIGateway.ResponseChain.latest_visible_leaf(context.model_conversation_id)
+
+      assert {:ok, %{status: :retracted}} =
+               in_tx(fn ->
+                 AIGateway.retract_visible_suffix_in_tx(
+                   Repo,
+                   context.agent.uid,
+                   context.model_conversation_id,
+                   ["resp_#{final_id}"]
+                 )
+               end)
+
+      assert Ankole.JSON.encode!(ConversationContext.append(run, request)["input"]) =~ report.text
+      assert AIGateway.response_metadata(Repo.reload!(checkpoint)) == first["metadata"]
+    end
+  end
+
   defp session_key(context),
     do: %{
       agent_uid: context.agent.uid,

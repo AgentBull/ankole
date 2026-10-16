@@ -3,6 +3,11 @@
 ARG ELIXIR_IMAGE=elixir:1.20.4-otp-29-slim
 ARG BUN_IMAGE=oven/bun:1.4.2
 ARG RUNNER_IMAGE=debian:trixie-slim
+ARG ANKOLE_EDITION=foss
+
+# A named BuildKit context can replace this empty source for a SaaS build.
+FROM scratch AS ankole-internals
+COPY .dockerignore /.ankole-empty-source
 
 FROM ${BUN_IMAGE} AS bun
 
@@ -15,6 +20,8 @@ ARG DEBIAN_MIRROR=http://deb.debian.org/debian
 ARG DEBIAN_SECURITY_MIRROR=http://deb.debian.org/debian-security
 ARG RUST_TOOLCHAIN=1.98.1
 
+ARG ANKOLE_EDITION=foss
+ENV ANKOLE_EDITION=${ANKOLE_EDITION}
 ENV MIX_ENV=prod
 ENV HEX_HTTP_CONCURRENCY=1
 ENV HEX_HTTP_TIMEOUT=120
@@ -89,6 +96,7 @@ COPY app/locales ./app/locales
 COPY app/webapps ./app/webapps
 COPY libs ./libs
 COPY plugins ./plugins
+COPY --from=ankole-internals / ./internals/
 COPY tools/openapi-client-generator ./tools/openapi-client-generator
 
 WORKDIR /repo/app/control_plane
@@ -121,6 +129,7 @@ FROM ${RUNNER_IMAGE}
 
 WORKDIR /app
 
+ARG ANKOLE_EDITION=foss
 ARG ANKOLE_VERSION=development
 ARG ANKOLE_RELEASE_REVISION=development
 ARG ANKOLE_AGENT_COMPUTER_IMAGE=""
@@ -155,8 +164,7 @@ RUN groupadd --system --gid 10001 ankole \
   && chown ankole:ankole /app \
   && install -d -o ankole -g ankole /var/lib/ankole /var/lib/ankole/files
 
-COPY --from=build --chown=ankole:ankole /repo/app/control_plane/_build/prod/rel/ankole ./
-COPY --from=build --chown=ankole:ankole /repo/app/locales ./lib/locales
+COPY --from=build --chown=ankole:ankole /repo/app/control_plane/_build/${ANKOLE_EDITION}/prod/rel/ankole ./
 COPY --from=build --chown=ankole:ankole /repo/app/library ./app/library
 
 USER 10001:10001

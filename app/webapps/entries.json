@@ -1,0 +1,6 @@
+{
+  "auth": "entrypoints/auth.tsx",
+  "console": "entrypoints/console.tsx",
+  "setup": "entrypoints/setup.tsx",
+  "pod": "entrypoints/pod.tsx"
+}

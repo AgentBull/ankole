@@ -2330,7 +2330,7 @@ defmodule Ankole.ScheduleTest do
 
   defp binding_fixture(agent_uid, name, policy, adapter \\ "lark") do
     {:ok, binding} =
-      Ankole.Signals.Bindings.upsert_binding(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent_uid,
         name: name,
         adapter: adapter,

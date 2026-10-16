@@ -516,7 +516,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
 
   defp binding_fixture(agent_uid, name, policy) do
     {:ok, binding} =
-      Ankole.Signals.Bindings.upsert_binding(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent_uid,
         name: name,
         adapter: "lark",

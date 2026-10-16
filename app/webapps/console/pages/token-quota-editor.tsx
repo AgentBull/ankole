@@ -54,7 +54,7 @@ export function TokenQuotaEditor({ agentUID }: { agentUID: string }) {
     [quota.data, quota.isPending]
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'token-quota', agentUID },
+    sourceKey: `agent:${agentUID}`,
     source: draftSource
   })
 

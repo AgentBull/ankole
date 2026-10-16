@@ -2,15 +2,13 @@ defmodule Ankole.AgentWorkers.FunctionCompute do
   @moduledoc "Function Compute sandboxes with persistent AgenticFS or OSS storage."
   @behaviour Ankole.AgentWorkers.ProviderKind
 
-  import Ecto.Query
-  alias Ankole.Repo
   alias Ankole.AgentWorkers.FunctionCompute.Client
   alias Ankole.AgentWorkers.FunctionCompute.Images
   alias Ankole.AgentWorkers.FunctionCompute.Storage
   alias Ankole.AgentWorkers.ProviderKind
   alias Ankole.AgentWorkers.ProviderKind.Definition
   alias Ankole.AgentWorkers.Providers.Configuration, as: C
-  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers
 
   @impl true
   def definition do
@@ -198,16 +196,10 @@ defmodule Ankole.AgentWorkers.FunctionCompute do
         do: labels(provider),
         else: Map.put(labels(provider), "ankole-agent", ProviderKind.hash16(uid_or_all))
 
-    with {:ok, items} <- Client.sandboxes(provider, filter) do
-      # Read rows after the platform. A concurrent committed create must not
-      # become an orphan because the row snapshot was older than the list.
-      query = from w in AgentWorker, where: w.provider_id == ^provider.provider_id
-
-      rows =
-        if uid_or_all == :all,
-          do: Repo.across_tenants(fn -> Repo.all(query) end),
-          else: Repo.all(from w in query, where: w.agent_uid == ^uid_or_all)
-
+    with {:ok, items, rows} <-
+           AgentWorkers.inventory_with_workers(provider.provider_id, uid_or_all, fn ->
+             Client.sandboxes(provider, filter)
+           end) do
       items = Enum.filter(items, &(owned(provider, &1) == :ok))
 
       with {:ok, missing} <- missing_instances(provider, rows, items, uid_or_all) do

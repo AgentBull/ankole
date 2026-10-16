@@ -68,7 +68,10 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
         end
 
       {:error, :enoent} ->
-        {:ok, []}
+        case File.lstat(root) do
+          {:error, :enoent} -> {:ok, []}
+          _result -> {:error, {:agent_plugin_root_unreadable, root, :enoent}}
+        end
 
       {:error, reason} ->
         {:error, {:agent_plugin_root_unreadable, root, reason}}
@@ -80,11 +83,7 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
 
     case File.lstat(package_root) do
       {:ok, %File.Stat{type: :directory}} ->
-        if File.regular?(Path.join(package_root, @manifest_path)) do
-          read_package(library_root, package_root, entry)
-        else
-          {:ok, nil}
-        end
+        read_manifest_package(library_root, package_root, entry)
 
       {:ok, %File.Stat{type: :symlink}} ->
         {:error, {:agent_plugin_symlink_rejected, entry}}
@@ -94,6 +93,48 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
 
       {:error, reason} ->
         {:error, {:agent_plugin_root_entry_unreadable, entry, reason}}
+    end
+  end
+
+  defp read_manifest_package(library_root, root, entry) do
+    manifest_dir = Path.join(root, Path.dirname(@manifest_path))
+
+    case File.stat(manifest_dir) do
+      {:ok, %File.Stat{type: :directory}} ->
+        read_manifest_file(library_root, root, entry)
+
+      {:ok, _stat} ->
+        {:ok, nil}
+
+      {:error, :enoent} ->
+        case File.lstat(manifest_dir) do
+          {:error, :enoent} -> {:ok, nil}
+          _result -> {:error, {:agent_plugin_manifest_unreadable, entry, :enoent}}
+        end
+
+      {:error, reason} ->
+        {:error, {:agent_plugin_manifest_unreadable, entry, reason}}
+    end
+  end
+
+  defp read_manifest_file(library_root, root, entry) do
+    path = Path.join(root, @manifest_path)
+
+    case File.stat(path) do
+      {:ok, %File.Stat{type: :regular}} ->
+        read_package(library_root, root, entry)
+
+      {:ok, _stat} ->
+        {:ok, nil}
+
+      {:error, :enoent} ->
+        case File.lstat(path) do
+          {:error, :enoent} -> {:ok, nil}
+          _result -> {:error, {:agent_plugin_manifest_unreadable, entry, :enoent}}
+        end
+
+      {:error, reason} ->
+        {:error, {:agent_plugin_manifest_unreadable, entry, reason}}
     end
   end
 
@@ -163,10 +204,8 @@ defmodule Ankole.AIAgent.Library.AgentPlugins.SourceReader do
   defp read_skills(library_root, root, manifest) do
     with {:ok, skills_root} <-
            manifest_relative_path(root, Map.fetch!(manifest, "skills"), :directory),
-         {:ok, entries} <- File.ls(skills_root) do
+         {:ok, entries} <- SkillSourceReader.list_skill_directories(skills_root) do
       entries
-      |> Enum.sort()
-      |> Enum.filter(&File.regular?(Path.join([skills_root, &1, "SKILL.md"])))
       |> Enum.map(fn relative_path ->
         library_relative_path =
           Path.join([

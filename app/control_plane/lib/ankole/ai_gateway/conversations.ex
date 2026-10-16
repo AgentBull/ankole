@@ -76,16 +76,6 @@ defmodule Ankole.AIGateway.Conversations do
     end
   end
 
-  @doc false
-  @spec update_conversation_metadata_in_tx(module(), Conversation.t(), map()) ::
-          {:ok, Conversation.t()} | {:error, Ecto.Changeset.t()}
-  def update_conversation_metadata_in_tx(repo, %Conversation{} = conversation, metadata)
-      when is_map(metadata) do
-    conversation
-    |> Conversation.changeset(%{metadata: metadata})
-    |> repo.update()
-  end
-
   @doc """
   Bumps the conversation's `updated_at` inside the caller's transaction.
 
@@ -147,39 +137,13 @@ defmodule Ankole.AIGateway.Conversations do
     end
   end
 
-  @doc false
-  @spec end_active_conversations_by_key_prefix_in_tx(
-          module(),
-          String.t(),
-          String.t(),
-          DateTime.t()
-        ) :: {:ok, non_neg_integer()}
-  def end_active_conversations_by_key_prefix_in_tx(
-        repo,
-        subject_uid,
-        conversation_key_prefix,
-        %DateTime{} = now
-      )
-      when is_binary(conversation_key_prefix) and conversation_key_prefix != "" do
-    {count, _rows} =
-      Conversation
-      |> where([conversation], conversation.subject_uid == ^normalize_uid(subject_uid))
-      |> where([conversation], is_nil(conversation.ended_at))
-      |> where(
-        [conversation],
-        like(conversation.conversation_key, ^"#{conversation_key_prefix}%")
-      )
-      |> repo.update_all(set: [ended_at: now, updated_at: now])
-
-    {:ok, count}
-  end
-
   @doc "Checks whether the subject has retained model history for a key, including ended histories."
   def conversation_exists_by_key?(repo, subject_uid, conversation_key) do
     repo.exists?(
-      from c in Conversation,
+      from(c in Conversation,
         where:
           c.subject_uid == ^normalize_uid(subject_uid) and c.conversation_key == ^conversation_key
+      )
     )
   end
 

@@ -21,6 +21,11 @@ export type SocketLineBridgeResponse = { ok: true; result: Record<string, unknow
 /** Request limit of the CLI bridges. A CLI command is a small JSON object. */
 export const CLI_REQUEST_MAX_BYTES = 16 * 1024
 
+// Shared across run bridges: closing a socket does not cancel its accepted RPC.
+const MAX_ACTIVE_REQUESTS = 64
+const REQUEST_READ_TIMEOUT_MS = 10_000
+let activeRequests = 0
+
 export type SocketLineBridge = {
   socketPath: string
   close: () => void
@@ -29,6 +34,12 @@ export type SocketLineBridge = {
 type SocketState = {
   buffer: Buffer
   handled: boolean
+  admitted: boolean
+  released: boolean
+  closed: boolean
+  stopped: boolean
+  handling: boolean
+  readTimer?: ReturnType<typeof setTimeout>
   response?: Buffer
 }
 
@@ -38,62 +49,124 @@ export function startSocketLineBridge(opts: {
   oversizeError: string
   handleLine: (line: string) => Promise<unknown>
 }): SocketLineBridge {
+  let closed = false
+  const sockets = new Set<Bun.Socket<SocketState>>()
   const listener = Bun.listen<SocketState>({
     unix: opts.socketPath,
     socket: {
       open(socket) {
-        socket.data = { buffer: Buffer.alloc(0), handled: false }
-      },
-      data(socket, data) {
-        if (socket.data.handled) return
-        socket.data.buffer = Buffer.concat([socket.data.buffer, data])
-
-        if (socket.data.buffer.byteLength > opts.maxRequestBytes) {
-          socket.data.handled = true
-          writeResponse(socket, { ok: false, error: opts.oversizeError })
+        socket.data = {
+          buffer: Buffer.alloc(0),
+          handled: false,
+          admitted: false,
+          released: false,
+          closed: false,
+          stopped: false,
+          handling: false
+        }
+        sockets.add(socket)
+        if (closed || activeRequests >= MAX_ACTIVE_REQUESTS) {
+          rejectRequest(socket, 'CLI bridge is busy; request was not accepted')
           return
         }
+        socket.data.admitted = true
+        activeRequests += 1
+        socket.data.readTimer = setTimeout(() => {
+          rejectRequest(socket, 'CLI bridge request read timed out; request was not accepted')
+        }, REQUEST_READ_TIMEOUT_MS)
+        socket.data.readTimer.unref()
+      },
+      data(socket, data) {
+        if (closed || socket.data.closed || socket.data.handled) return
+
+        if (socket.data.buffer.byteLength + data.byteLength > opts.maxRequestBytes) {
+          rejectRequest(socket, opts.oversizeError)
+          return
+        }
+        socket.data.buffer = Buffer.concat([socket.data.buffer, data])
 
         const newline = socket.data.buffer.indexOf(0x0a)
         if (newline < 0) return
 
         socket.data.handled = true
+        clearReadTimer(socket.data)
         const line = socket.data.buffer.subarray(0, newline).toString('utf8')
+        socket.data.buffer = Buffer.alloc(0)
+        socket.data.handling = true
 
-        void opts
-          .handleLine(line)
-          .then(response => writeResponse(socket, response))
-          .catch(error => writeResponse(socket, { ok: false, error: errorMessage(error) }))
+        void (async () => {
+          try {
+            writeResponse(socket, await opts.handleLine(line))
+          } catch (error) {
+            writeResponse(socket, { ok: false, error: errorMessage(error) })
+          } finally {
+            socket.data.handling = false
+            releaseRequest(socket.data)
+          }
+        })()
       },
       drain: flushResponse,
-      error(_socket, _error) {
+      close(socket) {
+        socket.data.closed = true
+        clearReadTimer(socket.data)
+        socket.data.buffer = Buffer.alloc(0)
+        socket.data.response = undefined
+        sockets.delete(socket)
+        releaseRequest(socket.data)
+      },
+      error(socket, _error) {
         // The caller receives a closed socket. RuntimeFabric and domain errors
         // are returned through the normal response path above.
+        socket.terminate()
       }
     }
   })
 
   chmodSync(opts.socketPath, 0o600)
   chownAgentPathSync(opts.socketPath)
-  let closed = false
-
   return {
     socketPath: opts.socketPath,
     close: () => {
       if (closed) return
       closed = true
+      for (const socket of sockets) {
+        socket.data.stopped = true
+        clearReadTimer(socket.data)
+        socket.data.buffer = Buffer.alloc(0)
+        socket.data.response = undefined
+      }
       listener.stop(true)
       if (existsSync(opts.socketPath)) unlinkSync(opts.socketPath)
     }
   }
 }
 
+function clearReadTimer(state: SocketState): void {
+  clearTimeout(state.readTimer)
+  state.readTimer = undefined
+}
+
+function releaseRequest(state: SocketState): void {
+  if (!state.admitted || state.released || !state.closed || state.handling) return
+  state.released = true
+  activeRequests -= 1
+}
+
+function rejectRequest(socket: Bun.Socket<SocketState>, error: string): void {
+  socket.data.handled = true
+  clearReadTimer(socket.data)
+  socket.data.buffer = Buffer.alloc(0)
+  writeResponse(socket, { ok: false, error })
+}
+
 function writeResponse(socket: Bun.Socket<SocketState>, response: unknown): void {
+  if (socket.data.closed || socket.data.stopped) return
   socket.data.response = Buffer.from(`${JSON.stringify(response)}\n`)
   flushResponse(socket)
 }
 
 function flushResponse(socket: Bun.Socket<SocketState>): void {
+  if (socket.data.closed || socket.data.stopped) return
   const response = socket.data.response
   if (!response) return
   const written = socket.write(response)

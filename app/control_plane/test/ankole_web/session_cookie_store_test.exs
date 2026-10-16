@@ -43,7 +43,7 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
     assert get_session(conn, :setup_secret_plaintext) == "setup-secret"
   end
 
-  test "stores only a durable browser reference in the kernel-aead cookie", %{tenant: tenant} do
+  test "the group cookie needs an independent proof cookie to authenticate", %{tenant: tenant} do
     :ok = set_privileged_tenant(tenant)
     human = Ankole.PrincipalsFixtures.human_fixture()
     {:ok, _} = Ankole.PrincipalsFixtures.first_site_admin_fixture(human.principal.uid)
@@ -61,15 +61,19 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
       })
       |> send_resp(200, "ok")
 
-    cookie = conn |> get_resp_header("set-cookie") |> List.first()
-    assert is_binary(cookie)
-    refute cookie =~ "operator-admin"
-    refute cookie =~ "oidc-main"
-    refute cookie =~ "external-123"
+    cookies = get_resp_header(conn, "set-cookie")
+    assert length(cookies) == 2
 
-    cookie_value = cookie_value(cookie)
+    for cookie <- cookies do
+      refute cookie =~ human.principal.uid
+      refute cookie =~ "oidc-main"
+      refute cookie =~ "external-123"
+    end
 
-    conn =
+    group_cookie = Enum.find(cookies, &String.starts_with?(&1, @cookie_key <> "="))
+    cookie_value = cookie_value(group_cookie)
+
+    group_only =
       :get
       |> conn("/")
       |> with_secret_key_base()
@@ -77,8 +81,23 @@ defmodule AnkoleWeb.SessionCookieStoreTest do
       |> Plug.Session.call(@session_opts)
       |> fetch_session()
 
+    assert %{"id" => browser_id} = get_session(group_only, :browser_session)
+    assert is_binary(browser_id)
+    assert map_size(get_session(group_only, :browser_session)) == 1
+    assert get_session(group_only, :admin_session) == nil
+    refute WebSession.admin_session(group_only)
+
+    cookie_header = Enum.map_join(cookies, "; ", &(&1 |> String.split(";", parts: 2) |> hd()))
+
+    conn =
+      :get
+      |> conn("/")
+      |> with_secret_key_base()
+      |> put_req_header("cookie", cookie_header)
+      |> Plug.Session.call(@session_opts)
+      |> fetch_session()
+
     uid = human.principal.uid
-    assert get_session(conn, :admin_session) == nil
 
     assert %{
              "principal_uid" => ^uid,

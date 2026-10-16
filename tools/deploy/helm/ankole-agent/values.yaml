@@ -200,14 +200,14 @@ postgresql:
   tolerations: []
   affinity: {}
 
-# Restricts the Erlang distribution ports to control-plane Pods. HTTP stays
-# open to the ingress controller and to Workers, which need every Pod IP for
-# the file relay. Workers accept no connection, and they can reach only the
-# control plane, DNS, and public addresses: not private ranges and not the
-# node metadata address.
+# Opt-in policies require a network plugin that enforces NetworkPolicy.
+# Control-plane ingress allows HTTP from any peer and Erlang distribution from
+# control-plane Pods. With localPods=true, the Worker policy adds no ingress
+# allowance and permits control-plane HTTP, TCP/UDP 53 to any destination, and
+# IPv4 destinations outside workerDeniedCIDRs. Other policies can add access.
 networkPolicy:
   enabled: false
-  # Private address ranges that Workers may not reach.
+  # Excluded from the general IPv4 rule, not from the DNS/control-plane rules.
   workerDeniedCIDRs:
     - 10.0.0.0/8
     - 172.16.0.0/12

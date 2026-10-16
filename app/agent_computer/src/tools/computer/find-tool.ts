@@ -71,7 +71,7 @@ export function createFindTool(
     retrySafe: true,
     isDestructive: false,
     describeActivity: () => ({
-      key: 'signals_gateway.reply.activity.command_find_files_family',
+      key: 'conversations.delivery.reply.activity.command_find_files_family',
       bindings: { family: 'find' }
     }),
     async execute(_toolCallId, params): Promise<AgentToolResult<FindDetails>> {

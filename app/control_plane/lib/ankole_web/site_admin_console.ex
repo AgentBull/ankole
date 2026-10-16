@@ -20,7 +20,9 @@ defmodule AnkoleWeb.SiteAdminConsole do
     [first | _] = String.split(configured, "/", trim: true)
 
     occupied =
-      AnkoleWeb.Router.__routes__()
+      [AnkoleWeb.Router, Application.get_env(:ankole, :http_entry, AnkoleWeb.Router)]
+      |> Enum.uniq()
+      |> Enum.flat_map(& &1.__routes__())
       |> Enum.map(&(&1.path |> String.split("/", trim: true) |> List.first()))
       |> Enum.reject(&(&1 in [nil, "site-admin-console"]))
       |> Kernel.++(AnkoleWeb.static_paths())

@@ -10,6 +10,7 @@ defmodule Ankole.Sessions.ChatDriveTest do
   alias Ankole.Sessions.ToolCatalog
   alias Ankole.Sessions.Tools
   alias Ankole.Files
+  alias Ankole.Conversations.Attachments
   alias Ankole.Sessions.TurnEnvelope
 
   setup {Ankole.SessionsCase, :use_mock_signal_provider_plugin}
@@ -17,7 +18,7 @@ defmodule Ankole.Sessions.ChatDriveTest do
   test "the same received bytes and filename have separate channel paths and provenance" do
     %{principal: agent} = agent_fixture()
     binding_fixture(agent.uid, "bot", :ignore, adapter: "mock-provider")
-    {:ok, stored} = Observe.store_attachment(%{"name" => "private.txt"}, "private content")
+    {:ok, stored} = Attachments.store_attachment(%{"name" => "private.txt"}, "private content")
 
     for provider_conversation_id <- ["mock:dm:alice", "mock:dm:bob", ".", ".."] do
       input = input!(agent.uid, provider_conversation_id, attachments: [stored])

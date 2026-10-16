@@ -8,7 +8,8 @@ import { useTranslation } from 'react-i18next'
 import * as v from 'valibot'
 import { ErrorBlock } from '../common/error-block'
 import i18n from '../common/i18n'
-import { InternalAPIError, internalAPIPost } from '../common/internal-api-client'
+import { InternalAPIError } from '../common/internal-api-client'
+import { localPasswordChange } from '../common/api/generated/sdk.gen'
 import { PasswordInput } from '../common/password-input'
 import { PasswordStrengthMeter } from '../common/password-strength-meter'
 import { LoginModel } from './state/login-model'
@@ -48,9 +49,11 @@ export function PasswordChangeForm({ model }: { model: InstanceType<typeof Login
   })
   const change = useMutation({
     mutationFn: (input: { newPassword: string }) =>
-      internalAPIPost<{ returnTo: string }>('/.internal-apis/sessions/local-password/change', {
-        ...input,
-        flow: new URLSearchParams(window.location.search).get('flow')
+      localPasswordChange({
+        body: {
+          ...input,
+          flow: new URLSearchParams(window.location.search).get('flow')
+        }
       }),
     onSuccess: result => window.location.assign(result.returnTo),
     onError: error => {

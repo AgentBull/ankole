@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from 'bun:test'
 import i18n, { loadLocale } from '../../common/i18n'
 import type { AppConfigurationItem, AppConfigurationUpdateRequest } from '../api/generated/types.gen'
 import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
-import { resolveEditorDraftIdentity, seedEditorDraft } from '../use-editor-draft'
+import { seedEditorDraft } from '../use-editor-draft'
 import { encryptedSettingValue, SettingEditorModel, settingDecryptedDraft } from './setting-editor-model'
 
 beforeAll(() => loadLocale('en-US'))
@@ -70,8 +70,8 @@ describe('SettingEditorModel', () => {
 
   test('returning from an unloaded setting still revokes the earlier reveal', async () => {
     using model = new SettingEditorModel()
-    const a = resolveEditorDraftIdentity({ resource: 'setting', scope: 'tenant', key: 'A' })
-    const b = resolveEditorDraftIdentity({ resource: 'setting', scope: 'tenant', key: 'B' })
+    const a = 'setting:tenant:A'
+    const b = 'setting:tenant:B'
     seedEditorDraft(model, a, ENCRYPTED_VALUE_MASK, false)
     const response = Promise.withResolvers<string>()
     const pending = model.reveal(() => response.promise)
@@ -87,8 +87,8 @@ describe('SettingEditorModel', () => {
     for (const operation of ['save', 'restore']) {
       test(`a late ${operation} cannot navigate after ${departure}`, async () => {
         using model = new SettingEditorModel()
-        const a = resolveEditorDraftIdentity({ resource: 'setting', scope: 'tenant', key: 'A' })
-        const b = resolveEditorDraftIdentity({ resource: 'setting', scope: 'global', key: 'B' })
+        const a = 'setting:tenant:A'
+        const b = 'setting:global:B'
         seedEditorDraft(model, a, '"A value"', false)
         const response = Promise.withResolvers<AppConfigurationItem>()
         const navigations: string[] = []

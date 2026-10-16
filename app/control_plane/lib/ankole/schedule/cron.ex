@@ -3,6 +3,7 @@ defmodule Ankole.Schedule.Cron do
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.AIGateway
   alias Ankole.AutomationJobs
   alias Ankole.Repo
@@ -67,7 +68,7 @@ defmodule Ankole.Schedule.Cron do
 
   defp validate_native_delivery_in_tx(repo, agent_uid, delivery) do
     Enum.reduce_while(delivery["targets"], :ok, fn target, :ok ->
-      case Ankole.Conversations.Target.for_delivery_in_tx(repo, agent_uid, target) do
+      case StatementTarget.for_delivery_in_tx(repo, agent_uid, target) do
         {:ok, _} -> {:cont, :ok}
         error -> {:halt, error}
       end

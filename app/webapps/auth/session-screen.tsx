@@ -5,7 +5,7 @@ import { Skeleton } from '@ankole/uikit/components/skeleton'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { internalAPIGet } from '../common/internal-api-client'
+import { logoutConfirmation } from '../common/api/generated/sdk.gen'
 import { clearDataTenant } from '../common/browser-session'
 import { ThemeToggle } from '../common/theme-toggle'
 
@@ -18,11 +18,7 @@ export function SessionScreen({ invalid }: { invalid: boolean }) {
   const cancelled = query.get('cancelled') === '1'
   const details = useQuery({
     queryKey: ['logout-confirmation', request],
-    queryFn: () =>
-      internalAPIGet<{
-        clientName: string | null
-        identity: { displayName: string; providerID: string } | null
-      }>(`/.internal-apis/oidc-logout/${encodeURIComponent(request)}`),
+    queryFn: () => logoutConfirmation({ path: { id: request } }),
     enabled: confirm,
     retry: false
   })

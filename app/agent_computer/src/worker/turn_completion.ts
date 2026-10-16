@@ -2,14 +2,8 @@ import type { JobTurnRef } from '../lanes/session_lane'
 import { isRuntimeFabricTransportError } from '../fabric/fabric'
 import { jsonBytes } from '../fabric/envelope_proto'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
-import {
-  RPCRejectedError,
-  RPCTimeoutError,
-  type RPCCallOptions,
-  type RPCRejection,
-  type RPCRequestInit,
-  type RPCResponseOf
-} from '../lanes/rpc_lane'
+import { RPCRejectedError, RPCTimeoutError, type RPCCallOptions, type RPCRejection } from '../lanes/rpc_lane'
+import { type RPCRequestInit, type RPCResponseOf } from '../lanes/rpc_contract'
 
 /** These aliases keep each terminal RPC method as a literal requester type. */
 const abortMethod = 'session_turn.abort'

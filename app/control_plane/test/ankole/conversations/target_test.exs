@@ -1,7 +1,8 @@
 defmodule Ankole.Conversations.TargetTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
-  alias Ankole.Conversations.{External, Target}
+  alias Ankole.Conversations.External
+  alias Ankole.Conversations.Target, as: StatementTarget
 
   setup do
     %{principal: human} = human_fixture()
@@ -35,15 +36,15 @@ defmodule Ankole.Conversations.TargetTest do
 
   test "native delivery requires participation and excludes provider route fields", context do
     assert {:ok, target} =
-             Target.for_delivery_in_tx(Repo, context.agent.uid, %{
+             StatementTarget.for_delivery_in_tx(Repo, context.agent.uid, %{
                conversation_id: context.native.id
              })
 
-    refute Target.accepts_attachments?(target)
+    refute StatementTarget.accepts_attachments?(target)
 
     for field <- [:binding_name, :provider_thread_id] do
       assert {:error, :cron_delivery_route_required} =
-               Target.for_delivery_in_tx(
+               StatementTarget.for_delivery_in_tx(
                  Repo,
                  context.agent.uid,
                  Map.put(%{conversation_id: context.native.id}, field, "provider-value")
@@ -51,7 +52,7 @@ defmodule Ankole.Conversations.TargetTest do
     end
 
     assert {:error, :conversation_not_found} =
-             Target.for_delivery_in_tx(
+             StatementTarget.for_delivery_in_tx(
                Repo,
                context.human.uid,
                %{conversation_id: context.native.id}
@@ -60,7 +61,7 @@ defmodule Ankole.Conversations.TargetTest do
     %{principal: other} = agent_fixture()
 
     assert {:error, :conversation_not_found} =
-             Target.for_delivery_in_tx(
+             StatementTarget.for_delivery_in_tx(
                Repo,
                other.uid,
                %{conversation_id: context.native.id}
@@ -70,7 +71,7 @@ defmodule Ankole.Conversations.TargetTest do
   test "a binding without a conversation is not a statement destination" do
     for id <- [nil, Ecto.UUID.generate()] do
       assert {:error, :reply_route_unavailable} =
-               Target.for_reply(Repo, %Ankole.Signals.Signal{
+               StatementTarget.for_reply(Repo, %Ankole.Signals.Signal{
                  conversation_id: id,
                  session_id: "workflow-owner",
                  reply_binding_name: "bot"
@@ -80,14 +81,14 @@ defmodule Ankole.Conversations.TargetTest do
 
   test "external delivery requires a binding and retains thread and primary", context do
     assert {:error, :cron_delivery_route_required} =
-             Target.for_delivery_in_tx(
+             StatementTarget.for_delivery_in_tx(
                Repo,
                context.agent.uid,
                %{"conversation_id" => context.external.id}
              )
 
     assert {:ok, target} =
-             Target.for_delivery_in_tx(Repo, context.agent.uid, %{
+             StatementTarget.for_delivery_in_tx(Repo, context.agent.uid, %{
                "conversation_id" => context.external.id,
                "binding_name" => "bot",
                "provider_thread_id" => "thread",
@@ -97,10 +98,10 @@ defmodule Ankole.Conversations.TargetTest do
     assert target.kind == :external
     assert target.provider_thread_id == "thread"
     refute target.primary
-    assert Target.accepts_attachments?(target)
+    assert StatementTarget.accepts_attachments?(target)
 
     assert {:error, :conversation_not_found} =
-             Target.for_delivery_in_tx(
+             StatementTarget.for_delivery_in_tx(
                Repo,
                context.agent.uid,
                %{conversation_id: Ecto.UUID.generate(), binding_name: "bot"}

@@ -38,9 +38,10 @@ defmodule Ankole.Conversations.Target do
          %Conversation{} = conversation <- repo.get_by(Conversation, id: id),
          true <-
            repo.exists?(
-             from p in Participant,
+             from(p in Participant,
                where:
                  p.conversation_id == ^id and p.principal_uid == ^agent_uid and p.role == :agent
+             )
            ) do
       target = %__MODULE__{
         conversation_id: id,
@@ -61,8 +62,10 @@ defmodule Ankole.Conversations.Target do
 
   def reply_eligible?(%__MODULE__{kind: :native}, _event), do: true
 
-  def reply_eligible?(%__MODULE__{kind: :external}, event),
-    do: Ankole.Conversations.Delivery.Preview.channel_reply_eligible?(event)
+  def reply_eligible?(%__MODULE__{kind: :external} = target, event) do
+    is_binary(target.conversation_id) and valid_route?(target) and
+      event.type in Ankole.Conversations.Delivery.Preview.channel_reply_event_types()
+  end
 
   defp valid_route?(%__MODULE__{kind: :native, binding_name: nil, provider_thread_id: nil}),
     do: true

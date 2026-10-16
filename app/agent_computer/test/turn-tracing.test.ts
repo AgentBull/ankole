@@ -101,12 +101,14 @@ describe('worker turn tracing', () => {
       'ankole.principal.uid': 'agent-1',
       'ankole.principal.type': 'agent',
       'user.id': sharedChannelUserID,
-      'session.id': 'session-1'
+      'session.id': 'session-1',
+      'ankole.signal.id': 'event-session-1'
     })
     expect(unattributedTrace?.attributes).toEqual({
       'ankole.principal.uid': 'agent-1',
       'ankole.principal.type': 'agent',
-      'session.id': 'session-3'
+      'session.id': 'session-3',
+      'ankole.signal.id': 'event-session-3'
     })
 
     // Spans that other tests left in the shared processor export first, so
@@ -117,6 +119,7 @@ describe('worker turn tracing', () => {
     const codexTurn = startWorkerSpan(firstTrace, 'codex.turn', {
       ...workerObservationInputAttributes('agent', 'inspect the PDF skill'),
       'ankole.principal.uid': 'spoofed-agent',
+      'ankole.signal.id': 'spoofed-signal',
       'user.id': 'principal:spoofed-user',
       'gen_ai.agent.name': 'codex'
     })
@@ -152,7 +155,8 @@ describe('worker turn tracing', () => {
         'ankole.principal.uid': 'finish-spoofed-agent',
         'ankole.principal.type': 'human',
         'user.id': 'principal:finish-spoofed-user',
-        'session.id': 'finish-spoofed-session'
+        'session.id': 'finish-spoofed-session',
+        'ankole.signal.id': 'finish-spoofed-signal'
       }
     })
     const firstWire = await flushedWireText(exports)
@@ -173,6 +177,8 @@ describe('worker turn tracing', () => {
       expect(wireText).toContain('agent-1')
       expect(wireText).toContain('session.id')
       expect(wireText).toContain(sessionID)
+      expect(wireText).toContain('ankole.signal.id')
+      expect(wireText).toContain(`event-${sessionID}`)
       for (const otherSessionID of sessionIDs.filter(id => id !== sessionID)) {
         expect(wireText).not.toContain(otherSessionID)
       }
@@ -185,6 +191,7 @@ describe('worker turn tracing', () => {
       expect(wireText).not.toContain('spoofed-agent')
       expect(wireText).not.toContain('spoofed-user')
       expect(wireText).not.toContain('spoofed-session')
+      expect(wireText).not.toContain('spoofed-signal')
       expect(wireText).not.toContain('ankole.worker.input')
       expect(wireText).not.toContain('ankole.worker.output')
       expect(wireText).not.toContain('langfuse.')
@@ -316,10 +323,10 @@ function turnStart(agentUID: string, sessionID: string, traceparent?: string, ob
       session: { session_id: sessionID },
       job_id: 1000,
       attempt: 1,
-      signal_id: `event-${agentUID}`
+      signal_id: `event-${sessionID}`
     },
     signal: {
-      signal_id: `event-${agentUID}`,
+      signal_id: `payload-${agentUID}`,
       type: 'im.message',
       payload_json: {}
     },

@@ -6,10 +6,10 @@ import { initReactI18next } from 'react-i18next'
 // Each catalog loads through a dynamic import so a session only pays for the
 // active locale plus the en-US fallback, not all four catalogs.
 const catalogLoaders: Record<string, () => Promise<{ default: unknown }>> = {
-  'en-US': () => import('../../locales/en-US.toml'),
-  'ja-JP': () => import('../../locales/ja-JP.toml'),
-  'ko-KR': () => import('../../locales/ko-KR.toml'),
-  'zh-Hans-CN': () => import('../../locales/zh-Hans-CN.toml')
+  'en-US': () => import('@ankole/locales/en-US.json'),
+  'ja-JP': () => import('@ankole/locales/ja-JP.json'),
+  'ko-KR': () => import('@ankole/locales/ko-KR.json'),
+  'zh-Hans-CN': () => import('@ankole/locales/zh-Hans-CN.json')
 }
 
 // Native labels are locale-invariant constants of the locale itself, so a

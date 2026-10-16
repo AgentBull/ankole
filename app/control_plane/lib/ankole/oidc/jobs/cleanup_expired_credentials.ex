@@ -5,14 +5,19 @@ defmodule Ankole.OIDC.Jobs.CleanupExpiredCredentials do
 
   use Ankole.Job, tenancy: :site, queue: :default, max_attempts: 3
 
-  alias Ankole.OIDC
+  alias Ankole.{BrowserSessions, OIDC, Tenants}
 
   @impl Ankole.Job
-  @spec perform(Oban.Job.t()) :: :ok
-  def run(job), do: Ankole.Tenants.map_all(fn -> sweep(job) end) |> Ankole.Tenants.fanout_result()
+  @spec run(Oban.Job.t()) :: :ok | {:error, term()}
+  def run(%Oban.Job{}) do
+    now = DateTime.utc_now(:microsecond)
+    results = Tenants.map_all(fn -> sweep(now) end)
+    BrowserSessions.cleanup_expired(now)
+    Tenants.fanout_result(results)
+  end
 
-  defp sweep(%Oban.Job{}) do
-    _counts = OIDC.cleanup_expired_credentials()
+  defp sweep(now) do
+    _counts = OIDC.cleanup_expired_credentials(now)
     :ok
   end
 end

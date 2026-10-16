@@ -2,12 +2,9 @@ import { jsonObject, ms, type JsonObject as JSONObject } from '@agentbull/active
 import { sanitizeTurnContent } from './turn-content'
 import type { JobTurnRef } from '../../../lanes/session_lane'
 import { jsonBytes } from '../../../fabric/envelope_proto'
-import {
-  RPCRejectedError,
-  rpcRejectedMessage,
-  type BackgroundAgentJobTurnUpsertResponse,
-  type RPCRequestInit
-} from '../../../lanes/rpc_lane'
+import { RPCRejectedError, rpcRejectedMessage } from '../../../lanes/rpc_lane'
+import { type BackgroundAgentJobTurnUpsertResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { type RPCRequestInit } from '../../../lanes/rpc_contract'
 import type {
   BackgroundAgentJobTurnPlan,
   BackgroundAgentJobTurnProgress,

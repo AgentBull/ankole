@@ -954,7 +954,10 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
-            author: %{principal_uid: human_uid, id: "7001"},
+            author:
+              Ankole.SignalsFixtures.provider_author_fixture(human_uid, "7001", %{
+                provider: "telegram-main"
+              }),
             provider_time: base_time()
           }
         )
@@ -1040,7 +1043,10 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
-            author: %{principal_uid: human_uid, id: "7001"},
+            author:
+              Ankole.SignalsFixtures.provider_author_fixture(human_uid, "7001", %{
+                provider: "telegram-main"
+              }),
             provider_time: base_time()
           }
         )
@@ -1089,7 +1095,10 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
             channel: %{kind: :im_dm, reply_mode: :entry, name: "DM"},
             text: "hello",
             explicit: true,
-            author: %{principal_uid: human_uid, id: "7001"},
+            author:
+              Ankole.SignalsFixtures.provider_author_fixture(human_uid, "7001", %{
+                provider: "telegram-main"
+              }),
             provider_time: base_time()
           }
         )

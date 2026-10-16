@@ -20,7 +20,7 @@ defmodule Ankole.OIDC.RPLogout do
       %LogoutRequest{}
       |> Ecto.Changeset.change(
         browser_id: browser.id,
-        browser_generation: browser.generation,
+        browser_revision: browser.revision,
         client_id: if(client, do: client.id),
         redirect_uri: params["post_logout_redirect_uri"],
         state: params["state"],
@@ -36,22 +36,9 @@ defmodule Ankole.OIDC.RPLogout do
   defp request_tenant(%{tenant_id: id}, _browser), do: {:ok, id}
 
   defp request_tenant(nil, browser) do
-    authentication = browser.oauth_auth || browser.admin_auth || %{}
-
-    principal =
-      Repo.across_tenants(fn ->
-        case authentication["principal_uid"] do
-          uid when is_binary(uid) -> Repo.get(Ankole.Principals.Principal, uid)
-          _ -> nil
-        end
-      end)
-
-    case principal do
-      %{tenant_id: id} ->
-        {:ok, id}
-
-      nil ->
-        with {:ok, tenant} <- Ankole.Tenants.privileged(), do: {:ok, tenant.id}
+    case browser.active_tenant_id do
+      id when is_binary(id) -> {:ok, id}
+      nil -> with {:ok, tenant} <- Ankole.Tenants.privileged(), do: {:ok, tenant.id}
     end
   end
 
@@ -60,7 +47,7 @@ defmodule Ankole.OIDC.RPLogout do
          {:ok, id} <- Ecto.UUID.cast(id),
          %LogoutRequest{} = request <- Repo.across_tenants(fn -> Repo.get(LogoutRequest, id) end),
          true <-
-           request.browser_id == browser.id and request.browser_generation == browser.generation and
+           request.browser_id == browser.id and request.browser_revision == browser.revision and
              is_nil(request.confirmed_at) and
              DateTime.compare(request.expires_at, DateTime.utc_now()) == :gt do
       {:ok, request}
@@ -76,7 +63,7 @@ defmodule Ankole.OIDC.RPLogout do
           with {:ok, request} <- confirmation(ref, id),
                {:ok, client} <- current_client(request.client_id),
                :ok <- validate_redirect(request.redirect_uri, client),
-               {:ok, browser} <- BrowserSessions.logout(ref),
+               {:ok, browser} <- BrowserSessions.logout(ref, request.browser_revision),
                {:ok, request} <-
                  request
                  |> Ecto.Changeset.change(confirmed_at: DateTime.utc_now())

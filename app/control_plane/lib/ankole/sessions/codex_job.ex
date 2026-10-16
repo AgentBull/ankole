@@ -8,7 +8,6 @@ defmodule Ankole.Sessions.CodexJob do
   alias Ankole.Sessions.Context
   alias Ankole.Sessions.Fence
   alias Ankole.Sessions.JobTurnRef
-  alias Ankole.Sessions.Run
   alias Ankole.Principals.WorkAccess
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.Queue
@@ -242,7 +241,7 @@ defmodule Ankole.Sessions.CodexJob do
     events =
       Repo.transact(fn repo ->
         with :ok <- Fence.check_in_tx(repo, run, :share) do
-          Run.open_events(run)
+          Ankole.Sessions.Queue.due(run)
           |> Enum.filter(
             &(Signal.produced_by_kernel?(&1) and &1.id != run.signal_id and
                 &1.type == "command.steer")

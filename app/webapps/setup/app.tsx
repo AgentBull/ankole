@@ -28,15 +28,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as v from 'valibot'
-import { internalAPIGet, internalAPIPost, internalAPIPut } from '../common/internal-api-client'
 import {
-  ConfigFields,
-  defaultConfig,
-  localizedText,
-  setPath,
-  type ConfigFieldDefinition,
-  type LocalizedText
-} from '../common/config-fields'
+  setupState,
+  createSetupSession,
+  logSetupActivationCode,
+  setupPlugins,
+  updateSetupPlugins,
+  setupIdentityAdapters,
+  putSetupIdentityProvider,
+  setupOidcAuthorization
+} from '../common/api/generated/sdk.gen'
+import type { SetupState, SetupIdentityAdapter as IdentityAdapter } from '../common/api/generated/types.gen'
+export type { SetupIdentityAdapter as IdentityAdapter } from '../common/api/generated/types.gen'
+import { ConfigFields, defaultConfig, localizedText, setPath } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import i18n, { loadLocale, nativeLocaleLabel } from '../common/i18n'
 import { BrainPacksStep } from './brain-packs-step'
@@ -45,30 +49,6 @@ import { LocalAdminForm } from './local-admin-form'
 import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-setup-model'
 import { PluginsStepModel, visibleIdentityAdapters } from './state/plugins-step-model'
 import { setupStepState, type SetupStepID } from './state/setup-progress'
-
-type SetupState = {
-  authenticated: boolean
-  availableLocales: string[]
-  completed: boolean
-  currentLocale: string
-  publicBaseURL: string
-}
-
-type Plugin = {
-  id: string
-  displayName?: LocalizedText
-  description?: LocalizedText
-}
-
-type SetupField = ConfigFieldDefinition
-
-export type IdentityAdapter = {
-  adapterID: string
-  defaultProviderID: string
-  displayName?: LocalizedText
-  fields: SetupField[]
-  pluginID: string
-}
 
 const bootstrapSchema = v.object({
   activationCode: v.pipe(
@@ -109,7 +89,7 @@ export function SetupApp() {
   }
   const state = useQuery({
     queryKey: ['setup-state'],
-    queryFn: () => internalAPIGet<SetupState>('/.internal-apis/setup/state')
+    queryFn: () => setupState()
   })
 
   useEffect(() => {
@@ -231,11 +211,11 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
     revalidate: 'input'
   })
   const mutation = useMutation({
-    mutationFn: (input: BootstrapInput) => internalAPIPost<{ ok: true }>('/.internal-apis/setup/sessions', input),
+    mutationFn: (input: BootstrapInput) => createSetupSession({ body: input }),
     onSuccess: onAuthenticated
   })
   const printActivationCode = useMutation({
-    mutationFn: () => internalAPIPost<{ ok: true }>('/.internal-apis/setup/bootstrap-activation-code/log-entries'),
+    mutationFn: () => logSetupActivationCode(),
     onSuccess: () => toast.success(t('setup.activation_printed'))
   })
   const availableLocales = useMemo(
@@ -327,7 +307,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
   const { i18n: i18next, t } = useTranslation()
   const query = useQuery({
     queryKey: ['setup-plugins'],
-    queryFn: () => internalAPIGet<{ enabledPluginIDs: string[]; plugins: Plugin[] }>('/.internal-apis/setup/plugins')
+    queryFn: () => setupPlugins()
   })
 
   useEffect(() => {
@@ -342,8 +322,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
     ? model.selectedPluginIDs.value
     : new Set(query.data?.enabledPluginIDs ?? [])
   const mutation = useMutation({
-    mutationFn: () =>
-      internalAPIPut<{ enabledPluginIDs: string[] }>('/.internal-apis/setup/plugins/enabled', model.submission()),
+    mutationFn: () => updateSetupPlugins({ body: model.submission() }),
     onSuccess: onContinue
   })
 
@@ -398,7 +377,7 @@ function IdentityStep({
   const { t } = useTranslation()
   const query = useQuery({
     queryKey: ['setup-identity-provider-adapters'],
-    queryFn: () => internalAPIGet<{ adapters: IdentityAdapter[] }>('/.internal-apis/setup/identity-provider-adapters')
+    queryFn: () => setupIdentityAdapters()
   })
   const adapters = visibleIdentityAdapters(query.data?.adapters ?? [], pluginsModel.selectedPluginIDs.value)
 
@@ -526,14 +505,15 @@ function SSOIdentityForm({
 
   const mutation = useMutation({
     mutationFn: async (input: IdentitySetupDraft) => {
-      await internalAPIPut(`/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerID)}`, {
-        adapterID: input.adapterID,
-        config: setPath(input.config, 'oidc.enabled', true),
-        enabled: true
+      await putSetupIdentityProvider({
+        path: { provider_id: input.providerID },
+        body: {
+          adapterID: input.adapterID,
+          config: setPath(input.config, 'oidc.enabled', true),
+          enabled: true
+        }
       })
-      return internalAPIPost<{ authorizationURL: string }>(
-        `/.internal-apis/setup/identity-providers/${encodeURIComponent(input.providerID)}/oidc/authorizations`
-      )
+      return setupOidcAuthorization({ path: { provider_id: input.providerID } })
     },
     onSuccess: result => window.location.assign(result.authorizationURL)
   })

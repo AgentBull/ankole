@@ -43,15 +43,15 @@ export namespace serialize {
   }
 
   /** Serialize a single node. */
-  export function node(node: Node, options: serialize.Options): Elt | string {
+  export function node(node: Node, options: serialize.Options = {}): Elt | string {
     return serializeChildren([node], new SerializeContext(options))[0]!
   }
 
   /** Serialize a slice. */
-  export function slice(slice: Slice, options: slice.Options): Elt.Fragment {
+  export function slice(slice: Slice, options: slice.Options = {}): Elt.Fragment {
     return Elt.Fragment.create(
       serializeChildren(
-        flattenSlice(slice.content, options.context || [], options.includeContext || 0, !!options.openAttr),
+        flattenSlice(slice.content, slice.context, options.includeContext || 0, !!options.openAttr),
         new SerializeContext(options, options.openAttr)
       )
     )
@@ -66,11 +66,6 @@ export namespace serialize {
        * at the start and/or end of the slice.
        */
       openAttr?: string
-      /**
-       * The slice's context. Will be used to determine the type of
-       * open nodes at the start of the slice.
-       */
-      context?: readonly Plot.Tag[]
       /**
        * The amount of context nodes to include in the output.
        * Defaults to 0, meaning only use those that are open at the

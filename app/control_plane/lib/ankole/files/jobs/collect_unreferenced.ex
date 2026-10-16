@@ -1,6 +1,6 @@
 defmodule Ankole.Files.Jobs.CollectUnreferenced do
   @moduledoc """
-  Removes old file contents without drive paths or uncompleted Delivery references.
+  Removes old file contents without drive paths, Message attachments or uncompleted Delivery references.
 
   The job runs in two steps:
 
@@ -33,6 +33,22 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   @batch_size 100
   @grace "1 day"
 
+  # Both phases use the same all-tenant definition of a live reference.
+  @unreferenced """
+  AND NOT EXISTS (SELECT 1 FROM agent_files WHERE agent_files.sha256 = files.sha256)
+  AND NOT EXISTS (
+    SELECT 1 FROM deliveries AS intent
+    WHERE intent.status IN ('pending', 'failed', 'unknown')
+      AND intent.payload @> jsonb_build_object('attachments',
+        jsonb_build_array(jsonb_build_object('blob_ref', encode(files.sha256, 'hex'))))
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM conversation_messages AS message,
+      unnest(message.attachments) AS attachment(value)
+    WHERE attachment.value->>'blob_ref' = encode(files.sha256, 'hex')
+  )
+  """
+
   @impl Ankole.Job
   # Blob contents are site-owned. The two reviewed SQL statements check all
   # tenant references before deletion; this job needs no tenant query bypass.
@@ -61,18 +77,7 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
         UPDATE files SET deleting = true
         WHERE NOT deleting
           AND last_referenced_at < now() - interval '#{@grace}'
-          AND NOT EXISTS (SELECT 1 FROM agent_files WHERE agent_files.sha256 = files.sha256)
-          AND NOT EXISTS (
-            SELECT 1 FROM deliveries AS intent
-            WHERE intent.status IN ('pending', 'failed', 'unknown')
-              AND intent.payload @> jsonb_build_object('attachments',
-                jsonb_build_array(jsonb_build_object('blob_ref', encode(files.sha256, 'hex'))))
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM conversation_messages AS message,
-              unnest(message.attachments) AS attachment(value)
-            WHERE attachment.value->>'blob_ref' = encode(files.sha256, 'hex')
-          )
+          #{@unreferenced}
         """,
         []
       )
@@ -116,18 +121,7 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
         """
         DELETE FROM files
         WHERE sha256 = $1 AND deleting
-          AND NOT EXISTS (SELECT 1 FROM agent_files WHERE agent_files.sha256 = files.sha256)
-          AND NOT EXISTS (
-            SELECT 1 FROM deliveries AS intent
-            WHERE intent.status IN ('pending', 'failed', 'unknown')
-              AND intent.payload @> jsonb_build_object('attachments',
-                jsonb_build_array(jsonb_build_object('blob_ref', encode(files.sha256, 'hex'))))
-          )
-          AND NOT EXISTS (
-            SELECT 1 FROM conversation_messages AS message,
-              unnest(message.attachments) AS attachment(value)
-            WHERE attachment.value->>'blob_ref' = encode(files.sha256, 'hex')
-          )
+          #{@unreferenced}
         """,
         [digest]
       )

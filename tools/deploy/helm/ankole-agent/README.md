@@ -517,13 +517,22 @@ The release uses the normal ERTS limit of 65,536 ports. A high container file
 limit therefore does not reserve a large port table. To set another limit,
 use `controlPlane.extraEnv.ERL_FLAGS`, for example `+Q 1048576`.
 
-`networkPolicy.enabled` restricts EPMD and the distribution port to
-control-plane Pods. HTTP stays open to every peer because the ingress controller
-serves the Console and Workers reach each Pod IP for the file relay. It also
-limits the Worker Pods: they accept no connection and reach only the control
-plane, DNS, and public addresses, not `networkPolicy.workerDeniedCIDRs` (the
-private ranges and the node metadata address). Also set the instance metadata
-hop limit of the nodes to 1.
+`networkPolicy.enabled` defaults to `false`. When enabled, the control-plane
+policy permits EPMD and the distribution port from control-plane Pods. HTTP stays
+open to every peer because the ingress controller serves the Console and Workers
+reach each Pod IP for the file relay. With `worker.localPods=true`, a second
+policy selects Worker Pods with this installation's labels in the release namespace.
+It adds no ingress allowance. Its egress rules allow control-plane HTTP,
+TCP/UDP port 53 to **any destination**, and IPv4 destinations outside
+`networkPolicy.workerDeniedCIDRs`. The DNS allowance also applies inside those
+CIDRs; this setting is not an absolute private-address deny list.
+
+Enforcement requires a supporting network plugin. Other applicable policies can
+add access, and traffic to or from a Pod's node has separate Kubernetes rules.
+See the [NetworkPolicy contract](https://kubernetes.io/docs/concepts/services-networking/network-policies/).
+The chart does not configure other Worker providers or remote browser networks.
+Keep node metadata protection in the node configuration; on nodes that use an
+instance metadata hop limit, set it to 1. Validate the deployed boundary below.
 
 `files.store=fs` allows one replica, and the chart refuses to render more; use
 a shared remote backend for more than one.
@@ -532,6 +541,35 @@ Keep `controlPlane.replicaCount` at 1 until the control-plane singleton
 processes (schedule firing, chat adapter connections, scheduler hydration) are
 verified safe on more than one node. The migration init container runs in
 every new Pod under the existing database migration lock.
+
+### Verify Worker egress in a deployment
+
+Use a disposable Agent and controlled test endpoints. Rendering the chart does
+not verify enforcement by the cluster's network plugin.
+
+1. Record the namespace, Worker Pod and installation labels, network plugin,
+   rendered policy, and every other NetworkPolicy that selects that Pod.
+2. Prepare two HTTP endpoints that return a fresh random marker and log requests:
+   one at an allowed public IPv4 address, and one at a private address excluded by
+   `workerDeniedCIDRs`, on a port other than 53. The private endpoint must not be
+   a control-plane Pod or the Worker's node. Confirm both markers from a separate
+   permitted client before and after the checks. Use these endpoints only, not
+   metadata endpoints or production private services.
+3. Request both URLs through the same Agent's `command` tool, local browser, and
+   an Automation Job. For `command`, use
+   `curl --noproxy '*' --connect-timeout 3 --max-time 5 '<URL>'`.
+   Open the URLs with the Agent's local browser. In the Job's
+   `main.ts`, call `fetch` with `AbortSignal.timeout(5000)` and record its response
+   or error in the run output. Use a new marker path for each request to avoid
+   cached responses. Record the tool or Job run, Worker Pod, actual destination,
+   timeout and result. Confirm control-plane connectivity and DNS still work.
+4. Check that the allowed response contains its marker. For the private endpoint,
+   correlate the failed request with network-plugin denial evidence and the
+   endpoint's request log. A missing listener, DNS error, connection refusal or
+   timeout alone does not prove policy enforcement. A browser SSRF rejection is
+   an application check; a remote browser request tests another network. Record
+   those cases as unverified for Worker NetworkPolicy, without weakening those
+   controls to make the probe run. Remove the temporary Job and endpoints.
 
 ## Worker Pods
 

@@ -1,6 +1,15 @@
 defmodule Ankole.Conversations.Delivery do
   import Ankole.Attrs, only: [collect_results: 1]
-  @moduledoc false
+
+  @moduledoc """
+  Commits provider delivery intents and dispatches them through their Binding.
+
+  Commit operations record durable effects and wakeup jobs in the caller's
+  transaction. Dispatch performs provider IO after commit and records the
+  result for retry or operator recovery. Each target keeps its own route and
+  idempotency key. Preview and interaction checkpoints remain separate owners.
+  See `docs/design-docs/Signals.md` for the delivery and recovery contracts.
+  """
 
   import Ecto.Query, warn: false
 

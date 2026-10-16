@@ -3,6 +3,7 @@ defmodule Ankole.AIGateway.ResponseChain do
   import Ecto.Query
   alias Ecto.Adapters.SQL
   alias Ankole.AIGateway.CompactionArtifacts
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.{Principals, Repo}
@@ -45,6 +46,64 @@ defmodule Ankole.AIGateway.ResponseChain do
       {:ok, expand_history(conversation.id, opts)}
     end
   end
+
+  @doc """
+  Reads caller metadata from complete ordinary rows on the visible branch.
+
+  Checkpoints connect the ancestry but do not contribute metadata. This read
+  crosses checkpoints and returns no Response content. The raw ancestor limit
+  is the same 10,000 rows used for history expansion.
+  """
+  @spec visible_response_metadata(String.t(), binary()) ::
+          {:ok, [map()]} | {:error, :invalid_conversation}
+  def visible_response_metadata(subject_uid, conversation_id) do
+    with {:ok, conversation} <- get_conversation_for_subject(subject_uid, conversation_id) do
+      case latest_visible_leaf(conversation.id) do
+        nil -> {:ok, []}
+        leaf -> {:ok, chain_metadata(conversation.id, leaf)}
+      end
+    end
+  end
+
+  @doc """
+  Reads a visible suffix selected by one opaque caller-metadata string value.
+
+  Rows and ordinary responses are chronological. Checkpoints and incomplete
+  rows are crossed but omitted. Unmatched tool journals are also crossed; the
+  first complete ordinary response that does not match ends the suffix. The
+  selected visible leaf is returned even when the suffix is empty.
+  """
+  @spec visible_response_suffix(String.t(), binary(), {String.t(), String.t()}) ::
+          {:ok,
+           %{
+             leaf: binary() | nil,
+             rows: [Message.t()],
+             responses: [Message.t()],
+             recorded_call_ids: MapSet.t()
+           }}
+          | {:error, :invalid_conversation | :invalid_metadata_selector}
+  def visible_response_suffix(subject_uid, conversation_id, {key, value})
+      when is_binary(key) and key != "" and is_binary(value) do
+    with {:ok, conversation} <- get_conversation_for_subject(subject_uid, conversation_id) do
+      leaf = latest_visible_leaf(conversation.id)
+      rows = if leaf, do: suffix_messages(conversation.id, leaf, key, value), else: []
+      responses = Enum.reject(rows, &journal?/1)
+      latest = List.last(responses)
+
+      recorded_call_ids =
+        rows
+        |> Enum.filter(&(latest && journal?(&1) && &1.previous_message_id == latest.id))
+        |> Enum.flat_map(& &1.content)
+        |> Enum.filter(&ResponseItems.output_item?/1)
+        |> Enum.map(& &1[ResponseItems.pair_identity_field(&1)])
+        |> MapSet.new()
+
+      {:ok, %{leaf: leaf, rows: rows, responses: responses, recorded_call_ids: recorded_call_ids}}
+    end
+  end
+
+  def visible_response_suffix(_subject_uid, _conversation_id, _selector),
+    do: {:error, :invalid_metadata_selector}
 
   @doc """
   Lists an immutable response chain from the requested response backwards.
@@ -660,54 +719,117 @@ defmodule Ankole.AIGateway.ResponseChain do
 
   defp walk_message_chain(conversation_id, anchor_id, stop_at_checkpoint?) do
     Repo
-    |> chain_messages(conversation_id, anchor_id)
-    |> Enum.reduce_while([], fn message, acc ->
-      if project_message?(message) do
-        acc = [message | acc]
-
-        if message.type == "checkpoint" and stop_at_checkpoint?,
-          do: {:halt, acc},
-          else: {:cont, acc}
-      else
-        {:cont, acc}
-      end
-    end)
+    |> chain_messages(conversation_id, anchor_id, @history_chain_max_depth, stop_at_checkpoint?)
+    |> Enum.filter(&project_message?/1)
+    |> Enum.reverse()
   end
 
-  defp chain_messages(repo, conversation_id, anchor_id, max_depth \\ @history_chain_max_depth) do
+  defp chain_messages(repo, conversation_id, anchor_id, max_depth, stop_at_checkpoint? \\ false) do
+    continue =
+      if stop_at_checkpoint?,
+        do: "NOT (message.status = 'complete' AND message.type = 'checkpoint')",
+        else: "true"
+
     result =
       SQL.query!(
         repo,
-        """
-        WITH RECURSIVE chain AS (
-          SELECT id, previous_message_id, ARRAY[id] AS path, 1 AS depth
-          FROM ai_gateway_messages
-          WHERE tenant_id = $4::text::uuid AND id = $1::text::uuid
-            AND conversation_id = $2::text::uuid
-
-          UNION ALL
-
-          SELECT parent.id,
-                 parent.previous_message_id,
-                 chain.path || parent.id,
-                 chain.depth + 1
-          FROM ai_gateway_messages AS parent
-          JOIN chain ON parent.id = chain.previous_message_id
-          WHERE parent.tenant_id = $4::text::uuid AND parent.conversation_id = $2::text::uuid
-            AND NOT parent.id = ANY(chain.path)
-            AND chain.depth < $3
-        )
-        SELECT message.*
-        FROM chain
-        JOIN ai_gateway_messages AS message ON message.id = chain.id
-        WHERE message.tenant_id = $4::text::uuid
-        ORDER BY chain.depth ASC
-        """,
+        ancestor_chain_sql(continue) <>
+          """
+          SELECT message.*
+          FROM chain
+          JOIN ai_gateway_messages AS message ON message.id = chain.id
+          WHERE message.tenant_id = $4::text::uuid
+          ORDER BY chain.depth ASC
+          """,
         [anchor_id, conversation_id, max_depth, Repo.tenant_id!()]
       )
 
     Enum.map(result.rows, &repo.load(Message, {result.columns, &1}))
   end
+
+  defp chain_metadata(conversation_id, anchor_id) do
+    result =
+      SQL.query!(
+        Repo,
+        ancestor_chain_sql("true") <>
+          """
+          SELECT CASE
+            WHEN jsonb_typeof(message.metadata->'request_metadata') = 'object'
+              THEN message.metadata->'request_metadata'
+            ELSE '{}'::jsonb
+          END AS caller_metadata
+          FROM chain
+          JOIN ai_gateway_messages AS message ON message.id = chain.id
+          WHERE message.tenant_id = $4::text::uuid
+            AND message.status = 'complete' AND message.type = 'message'
+          ORDER BY chain.depth DESC
+          """,
+        [anchor_id, conversation_id, @history_chain_max_depth, Repo.tenant_id!()]
+      )
+
+    Enum.map(result.rows, fn [metadata] -> metadata end)
+  end
+
+  defp suffix_messages(conversation_id, anchor_id, key, value) do
+    matches = "message.metadata->'request_metadata'->$5::text = to_jsonb($6::text)"
+
+    continue = """
+    message.status <> 'complete' OR message.type = 'checkpoint'
+      OR message.metadata->'tool_result_journal' = 'true'::jsonb
+      OR COALESCE(#{matches}, false)
+    """
+
+    result =
+      SQL.query!(
+        Repo,
+        ancestor_chain_sql(continue) <>
+          """
+          SELECT message.*
+          FROM chain
+          JOIN ai_gateway_messages AS message ON message.id = chain.id
+          WHERE message.tenant_id = $4::text::uuid
+            AND message.status = 'complete' AND message.type <> 'checkpoint'
+            AND #{matches}
+          ORDER BY chain.depth DESC
+          """,
+        [anchor_id, conversation_id, @history_chain_max_depth, Repo.tenant_id!(), key, value]
+      )
+
+    Enum.map(result.rows, &Repo.load(Message, {result.columns, &1}))
+  end
+
+  defp ancestor_chain_sql(continue) do
+    # LIMIT 1 is redundant with the primary key but keeps each recursive step
+    # a parent lookup. Without it, stale statistics can reorder the join into
+    # a scan of the whole conversation for every ancestor.
+    """
+    WITH RECURSIVE chain AS (
+      SELECT message.id, message.previous_message_id,
+             ARRAY[message.id] AS path, 1 AS depth, (#{continue}) AS continue
+      FROM ai_gateway_messages AS message
+      WHERE message.tenant_id = $4::text::uuid AND message.id = $1::text::uuid
+        AND message.conversation_id = $2::text::uuid
+
+      UNION ALL
+
+      SELECT message.id, message.previous_message_id,
+             chain.path || message.id, chain.depth + 1, (#{continue}) AS continue
+      FROM chain
+      JOIN LATERAL (
+        SELECT parent.id, parent.previous_message_id, parent.status, parent.type, parent.metadata
+        FROM ai_gateway_messages AS parent
+        WHERE parent.id = chain.previous_message_id
+          AND parent.tenant_id = $4::text::uuid AND parent.conversation_id = $2::text::uuid
+        LIMIT 1
+      ) AS message ON true
+      WHERE chain.continue
+        AND NOT message.id = ANY(chain.path)
+        AND chain.depth < $3
+    )
+    """
+  end
+
+  defp journal?(message), do: message.metadata["tool_result_journal"] == true
 
   defp project_message?(%Message{status: "complete"}), do: true
   defp project_message?(_message), do: false

@@ -133,8 +133,7 @@ async function waitForSocketOrExit(
         }
         return
       }
-    } catch {
-    }
+    } catch {}
     await new Promise(resolve => setTimeout(resolve, 25))
   }
   killProcessGroup(child.pid, 'SIGTERM')

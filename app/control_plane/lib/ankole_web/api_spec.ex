@@ -26,16 +26,22 @@ defmodule AnkoleWeb.APISpec do
         title: "Ankole API",
         version: "2026-09-04"
       },
-      paths: Paths.from_router(AnkoleWeb.Router),
+      paths:
+        AnkoleWeb.Router.__routes__()
+        |> Enum.reject(fn route ->
+          String.starts_with?(route.path, "/.internal-apis/") and
+            not (route.path == "/.internal-apis/session" and route.verb == :delete)
+        end)
+        |> Paths.from_routes(),
       # Console requests use browser sessions. AIGateway uses Agent and OIDC Human tokens.
       components: %Components{
         securitySchemes: %{
           "consoleSession" => %SecurityScheme{
             type: "apiKey",
-            in: "cookie",
-            name: "_ankole_key",
+            in: "header",
+            name: "Cookie",
             description:
-              "Browser session cookie. Requests other than GET and HEAD also send the x-csrf-token header from the console shell."
+              "The browser sends the sealed group and selected authentication cookies in the Cookie header. The group alone is not authentication. The shell supplies x-ankole-authentication for selection and x-csrf-token for unsafe requests."
           },
           "aiGatewayBearer" => %SecurityScheme{
             type: "http",

@@ -3,21 +3,43 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "outputs": ["$TURBO_ROOT$/app/control_plane/priv/static/assets/**"],
+      "outputs": [],
       "inputs": [
         "$TURBO_EXTENDS$",
         "$TURBO_ROOT$/app/locales/**",
-        "$TURBO_ROOT$/tools/openapi-client-generator/package.json"
-      ]
+        "$TURBO_ROOT$/tools/openapi-client-generator/package.json",
+        "$TURBO_ROOT$/internals/webapps/**",
+        "$TURBO_ROOT$/internals/locales/**"
+      ],
+      "env": ["ANKOLE_EDITION"],
+      "cache": false
     },
     "type-check": {
-      "inputs": ["$TURBO_EXTENDS$", "$TURBO_ROOT$/app/locales/**"]
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/app/locales/**",
+        "$TURBO_ROOT$/internals/webapps/**",
+        "$TURBO_ROOT$/internals/locales/**"
+      ],
+      "env": ["ANKOLE_EDITION"]
     },
     "test": {
-      "inputs": ["$TURBO_EXTENDS$", "$TURBO_ROOT$/app/locales/**"]
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/app/locales/**",
+        "$TURBO_ROOT$/internals/webapps/**",
+        "$TURBO_ROOT$/internals/locales/**"
+      ],
+      "env": ["ANKOLE_EDITION"]
     },
     "lint": {
-      "inputs": ["$TURBO_EXTENDS$", "$TURBO_ROOT$/app/locales/**"]
+      "inputs": [
+        "$TURBO_EXTENDS$",
+        "$TURBO_ROOT$/app/locales/**",
+        "$TURBO_ROOT$/internals/webapps/**",
+        "$TURBO_ROOT$/internals/locales/**"
+      ],
+      "env": ["ANKOLE_EDITION"]
     }
   }
 }

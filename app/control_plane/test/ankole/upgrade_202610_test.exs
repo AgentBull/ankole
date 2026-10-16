@@ -54,7 +54,7 @@ defmodule Ankole.Upgrade202610Test do
 
       for agent <- [first, second] do
         assert {:ok, _} =
-                 Ankole.Signals.Bindings.upsert_binding(%{
+                 Ankole.SignalsFixtures.raw_binding_fixture(%{
                    agent_uid: agent.uid,
                    name: "shared",
                    adapter: @adapter,
@@ -106,7 +106,7 @@ defmodule Ankole.Upgrade202610Test do
       seed_config(key, config)
 
       assert {:ok, binding} =
-               Ankole.Signals.Bindings.upsert_binding(%{
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
                  agent_uid: agent.uid,
                  name: "existing",
                  adapter: @adapter,
@@ -134,7 +134,7 @@ defmodule Ankole.Upgrade202610Test do
 
     for agent <- [first, second],
         do:
-          Ankole.Signals.Bindings.upsert_binding(%{
+          Ankole.SignalsFixtures.raw_binding_fixture(%{
             agent_uid: agent.uid,
             name: "shared-conflict",
             adapter: "teams",

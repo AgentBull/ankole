@@ -8,13 +8,7 @@ defmodule Ankole.Sessions.RunType do
               {:ok, Signal.t()} | {:closed, map()} | {:error, term()}
   @callback plan(Signal.t(), keyword()) :: {:ok, map()} | {:error, term()}
   @callback admit_in_tx(module(), Signal.t(), map()) :: {:ok, map()} | {:error, term()}
-  @callback finalize_input_in_tx(module(), Signal.t(), map()) ::
-              {:ok, :not_committed | map()} | {:error, term()}
-  @callback fail_exhausted_in_tx(module(), Signal.t(), map(), term()) ::
-              :ok | {:error, term()}
   @callback prepare(Run.t()) :: {:ok, {atom(), Run.t()}} | {:error, term()}
-  @callback lock_progress_in_tx(module(), Run.t()) :: {:ok, term()} | {:error, term()}
-  @callback restore_attempt(Run.t(), term(), term()) :: Run.t()
   @callback instructions(Run.t()) :: String.t()
   @callback input(Run.t()) :: [map()]
   @callback tools(Run.t(), [map()], [map()]) :: {[map()], [map()]}
@@ -31,10 +25,6 @@ defmodule Ankole.Sessions.RunType do
       def prepare_input(event, _now), do: {:ok, event}
       def prepare(run), do: {:ok, {:prepare, run}}
       def admit_in_tx(_repo, _event, _plan), do: {:ok, %{}}
-      def finalize_input_in_tx(_repo, _event, _plan), do: {:ok, :not_committed}
-      def fail_exhausted_in_tx(_repo, _event, _plan, _reason), do: :ok
-      def lock_progress_in_tx(_repo, _run), do: {:ok, nil}
-      def restore_attempt(run, _latest, _state), do: run
       def project_completion(_run, completion), do: {:ok, completion}
       def nudge?, do: true
       def finish(run), do: {:finalize, run}
@@ -95,10 +85,6 @@ defmodule Ankole.Sessions.RunType do
       defoverridable prepare_input: 2,
                      prepare: 1,
                      admit_in_tx: 3,
-                     finalize_input_in_tx: 3,
-                     fail_exhausted_in_tx: 4,
-                     lock_progress_in_tx: 2,
-                     restore_attempt: 3,
                      project_completion: 2,
                      nudge?: 0,
                      finish: 1,

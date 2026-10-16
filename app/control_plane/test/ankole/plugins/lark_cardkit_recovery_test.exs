@@ -130,7 +130,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     %{principal: agent} = agent_fixture()
 
     assert {:ok, _binding} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: agent.uid,
                name: "lark-cardkit",
                adapter: "lark",

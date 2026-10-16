@@ -39,7 +39,7 @@ describe('Codex native MCP integration', () => {
       })
 
       const initializeResponse = await client.initialize()
-      expect(initializeResponse.userAgent).toContain('/0.162.1 ')
+      expect(initializeResponse.userAgent).toContain('/0.163.0 ')
       const started = (await client.request('thread/start', {
         cwd: workspace,
         approvalPolicy: 'never',

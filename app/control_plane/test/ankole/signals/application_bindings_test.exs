@@ -31,7 +31,7 @@ defmodule Ankole.Signals.ApplicationBindingsTest do
       key = @config_module.binding_config_key(owner.uid, "owner")
 
       assert {:ok, %Binding{}} =
-               Bindings.upsert_binding(%{
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
                  agent_uid: owner.uid,
                  name: "owner",
                  adapter: @adapter,
@@ -154,7 +154,7 @@ defmodule Ankole.Signals.ApplicationBindingsTest do
     })
 
     {:ok, binding} =
-      Bindings.upsert_binding(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent_uid,
         name: name,
         adapter: "whatsapp",

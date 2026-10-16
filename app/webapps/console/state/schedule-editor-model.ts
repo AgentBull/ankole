@@ -150,8 +150,9 @@ export const ScheduleEditorModel = createModel(() => {
       targets.length === 0 ||
       targets.some(target => !target.conversation_id) ||
       deliveryTargets.value[0]?.bindingName.trim() !== bindingName.value.trim()
-    )
+    ) {
       return null
+    }
 
     const keys = deliveryTargets.value.map(target =>
       [target.conversationId.trim(), target.bindingName.trim(), target.threadId.trim()].join('\u0000')

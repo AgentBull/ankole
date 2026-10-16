@@ -214,7 +214,7 @@ function StoredCustomModelProfileEditor({
   const pendingSubmission = useRef<ModelProfileSubmission>(undefined)
   const profileDraft = useMemo(() => draftFromProfile(profile), [profile])
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'custom-model-profile', agentUID, name },
+    sourceKey: `agent:${agentUID}:${name}`,
     source: profileDraft
   })
 

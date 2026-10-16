@@ -2,15 +2,13 @@ import { aiGatewayAPIKeyRefreshSkewMs } from '../core/ai_gateway_transport'
 import {
   RPCRejectedError,
   RuntimeRPCClient,
-  type AIGatewayAPIKeyResponse,
-  type ControlPlaneOwnedRPCMethod,
   type RPCCallOptions,
   type RPCFrame,
-  type RPCRequestInit,
   type RPCRequester,
-  type RPCRejection,
-  type RPCResponseOf
+  type RPCRejection
 } from '../lanes/rpc_lane'
+import { type AIGatewayAPIKeyResponse } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { type ControlPlaneOwnedRPCMethod, type RPCRequestInit, type RPCResponseOf } from '../lanes/rpc_contract'
 
 /** The bound Agent's key, shared across Turns in this Worker process. */
 let cachedAIGatewayAPIKey: AIGatewayAPIKeyResponse | undefined

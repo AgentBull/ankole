@@ -1603,7 +1603,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       AppConfigure.put_global_by_key(Config.chat_config_key(name), config)
 
     {:ok, binding} =
-      Ankole.Signals.Bindings.upsert_binding(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent_uid,
         name: name,
         adapter: "teams",

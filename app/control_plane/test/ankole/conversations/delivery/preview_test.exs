@@ -627,7 +627,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     assert state.presentation["answer"] in [nil, ""]
     stop_preview_and_wait(signal.id)
 
-    driver_name = Ankole.Sessions.Driver.name(signal)
+    driver_name = Ankole.Sessions.driver_name(signal)
     assert :yes = :global.register_name(driver_name, self())
     on_exit(fn -> :global.unregister_name(driver_name) end)
     assert :ok = Preview.recover(steer.id)

@@ -110,6 +110,88 @@ RUN set -eux; \
     install-deps chromium-headless-shell; \
   rm -rf /var/lib/apt/lists/*
 
+# Release CLIs stay in this image. A version change rebuilds the Worker image
+# on the current Agent OS base. The base keeps the compiled toolchain, the
+# Python stack, fonts, and database clients.
+ARG CODEX_VERSION=0.163.0
+ARG MCPORTER_VERSION=0.14.3
+ARG OFFICECLI_VERSION=v1.0.157
+ARG TYPST_VERSION=v0.15.1
+ARG KUBECTL_VERSION=v1.36.3
+ARG AWS_CLI_VERSION=2.36.38
+
+RUN set -eux; \
+  mcporter_package="/tmp/mcporter-${MCPORTER_VERSION}.tgz"; \
+  curl -fsSL --retry 3 --retry-delay 2 \
+    "https://github.com/openclaw/mcporter/releases/download/v${MCPORTER_VERSION}/mcporter-${MCPORTER_VERSION}.tgz" \
+    -o "$mcporter_package"; \
+  installed=0; \
+  for attempt in 1 2 3; do \
+    if bun add -g "@openai/codex@${CODEX_VERSION}" "$mcporter_package"; then installed=1; break; fi; \
+    rm -rf /root/.bun/install/cache/* /tmp/bun-*; \
+    sleep $((attempt * 5)); \
+  done; \
+  test "$installed" = 1; \
+  rm -f /usr/local/bin/codex /usr/local/bin/mcporter; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/@openai/codex/bin/codex.js "$@"' > /usr/local/bin/codex; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec /usr/local/bin/bun /root/.bun/install/global/node_modules/mcporter/dist/cli.js "$@"' > /usr/local/bin/mcporter; \
+  chmod +x /usr/local/bin/codex /usr/local/bin/mcporter; \
+  test "$(codex --version)" = "codex-cli ${CODEX_VERSION}"; \
+  test "$(mcporter --version)" = "${MCPORTER_VERSION}"; \
+  rm -f "$mcporter_package"
+
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) officecli_asset="officecli-linux-x64" ;; \
+    arm64|aarch64) officecli_asset="officecli-linux-arm64" ;; \
+    *) echo "Unsupported OfficeCLI architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  officecli_base_url="https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}"; \
+  curl -fsSL "${officecli_base_url}/${officecli_asset}" -o /usr/local/bin/officecli; \
+  chmod +x /usr/local/bin/officecli; \
+  test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"
+
+# Typst is not packaged for Debian trixie, so the pinned release binary is
+# installed here.
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) typst_asset="typst-x86_64-unknown-linux-musl" ;; \
+    arm64|aarch64) typst_asset="typst-aarch64-unknown-linux-musl" ;; \
+    *) echo "Unsupported Typst architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL "https://github.com/typst/typst/releases/download/${TYPST_VERSION}/${typst_asset}.tar.xz" \
+    -o /tmp/typst.tar.xz; \
+  tar -xJf /tmp/typst.tar.xz -C /tmp; \
+  install -m 0755 "/tmp/${typst_asset}/typst" /usr/local/bin/typst; \
+  rm -rf /tmp/typst.tar.xz "/tmp/${typst_asset}"; \
+  typst --version | grep -qF "typst ${TYPST_VERSION#v}"
+
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) kubectl_arch=amd64 ;; \
+    arm64|aarch64) kubectl_arch=arm64 ;; \
+    *) echo "Unsupported kubectl architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  kubectl_base_url="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${kubectl_arch}"; \
+  curl -fsSL --retry 5 --retry-all-errors "${kubectl_base_url}/kubectl" -o /tmp/kubectl; \
+  install -m 0755 /tmp/kubectl /usr/local/bin/kubectl; \
+  test "$(kubectl version --client -o json | jq -r '.clientVersion.gitVersion')" = "${KUBECTL_VERSION}"; \
+  rm -f /tmp/kubectl
+
+RUN set -eux; \
+  case "${TARGETARCH:-$(uname -m)}" in \
+    amd64|x86_64) aws_arch=x86_64 ;; \
+    arm64|aarch64) aws_arch=aarch64 ;; \
+    *) echo "Unsupported AWS CLI architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
+  esac; \
+  aws_asset="awscli-exe-linux-${aws_arch}-${AWS_CLI_VERSION}.zip"; \
+  curl -fsSL --retry 5 --retry-all-errors "https://awscli.amazonaws.com/${aws_asset}" \
+    -o /tmp/awscliv2.zip; \
+  unzip -q /tmp/awscliv2.zip -d /tmp; \
+  /tmp/aws/install --install-dir /usr/local/aws-cli --bin-dir /usr/local/bin; \
+  aws --version | grep -qF "aws-cli/${AWS_CLI_VERSION} "; \
+  rm -rf /tmp/aws /tmp/awscliv2.zip
+
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/agent_computer/tsconfig.json ./app/agent_computer/tsconfig.json
 COPY app/agent_computer/src ./app/agent_computer/src
@@ -210,7 +292,17 @@ ENV PATH="/opt/ankole-python/bin:/opt/ankole-cargo/bin:/usr/local/bin:/usr/bin:/
 # build arguments of this stage. Keep build caches out of the empty OSS mount
 # point, including Rosetta caches from an amd64 build on macOS.
 RUN --mount=type=tmpfs,target=/workspace \
-  env -0 -u PWD -u LARK_CLI_VERSION -u TARGETARCH > /etc/ankole/worker-environ
+  env -0 \
+    -u PWD \
+    -u LARK_CLI_VERSION \
+    -u TARGETARCH \
+    -u CODEX_VERSION \
+    -u MCPORTER_VERSION \
+    -u OFFICECLI_VERSION \
+    -u TYPST_VERSION \
+    -u KUBECTL_VERSION \
+    -u AWS_CLI_VERSION \
+    > /etc/ankole/worker-environ
 
 ENTRYPOINT ["ankole-worker-entry"]
 CMD ["bun", "src/main.ts"]

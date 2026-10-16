@@ -14,11 +14,11 @@ defmodule AnkoleWeb.Assets do
 
   # The SPA bundles the shell can mount. `entry` is a build identity, not
   # user input, so an unknown value is a programmer error (it raises below).
-  @valid_entries ~w(auth console setup workplace)
+  @entries Application.compile_env!(:ankole, :webapp_entries)
 
   @doc "Returns stylesheet and script tags for a named webapp entry."
   @spec entry_tags(Plug.Conn.t(), String.t()) :: iodata()
-  def entry_tags(%Plug.Conn{} = _conn, entry) when entry in @valid_entries do
+  def entry_tags(%Plug.Conn{} = _conn, entry) when is_map_key(@entries, entry) do
     case dev_server() do
       nil -> manifest_entry_tags(entry)
       base_url -> dev_entry_tags(base_url, entry)
@@ -34,7 +34,7 @@ defmodule AnkoleWeb.Assets do
     [
       react_refresh_preamble_tag(base_url),
       module_script_tag("#{base_url}/@vite/client"),
-      module_script_tag("#{base_url}/entrypoints/#{entry}.tsx")
+      module_script_tag("#{base_url}/#{String.trim_leading(Map.fetch!(@entries, entry), "/")}")
     ]
   end
 
@@ -92,7 +92,7 @@ defmodule AnkoleWeb.Assets do
 
   defp locale_chunk(manifest, locale) do
     Enum.find_value(manifest, fn {key, chunk} ->
-      if String.ends_with?(key, "/locales/#{locale}.toml"), do: chunk
+      if String.ends_with?(key, "/locales/#{locale}.json"), do: chunk
     end)
   end
 
@@ -170,12 +170,14 @@ defmodule AnkoleWeb.Assets do
     |> then(fn {files, seen} -> {files |> Enum.reverse() |> Enum.uniq(), seen} end)
   end
 
+  def directory, do: Application.fetch_env!(:ankole, :webapp_assets_path)
+
   defp manifest_path do
     __MODULE__
     |> config()
     |> Keyword.get(
       :manifest_path,
-      Application.app_dir(:ankole, "priv/static/assets/manifest.json")
+      Path.join(directory(), "manifest.json")
     )
   end
 

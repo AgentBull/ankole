@@ -1,6 +1,6 @@
 import { HostedTool } from '../../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import { positiveInteger } from '../../common/numbers'
-import type { AIGatewayAPIKeyResponse } from '../../lanes/rpc_lane'
+import { type AIGatewayAPIKeyResponse } from '../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type { AIGatewayAPIKeyRequester } from './options'
 import type { TurnStart } from '../../lanes/session_lane'
 import { type JsonObject as JSONObject } from '@agentbull/active-support'

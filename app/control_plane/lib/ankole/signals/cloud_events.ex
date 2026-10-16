@@ -2,6 +2,7 @@ defmodule Ankole.Signals.CloudEvents do
   @moduledoc "Structured JSON CloudEvents source adapter with endpoint-specific routing."
 
   import Ecto.Query
+  alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Principals.WorkAccess
   alias Ankole.Signals
@@ -118,7 +119,7 @@ defmodule Ankole.Signals.CloudEvents do
 
   defp target(%Binding{agent_uid: uid, target: target}, _event)
        when map_size(target) == 1 do
-    case Ankole.Signals.Target.parse(target) do
+    case ExecutionTarget.parse(target) do
       {:conversation, id} ->
         {:ok, %{agent_uid: uid, conversation_id: id}}
 

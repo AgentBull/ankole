@@ -1,4 +1,4 @@
-import { rpcOperations, type RPCMethod } from '../src/lanes/rpc_lane'
+import { rpcOperations, type RPCMethod } from '../src/lanes/rpc_contract'
 
 /** Generates the shared contract from the Worker's operation table. */
 export function rpcContractEntries(): Array<{

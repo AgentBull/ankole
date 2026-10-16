@@ -19,7 +19,7 @@ Agent는 몇 시간 동안 작업하고, 공유 Company Brain을 사용하고, �
 
 하나의 private deployment 인스턴스에는 논리적 컨트롤 플레인이 하나 있고, Agent마다 Agent Computer Worker가 한 대씩 있습니다. 컨트롤 플레인은 identity, 상태, 스케줄링을 관리하며 Worker를 만듭니다. 각 Worker는 자신의 Agent가 일하는 컴퓨팅 환경을 제공합니다.
 
-Workplace와 외부 어댑터는 대화 발언을 기록합니다. Signals는 발언, 외부 이벤트, 시간 자극을 접수하고 Sessions는 해당 작업을 실행합니다. Identity Provider가 사람과 조직 디렉터리를 제공합니다. AIGateway는 모델, embedding, reranking, 이미지, 웹 capability를 위한 하나의 경계를 제공합니다.
+Pod와 외부 어댑터는 대화 발언을 기록합니다. Signals는 발언, 외부 이벤트, 시간 자극을 접수하고 Sessions는 해당 작업을 실행합니다. Identity Provider가 사람과 조직 디렉터리를 제공합니다. AIGateway는 모델, embedding, reranking, 이미지, 웹 capability를 위한 하나의 경계를 제공합니다.
 
 ## 컨트롤 플레인과 Agent Computer Worker
 
@@ -57,7 +57,7 @@ Agent 생성 시 pool을 선택하거나 site의 기본 pool을 사용합니다.
 
 ### 대화는 참여자의 발언을 저장합니다
 
-대화는 사람과 Agent가 공유하는 공간입니다. `Ankole.Conversations`는 참여자와 메시지를 저장합니다. Workplace는 네이티브 발언을 직접 기록합니다. 어댑터는 외부 대화의 발언을 관찰하며, 내용의 기준은 외부 플랫폼입니다.
+대화는 사람과 Agent가 공유하는 공간입니다. `Ankole.Conversations`는 참여자와 메시지를 저장합니다. Pod는 네이티브 발언을 직접 기록합니다. 어댑터는 외부 대화의 발언을 관찰하며, 내용의 기준은 외부 플랫폼입니다.
 
 대화 발언과 Agent 작업은 서로 다른 기록입니다. 발언은 참여자의 기록입니다. 모델 호출, 도구 결과, 압축은 실행 세션에 대응하는 AIGateway 모델 상태에 속합니다. 실행 세션은 여러 대화를 넘나들지 않으므로 한 대화의 작업이 다른 대화에 들어가지 않습니다.
 

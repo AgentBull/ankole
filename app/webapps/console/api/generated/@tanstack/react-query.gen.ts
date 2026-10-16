@@ -220,6 +220,10 @@ import {
   ankoleWebWorkerProviderControllerIndex,
   ankoleWebWorkerProviderControllerKinds,
   ankoleWebWorkerProviderControllerUpdate,
+  backgroundActivityAutomationRuns,
+  backgroundActivityJobs,
+  backgroundActivityWorkflow,
+  oidcLoginSources,
   type Options
 } from '../sdk.gen'
 import type {
@@ -809,7 +813,19 @@ import type {
   AnkoleWebWorkerProviderControllerKindsResponse,
   AnkoleWebWorkerProviderControllerUpdateData,
   AnkoleWebWorkerProviderControllerUpdateError,
-  AnkoleWebWorkerProviderControllerUpdateResponse
+  AnkoleWebWorkerProviderControllerUpdateResponse,
+  BackgroundActivityAutomationRunsData,
+  BackgroundActivityAutomationRunsError,
+  BackgroundActivityAutomationRunsResponse2,
+  BackgroundActivityJobsData,
+  BackgroundActivityJobsError,
+  BackgroundActivityJobsResponse2,
+  BackgroundActivityWorkflowData,
+  BackgroundActivityWorkflowError,
+  BackgroundActivityWorkflowResponse2,
+  OidcLoginSourcesData,
+  OidcLoginSourcesError,
+  OidcLoginSourcesResponse
 } from '../types.gen'
 
 export type QueryKey<TOptions extends Options> = [
@@ -1120,6 +1136,31 @@ export const ankoleWebAgentWorkerControllerIndexOptions = (
       return data
     },
     queryKey: ankoleWebAgentWorkerControllerIndexQueryKey(options)
+  })
+
+export const backgroundActivityWorkflowQueryKey = (options: Options<BackgroundActivityWorkflowData>) =>
+  createQueryKey('backgroundActivityWorkflow', options)
+
+/**
+ * Read live Workflow calls and runs awaiting execution or terminal cleanup
+ */
+export const backgroundActivityWorkflowOptions = (options: Options<BackgroundActivityWorkflowData>) =>
+  queryOptions<
+    BackgroundActivityWorkflowResponse2,
+    BackgroundActivityWorkflowError,
+    BackgroundActivityWorkflowResponse2,
+    ReturnType<typeof backgroundActivityWorkflowQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await backgroundActivityWorkflow({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: backgroundActivityWorkflowQueryKey(options)
   })
 
 /**
@@ -3655,6 +3696,73 @@ export const ankoleWebBrainControllerRestoreObjectMutation = (
   return mutationOptions
 }
 
+export const backgroundActivityJobsQueryKey = (options: Options<BackgroundActivityJobsData>) =>
+  createQueryKey('backgroundActivityJobs', options)
+
+/**
+ * Read this Agent's queued, running and waiting background Jobs
+ */
+export const backgroundActivityJobsOptions = (options: Options<BackgroundActivityJobsData>) =>
+  queryOptions<
+    BackgroundActivityJobsResponse2,
+    BackgroundActivityJobsError,
+    BackgroundActivityJobsResponse2,
+    ReturnType<typeof backgroundActivityJobsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await backgroundActivityJobs({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: backgroundActivityJobsQueryKey(options)
+  })
+
+export const backgroundActivityJobsInfiniteQueryKey = (
+  options: Options<BackgroundActivityJobsData>
+): QueryKey<Options<BackgroundActivityJobsData>> => createQueryKey('backgroundActivityJobs', options, true)
+
+/**
+ * Read this Agent's queued, running and waiting background Jobs
+ */
+export const backgroundActivityJobsInfiniteOptions = (options: Options<BackgroundActivityJobsData>) => {
+  const opts = infiniteQueryOptions<
+    BackgroundActivityJobsResponse2,
+    BackgroundActivityJobsError,
+    InfiniteData<BackgroundActivityJobsResponse2>,
+    QueryKey<Options<BackgroundActivityJobsData>>,
+    string | Pick<QueryKey<Options<BackgroundActivityJobsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<QueryKey<Options<BackgroundActivityJobsData>>[0], 'body' | 'headers' | 'path' | 'query'> =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await backgroundActivityJobs({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: backgroundActivityJobsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
 export const ankoleWebBrainControllerHealthQueryKey = (options?: Options<AnkoleWebBrainControllerHealthData>) =>
   createQueryKey('ankoleWebBrainControllerHealth', options)
 
@@ -4471,6 +4579,79 @@ export const ankoleWebHumanAccessControllerShowOptions = (options: Options<Ankol
     queryKey: ankoleWebHumanAccessControllerShowQueryKey(options)
   })
 
+export const backgroundActivityAutomationRunsQueryKey = (options: Options<BackgroundActivityAutomationRunsData>) =>
+  createQueryKey('backgroundActivityAutomationRuns', options)
+
+/**
+ * Read live automation runs, including runs of cancelled definitions
+ */
+export const backgroundActivityAutomationRunsOptions = (options: Options<BackgroundActivityAutomationRunsData>) =>
+  queryOptions<
+    BackgroundActivityAutomationRunsResponse2,
+    BackgroundActivityAutomationRunsError,
+    BackgroundActivityAutomationRunsResponse2,
+    ReturnType<typeof backgroundActivityAutomationRunsQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await backgroundActivityAutomationRuns({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: backgroundActivityAutomationRunsQueryKey(options)
+  })
+
+export const backgroundActivityAutomationRunsInfiniteQueryKey = (
+  options: Options<BackgroundActivityAutomationRunsData>
+): QueryKey<Options<BackgroundActivityAutomationRunsData>> =>
+  createQueryKey('backgroundActivityAutomationRuns', options, true)
+
+/**
+ * Read live automation runs, including runs of cancelled definitions
+ */
+export const backgroundActivityAutomationRunsInfiniteOptions = (
+  options: Options<BackgroundActivityAutomationRunsData>
+) => {
+  const opts = infiniteQueryOptions<
+    BackgroundActivityAutomationRunsResponse2,
+    BackgroundActivityAutomationRunsError,
+    InfiniteData<BackgroundActivityAutomationRunsResponse2>,
+    QueryKey<Options<BackgroundActivityAutomationRunsData>>,
+    string | Pick<QueryKey<Options<BackgroundActivityAutomationRunsData>>[0], 'body' | 'headers' | 'path' | 'query'>
+  >(
+    // @ts-ignore
+    {
+      queryFn: async ({ pageParam, queryKey, signal }) => {
+        // @ts-ignore
+        const page: Pick<
+          QueryKey<Options<BackgroundActivityAutomationRunsData>>[0],
+          'body' | 'headers' | 'path' | 'query'
+        > =
+          typeof pageParam === 'object'
+            ? pageParam
+            : {
+                query: {
+                  cursor: pageParam
+                }
+              }
+        const params = createInfiniteParams(queryKey, page)
+        const { data } = await backgroundActivityAutomationRuns({
+          ...options,
+          ...params,
+          signal,
+          throwOnError: true
+        })
+        return data
+      },
+      queryKey: backgroundActivityAutomationRunsInfiniteQueryKey(options)
+    }
+  )
+  return opts as Omit<typeof opts, 'initialData'>
+}
+
 export const ankoleWebScheduleControllerIndexCronQueryKey = (
   options?: Options<AnkoleWebScheduleControllerIndexCronData>
 ) => createQueryKey('ankoleWebScheduleControllerIndexCron', options)
@@ -5005,6 +5186,31 @@ export const ankoleWebAgentSkillLessonControllerCreateMutation = (
   }
   return mutationOptions
 }
+
+export const oidcLoginSourcesQueryKey = (options?: Options<OidcLoginSourcesData>) =>
+  createQueryKey('oidcLoginSources', options)
+
+/**
+ * List authentication sources for OIDC Client policy
+ */
+export const oidcLoginSourcesOptions = (options?: Options<OidcLoginSourcesData>) =>
+  queryOptions<
+    OidcLoginSourcesResponse,
+    OidcLoginSourcesError,
+    OidcLoginSourcesResponse,
+    ReturnType<typeof oidcLoginSourcesQueryKey>
+  >({
+    queryFn: async ({ queryKey, signal }) => {
+      const { data } = await oidcLoginSources({
+        ...options,
+        ...queryKey[0],
+        signal,
+        throwOnError: true
+      })
+      return data
+    },
+    queryKey: oidcLoginSourcesQueryKey(options)
+  })
 
 /**
  * Resolve or dismiss one contradiction

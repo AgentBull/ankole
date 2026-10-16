@@ -1,4 +1,4 @@
-import { Plot, Node, Leaf, ChangeSet, Mark, Pos, ValidationError } from '../doc'
+import { Plot, Node, Leaf, ChangeSet, Mark, Pos, Slice, ValidationError } from '../doc'
 import { findClusterBreak } from '@marijn/find-cluster-break'
 import { TextblockMap } from './textblock'
 import type { GardState } from './state'
@@ -85,6 +85,20 @@ export abstract class GardSelection {
    */
   get domSelection(): { head: number; headSide: -1 | 1; anchor: number; anchorSide: -1 | 1 } {
     return this
+  }
+
+  /**
+   * Create a content slice and context from this selection. The
+   * default implementation concatenates the slices for the
+   * selection's `ranges`.
+   */
+  toSlice(doc: Plot.Doc) {
+    let slice: Slice | undefined
+    for (const range of this.ranges) {
+      const cur = Slice.get(doc, range.from, range.to)
+      slice = slice ? slice.concat(cur) : cur
+    }
+    return slice!
   }
 
   /**

@@ -6,7 +6,6 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIAgent.Library.SourceReader
   alias Ankole.Brain.Config, as: BrainConfig
-  alias Ankole.Brain.Sanitize
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Principals
   alias Ankole.Principals.Agent
@@ -180,6 +179,21 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   @lesson_active_cap 10
   @lesson_token_limit 100
   @lesson_url_pattern ~r/https?:\/\//i
+  @lesson_injection_patterns [
+    ~r/ignore\s+(?:all\s+)?(?:prior|previous|above|earlier)\s+(?:instructions?|prompts?|messages?)/iu,
+    ~r/forget\s+(?:everything|all\s+(?:of\s+)?the\s+above)/iu,
+    ~r/disregard\s+(?:all\s+)?(?:prior|previous|above|earlier)\s+(?:instructions?|prompts?)/iu,
+    ~r/(?:new|updated|revised)\s+instructions?:/iu,
+    ~r/system\s*:\s*(?:you\s+are|you\s+must|never|always)/iu,
+    ~r/you\s+are\s+(?:now|actually|really)\s+(?:a|an)\s+\w+/iu,
+    ~r/\b(?:do\s+anything\s+now|developer\s+mode\s+enabled?)\b/iu,
+    ~r/<\s*system\s*>/iu,
+    ~r/<\s*instructions?\s*>/iu,
+    ~r/\s+(entity|metric|event_type|kind)\s*=\s*"[^"]*"/iu,
+    ~r/(?:print|output|reveal|show)\s+(?:your\s+)?(?:system\s+prompt|instructions?|hidden)/iu,
+    ~r/(?:repeat|echo)\s+(?:back|verbatim)/iu,
+    ~r/\b(?:eval|exec|system|shell)\s*\(/iu
+  ]
   @lesson_render_header "Field notes (dated; verify against the current environment):"
 
   defp delivered_skill_lessons(repo, agent_uid, skill_names) do
@@ -348,7 +362,7 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
       NativeKernel.estimate_o200k_base_tokens(trimmed) > @lesson_token_limit ->
         {:error, :content_too_long}
 
-      match?({_text, [_hit | _rest]}, Sanitize.sanitize(trimmed)) ->
+      Enum.any?(@lesson_injection_patterns, &Regex.match?(&1, trimmed)) ->
         {:error, :content_injection_suspect}
 
       true ->

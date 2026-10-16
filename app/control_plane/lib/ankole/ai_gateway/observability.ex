@@ -149,6 +149,7 @@ defmodule Ankole.AIGateway.Observability do
               request_context,
               parent_context
             ),
+          signal_id: text(Map.get(request_context, "signal_id")),
           session_id: session_id(request, opts),
           originator: text(Map.get(headers, "originator")),
           caller: string_value(Keyword.get(opts, :caller)),

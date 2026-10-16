@@ -207,7 +207,7 @@ defmodule Ankole.SignalsTest do
       args: %{agent_uid: context.agent.uid, session_id: attrs.target.session_id}
     )
 
-    assert :undefined = Ankole.Sessions.Driver.whereis(attrs.target)
+    assert :undefined = Ankole.Sessions.driver_pid(attrs.target)
   end
 
   test "source metadata rejects NUL before database writes and JSON data uses its owning validator",
@@ -263,7 +263,7 @@ defmodule Ankole.SignalsTest do
     assert_receive {:conversation_event, ^conversation_id, :status}
 
     assert :undefined =
-             Ankole.Sessions.Driver.whereis(Map.take(accepted, [:agent_uid, :session_id]))
+             Ankole.Sessions.driver_pid(Map.take(accepted, [:agent_uid, :session_id]))
 
     :ok = Ankole.Conversations.unsubscribe(conversation_id)
   end

@@ -941,6 +941,9 @@ defmodule AnkoleWeb.BrainController do
 
   defp object_write_error(conn, reason, _body), do: error(conn, reason)
 
+  defp error(conn, :object_deleted),
+    do: render_error(conn, 409, "object_deleted", "restore the object before editing it")
+
   defp error(conn, :forbidden), do: render_error(conn, 403, "forbidden", "access denied")
   defp error(conn, :not_found), do: render_error(conn, 404, "not_found", "resource not found")
 

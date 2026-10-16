@@ -11,6 +11,8 @@ temp/*
 !temp/.gitkeep
 _build/
 deps/
+mix_lock_*/
+mix_pubsub_*/
 app/ai_proxy/dist/
 app/control_plane/priv/static/**/*.gz
 app/control_plane/priv/static/assets/

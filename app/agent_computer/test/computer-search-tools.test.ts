@@ -1,5 +1,14 @@
 import { afterAll, describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { CommandFinished, ContainerComputer } from '../src/tools/computer/computer'
@@ -362,10 +371,10 @@ describe('command output persistence', () => {
     const result = await command.execute('call_1', { command: 'echo big' })
     const text = textOf(result)
     expect(text).toContain('[output truncated')
-    expect(text).toContain('output before truncation saved to:')
+    expect(text).toContain('captured output saved to:')
     const logDir = join(agentHome, '.ankole', 'command-logs')
     expect(existsSync(join(logDir, 'call_1.log'))).toBe(true)
-    expect(result.details?.fullOutputPath).toBe(join(logDir, 'call_1.log'))
+    expect(result.details?.outputLogPath).toBe(join(logDir, 'call_1.log'))
   })
 
   it('writes nothing for output inside the budget', async () => {
@@ -373,6 +382,22 @@ describe('command output persistence', () => {
     const result = await command.execute('call_2', { command: 'echo small' })
     expect(textOf(result)).not.toContain('saved to:')
     expect(existsSync(join(agentHome, '.ankole', 'command-logs', 'call_2.log'))).toBe(false)
+  })
+
+  it('keeps incomplete capture visible outside the clipped output and never invents unread byte counts', async () => {
+    const computer = commandComputer('x'.repeat(60_000))
+    computer.runCommand = async () =>
+      Object.assign(new BigOutputCommand(0, 'x'.repeat(60_000)), {
+        outputCapture: { observedBytes: 60_000, droppedBytes: 0, drained: false }
+      })
+    const command = createCommandTool(searchContext(agentHome, workspaceRoot, computer))
+    const result = await command.execute('incomplete', { command: 'report' })
+    const text = textOf(result)
+    expect(text).toContain('[output truncated')
+    expect(text).toContain('[output capture ended before EOF; remaining output size is unknown]')
+    expect(text).not.toContain('of 60000 observed bytes')
+    expect(result.details?.outputCapture).toEqual({ observedBytes: 60_000, droppedBytes: 0, drained: false })
+    expect(readFileSync(result.details!.outputLogPath!, 'utf8')).toBe('x'.repeat(60_000))
   })
 
   it('keeps only the newest logs', async () => {

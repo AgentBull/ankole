@@ -1,12 +1,5 @@
 import { createModel, signal } from '@preact/signals-react'
 
-export type BrainPack = {
-  name: string
-  description?: string | null
-  version?: string | null
-  required: boolean
-}
-
 /**
  * Industry pack selection for the setup wizard. The base pack is always
  * installed, so the model tracks only the optional industry packs; the server

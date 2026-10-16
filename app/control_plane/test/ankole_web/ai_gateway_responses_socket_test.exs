@@ -1792,7 +1792,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     {agent, conversation, signal, message} =
       stateful_message("socket-max-tool-calls-late-stop")
 
-    :ok = AIGateway.subscribe(agent.uid, conversation.id)
+    :ok = Ankole.AIGateway.Events.subscribe(agent.uid, conversation.id)
 
     ref = make_ref()
 

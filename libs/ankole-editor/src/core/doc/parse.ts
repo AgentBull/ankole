@@ -69,7 +69,7 @@ export namespace parse {
       }
     }
     emitTokens(top.children, true, true)
-    return { slice: Slice.of(tokens), context }
+    return Slice.of(tokens, context)
   }
 
   /**

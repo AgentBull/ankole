@@ -4,6 +4,12 @@ import { PhraseSet } from './phraseset'
 export const phrases = PhraseSet.define({
   dialog_close: 'close',
 
+  // Key groups
+  group_block: 'Block-level editing',
+  group_inline: 'Inline editing',
+  group_history: 'Undo history',
+  insert_break: 'Insert line break',
+
   // Menu labels
   overflow_more: 'More',
   block_style: 'Block style',

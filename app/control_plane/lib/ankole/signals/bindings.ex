@@ -1,8 +1,19 @@
 defmodule Ankole.Signals.Bindings do
-  @moduledoc false
+  @moduledoc """
+  Owns Signal Binding configuration, assignment, and availability.
+
+  `put_binding/4` and `update_binding/4` validate adapter configuration and
+  persist the Binding with its configuration. After commit they refresh the
+  cache, run the adapter save hook, and wake blocked delivery and previews.
+  A save-hook error does not roll back the committed configuration.
+
+  Ingress reads available Bindings. Console repair and delivery reads retain
+  their separate configuration contracts. See `docs/design-docs/Signals.md`.
+  """
 
   import Ecto.Query, warn: false
 
+  alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Conversations.Delivery.PreviewState
   alias Ecto.Adapters.SQL
   alias Ankole.Repo
@@ -15,7 +26,7 @@ defmodule Ankole.Signals.Bindings do
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Delivery
   alias Ankole.Signals.Binding
-  alias Ankole.Conversations.GroupMessageModes
+  alias Ankole.Signals.GroupMessageModes
   alias Ankole.Signals.SubjectNamespace
   alias Ankole.Signals.UnmatchedSenderPolicies
 
@@ -25,11 +36,6 @@ defmodule Ankole.Signals.Bindings do
     "email" => :email_binding_config_unavailable,
     "whatsapp" => :whatsapp_binding_config_unavailable
   }
-
-  @spec upsert_binding(map()) :: {:ok, Binding.t()} | {:error, term()}
-  def upsert_binding(attrs) when is_map(attrs) do
-    upsert_binding(Repo, attrs)
-  end
 
   defp upsert_binding(repo, attrs) do
     %Binding{}
@@ -87,7 +93,7 @@ defmodule Ankole.Signals.Bindings do
          {:ok, unmatched_sender_policy} <-
            unmatched_sender_policy(attrs, UnmatchedSenderPolicies.default_value()),
          {:ok, config_key} <-
-           Ankole.Signals.BindingCatalog.binding_config_key(
+           binding_config_key(
              definition,
              principal.uid,
              binding_name
@@ -188,7 +194,7 @@ defmodule Ankole.Signals.Bindings do
          {:ok, policy} <- group_message_policy(mode),
          {:ok, unmatched_sender_policy} <- unmatched_sender_policy(attrs, nil),
          {:ok, config_key} <-
-           Ankole.Signals.BindingCatalog.binding_config_key(
+           binding_config_key(
              definition,
              target_principal.uid,
              binding_name
@@ -279,7 +285,7 @@ defmodule Ankole.Signals.Bindings do
 
     case result do
       {:ok, target} ->
-        case Ankole.Signals.Target.parse(target) do
+        case ExecutionTarget.parse(target) do
           {:conversation, id} ->
             {:ok, %{"conversation_id" => id}}
 
@@ -495,7 +501,7 @@ defmodule Ankole.Signals.Bindings do
   end
 
   defp validate_identity_provider_reference(field, value) do
-    with {:ok, provider_ids} <- Ankole.Signals.BindingCatalog.identity_provider_ids(field) do
+    with {:ok, provider_ids} <- SubjectNamespace.provider_ids(field.identity_provider_adapter) do
       standalone = SubjectNamespace.standalone_reference()
 
       cond do
@@ -980,4 +986,36 @@ defmodule Ankole.Signals.Bindings do
   end
 
   defdelegate list_adapters(), to: Ankole.Signals.BindingCatalog
+
+  defp binding_config_key(%Definition{} = definition, agent_uid, binding_name) do
+    case definition.config_module do
+      module when is_atom(module) and not is_nil(module) ->
+        if function_exported?(module, :binding_config_key, 2) do
+          case module.binding_config_key(agent_uid, binding_name) do
+            key when is_binary(key) and key != "" -> {:ok, key}
+            key -> {:error, {:invalid_adapter_config_key, definition.id, key}}
+          end
+        else
+          binding_config_key_from_pattern(definition, agent_uid, binding_name)
+        end
+
+      nil ->
+        binding_config_key_from_pattern(definition, agent_uid, binding_name)
+    end
+  end
+
+  defp binding_config_key_from_pattern(definition, agent_uid, binding_name) do
+    case definition.config_key_pattern do
+      pattern when is_binary(pattern) ->
+        key =
+          pattern
+          |> String.replace("<agent_uid>", agent_uid)
+          |> String.replace("<id>", binding_name)
+
+        {:ok, key}
+
+      _pattern ->
+        {:error, {:missing_adapter_config_key_pattern, definition.id}}
+    end
+  end
 end

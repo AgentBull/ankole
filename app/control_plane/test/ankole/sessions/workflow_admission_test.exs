@@ -536,6 +536,56 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
     {%{run | model_response: response, round_calls: [call], calls: [call]}, call}
   end
 
+  test "model rejection commits memo exhaustion before stopping queued siblings" do
+    %{principal: agent} = agent_fixture()
+    # The supported 768-call configuration fills the 6 MiB memo with valid
+    # 8192-byte arguments. Even the next failure envelope exceeds the budget.
+    arguments = List.duplicate(%{"prompt" => String.duplicate("x", 8179)}, 768)
+    assert byte_size(Torque.encode!(hd(arguments))) == 8192
+
+    %{run: workflow, calls: calls, events: [event | _]} =
+      workflow_fixture(agent.uid,
+        max_agent_calls: 768,
+        model_profile: "missing",
+        arguments: arguments
+      )
+
+    assert Repo.reload!(workflow).memo_bytes == 6 * 1024 * 1024
+    assert {:ok, %{status: :model_profile_unavailable, signal: completed}} = admit(event)
+    assert completed.completed_at
+    assert %{status: "failed", cleanup_completed_at: %DateTime{}} = Repo.reload!(workflow)
+    assert %{status: "failed", attempts: 0} = Repo.reload!(hd(calls))
+    assert Enum.all?(tl(calls), &(Repo.reload!(&1).status == "cancelled"))
+  end
+
+  test "suspension carries Workflow cleanup to the caller after its transaction commits" do
+    %{principal: agent} = agent_fixture()
+    %{run: workflow, events: [event]} = workflow_fixture(agent.uid)
+
+    Repo.get!(Ankole.Tenants.Tenant, Repo.tenant_id!())
+    |> Ecto.Changeset.change(suspended_at: DateTime.utc_now(:microsecond))
+    |> Repo.update!()
+
+    assert {:ok, %{workflow_transition: %{call: %{status: "failed"}}} = completed} =
+             Repo.transact(fn repo -> Admission.authorize_event_in_tx(repo, event) end)
+
+    assert completed.signal.completed_at
+    assert Repo.reload!(workflow).status == "running"
+    assert {:ok, ^completed} = Run.after_finalization({:ok, completed})
+  end
+
+  test "Workflow cleanup refuses a transaction before any stop is published" do
+    %{principal: agent} = agent_fixture()
+    %{run: workflow} = workflow_fixture(agent.uid)
+    terminal = %{workflow | status: "cancelled"}
+
+    assert_raise ArgumentError, ~r/use the _in_tx entry point/, fn ->
+      Repo.transact(fn _ -> Workflow.cleanup_terminal_transition({:ok, %{run: terminal}}) end)
+    end
+
+    assert Repo.reload!(workflow).status == "running"
+  end
+
   defp admit(event, now \\ DateTime.utc_now(:microsecond)) do
     Admission.admit(%{agent_uid: event.agent_uid, session_id: event.session_id}, event, now: now)
   end
@@ -556,7 +606,7 @@ defmodule Ankole.Sessions.WorkflowAdmissionTest do
           args: %{},
           status: "running",
           concurrency: Keyword.get(opts, :concurrency, 8),
-          max_agent_calls: 256,
+          max_agent_calls: Keyword.get(opts, :max_agent_calls, 256),
           model_profile: Keyword.get(opts, :model_profile),
           error: %{}
         })

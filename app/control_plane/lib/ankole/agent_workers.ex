@@ -33,7 +33,27 @@ defmodule Ankole.AgentWorkers do
   @wanted_for_seconds 300
   @connect_states ~w(starting stale ready)
 
-  def list, do: Repo.all(from worker in AgentWorker, order_by: [asc: worker.agent_uid])
+  def list, do: Repo.all(from(worker in AgentWorker, order_by: [asc: worker.agent_uid]))
+
+  @doc """
+  Reads provider inventory before the current Worker rows used to identify it.
+
+  Creation commits the Worker before it creates a platform instance. The full
+  inventory must finish first, so a concurrent create cannot look like an orphan.
+  The platform callback stays outside the cross-tenant query scope.
+  """
+  def inventory_with_workers(provider_id, uid_or_all, inventory) when is_function(inventory, 0) do
+    with {:ok, objects} <- inventory.() do
+      query = from(worker in AgentWorker, where: worker.provider_id == ^provider_id)
+
+      rows =
+        if uid_or_all == :all,
+          do: Repo.across_tenants(fn -> Repo.all(query) end),
+          else: Repo.all(from(worker in query, where: worker.agent_uid == ^uid_or_all))
+
+      {:ok, objects, rows}
+    end
+  end
 
   def topic(agent_uid), do: "agent_worker:#{agent_uid}"
 
@@ -204,9 +224,10 @@ defmodule Ankole.AgentWorkers do
     digest = :crypto.hash(:sha256, token)
 
     case Repo.one(
-           from worker in AgentWorker,
+           from(worker in AgentWorker,
              where: worker.agent_uid == ^agent_uid,
              select: {worker.state, worker.token_digest, worker.generation, worker.tenant_id}
+           )
          ) do
       {state, stored, generation, tenant_id}
       when state in @connect_states and is_binary(stored) ->
@@ -294,9 +315,10 @@ defmodule Ankole.AgentWorkers do
 
   defp agent_active(repo, agent_uid) do
     case repo.one(
-           from principal in Principal,
+           from(principal in Principal,
              where: principal.uid == ^agent_uid and principal.type == :agent,
              select: principal.status
+           )
          ) do
       :active -> :ok
       _status -> {:error, :agent_not_active}

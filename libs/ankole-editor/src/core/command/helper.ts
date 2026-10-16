@@ -108,7 +108,7 @@ export function splitTextblock(state: GardState, splitListItem = true): Transact
   const { from, to } = state.sel.replacementRange,
     { schema } = state.doc
   const before = from.textblockParent
-  if (!before || !before.parent) return false
+  if (!before || !before.parent || before.node.type.isolating) return false
   const tokens: Token[] = []
   for (let p = from.parent; ; p = p.parent!) {
     tokens.push(Plot.End)
@@ -214,7 +214,7 @@ export function joinBackward(state: GardState): Transaction.Spec | false {
   if (!state.selection.isCursor) return false
   const { head } = state.sel
   const block = head.textblockParent
-  if (!block || !head.isAtStart(block)) return false
+  if (!block || !head.isAtStart(block) || block.node.type.isolating) return false
   let scan = block
   const target = scan.node
   while (!scan.index) {
@@ -287,7 +287,7 @@ export function joinForward(state: GardState): Transaction.Spec | false {
   if (!state.selection.isCursor) return false
   const { head } = state.sel
   const block = head.textblockParent
-  if (!block || !head.isAtEnd(block)) return false
+  if (!block || !head.isAtEnd(block) || block.node.type.isolating) return false
   let scan = block
   const target = scan.node
   for (;;) {

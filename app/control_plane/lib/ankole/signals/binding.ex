@@ -16,6 +16,7 @@ defmodule Ankole.Signals.Binding do
   import Ecto.Changeset
   import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
 
+  alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Principals.Principal
   alias Ankole.Signals.BindingFilters
   alias Ankole.Ecto.JSONPayload
@@ -115,7 +116,7 @@ defmodule Ankole.Signals.Binding do
 
       case target do
         %{} when map_size(target) == 1 ->
-          case Ankole.Signals.Target.parse(target) do
+          case ExecutionTarget.parse(target) do
             {:conversation, id} ->
               put_change(changeset, :target, %{"conversation_id" => id})
 

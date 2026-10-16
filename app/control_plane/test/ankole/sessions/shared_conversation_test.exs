@@ -93,7 +93,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
   test "one Agent's ambient judgment never advances the other Agent's observation", c do
     for agent <- [c.first, c.second] do
       assert {:ok, _} =
-               Signals.Bindings.upsert_binding(%{
+               Ankole.SignalsFixtures.raw_binding_fixture(%{
                  agent_uid: agent.uid,
                  name: "room",
                  adapter: "lark",

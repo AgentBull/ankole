@@ -171,7 +171,7 @@ export class DOMObserver {
       const selRange = (selection as any).getComposedRanges(wg.root)[0] as StaticRange
       if (selRange) range = buildSelectionRangeFromRange(wg, selRange)
     }
-    if (!range || this.selectionRange.eq(range)) return false
+    if (!range || !range.focusNode || this.selectionRange.eq(range)) return false
     const context = range.anchorNode && wg.docTile.nearest(range.anchorNode)
     if (context instanceof WidgetTile) return false
 
@@ -181,11 +181,6 @@ export class DOMObserver {
 
   setSelectionRange(anchor: { dom: DOMNode; offset: number }, head: { dom: DOMNode; offset: number }) {
     this.selectionRange.set(anchor.dom, anchor.offset, head.dom, head.offset)
-    this.selectionChanged = false
-  }
-
-  clearSelectionRange() {
-    this.selectionRange.set(null, 0, null, 0)
     this.selectionChanged = false
   }
 

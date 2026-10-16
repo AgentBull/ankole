@@ -146,6 +146,21 @@ A UID is opaque and is never evidence that two subjects are the same person.
 There is one identity shape. Login, directory sync, Signals identity admission,
 and manual console mappings all write this same row.
 
+### Build-declared site sources
+
+`IdentityProviders.SiteSources` declares trusted site credential authorities at
+build time. Their opaque subject IDs reuse `principal_external_identities` with
+the existing tenant, provider, external ID key. Tenant provider configuration
+cannot claim those source IDs. A private account ID, its email, a Principal UID,
+a Pod, and a Solid WebID remain separate identities.
+
+A site login resolves existing links only. It cannot perform cross-tenant
+contact matching or create a Human. The explicit creation or connection owner
+writes the link. BrowserSessions records access only from a newly created Human
+or a second verified Pod authentication, with the current Human access version.
+Switching alone cannot refresh this evidence or restore a disabled member.
+Pod profile changes and Email adapter identity links retain their existing owner.
+
 ### `identity_mapping_requests`
 
 The table holds signal senders that resolved to no Principal while their
@@ -219,7 +234,12 @@ when another provider uses the same external ID.
 `update_human` changes only mutable Principal and human profile fields.
 
 An external identity can create or update a human. An omitted profile field
-keeps its current value. An explicit blank clears it.
+keeps its current value. An explicit blank clears it. Lark, DingTalk, and
+WeCom preserve this distinction when contact hydration is unavailable during
+login. An absent department list preserves memberships; an observed empty list
+clears this provider's managed department memberships. The identity metadata
+records the same observed list, including an empty list. An identifier-only
+name can label a new account but does not replace an existing human name.
 
 A UID that belongs to an agent cannot become a human.
 

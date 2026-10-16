@@ -4,11 +4,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { agentHomePaths } from '../src/core/agent-home-paths'
-import { materializeAgentLibraryDocuments } from '../src/core/codex-runner/job/agent-library-documents'
+import { materializeAgentLibraryDocuments } from '../src/core/agent-library-documents'
 import { AgentConversationContextResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 
 describe('Agent Home document projection', () => {
-  test('atomically projects all uppercase read-only documents and returns the received snapshot', () => {
+  test('projects each uppercase document as a read-only file and returns the received snapshot', () => {
     const agentHomeRoot = mkdtempSync(join(tmpdir(), 'ankole-agent-documents-'))
     const paths = agentHomePaths(agentHomeRoot)
     mkdirSync(paths.home, { recursive: true })

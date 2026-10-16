@@ -91,7 +91,17 @@ defmodule Ankole.Signals do
   @doc "Publishes accepted Signals returned by a committed caller-owned transaction."
   def publish_committed(signals) do
     Repo.assert_outside_transaction!()
-    Enum.each(signals, &Ankole.Conversations.publish_status/1)
+
+    Enum.each(signals, fn signal ->
+      Ankole.Observability.stage(
+        "signal.intake.committed",
+        Ankole.Observability.signal_attributes(signal),
+        fn -> :ok end
+      )
+
+      Ankole.Conversations.publish_status(signal)
+    end)
+
     Ankole.Sessions.deliver_events(signals)
     :ok
   end

@@ -415,13 +415,13 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   end
 
   defp first_newer_conversation_event(repo, %Signal{} = event) do
-    passive_types = Types.interaction_preserving_turn_types()
+    superseding_types = Types.interaction_superseding_types()
 
     Signal
     |> where([candidate], candidate.agent_uid == ^event.agent_uid)
     |> where([candidate], candidate.session_id == ^event.session_id)
     |> where([candidate], candidate.queue_sequence > ^event.queue_sequence)
-    |> where([candidate], candidate.type not in ^passive_types)
+    |> where([candidate], candidate.type in ^superseding_types)
     |> order_by([candidate], asc: candidate.queue_sequence)
     |> limit(1)
     |> repo.one()
@@ -432,7 +432,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     |> where([candidate], candidate.agent_uid == ^event.agent_uid)
     |> where([candidate], candidate.session_id == ^event.session_id)
     |> where([candidate], candidate.queue_sequence > ^event.queue_sequence)
-    |> where([candidate], candidate.type == "session.reset_due")
+    |> where([candidate], candidate.type == "session.reset_due" and candidate.producer == :kernel)
     |> where([candidate], candidate.input_state == "open")
     |> order_by([candidate], asc: candidate.queue_sequence)
     |> limit(1)

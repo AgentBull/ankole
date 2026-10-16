@@ -286,12 +286,12 @@ export namespace Pos {
     }
 
     /** The node before this one, if any. */
-    get nextSibling() {
-      return this.isLast ? null : this.parent!.node.content[this.index + 1]
+    get nextSibling(): _Node | null {
+      return this.isLast ? null : this.parent!.node.content[this.index + 1]!
     }
     /** The node after this node, if any. */
-    get previousSibling() {
-      return this.isFirst ? null : this.parent!.node.content[this.index - 1]
+    get previousSibling(): _Node | null {
+      return this.isFirst ? null : this.parent!.node.content[this.index - 1]!
     }
   }
 

@@ -4,7 +4,6 @@ defmodule Ankole.Sessions.Reconciler do
   require Logger
   import Ecto.Query
   alias Ankole.Repo
-  alias Ankole.Sessions.Driver
   alias Ankole.Sessions.Jobs.EnsureDriver
   alias Ankole.Signals.Signal
 
@@ -37,7 +36,7 @@ defmodule Ankole.Sessions.Reconciler do
     Enum.reduce(keys, :ok, fn key, previous ->
       result =
         Repo.with_tenant(key.tenant_id, fn ->
-          case Driver.whereis(key) do
+          case Ankole.Sessions.driver_pid(key) do
             :undefined ->
               EnsureDriver.enqueue(key, now)
 

@@ -200,7 +200,7 @@ test ! -e ./AGENTS.override.md
       let stage = 'initialize'
       try {
         const initializeResponse = await realClient.initialize()
-        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.162.1 ')
+        expect(initializeResponse.userAgent).toStartWith('codex_cli_rs/0.163.0 ')
         const threadEnv = codexJobThreadEnv({ materialized, workerEnv: { ANKOLE_JOB_SCOPE: 'job-1000' } })
         const threadConfig = codexJobThreadConfig({
           cwd: project.root,

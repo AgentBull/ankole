@@ -8,13 +8,11 @@ defmodule Ankole.AgentWorkers.Vercel do
   """
   @behaviour Ankole.AgentWorkers.ProviderKind
 
-  import Ecto.Query
-  alias Ankole.Repo
   alias Ankole.AgentWorkers.ProviderKind
   alias Ankole.AgentWorkers.ProviderKind.Definition
   alias Ankole.AgentWorkers.Providers.Configuration, as: C
   alias Ankole.AgentWorkers.Vercel.Client
-  alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers
 
   @terminal ~w(stopped failed aborted)
   @entry_command "/usr/local/bin/ankole-worker-command-entry"
@@ -166,26 +164,19 @@ defmodule Ankole.AgentWorkers.Vercel do
 
   @impl true
   def list_instances(provider, uid_or_all) do
-    with {:ok, sandboxes} <- sandboxes(provider),
-         {:ok, tagged} <-
-           collect(sandboxes, fn sandbox ->
-             if uid_or_all == :all or
-                  sandbox["tags"]["ankole-agent"] == ProviderKind.hash16(uid_or_all),
-                do: observe_sandbox(provider, sandbox),
-                else: {:ok, []}
-           end) do
-      # Every instance create follows a committed Worker row. Read rows after
-      # the platform so a concurrent create cannot appear to be an orphan.
-      query = from w in AgentWorker, where: w.provider_id == ^provider.provider_id
+    inventory = fn ->
+      with {:ok, sandboxes} <- sandboxes(provider) do
+        collect(sandboxes, fn sandbox ->
+          if uid_or_all == :all or
+               sandbox["tags"]["ankole-agent"] == ProviderKind.hash16(uid_or_all),
+             do: observe_sandbox(provider, sandbox),
+             else: {:ok, []}
+        end)
+      end
+    end
 
-      query =
-        if uid_or_all == :all, do: query, else: where(query, [w], w.agent_uid == ^uid_or_all)
-
-      rows =
-        if uid_or_all == :all,
-          do: Repo.across_tenants(fn -> Repo.all(query) end),
-          else: Repo.all(query)
-
+    with {:ok, tagged, rows} <-
+           AgentWorkers.inventory_with_workers(provider.provider_id, uid_or_all, inventory) do
       agents = Map.new(rows, &{ProviderKind.hash16(&1.agent_uid), &1.agent_uid})
 
       agents =

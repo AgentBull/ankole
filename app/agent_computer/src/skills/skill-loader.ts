@@ -1,6 +1,7 @@
 import type { AgentToolResult } from '../core'
 import type { JobTurnRef } from '../lanes/session_lane'
-import type { RPCRequester, RuntimeSkillSummary } from '../lanes/rpc_lane'
+import { type RPCRequester } from '../lanes/rpc_lane'
+import { type RuntimeSkillSummary } from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { enabledSkillByName } from './effective-skill'
 import { readTool } from '../core/read-tools'
 

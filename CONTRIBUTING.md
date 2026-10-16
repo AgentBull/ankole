@@ -10,8 +10,82 @@ its own people, Agents, Brain and integrations. Site operators manage shared
 providers and infrastructure. The administrator Console defaults to
 `/site-admin-console`; `/console` returns 404 after this upgrade. Set
 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup to choose another absolute path.
-Keep that path in operator configuration. Normal users sign in through their
-OIDC application rather than the site administration Console.
+Keep that path in operator configuration. Active Humans can sign in to `/pod`
+through their tenant's providers. An OIDC application can also start login.
+The site administration Console keeps its separate administrator gate.
+
+## Source builds
+
+`ANKOLE_EDITION=foss|saas` is a build input. The default is `foss`, including
+when the checkout contains `internals`. FOSS does not compile private modules,
+read private configuration, or install private migrations. SaaS requires the
+matching private source; a missing file or module fails the build.
+
+Both forms use one Mix project, `:ankole` application, Repo, and database. They
+have separate `_build/foss` and `_build/saas` trees. Vite assets and generated
+locale catalogs also stay in those trees. Release assembly copies only the
+selected assets and catalogs into its application directory. A release uses
+those packaged paths and does not need the source checkout. Build tasks do not
+use Turbo artifact caching; checks include the edition in their cache input.
+
+The SaaS source has these required inputs:
+
+- `internals/control_plane/config.exs` declares the HTTP entry, Host policy,
+  AppConfigure definitions module, and trusted site identity sources.
+- `internals/control_plane/lib` contains distinct private modules. It does not
+  redefine public modules or add another OTP application.
+- `internals/control_plane/test/test_helper.exs` accompanies the private tests.
+  Mix runs both public and private test paths; support modules compile only in
+  the test environment.
+- `internals/webapps/entries.json` maps private entry names to relative source
+  paths. Names cannot replace public entries. Private sources use the public
+  webapp dependencies through a generated `node_modules` link. Entry reads do
+  not create the link. Mix, Vite, type checks, and Bun test preparation create
+  it and accept concurrent preparation of the same target. `lint`, type checks,
+  and tests include both source sets.
+- `internals/locales` supplies TOML catalogs. Build preparation merges them with
+  public catalogs into generated JSON. Duplicate message keys fail the build.
+  Phoenix, Vite development, production, and Bun tests read the same output.
+- `internals/control_plane/priv/repo/migrations` contains private migrations.
+
+`Ankole.Migrations` supplies the complete selected migration set to
+`mix ecto.migrate`, `mix ecto.migrations`, `mix ecto.rollback`, and
+`Ankole.Release.migrate/0`. Versions, filenames, and literal module names must
+be unique across both directories, including files whose versions already ran.
+SaaS releases place private files in `priv/repo/internal_migrations`, beside
+public migrations. Both use the same `schema_migrations` ledger and retain the
+`Upgrade202610` data upgrade. Removing private source does not reverse its
+schema changes.
+
+From `app/control_plane`:
+
+```bash
+mix test
+ANKOLE_EDITION=saas mix test
+MIX_TEST_PARTITION=edition_build mix test integration/edition_build_test.exs --trace
+```
+
+The build integration test uses a labeled private fixture in a temporary
+checkout. It checks FOSS isolation, SaaS compilation and resources, private test
+discovery, empty and upgraded databases, rollback, and a detached release.
+It does not implement or certify a SaaS account product.
+
+A SaaS source image uses the public Dockerfile with a named private context:
+
+```bash
+docker build -f app/control_plane/Dockerfile \
+  --build-arg ANKOLE_EDITION=saas \
+  --build-context ankole-internals=./internals .
+```
+
+The existing internal resource image can still add private Agent resources to
+an assembled image. Copying resources into that image does not compile a SaaS
+backend. Use the source build for private server and frontend code.
+
+The browser authentication migration requires existing browsers to sign in
+again. It keeps Human identities, work, offline grants, and logout delivery
+records. A rollback across this migration requires the matching database backup.
+See [Browser Sessions](docs/design-docs/BrowserSessions.md).
 
 ## What a successful setup means
 
@@ -501,7 +575,7 @@ Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implement
 | `app/control_plane` | Phoenix/OTP control plane, Ecto persistence, setup, Console APIs, and durable runtime authority |
 | `app/agent_computer` | Bun/TypeScript Worker, environment tools, Codex, Skills, files, and terminal state |
 | `app/kernel` | Rust library loaded by the control plane through Rustler |
-| `app/webapps` | Vite/React setup, authentication, Workplace, and Console applications |
+| `app/webapps` | Vite/React setup, authentication, Pod, and Console applications |
 | `app/library` | Built-in agent skills and starter templates |
 | `app/locales` | Shared translation catalogs |
 | `libs/` | Shared UI, editor, and provider client libraries |
@@ -563,7 +637,7 @@ the commands later in this guide.
 `bun run agent-computer:test` runs Agent Computer unit tests on the host. The
 host needs Bun, Bash, GNU `timeout`, and Python 3. In `app/agent_computer`,
 `bun run test:integration` runs portable integration tests on the host with
-Codex 0.162.1, MCPorter 0.14.3 running with Bun, native `apply_patch`, and GNU
+Codex 0.163.0, MCPorter 0.14.3 running with Bun, native `apply_patch`, and GNU
 `stat` (`gstat` on macOS). `ANKOLE_CODEX_BINARY` can select a local Codex binary.
 The command sets `TMPDIR=/tmp` to keep Unix socket paths short.
 
@@ -896,7 +970,7 @@ For a `main` push that runs the runtime-image workflow, the newest changelog ver
 
 The workflow must fail rather than reuse a version for another commit, replace an existing image tag with another digest, or publish release notes that differ from the changelog.
 
-The same workflow publishes the Agent OS base, built from `app/agent_computer/Dockerfile.base`, as `ghcr.io/agentbull/ankole-agent-os-base:REVISION`. Local Worker builds use the base that `app/agent_computer/base-image.lock` pins. A commit that changes `Dockerfile.base` cannot pin its own base, because the workflow publishes that base only after the push. After the workflow publishes the base of that commit, run `bun run kit pin-base-image` and commit the lock. The command pins the base of `HEAD` or of a commit that you give. It accepts only a commit in the history of `HEAD` that has the `Dockerfile.base` of `HEAD` and a published base. Until the new pin, local builds warn that the pinned base has a different `Dockerfile.base`.
+The same workflow publishes the Agent OS base, built from `app/agent_computer/Dockerfile.base`, as `ghcr.io/agentbull/ankole-agent-os-base:REVISION`. Local Worker builds use the base that `app/agent_computer/base-image.lock` pins when the working tree's `Dockerfile.base` matches that commit. When the recipe differs, devkit builds the base from the current file. A commit that changes `Dockerfile.base` cannot pin its own base, because the workflow publishes that base only after the push. After the workflow publishes the base of that commit, run `bun run kit pin-base-image` and commit the lock. The command pins the base of `HEAD` or of a commit that you give. It accepts only a commit in the history of `HEAD` that has the `Dockerfile.base` of `HEAD` and a published base. Codex, MCPorter, OfficeCLI, Typst, kubectl, and the AWS CLI are installed by the Worker image, so a version change does not change the base recipe.
 
 ## Submit a pull request
 

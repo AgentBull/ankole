@@ -58,18 +58,27 @@ defmodule Ankole.Sessions.ToolRound do
         end
       end)
 
-    {run, pending} =
-      Enum.reduce(run.calls, {run, pending}, fn call, {run, pending} ->
+    {run, pending, events} =
+      Enum.reduce(run.calls, {run, pending, []}, fn call, {run, pending, events} ->
         id = Run.call_id(call)
 
-        case Map.fetch(run.receipts, id) do
-          {:ok, {:await, wait}} -> {run, await(run, pending, id, wait)}
-          {:ok, result} -> accept(run, pending, id, result)
-          :error -> {run, pending}
-        end
+        {run, pending, observed} =
+          case Map.fetch(run.receipts, id) do
+            {:ok, {:await, wait}} ->
+              {pending, observed} = await(run, pending, id, wait)
+              {run, pending, observed}
+
+            {:ok, result} ->
+              accept(run, pending, id, result)
+
+            :error ->
+              {run, pending, []}
+          end
+
+        {run, pending, events ++ observed}
       end)
 
-    {%{run | receipts: %{}}, pending}
+    {%{run | receipts: %{}}, pending, events}
   end
 
   def next(run, pending) do
@@ -104,32 +113,36 @@ defmodule Ankole.Sessions.ToolRound do
           sequential?
         )
 
-      if tool.executor != :worker, do: Presentation.activity(run, call, tool, args, "running")
-      {:execute, pending[id], pending}
+      events =
+        if tool.executor != :worker,
+          do: Presentation.tool_activity(call, tool, args, "running"),
+          else: []
+
+      {:execute, pending[id], pending, events}
     end
   end
 
-  def await(run, pending, id, wait) do
-    Presentation.waiting(run, pending[id].call, wait)
-    PendingCall.await(pending, id, wait)
+  def await(_run, pending, id, wait) do
+    {PendingCall.await(pending, id, wait), Presentation.waiting(pending[id].call, wait)}
   end
 
   def accept(run, pending, id, result) do
     case pending[id] do
       nil ->
-        {run, pending}
+        {run, pending, []}
 
       entry ->
         Observability.finish_tool(entry.span, ToolResult.encode(result))
 
-        if entry.tool && entry.tool.executor != :worker do
-          phase = if result.is_error == true, do: "failed", else: "completed"
-          Presentation.activity(run, entry.call, entry.tool, entry.args, phase, result)
-        end
+        events =
+          if entry.tool && entry.tool.executor != :worker do
+            phase = if result.is_error == true, do: "failed", else: "completed"
+            Presentation.tool_activity(entry.call, entry.tool, entry.args, phase, result)
+          else
+            []
+          end
 
-        Enum.each(result.presentation || [], fn event ->
-          Presentation.event(run, event["kind"], event["payload"])
-        end)
+        events = events ++ (result.presentation || [])
 
         {run, result} = Tools.attach(run, result)
         run = Machine.failure(run, entry.call, result)
@@ -144,18 +157,23 @@ defmodule Ankole.Sessions.ToolRound do
         pending = Map.delete(pending, id)
 
         if ToolResult.ends_turn?(result) do
-          Enum.reduce(PendingCall.queued(pending), {run, pending}, fn next_id, {run, pending} ->
-            accept(run, pending, next_id, Tools.error("An earlier tool ended this turn."))
+          Enum.reduce(PendingCall.queued(pending), {run, pending, events}, fn next_id,
+                                                                              {run, pending,
+                                                                               events} ->
+            {run, pending, observed} =
+              accept(run, pending, next_id, Tools.error("An earlier tool ended this turn."))
+
+            {run, pending, events ++ observed}
           end)
         else
-          {run, pending}
+          {run, pending, events}
         end
     end
   end
 
   def observe(run, pending) do
     steered? =
-      Enum.any?(Run.open_events(run), fn event ->
+      Enum.any?(Ankole.Sessions.Queue.due(run), fn event ->
         Ankole.Signals.Signal.produced_by_kernel?(event) and event.id in run.pending_event_ids and
           (event.type in ["command.steer", "conversation.message.addressed"] or
              (String.starts_with?(event.type, "im.message.") and

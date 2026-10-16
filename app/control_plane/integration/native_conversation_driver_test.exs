@@ -15,7 +15,6 @@ defmodule Ankole.Conversations.NativeDriverTest do
   alias Ankole.Conversations
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Message
-  alias Ankole.Sessions.Driver
   alias Ankole.Sessions.Jobs.EnsureDriver
   alias Ankole.Signals.Signal
   alias Ankole.SessionsCase, as: RuntimeCase
@@ -192,7 +191,10 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert_receive {:native_model_waiting, provider}, 5_000
 
     driver =
-      Driver.whereis(%{agent_uid: agent.uid, session_id: Ankole.Sessions.Key.conversation(id)})
+      Ankole.Sessions.driver_pid(%{
+        agent_uid: agent.uid,
+        session_id: Ankole.Sessions.Key.conversation(id)
+      })
 
     assert {:ok, _} =
              Conversations.post(human.uid, id, %{
@@ -207,7 +209,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
              String.contains?(Ankole.JSON.encode!(message), "Include the operator runbook.")
            end) == 1
 
-    assert Driver.whereis(%{
+    assert Ankole.Sessions.driver_pid(%{
              agent_uid: agent.uid,
              session_id: Ankole.Sessions.Key.conversation(id)
            }) ==
@@ -244,7 +246,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
                 })}
              end)
 
-    assert Driver.whereis(key) == :undefined
+    assert Ankole.Sessions.driver_pid(key) == :undefined
 
     job =
       Repo.one!(
@@ -265,7 +267,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
              :count
            ) == 0
 
-    driver = Driver.whereis(key)
+    driver = Ankole.Sessions.driver_pid(key)
     monitor = Process.monitor(driver)
     Process.exit(driver, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^driver, :killed}, 5_000

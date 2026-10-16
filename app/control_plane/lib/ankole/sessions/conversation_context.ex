@@ -13,11 +13,10 @@ defmodule Ankole.Sessions.ConversationContext do
   end
 
   def read_seq(agent_uid, model_id, conversation_id) do
-    with {:ok, rows} <-
-           AIGateway.visible_response_chain(agent_uid, model_id, stop_at_checkpoint: false) do
-      rows
-      |> Enum.map(fn row ->
-        case AIGateway.response_metadata(row)["conversation_read"] do
+    with {:ok, metadata} <- AIGateway.visible_response_metadata(agent_uid, model_id) do
+      metadata
+      |> Enum.map(fn caller ->
+        case caller["conversation_read"] do
           %{"id" => ^conversation_id, "max_seq" => seq} when is_integer(seq) -> seq
           _ -> 0
         end
@@ -33,8 +32,9 @@ defmodule Ankole.Sessions.ConversationContext do
 
     inputs =
       Repo.all(
-        from s in Signal,
+        from(s in Signal,
           where: s.id in ^signal_ids and s.producer == :kernel and s.conversation_id == ^id
+        )
       )
 
     input_ids =

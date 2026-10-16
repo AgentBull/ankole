@@ -15,7 +15,11 @@ import { prepareExecutionMaterials } from '../core/execution/execution-materials
 import { commandEnv } from '../core/execution/command-env'
 import { agentProcessArgv, killProcessGroup } from '../core/execution/process-group'
 import { loadEnabledSkillMCPServers } from '../tools/mcp'
-import { type AutomationJobRunRequest, type AutomationJobRunResponse, type RPCRequester } from '../lanes/rpc_lane'
+import {
+  type AutomationJobRunRequest,
+  type AutomationJobRunResponse
+} from '../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { type RPCRequester } from '../lanes/rpc_lane'
 import type { AgentHomeConfig, WorkerConfig } from '../worker/config'
 
 const logMaxBytes = 65_536

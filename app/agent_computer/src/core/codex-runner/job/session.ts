@@ -6,7 +6,8 @@ import { errorMessage, toError } from '../../../common/errors'
 import { isRuntimeFabricTransportError } from '../../../fabric/fabric'
 import { jsonBytes, jsonObjectFromBytes } from '../../../fabric/envelope_proto'
 import type { TurnStart, TurnSteerUpdate } from '../../../lanes/session_lane'
-import { RPCTimeoutError, type BackgroundAgentJobResponse } from '../../../lanes/rpc_lane'
+import { RPCTimeoutError } from '../../../lanes/rpc_lane'
+import { type BackgroundAgentJobResponse } from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import type {
   BackgroundAgentJobStatus,
   BackgroundAgentJobTurnKind,
@@ -101,6 +102,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private waitingOnUserInput = false
   private recoveryInFlight = false
   private completionPending = false
+  private turnCompletionTail: Promise<void> = Promise.resolve()
+  private readonly completedTurns = new Set<string>()
   private recoveryState: CodexRecoveryState = initialCodexRecoveryState
   private pendingCredentialPoolExhaustion: CodexCredentialPoolExhaustion | undefined
   private emptyReportRetries = 0
@@ -467,7 +470,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private async commitStatusWithAck(
     ...args: [
       'background_agent_job.status.update',
-      import('../../../lanes/rpc_lane').RPCRequestInit<'background_agent_job.status.update'>,
+      import('../../../lanes/rpc_contract').RPCRequestInit<'background_agent_job.status.update'>,
       { jobTurn: import('../../../lanes/session_lane').JobTurnRef }
     ]
   ): Promise<void> {
@@ -838,15 +841,20 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     } else if (projection.type === 'turn_diff') {
       this.activeFilesChanged = projection.filesChanged
     } else if (projection.type === 'turn_completed' && !this.finalizing && !this.waitingOnUserInput) {
+      const threadID = projection.threadID ?? this.runtimeThreadID
+      if (threadID && projection.turnID) {
+        const key = JSON.stringify([threadID, projection.turnID])
+        if (this.completedTurns.has(key)) return
+        this.completedTurns.add(key)
+      }
+      // Recovery waits for this handshake, so it must bypass the completion tail.
       if (this.settleCompaction(projection)) return
       this.rollActiveFilesChanged()
-      // This runs outside any awaiting caller: a notification handler cannot
-      // await it. Its own failure paths (waiting for child threads, retrying an
-      // empty report) end the Job through `rejectDone`, so the rejection reaches
-      // the Job instead of the process.
-      this.handleTurnCompleted(projection.terminalStatus, projection.codexTurnStatus, projection.error).catch(error => {
-        this.rejectDone(toError(error))
-      })
+      // A retry can complete in the same stdout chunk as its turn/start reply.
+      // Keep that completion until the previous recovery has finished.
+      this.turnCompletionTail = this.turnCompletionTail
+        .then(() => this.handleTurnCompleted(projection.terminalStatus, projection.codexTurnStatus, projection.error))
+        .catch(error => this.rejectDone(toError(error)))
     }
   }
 

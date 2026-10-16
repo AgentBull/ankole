@@ -56,7 +56,7 @@ defmodule Ankole.Brain.MarkdocIntegrationTest do
         title: "Corrupt",
         body: body,
         meta: %{},
-        content_hash: Objects.content_hash("Corrupt", body, %{})
+        content_hash: "corrupt-markdoc-fixture"
       })
       |> Repo.insert!()
 

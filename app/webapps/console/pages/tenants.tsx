@@ -117,7 +117,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
     [tenantID, selected]
   )
   const status = useEditorDraft(model, {
-    identity: { resource: 'tenant', tenantID },
+    sourceKey: tenantID ? `tenant:${tenantID}` : 'new',
     source,
     absent: () => Boolean(tenantID && tenants.isSuccess && !selected)
   })

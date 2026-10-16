@@ -1,5 +1,14 @@
 import Config
 
+if System.get_env("RELEASE_ROOT") do
+  config :ankole,
+         :internal_migrations_path,
+         Application.app_dir(:ankole, "priv/repo/internal_migrations")
+
+  config :ankole, :webapp_assets_path, Application.app_dir(:ankole, "priv/static/assets")
+  config :ankole, :i18n, locales_dir: Application.app_dir(:ankole, "priv/locales")
+end
+
 Code.require_file("support/bootstrap.exs", __DIR__)
 
 Ankole.Config.Bootstrap.load_dotenv!(

@@ -1,6 +1,6 @@
 import { describe, it } from 'bun:test'
 import ist from 'ist'
-import { Plot, Leaf, Node } from '../../src/core/doc'
+import { Plot, Leaf, Node, Slice } from '../../src/core/doc'
 import { Paragraph, Image } from '../../src/core/types/schema'
 import { basicSchema as schema, basicBuilders, tag, eq } from './schema'
 const { doc, blockquote, p, h1, li, ul, hr, em, strong, code, $img, $a } = basicBuilders
@@ -103,12 +103,7 @@ describe('Node', () => {
     })
 
     it('works on slices', () => {
-      ist(
-        doc(p('abc'), blockquote(p('def')))
-          .slice(2, 9)
-          .textContent(),
-        'bc\nde'
-      )
+      ist(Slice.of(doc(p('abc'), blockquote(p('def'))).slice(2, 9)).textContent(), 'bc\nde')
     })
   })
 

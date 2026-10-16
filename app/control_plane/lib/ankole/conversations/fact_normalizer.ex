@@ -13,6 +13,70 @@ defmodule Ankole.Conversations.FactNormalizer do
   alias Ankole.Signals.Sanitizer
   alias Ankole.Signals.Binding
 
+  @type channel :: %{
+          optional(:kind) =>
+            :im_dm | :im_group | :webhook_endpoint | :issue | :alert_stream | String.t(),
+          optional(:reply_mode) => :channel | :entry | :none | String.t(),
+          optional(:name) => String.t(),
+          optional(:visibility) => String.t(),
+          optional(:metadata) => map(),
+          optional(:raw_payload) => map()
+        }
+  @type entry_input :: %{
+          required(:source_event_id) => String.t(),
+          required(:provider_conversation_id) => String.t(),
+          required(:provider_message_id) => String.t(),
+          optional(:reply_to_provider_message_id) => String.t() | nil,
+          optional(:provider_thread_id) => String.t() | nil,
+          optional(:channel) => channel(),
+          optional(:text) => String.t() | nil,
+          optional(:formatted_content) => map(),
+          optional(:attachments) => [map()],
+          optional(:links) => [map()],
+          optional(:author) => map(),
+          optional(:mentions) => [map()],
+          optional(:metadata) => map(),
+          optional(:raw_payload) => map(),
+          optional(:provider_time) => DateTime.t() | nil,
+          optional(:explicit) => boolean(),
+          optional(:mirror_only) => boolean(),
+          optional(:signal_type) => String.t() | nil,
+          optional(:structured_mention_prefixes) => [String.t()]
+        }
+  @type removal_input :: %{
+          required(:source_event_id) => String.t(),
+          required(:provider_conversation_id) => String.t(),
+          required(:provider_message_id) => String.t(),
+          optional(:provider_thread_id) => String.t() | nil,
+          optional(:channel) => channel(),
+          optional(:metadata) => map(),
+          optional(:raw_payload) => map(),
+          optional(:provider_time) => DateTime.t() | nil,
+          optional(:provider_lifecycle_kind) => atom() | String.t()
+        }
+  @type reaction_input :: %{
+          required(:provider_conversation_id) => String.t(),
+          required(:provider_message_id) => String.t(),
+          required(:reaction_key) => String.t(),
+          required(:actor_key) => String.t(),
+          optional(:source_event_id) => String.t(),
+          optional(:action) => :add | :remove | String.t(),
+          optional(:raw_reaction_key) => String.t(),
+          optional(:provider_time) => DateTime.t() | nil
+        }
+  @type action_input :: %{
+          required(:source_event_id) => String.t(),
+          required(:action_id) => String.t(),
+          optional(:session_id) => String.t(),
+          optional(:provider_conversation_id) => String.t(),
+          optional(:provider_message_id) => String.t(),
+          optional(:provider_thread_id) => String.t() | nil,
+          optional(:channel) => channel(),
+          optional(:action) => map(),
+          optional(:raw_payload) => map(),
+          optional(:signal_type) => String.t()
+        }
+
   def entry(%Binding{} = binding, input, now) do
     with :ok <- validate_attr_keys(input),
          {:ok, source_event_id} <- required_attr_text(input, :source_event_id),
@@ -21,6 +85,7 @@ defmodule Ankole.Conversations.FactNormalizer do
          {:ok, attachments} <- normalize_attachments(input),
          {:ok, links} <- normalize_json_list(attr_list(input, :links), :links),
          {:ok, author} <- normalize_json_map(attr_map(input, :author, %{}), :author),
+         :ok <- validate_provider_author(author),
          {:ok, mentions} <- normalize_json_list(attr_list(input, :mentions), :mentions),
          {:ok, formatted_content} <-
            normalize_json_map(attr_map(input, :formatted_content, %{}), :formatted_content),
@@ -30,10 +95,9 @@ defmodule Ankole.Conversations.FactNormalizer do
          {:ok, channel_metadata} <- normalize_channel_metadata(input),
          {:ok, channel_raw_payload} <- normalize_channel_raw_payload(input) do
       channel = attr_map(input, :channel, %{})
-      author = normalize_author_principal(binding, author)
 
       channel_kind =
-        normalize_channel_kind(Map.get(channel, :kind) || Map.get(input, :channel_kind))
+        normalize_channel_kind(Map.get(channel, :kind))
 
       channel_metadata =
         put_dm_peer_principal(channel_metadata, channel_kind, author, binding.agent_uid)
@@ -49,12 +113,9 @@ defmodule Ankole.Conversations.FactNormalizer do
          reply_to_provider_message_id: optional_attr_text(input, :reply_to_provider_message_id),
          provider_thread_id: optional_attr_text(input, :provider_thread_id),
          channel_kind: channel_kind,
-         reply_mode:
-           normalize_reply_mode(Map.get(channel, :reply_mode) || Map.get(input, :reply_mode)),
-         channel_name: channel_name(input, channel),
-         channel_visibility:
-           optional_attr_text(channel, :visibility) ||
-             optional_attr_text(input, :channel_visibility),
+         reply_mode: normalize_reply_mode(Map.get(channel, :reply_mode)),
+         channel_name: optional_attr_text(channel, :name),
+         channel_visibility: optional_attr_text(channel, :visibility),
          channel_metadata: channel_metadata,
          channel_raw_payload: channel_raw_payload,
          text: optional_attr_text(input, :text),
@@ -72,7 +133,7 @@ defmodule Ankole.Conversations.FactNormalizer do
          mirror_only?: truthy?(Map.get(input, :mirror_only)),
          signal_type: optional_attr_text(input, :signal_type),
          command_prefixes: attr_list(input, :structured_mention_prefixes),
-         sender_key: sender_key(input, author),
+         sender_key: sender_key(author),
          gateway_time: now
        }}
     end
@@ -105,14 +166,10 @@ defmodule Ankole.Conversations.FactNormalizer do
          provider_conversation_id: provider_conversation_id,
          provider_message_id: provider_message_id,
          provider_thread_id: optional_attr_text(input, :provider_thread_id),
-         channel_kind:
-           normalize_channel_kind(Map.get(channel, :kind) || Map.get(input, :channel_kind)),
-         reply_mode:
-           normalize_reply_mode(Map.get(channel, :reply_mode) || Map.get(input, :reply_mode)),
-         channel_name: channel_name(input, channel),
-         channel_visibility:
-           optional_attr_text(channel, :visibility) ||
-             optional_attr_text(input, :channel_visibility),
+         channel_kind: normalize_channel_kind(Map.get(channel, :kind)),
+         reply_mode: normalize_reply_mode(Map.get(channel, :reply_mode)),
+         channel_name: optional_attr_text(channel, :name),
+         channel_visibility: optional_attr_text(channel, :visibility),
          channel_metadata: channel_metadata,
          channel_raw_payload: channel_raw_payload,
          metadata: metadata,
@@ -173,14 +230,10 @@ defmodule Ankole.Conversations.FactNormalizer do
          provider_message_id: optional_attr_text(input, :provider_message_id),
          provider_thread_id: optional_attr_text(input, :provider_thread_id),
          sender_key: nil,
-         channel_kind:
-           normalize_channel_kind(Map.get(channel, :kind) || Map.get(input, :channel_kind)),
-         reply_mode:
-           normalize_reply_mode(Map.get(channel, :reply_mode) || Map.get(input, :reply_mode)),
-         channel_name: channel_name(input, channel),
-         channel_visibility:
-           optional_attr_text(channel, :visibility) ||
-             optional_attr_text(input, :channel_visibility),
+         channel_kind: normalize_channel_kind(Map.get(channel, :kind)),
+         reply_mode: normalize_reply_mode(Map.get(channel, :reply_mode)),
+         channel_name: optional_attr_text(channel, :name),
+         channel_visibility: optional_attr_text(channel, :visibility),
          channel_metadata: channel_metadata,
          channel_raw_payload: channel_raw_payload,
          signal_type: optional_attr_text(input, :signal_type) || "signal.action.invoked",
@@ -211,10 +264,6 @@ defmodule Ankole.Conversations.FactNormalizer do
     end
   end
 
-  defp channel_name(input, channel) do
-    optional_attr_text(channel, :name) || optional_attr_text(input, :channel_name)
-  end
-
   # A DM's peer is a durable routing fact, not a provider-specific payload
   # detail. Persist the normalized Ankole principal on the channel mirror so a
   # later system event in the same channel can declare the same conversation
@@ -243,23 +292,19 @@ defmodule Ankole.Conversations.FactNormalizer do
     end)
   end
 
-  defp sender_key(input, author) do
-    optional_attr_text(input, :sender_key) ||
-      json_text(author, "principal_uid") ||
-      json_text(author, "platform_subject") ||
+  defp sender_key(author) do
+    json_text(author, "platform_subject") ||
       json_text(author, "external_id") ||
       json_text(author, "id")
   end
 
-  # Author resolution belongs to IdentityAdmission; the normalizer only
-  # normalizes a principal uid a trusted internal caller already supplied.
-  defp normalize_author_principal(%Binding{}, author) when is_map(author) do
-    case json_text(author, "principal_uid") do
-      principal_uid when is_binary(principal_uid) ->
-        Map.put(author, "principal_uid", Ankole.PrincipalKey.canonicalize(principal_uid))
-
-      nil ->
-        author
+  defp validate_provider_author(author) do
+    case Enum.find(
+           ["principal_uid", "agent_uid", "human_access_version"],
+           &Map.has_key?(author, &1)
+         ) do
+      nil -> :ok
+      key -> {:error, {:invalid_ingress_author_authority, key}}
     end
   end
 
@@ -289,8 +334,27 @@ defmodule Ankole.Conversations.FactNormalizer do
 
   defp validate_attr_keys(map) when is_map(map) do
     case Enum.find(Map.keys(map), &(not is_atom(&1))) do
-      nil -> validate_channel_attr_keys(Map.get(map, :channel))
-      key -> {:error, {:invalid_ingress_attr_key, key}}
+      nil ->
+        case Enum.find(
+               [
+                 :sender_key,
+                 :principal_uid,
+                 :agent_uid,
+                 :human_access_version,
+                 :channel_kind,
+                 :reply_mode,
+                 :channel_name,
+                 :channel_visibility,
+                 :raw
+               ],
+               &Map.has_key?(map, &1)
+             ) do
+          nil -> validate_channel_attr_keys(Map.get(map, :channel))
+          key -> {:error, {:invalid_ingress_attr_key, key}}
+        end
+
+      key ->
+        {:error, {:invalid_ingress_attr_key, key}}
     end
   end
 
@@ -300,8 +364,13 @@ defmodule Ankole.Conversations.FactNormalizer do
 
   defp validate_channel_attr_keys(channel) when is_map(channel) do
     case Enum.find(Map.keys(channel), &(not is_atom(&1))) do
-      nil -> :ok
-      key -> {:error, {:invalid_ingress_channel_attr_key, key}}
+      nil ->
+        if Map.has_key?(channel, :raw),
+          do: {:error, {:invalid_ingress_channel_attr_key, :raw}},
+          else: :ok
+
+      key ->
+        {:error, {:invalid_ingress_channel_attr_key, key}}
     end
   end
 
@@ -352,7 +421,7 @@ defmodule Ankole.Conversations.FactNormalizer do
   defp json_text(_map, _key), do: nil
 
   defp normalize_raw_payload(input) do
-    normalize_json_map(attr_map(input, :raw_payload, attr_map(input, :raw, %{})), :raw_payload)
+    normalize_json_map(attr_map(input, :raw_payload, %{}), :raw_payload)
   end
 
   defp normalize_channel_metadata(input) do
@@ -366,7 +435,7 @@ defmodule Ankole.Conversations.FactNormalizer do
     channel = attr_map(input, :channel, %{})
 
     normalize_json_map(
-      attr_map(channel, :raw_payload, attr_map(channel, :raw, %{})),
+      attr_map(channel, :raw_payload, %{}),
       :channel_raw_payload
     )
   end

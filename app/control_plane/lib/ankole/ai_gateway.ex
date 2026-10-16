@@ -12,7 +12,6 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.CredentialAttempts
-  alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.FailureDiagnostics
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.Attrs
@@ -333,24 +332,12 @@ defmodule Ankole.AIGateway do
     to: Conversations
 
   @doc false
-  defdelegate update_conversation_metadata_in_tx(repo, conversation, metadata), to: Conversations
-
-  @doc false
   defdelegate active_conversation_for_update(repo, subject_uid, conversation_key),
     to: Conversations
 
   @doc false
   defdelegate end_active_conversation_in_tx(repo, subject_uid, conversation_key, now),
     to: Conversations
-
-  @doc false
-  defdelegate end_active_conversations_by_key_prefix_in_tx(
-                repo,
-                subject_uid,
-                conversation_key_prefix,
-                now
-              ),
-              to: Conversations
 
   @doc false
   defdelegate lock_conversation(repo, conversation_id), to: Conversations
@@ -417,15 +404,6 @@ defmodule Ankole.AIGateway do
                 opts \\ []
               ),
               to: Ankole.AIGateway.ResponseChain
-
-  @doc """
-  Subscribes to generic live events after validating conversation ownership.
-  """
-  @spec subscribe(String.t(), binary()) :: :ok | {:error, :invalid_conversation}
-  defdelegate subscribe(subject_uid, conversation_id), to: Events
-
-  @spec unsubscribe(String.t(), binary()) :: :ok | {:error, :invalid_conversation}
-  defdelegate unsubscribe(subject_uid, conversation_id), to: Events
 
   @doc false
   defdelegate reconcile_orphaned_response(response_id, opts \\ []),
@@ -517,6 +495,14 @@ defmodule Ankole.AIGateway do
 
   @doc "Reads the visible complete Response ancestry of an owned model conversation."
   defdelegate visible_response_chain(subject_uid, conversation_id, opts \\ []),
+    to: Ankole.AIGateway.ResponseChain
+
+  @doc "Reads caller metadata from complete ordinary rows across the visible ancestry."
+  defdelegate visible_response_metadata(subject_uid, conversation_id),
+    to: Ankole.AIGateway.ResponseChain
+
+  @doc "Reads the visible Response suffix for one opaque caller-metadata string selector."
+  defdelegate visible_response_suffix(subject_uid, conversation_id, selector),
     to: Ankole.AIGateway.ResponseChain
 
   @doc false

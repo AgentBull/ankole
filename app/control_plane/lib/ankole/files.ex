@@ -62,6 +62,8 @@ defmodule Ankole.Files do
   """
   @spec store(binary() | {:file, Path.t()}) :: {:ok, stored()} | {:error, term()}
   def store(content) do
+    Repo.assert_outside_transaction!()
+
     with {:ok, digest, size} <- digest(content),
          :ok <- upsert_blob(digest, size),
          :ok <- write_object(object_key(digest), content) do

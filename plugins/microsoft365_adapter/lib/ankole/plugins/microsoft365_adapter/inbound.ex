@@ -11,7 +11,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   alias Ankole.Plugins.Microsoft365Adapter.Emoji
 
   alias Ankole.Conversations.AdapterContext
-  alias Ankole.Conversations.Observe
+  alias Ankole.Conversations.{Attachments, Observe}
   alias MicrosoftOpenAPI.BotConnector
 
   @file_download_content_type "application/vnd.microsoft.teams.file.download.info"
@@ -455,7 +455,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   defp maybe_materialize_attachments(attachments, _activity, %{config: config}) do
     materialized =
-      Observe.materialize_attachments(attachments, "microsoft365", fn attachment ->
+      Attachments.materialize_attachments(attachments, "microsoft365", fn attachment ->
         with {:ok, download} <- download_attachment(attachment, config) do
           {:ok, %{body: download.body, filename: download.filename, content_type: nil, put: %{}}}
         end

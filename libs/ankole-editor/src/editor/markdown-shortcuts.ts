@@ -195,7 +195,7 @@ function typedCharacter(tr: Transaction): string | null {
   let count = 0
   tr.changes.iterChanges((_fromA, _toA, _fromB, toB, inserted) => {
     count++
-    const token = inserted.content.length === 1 ? inserted.content[0]! : null
+    const token = inserted.length === 1 ? inserted[0]! : null
     if (token?.tokenType === Token.Type.Node && token.isText && toB === tr.state.selection.head) {
       typed = (token as Leaf<string>).param
     }

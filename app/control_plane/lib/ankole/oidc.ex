@@ -213,7 +213,7 @@ defmodule Ankole.OIDC do
     end
   end
 
-  @doc "Deletes expired credentials and session state after its retention and delivery obligations end."
+  @doc "Deletes the tenant's expired credentials and eligible OIDC session state."
   @spec cleanup_expired_credentials(DateTime.t()) :: %{atom() => non_neg_integer()}
   def cleanup_expired_credentials(now \\ DateTime.utc_now(:microsecond)) do
     {authorization_codes, _rows} =
@@ -254,13 +254,12 @@ defmodule Ankole.OIDC do
             )
       )
 
-    Ankole.BrowserSessions.cleanup_expired(now)
-    |> Map.merge(%{
+    %{
       authorization_codes: authorization_codes,
       refresh_tokens: refresh_tokens,
       logout_requests: logout_requests,
       oidc_sessions: oidc_sessions
-    })
+    }
   end
 
   @doc "Projects one client without its encrypted secret."
@@ -346,7 +345,10 @@ defmodule Ankole.OIDC do
   defp validate_identity_provider_ids(%{allowed_identity_provider_ids: ids}) when is_list(ids) do
     Enum.reduce_while(ids, :ok, fn
       id, :ok when is_binary(id) ->
-        case Ankole.IdentityProviders.fetch_configured_provider(id) do
+        case if(Ankole.IdentityProviders.SiteSources.registered?(id),
+               do: {:ok, id},
+               else: Ankole.IdentityProviders.fetch_configured_provider(id)
+             ) do
           {:ok, _} -> {:cont, :ok}
           _ -> {:halt, {:error, :unknown_identity_provider}}
         end

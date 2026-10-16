@@ -2,25 +2,40 @@ defmodule Ankole.Signals.Intake do
   @moduledoc false
   import Ecto.Query
 
+  alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Conversations.{Conversation, Participant}
+  alias Ankole.Conversations.Delivery.Interactions
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Principals.{Principal, WorkAccess}
   alias Ankole.Sessions.Queue
+  alias Ankole.Sessions.Jobs.EnsureDriver
   alias Ankole.Signals.Signal
 
   def accept(repo, attrs) do
+    Ankole.Observability.stage("signal.intake.prepared_in_tx", %{}, fn ->
+      accept_in_tx(repo, attrs)
+    end)
+  end
+
+  defp accept_in_tx(repo, attrs) do
     with {:ok, target} <- resolve_target(repo, value(attrs, :target)),
          {:ok, facts} <- facts(repo, attrs, target),
          :ok <- Queue.lock_session_in_tx(repo, target.agent_uid, target.session_id),
          {:ok, signal} <- persist(repo, facts),
-         :ok <- Queue.appended_in_tx(repo, signal) do
+         {:ok, _} <- Interactions.supersede_older_in_tx(repo, signal, signal.inserted_at),
+         :ok <-
+           EnsureDriver.enqueue_in_tx(
+             repo,
+             %{agent_uid: signal.agent_uid, session_id: signal.session_id},
+             signal.available_at
+           ) do
       {:ok, signal}
     end
   end
 
   defp resolve_target(repo, %{agent_uid: uid} = target) when is_binary(uid) do
     with %Principal{type: :agent, uid: uid} <- repo.get(Principal, String.downcase(uid)) do
-      case Ankole.Signals.Target.parse(target) do
+      case ExecutionTarget.parse(target) do
         {:session, key} -> {:ok, %{agent_uid: uid, session_id: key}}
         {:conversation, id} -> resolve_conversation(repo, uid, id)
         :error -> {:error, :invalid_signal_target}
@@ -31,7 +46,7 @@ defmodule Ankole.Signals.Intake do
   end
 
   defp resolve_target(repo, {:conversation, _} = target) do
-    with {:conversation, id} <- Ankole.Signals.Target.parse(target),
+    with {:conversation, id} <- ExecutionTarget.parse(target),
          %Principal{uid: uid} <-
            repo.one(
              from(c in Conversation,

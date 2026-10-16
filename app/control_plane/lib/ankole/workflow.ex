@@ -133,32 +133,11 @@ defmodule Ankole.Workflow do
     end
   end
 
-  @spec fail_unstarted_task(
-          pos_integer(),
-          String.t(),
-          String.t(),
-          String.t(),
-          DateTime.t()
-        ) :: {:ok, %{accepted: boolean(), call: struct(), run: struct()}} | {:error, term()}
-  def fail_unstarted_task(call_id, agent_uid, code, summary, available_at) do
-    fail_unstarted_task_in_storage(call_id, agent_uid, code, summary, available_at)
-    |> cleanup_terminal_transition()
-  end
-
   @doc false
   @spec cleanup_terminal_transition(term()) :: term()
-  def cleanup_terminal_transition({:ok, %{turn_error_compensation: compensation} = result}) do
-    case cleanup_terminal_transition({:ok, compensation}) do
-      {:ok, cleaned_compensation} ->
-        {:ok, %{result | turn_error_compensation: cleaned_compensation}}
-
-      other ->
-        other
-    end
-  end
-
   def cleanup_terminal_transition({:ok, %{run: %Run{status: status} = run} = result})
       when status in ["completed", "failed", "cancelled"] do
+    Repo.assert_outside_transaction!()
     if status == "cancelled", do: RunServer.stop_replay(run.id)
 
     case cleanup_terminal_run(run) do
@@ -178,6 +157,7 @@ defmodule Ankole.Workflow do
          } = result}
       )
       when is_list(running_session_ids) do
+    Repo.assert_outside_transaction!()
     cleanup_errors = stop_running_task_turns(run, running_session_ids)
     {:ok, Map.put(result, :cleanup_errors, cleanup_errors)}
   end
@@ -224,6 +204,7 @@ defmodule Ankole.Workflow do
 
   def cleanup_terminal_run(%Run{status: status} = run)
       when status in ["completed", "failed", "cancelled"] do
+    Repo.assert_outside_transaction!()
     sessions = task_sessions(run.id)
     cancelled_session_ids = for {session_id, "cancelled"} <- sessions, do: session_id
     all_session_ids = Enum.map(sessions, &elem(&1, 0))
@@ -1169,52 +1150,63 @@ defmodule Ankole.Workflow do
     end
   end
 
-  @doc false
-  @spec fail_unstarted_task_in_storage(
-          pos_integer(),
-          String.t(),
-          String.t(),
-          String.t(),
-          DateTime.t()
-        ) :: {:ok, %{accepted: boolean(), call: struct(), run: struct()}} | {:error, term()}
-  defp fail_unstarted_task_in_storage(
-         call_id,
-         agent_uid,
-         code,
-         summary,
-         %DateTime{} = available_at
-       )
-       when is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and is_binary(code) and
-              is_binary(summary) do
-    Repo.transact(fn repo ->
-      with :ok <- lock_agent_slots(repo, agent_uid),
-           {:ok, run_id} <- call_run_id(repo, call_id, agent_uid),
-           %Run{} = run <- lock_run(repo, run_id, agent_uid),
-           %AgentCall{} = call <- lock_call(repo, call_id, run.id, agent_uid) do
-        failure = %{
-          "code" => Text.utf8_prefix(code, 128),
-          "summary" => Text.utf8_prefix(summary, 2_000),
-          "retryable" => false
-        }
+  @doc "Rejects an unadmitted task inside the caller's transaction."
+  def fail_unstarted_task_in_tx(repo, call_id, agent_uid, code, summary, available_at) do
+    with {:ok, {run, call}} <- lock_task_in_tx(repo, call_id, agent_uid) do
+      fail_unstarted_task_locked(repo, run, call, task_failure(code, summary), available_at)
+    end
+  end
 
-        cond do
-          run.status != "running" ->
-            {:ok, %{accepted: false, call: call, run: run}}
+  @doc "Ends a task whose selected model is unavailable without admitting another attempt."
+  def model_unavailable_in_tx(repo, call_id, agent_uid, session_id, profile, reason, available_at) do
+    with {:ok, {run, call}} <- lock_task_in_tx(repo, call_id, agent_uid),
+         :ok <- authorize_session(call, session_id) do
+      failure =
+        task_failure(
+          "workflow_task_model_profile_unavailable",
+          "Model profile #{profile} is unavailable: #{inspect(reason)}"
+        )
 
-          call.status in ["queued", "sleeping"] ->
-            commit_failure(repo, run, call, failure, false, available_at)
+      if call.status == "running",
+        do: submit_locked(repo, run, call, Map.put(failure, "ok", false), available_at),
+        else: fail_unstarted_task_locked(repo, run, call, failure, available_at)
+    end
+  end
 
-          call.status in AgentCall.terminal_statuses() ->
-            {:ok, %{accepted: false, call: call, run: run}}
+  defp lock_task_in_tx(repo, call_id, agent_uid) do
+    with :ok <- lock_agent_slots(repo, agent_uid),
+         {:ok, run_id} <- call_run_id(repo, call_id, agent_uid),
+         %Run{} = run <- lock_run(repo, run_id, agent_uid),
+         %AgentCall{} = call <- lock_call(repo, call_id, run.id, agent_uid) do
+      {:ok, {run, call}}
+    else
+      nil -> {:error, :workflow_task_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
 
-          true ->
-            {:error, {:workflow_task_not_queued, call.status}}
-        end
-      else
-        nil -> {:error, :workflow_task_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+  defp task_failure(code, summary) do
+    %{
+      "code" => Text.utf8_prefix(code, 128),
+      "summary" => Text.utf8_prefix(summary, 2_000),
+      "retryable" => false
+    }
+  end
+
+  defp fail_unstarted_task_locked(repo, run, call, failure, available_at) do
+    cond do
+      run.status != "running" ->
+        {:ok, %{accepted: false, call: call, run: run}}
+
+      call.status in ["queued", "sleeping"] ->
+        commit_failure(repo, run, call, failure, false, available_at)
+
+      call.status in AgentCall.terminal_statuses() ->
+        {:ok, %{accepted: false, call: call, run: run}}
+
+      true ->
+        {:error, {:workflow_task_not_queued, call.status}}
+    end
   end
 
   @doc false

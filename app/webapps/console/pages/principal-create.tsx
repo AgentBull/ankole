@@ -47,7 +47,7 @@ export function PrincipalCreatePage() {
   const model = useModel(PrincipalEditorModel)
   const principalDraft = useMemo(() => ({ displayName: '', email: '' }), [])
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'principal' },
+    sourceKey: 'new',
     source: principalDraft
   })
 

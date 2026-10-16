@@ -1,11 +1,14 @@
 import { HostedTool } from '../../../fabric/generated/ankole/runtime_fabric/v1/envelope_pb'
 import type { TurnStart } from '../../../lanes/session_lane'
-import { type BackgroundAgentJobResponse, type RuntimeSkillSummary } from '../../../lanes/rpc_lane'
+import {
+  type BackgroundAgentJobResponse,
+  type RuntimeSkillSummary
+} from '../../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { materializeCodexConfig } from '../runtime/agent-home-config'
 import { resolveCodexRuntimeConfig } from '../runtime-config'
 import { codexAppServerSpec, codexJobThreadEnv } from '../runtime/app-server-spec'
 import {} from '../../ai_gateway_transport'
-import { materializeAgentLibraryDocuments } from './agent-library-documents'
+import { materializeAgentLibraryDocuments } from '../../agent-library-documents'
 import { agentHomePaths } from '../../agent-home-paths'
 import { createWebTools } from '../../../tools/web/web-tools'
 import { webSearchIsProviderHosted } from '../../runtime-policy'

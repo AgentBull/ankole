@@ -10,6 +10,11 @@ export type EnvironmentAddParams = { environmentId: string, execServerUrl: strin
  */
 authBearerToken?: string | null,
 /**
+ * Optional X-Request-ID for the direct WebSocket upgrade, including reconnects.
+ * Requires a secure transport or a loopback destination.
+ */
+websocketRequestId?: string | null,
+/**
  * Optional WebSocket connection timeout. The server default applies when omitted.
  */
 connectTimeoutMs?: number | null,

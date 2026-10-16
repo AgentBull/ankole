@@ -683,8 +683,8 @@ export class Wordgard {
 
   /**
    * Filter functions provided through this facet will be run on a
-   * slice and its context before they are serialized to the
-   * clipboard. Copy, cut and drag pass the selection's content.
+   * slice before it is serialized to the clipboard. The slice holds
+   * its context. Copy, cut and drag pass the selection's content.
    */
   static clipboardOutputFilter = clipboardOutputFilter
 
@@ -710,7 +710,8 @@ export class Wordgard {
 
   /**
    * Filter functions provided through this facet will be run on a
-   * slice and its context after they are read from the clipboard.
+   * slice after it is read from the clipboard. The slice holds its
+   * context.
    */
   static clipboardInputFilter = clipboardInputFilter
 

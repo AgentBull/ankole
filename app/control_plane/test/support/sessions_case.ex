@@ -99,7 +99,7 @@ defmodule Ankole.SessionsCase do
   @doc "Registers a passive Driver boundary fake for a domain unit test."
   def stub_driver(key, owner \\ self()) do
     pid = spawn(fn -> stub_driver_loop(owner, Process.monitor(owner)) end)
-    :yes = :global.register_name(Ankole.Sessions.Driver.name(key), pid)
+    :yes = :global.register_name(Ankole.Sessions.driver_name(key), pid)
     pid
   end
 
@@ -473,7 +473,7 @@ defmodule Ankole.SessionsCase do
 
   def binding_fixture(agent_uid, name, policy, opts \\ []) do
     {:ok, binding} =
-      Ankole.Signals.Bindings.upsert_binding(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent_uid,
         name: name,
         adapter: Keyword.get(opts, :adapter, "lark"),

@@ -6,6 +6,7 @@ import {
   assertPublishedWorkerLabels,
   buildWorkerImageBuildArgs,
   localWorkerImageRef,
+  workerBaseSource,
   workerInputRoots
 } from './local-worker-image'
 import { repoRootPath } from './utils'
@@ -45,6 +46,20 @@ describe('local Worker image identity', () => {
     for (const source of sources) {
       expect(roots.some(root => source === root || source.startsWith(`${root}/`))).toBe(true)
     }
+  })
+
+  test('uses the pinned Agent OS base only when its recipe matches', () => {
+    const recipe = 'a'.repeat(40)
+
+    expect(workerBaseSource(recipe, recipe)).toBe('lock')
+    expect(workerBaseSource('b'.repeat(40), recipe)).toBe('local')
+    expect(workerBaseSource(null, recipe)).toBe('local')
+    expect(workerBaseSource(recipe, null)).toBe('local')
+  })
+
+  test('includes the Agent OS recipe in the Worker image inputs', () => {
+    expect(workerInputRoots('source-mounted')).toContain('app/agent_computer/Dockerfile.base')
+    expect(workerInputRoots('complete')).toContain('app/agent_computer/Dockerfile.base')
   })
 
   test('accepts the published base identity without coupling it to the fallback base lock', () => {

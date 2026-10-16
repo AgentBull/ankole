@@ -125,7 +125,7 @@ defmodule Ankole.Sessions.AmbientTest do
     %{principal: human} = human_fixture()
 
     assert {:ok, _} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: agent.uid,
                name: "room",
                adapter: "lark",

@@ -3,7 +3,7 @@ import { MutationObserver, QueryClient } from '@tanstack/react-query'
 import i18n, { loadLocale } from '../../common/i18n'
 import type { AppConfigurationItem } from '../api/generated/types.gen'
 import { ENCRYPTED_VALUE_MASK } from '../encrypted-value-input'
-import { resolveEditorDraftIdentity, seedEditorDraft } from '../use-editor-draft'
+import { seedEditorDraft } from '../use-editor-draft'
 import { BRAIN_FORGETTING_FIELDS, BRAIN_KEYS } from './brain-setting-editor'
 import { OBSERVABILITY_TRACE_KEYS as TRACE } from './observability-setting-editor'
 import { SettingGroupEditorModel } from './setting-group-editor-model'
@@ -20,7 +20,7 @@ const observability = [
 describe('SettingGroupEditorModel', () => {
   test('seeds through the shared draft lifecycle without replacing edits on refetch', () => {
     using model = new SettingGroupEditorModel()
-    const identity = resolveEditorDraftIdentity({ resource: 'setting-group', scope: 'tenant', group: 'observability' })
+    const identity = 'setting-group:tenant:observability'
     seedEditorDraft(model, identity, { kind: 'observability', items: observability }, false)
     model.setDraft(TRACE.endpoint, '"https://collector.example.test"')
     seedEditorDraft(
@@ -184,8 +184,8 @@ describe('SettingGroupEditorModel', () => {
 
   test('selection invalidates pending headers and restore before the next group loads', async () => {
     using model = new SettingGroupEditorModel()
-    const a = resolveEditorDraftIdentity({ resource: 'setting-group', scope: 'tenant', group: 'observability' })
-    const b = resolveEditorDraftIdentity({ resource: 'setting-group', scope: 'global', group: 'observability' })
+    const a = 'setting-group:tenant:observability'
+    const b = 'setting-group:global:observability'
     seedEditorDraft(model, a, { kind: 'observability', items: observability }, false)
     const headerResponse = Promise.withResolvers<unknown>()
     const restoreResponse = Promise.withResolvers<AppConfigurationItem>()
@@ -210,8 +210,8 @@ describe('SettingGroupEditorModel', () => {
   for (const departure of ['loading scope selection', 'unmount']) {
     test(`a group save stops before Query can send the next key after ${departure}`, async () => {
       using model = new SettingGroupEditorModel()
-      const a = resolveEditorDraftIdentity({ resource: 'setting-group', scope: 'tenant', group: 'observability' })
-      const b = resolveEditorDraftIdentity({ resource: 'setting-group', scope: 'global', group: 'observability' })
+      const a = 'setting-group:tenant:observability'
+      const b = 'setting-group:global:observability'
       seedEditorDraft(model, a, { kind: 'observability', items: observability }, false)
       model.setDraft(TRACE.endpoint, '"https://collector.example.test"')
       model.setDraft(TRACE.provider, '"langsmith"')

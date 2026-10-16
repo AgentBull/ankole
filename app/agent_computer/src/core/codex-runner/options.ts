@@ -1,5 +1,6 @@
 import type { AgentLoopLogger } from '../types'
-import type { AIGatewayAPIKeyResponse, RPCRequester } from '../../lanes/rpc_lane'
+import { type AIGatewayAPIKeyResponse } from '../../fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
+import { type RPCRequester } from '../../lanes/rpc_lane'
 import type { TurnSteerUpdate } from '../../lanes/session_lane'
 import type { BrowserRuntime } from '../../browser-runtime'
 import type { Drive } from '../../drive/drive'

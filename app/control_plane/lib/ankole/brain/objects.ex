@@ -217,18 +217,19 @@ defmodule Ankole.Brain.Objects do
          :ok <- validate_body_scopes(body, writer),
          :ok <- validate_slug_available(slug, repo) do
       repo.transact(fn repo ->
-        object = %Object{
-          id: UUIDv7.autogenerate(),
-          slug: slug,
-          type: type.name,
-          subtype: normalize_optional(attrs[:subtype]),
-          title: attrs[:title],
-          body: body,
-          meta: meta,
-          effective_date: attrs[:effective_date],
-          content_hash: content_hash(attrs[:title], body, meta),
-          updated_at: DateTime.utc_now(:microsecond)
-        }
+        object =
+          %Object{
+            id: UUIDv7.autogenerate(),
+            slug: slug,
+            type: type.name,
+            subtype: normalize_optional(attrs[:subtype]),
+            title: attrs[:title],
+            body: body,
+            meta: meta,
+            effective_date: attrs[:effective_date],
+            updated_at: DateTime.utc_now(:microsecond)
+          }
+          |> with_content_hash()
 
         with {:ok, object} <- repo.insert(Object.changeset(object, %{})) do
           reconcile_chunks(object, repo: repo)
@@ -254,7 +255,7 @@ defmodule Ankole.Brain.Objects do
 
     repo.transact(fn repo ->
       with {:ok, object} <- lock_object_in_tx(repo, slug),
-           :ok <- guard_unmanaged(object, repo),
+           :ok <- guard_editable(object, repo),
            :ok <- verify_content_hash(object, expected_hash),
            new_title = Map.get(attrs, :title, object.title),
            new_body = Map.get(attrs, :body, object.body),
@@ -262,15 +263,16 @@ defmodule Ankole.Brain.Objects do
            :ok <- validate_body_scopes(new_body, writer),
            {:ok, subtype} <- updated_subtype(attrs, object),
            {:ok, _version} <- snapshot_version(repo, object, author) do
-        changes = %{
-          title: new_title,
-          body: new_body,
-          meta: new_meta,
-          subtype: subtype,
-          effective_date: Map.get(attrs, :effective_date, object.effective_date),
-          content_hash: content_hash(new_title, new_body, new_meta),
-          updated_at: DateTime.utc_now(:microsecond)
-        }
+        changes =
+          %{
+            title: new_title,
+            body: new_body,
+            meta: new_meta,
+            subtype: subtype,
+            effective_date: Map.get(attrs, :effective_date, object.effective_date),
+            updated_at: DateTime.utc_now(:microsecond)
+          }
+          |> with_content_hash(object)
 
         with {:ok, object} <- repo.update(Object.changeset(object, changes)) do
           reconcile_chunks(object, repo: repo)
@@ -410,12 +412,12 @@ defmodule Ankole.Brain.Objects do
               |> Map.put("forgotten_by", Keyword.get(opts, :by))
           end
 
+        changes =
+          %{deleted_at: DateTime.utc_now(:microsecond), meta: meta}
+          |> with_content_hash(object)
+
         object
-        |> Ecto.Changeset.change(
-          deleted_at: DateTime.utc_now(:microsecond),
-          meta: meta,
-          content_hash: content_hash(object.title, object.body, meta)
-        )
+        |> Ecto.Changeset.change(changes)
         |> repo.update()
       end
     end)
@@ -433,16 +435,17 @@ defmodule Ankole.Brain.Objects do
 
     repo.transact(fn repo ->
       with {:ok, object} <- lock_object_in_tx(repo, slug),
-           :ok <- guard_unmanaged(object, repo),
+           :ok <- guard_editable(object, repo),
            %ObjectVersion{} = version <- repo.get(ObjectVersion, version_id),
            true <- version.object_id == object.id or {:error, :version_object_mismatch},
            {:ok, _snapshot} <- snapshot_version(repo, object, author) do
-        changes = %{
-          body: version.body,
-          meta: version.meta,
-          content_hash: content_hash(object.title, version.body, version.meta),
-          updated_at: DateTime.utc_now(:microsecond)
-        }
+        changes =
+          %{
+            body: version.body,
+            meta: version.meta,
+            updated_at: DateTime.utc_now(:microsecond)
+          }
+          |> with_content_hash(object)
 
         with {:ok, object} <- repo.update(Object.changeset(object, changes)) do
           reconcile_chunks(object, repo: repo)
@@ -498,12 +501,10 @@ defmodule Ankole.Brain.Objects do
            :ok <- guard_unmanaged(object, repo) do
         meta = Map.drop(object.meta, ["forgotten_reason", "forgotten_by"])
 
+        changes = %{deleted_at: nil, meta: meta} |> with_content_hash(object)
+
         object
-        |> Ecto.Changeset.change(
-          deleted_at: nil,
-          meta: meta,
-          content_hash: content_hash(object.title, object.body, meta)
-        )
+        |> Ecto.Changeset.change(changes)
         |> repo.update()
       end
     end)
@@ -530,18 +531,19 @@ defmodule Ankole.Brain.Objects do
     slug = Scope.principal_page_slug(principal_type, principal_uid)
     type = if principal_type == :human, do: "person", else: "agent"
 
-    row = %{
-      id: UUIDv7.autogenerate(),
-      slug: slug,
-      type: type,
-      subtype: "internal",
-      title: display_name || principal_uid,
-      body: "",
-      meta: %{},
-      content_hash: content_hash(display_name || principal_uid, "", %{}),
-      created_at: DateTime.utc_now(:microsecond),
-      updated_at: DateTime.utc_now(:microsecond)
-    }
+    row =
+      %{
+        id: UUIDv7.autogenerate(),
+        slug: slug,
+        type: type,
+        subtype: "internal",
+        title: display_name || principal_uid,
+        body: "",
+        meta: %{},
+        created_at: DateTime.utc_now(:microsecond),
+        updated_at: DateTime.utc_now(:microsecond)
+      }
+      |> with_content_hash()
 
     repo.insert_all(Object, [Map.put(row, :tenant_id, Repo.tenant_id!())],
       on_conflict: :nothing,
@@ -554,18 +556,22 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
-  @doc """
-  Computes the change-detection hash over the canonical title, body, and
-  meta of one object state.
-  """
-  @spec content_hash(String.t() | nil, String.t(), map()) :: String.t()
-  def content_hash(title, body, meta) do
+  # A token covers every field replaced by an ordinary content save. Status
+  # and retrieval projections do not enter it. The migration freezes this
+  # encoding so installed rows and new writes have the same baseline.
+  defp content_hash(object) do
     canonical_meta =
-      meta
+      object.meta
       |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
-      |> inspect(limit: :infinity)
+      |> inspect(limit: :infinity, printable_limit: :infinity)
 
-    NativeKernel.xxh3_128_hex("#{title}\u0000#{body}\u0000#{canonical_meta}")
+    NativeKernel.xxh3_128_hex(
+      "#{object.title}\u0000#{object.body}\u0000#{canonical_meta}\u0000#{Map.get(object, :subtype)}\u0000#{Map.get(object, :effective_date)}"
+    )
+  end
+
+  defp with_content_hash(changes, object \\ %{}) do
+    Map.put(changes, :content_hash, content_hash(Map.merge(object, changes)))
   end
 
   @doc """
@@ -866,18 +872,19 @@ defmodule Ankole.Brain.Objects do
   end
 
   defp insert_source_projection(repo, source, attrs, type, body) do
-    object = %Object{
-      id: UUIDv7.autogenerate(),
-      slug: attrs[:slug],
-      type: type,
-      subtype: normalize_optional(attrs[:subtype]),
-      title: attrs[:title],
-      body: body,
-      meta: attrs[:meta] || %{},
-      content_hash: content_hash(attrs[:title], body, attrs[:meta] || %{}),
-      managed_by_source_id: source.id,
-      updated_at: DateTime.utc_now(:microsecond)
-    }
+    object =
+      %Object{
+        id: UUIDv7.autogenerate(),
+        slug: attrs[:slug],
+        type: type,
+        subtype: normalize_optional(attrs[:subtype]),
+        title: attrs[:title],
+        body: body,
+        meta: attrs[:meta] || %{},
+        managed_by_source_id: source.id,
+        updated_at: DateTime.utc_now(:microsecond)
+      }
+      |> with_content_hash()
 
     with {:ok, object} <- repo.insert(Object.changeset(object, %{})) do
       reconcile_chunks(object, repo: repo)
@@ -885,23 +892,23 @@ defmodule Ankole.Brain.Objects do
   end
 
   defp update_library_projection(repo, object, page) do
-    desired_hash = content_hash(page.title, page.body, %{})
-
-    if object.content_hash == desired_hash and object.deleted_at == nil and
-         object.type == page.type and object.subtype == page.subtype do
-      add_library_aliases(repo, page)
-      {:ok, :unchanged}
-    else
-      changes = %{
+    changes =
+      %{
         type: page.type,
         subtype: page.subtype,
         title: page.title,
         body: page.body,
         meta: %{},
-        content_hash: desired_hash,
-        deleted_at: nil,
-        updated_at: DateTime.utc_now(:microsecond)
+        deleted_at: nil
       }
+      |> with_content_hash(object)
+
+    if object.content_hash == changes.content_hash and object.deleted_at == nil and
+         object.type == page.type do
+      add_library_aliases(repo, page)
+      {:ok, :unchanged}
+    else
+      changes = Map.put(changes, :updated_at, DateTime.utc_now(:microsecond))
 
       with {:ok, object} <- repo.update(Ecto.Changeset.change(object, changes)),
            {:ok, _object} <- reconcile_chunks(object, repo: repo) do
@@ -919,21 +926,29 @@ defmodule Ankole.Brain.Objects do
   defp update_source_projection(repo, object, attrs, type, body) do
     meta = Map.get(attrs, :meta, object.meta)
 
-    changes = %{
-      type: type,
-      subtype: normalize_optional(attrs[:subtype]),
-      title: attrs[:title],
-      body: body,
-      meta: meta,
-      deleted_at: nil,
-      content_hash: content_hash(attrs[:title], body, meta),
-      updated_at: DateTime.utc_now(:microsecond)
-    }
+    changes =
+      %{
+        type: type,
+        subtype: normalize_optional(attrs[:subtype]),
+        title: attrs[:title],
+        body: body,
+        meta: meta,
+        deleted_at: nil,
+        updated_at: DateTime.utc_now(:microsecond)
+      }
+      |> with_content_hash(object)
 
     with {:ok, object} <- repo.update(Object.changeset(object, changes)) do
       reconcile_chunks(object, repo: repo)
     end
   end
+
+  # This is the ordinary write gate, checked after taking the Object lock.
+  # Restore and managed projections have their own lifecycle entry points.
+  defp guard_editable(%Object{deleted_at: deleted_at}, _repo) when not is_nil(deleted_at),
+    do: {:error, :object_deleted}
+
+  defp guard_editable(object, repo), do: guard_unmanaged(object, repo)
 
   # A Source-managed page takes its body from the Source, so every instance
   # edit path refuses it. Claims, links, and timelines stay open as

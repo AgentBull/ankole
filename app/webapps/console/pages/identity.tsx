@@ -160,7 +160,7 @@ export function IdentityProviderEditorPage() {
     [identityAdapters, mode, selected, sourceReady]
   )
   const draftStatus = useEditorDraft(model, {
-    identity: { resource: 'identity-provider', providerID },
+    sourceKey: providerID ? `provider:${providerID}` : 'new',
     source: identityDraft,
     absent: () => mode === 'edit' && providers.isSuccess && !providers.isFetching && !selected
   })

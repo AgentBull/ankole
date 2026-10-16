@@ -160,8 +160,20 @@ defmodule Ankole.AppConfigure.Registry do
 
   defp boot_state do
     with {:ok, state} <- put_definitions(empty_state(), Declarations.core_definitions(), :core),
-         {:ok, state} <- put_patterns(state, Declarations.core_patterns(), :core) do
+         {:ok, state} <- put_patterns(state, Declarations.core_patterns(), :core),
+         {:ok, state} <- put_build_declarations(state) do
       restore_plugin_declarations(state)
+    end
+  end
+
+  defp put_build_declarations(state) do
+    case Application.get_env(:ankole, :edition_config) do
+      nil ->
+        {:ok, state}
+
+      module ->
+        with {:ok, state} <- put_definitions(state, module.definitions(), :edition),
+             do: put_patterns(state, module.patterns(), :edition)
     end
   end
 

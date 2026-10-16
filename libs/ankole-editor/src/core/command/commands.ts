@@ -176,7 +176,7 @@ const killBuffer = GardState.Field.define<{ content: readonly Token[]; active: b
 })
 
 function killText(state: GardState, from: number, to: number) {
-  const add = addToKillBuffer.of(state.doc.slice(from, to).content)
+  const add = addToKillBuffer.of(state.doc.slice(from, to))
   return state.field(killBuffer, false) ? [add] : [GardState.appendConfig.of(killBuffer), add]
 }
 

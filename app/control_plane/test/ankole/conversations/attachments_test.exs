@@ -9,6 +9,151 @@ defmodule Ankole.Conversations.AttachmentsTest do
   @base_time ~U[2026-07-02 01:34:05.000000Z]
   @channel_id "lark:chat:busy-group"
 
+  describe "attachment materialization" do
+    test "stores download bytes with the adapter's name, type and added fields" do
+      [stored] =
+        Attachments.materialize_attachments(
+          [%{"provider_ref" => "fixture:one", "name" => "source.txt"}],
+          "fixture",
+          fn _attachment ->
+            {:ok,
+             %{
+               body: "download bytes",
+               filename: "stored.txt",
+               content_type: "text/plain",
+               put: %{"mimetype" => "text/plain"}
+             }}
+          end
+        )
+
+      assert stored["name"] == "source.txt"
+      assert String.ends_with?(stored["path"], "/stored.txt")
+      assert stored["mimetype"] == "text/plain"
+      assert stored["materialization_state"] == "complete"
+      assert stored["size"] == byte_size("download bytes")
+      assert Attachments.stored?(stored)
+      refute Attachments.attachments_need_bytes?([stored])
+      assert Attachments.materialization_state([stored]) == "complete"
+    end
+
+    test "does not fetch stored bytes or provider facts and drops credentials from every result" do
+      {:ok, stored} = Attachments.store_attachment(%{"name" => "stored.bin"}, "stored")
+
+      restricted = %{
+        "provider_ref" => "fixture:large",
+        "materialization_state" => "provider_download_limit",
+        "restriction" => "original restriction"
+      }
+
+      external = %{
+        "provider_ref" => "fixture:external",
+        "materialization_state" => "provider_external_content"
+      }
+
+      attachments =
+        Enum.map([stored, restricted, external], &Map.put(&1, "download_code", "temporary"))
+
+      assert [^stored, ^restricted, ^external] =
+               Attachments.materialize_attachments(
+                 attachments,
+                 "fixture",
+                 fn _ -> flunk("must not download") end,
+                 drop_keys: ["download_code"]
+               )
+
+      refute Attachments.attachments_need_bytes?(attachments)
+      assert Attachments.materialization_state(attachments) == "complete"
+    end
+
+    test "records download limits without changing the provider restriction" do
+      [attachment] =
+        Attachments.materialize_attachments(
+          [%{"provider_ref" => "fixture:large"}],
+          "fixture",
+          fn _ -> {:error, :provider_download_limit} end,
+          restriction: "provider limit"
+        )
+
+      assert attachment["materialization_state"] == "provider_download_limit"
+      assert attachment["restriction"] == "provider limit"
+      assert Attachments.materialization_state([attachment]) == "complete"
+    end
+
+    test "failure and exception remove temporary keys and remain unsatisfied" do
+      for download <- [fn _ -> {:error, :unavailable} end, fn _ -> raise "download failed" end] do
+        [attachment] =
+          Attachments.materialize_attachments(
+            [
+              %{
+                "provider_ref" => "fixture:failed",
+                "temp_url" => "temporary",
+                "aeskey" => "secret"
+              }
+            ],
+            "fixture",
+            download,
+            drop_keys: ["temp_url", "aeskey"]
+          )
+
+        assert attachment["materialization_state"] == "failed"
+        refute Map.has_key?(attachment, "temp_url")
+        refute Map.has_key?(attachment, "aeskey")
+        assert Attachments.attachments_need_bytes?([attachment])
+        assert Attachments.materialization_state([attachment]) == "failed"
+      end
+    end
+
+    test "a failed observation can fetch again and become complete" do
+      [attachment] =
+        Attachments.materialize_attachments(
+          [%{"provider_ref" => "fixture:retry", "materialization_state" => "failed"}],
+          "fixture",
+          fn _ ->
+            {:ok, %{body: "retried", filename: "retry.bin", content_type: nil, put: %{}}}
+          end
+        )
+
+      assert attachment["materialization_state"] == "complete"
+      assert Attachments.stored?(attachment)
+    end
+
+    test "attachments need bytes until the file service holds every one of them" do
+      stored = %{
+        "attachment_id" => 10_042,
+        "blob_ref" => String.duplicate("ab", 32),
+        "path" => "inbox/abababababababab/report.pdf"
+      }
+
+      refute Attachments.attachments_need_bytes?([])
+      refute Attachments.attachments_need_bytes?([stored])
+
+      assert Attachments.attachments_need_bytes?([stored, %{"provider_ref" => "lark:file:fresh"}])
+      assert Attachments.attachments_need_bytes?([%{"attachment_id" => 10_042}])
+      assert Attachments.attachments_need_bytes?([Map.delete(stored, "path")])
+      assert Attachments.attachments_need_bytes?([%{stored | "blob_ref" => ""}])
+    end
+
+    test "the observation metadata always carries the state and the observed time" do
+      observed_at = DateTime.add(@base_time, 250, :millisecond)
+
+      assert Attachments.put_attachment_materialization(
+               %{"provider" => "discord"},
+               "pending",
+               observed_at
+             ) == %{
+               "provider" => "discord",
+               "attachment_materialization" => %{
+                 "state" => "pending",
+                 "observed_at" => "2026-07-02T01:34:05.250000Z"
+               }
+             }
+
+      assert_raise FunctionClauseError, fn ->
+        Attachments.put_attachment_materialization(%{}, "downloading", observed_at)
+      end
+    end
+  end
+
   test "principal destinations resolve only one observed DM in the Agent binding" do
     %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
     %{principal: other} = Ankole.PrincipalsFixtures.agent_fixture()
@@ -55,7 +200,10 @@ defmodule Ankole.Conversations.AttachmentsTest do
              provider_conversation_id: channel_id,
              source_event_id: channel_id,
              channel: %{kind: :im_dm, reply_mode: :channel},
-             author: %{principal_uid: peer.uid, display_name: peer.display_name}
+             author:
+               Ankole.SignalsFixtures.provider_author_fixture(peer.uid, peer.uid, %{
+                 display_name: peer.display_name
+               })
            })
          )}
       end)
@@ -285,7 +433,7 @@ defmodule Ankole.Conversations.AttachmentsTest do
   end
 
   defp stored_attachment(name, content) do
-    {:ok, attachment} = Ankole.Conversations.Observe.store_attachment(%{"name" => name}, content)
+    {:ok, attachment} = Attachments.store_attachment(%{"name" => name}, content)
     attachment
   end
 end

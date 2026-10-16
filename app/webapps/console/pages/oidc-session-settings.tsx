@@ -2,7 +2,7 @@ import { Badge, Button, Checkbox, Input, Textarea, toast } from '@ankole/uikit'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import {
-  ankoleWebIdentityProviderControllerIndexOptions,
+  oidcLoginSourcesOptions,
   ankoleWebOidcClientControllerLogoutDeliveriesOptions,
   ankoleWebOidcClientControllerRetryLogoutMutation
 } from '../api/generated/@tanstack/react-query.gen'
@@ -19,14 +19,14 @@ export function OIDCSessionSettings({
   setDraft: (draft: ClientDraft) => void
 }) {
   const { t } = useTranslation()
-  const providers = useQuery(ankoleWebIdentityProviderControllerIndexOptions())
+  const providers = useQuery(oidcLoginSourcesOptions())
   return (
     <section className="grid gap-5 border-b border-border pb-6">
       <h3 className="text-base font-semibold">{t('console.access_sessions.title')}</h3>
       <p className="text-sm text-muted-foreground">{t('console.access_sessions.providers_hint')}</p>
       <ErrorBlock error={providers.error} />
       <div className="grid gap-3">
-        {(providers.data?.identity_providers ?? []).map(provider => (
+        {(providers.data?.sources ?? []).map(provider => (
           <label key={provider.provider_id} className="flex items-center gap-3 text-sm">
             <Checkbox
               checked={draft.allowedIdentityProviderIDs.includes(provider.provider_id)}
@@ -46,7 +46,7 @@ export function OIDCSessionSettings({
           </label>
         ))}
         {draft.allowedIdentityProviderIDs
-          .filter(id => !providers.data?.identity_providers.some(p => p.provider_id === id))
+          .filter(id => !providers.data?.sources.some(p => p.provider_id === id))
           .map(id => (
             <label key={id} className="flex items-center gap-3 text-sm">
               <Checkbox

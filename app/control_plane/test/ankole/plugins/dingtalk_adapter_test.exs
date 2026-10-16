@@ -147,7 +147,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     claimed_config = dingtalk_config("ding_claimed_while_owner_unknown")
 
     assert {:ok, %Binding{}} =
-             Ankole.Signals.Bindings.upsert_binding(%{
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
                agent_uid: owner.uid,
                name: "dingtalk-main",
                adapter: "dingtalk",
@@ -257,7 +257,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, binding} =
-      Ankole.Signals.Bindings.upsert_binding(%{
+      Ankole.SignalsFixtures.raw_binding_fixture(%{
         agent_uid: agent.uid,
         name: "dingtalk-intent",
         adapter: "dingtalk",

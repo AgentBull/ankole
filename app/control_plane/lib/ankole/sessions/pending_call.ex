@@ -3,6 +3,7 @@ defmodule Ankole.Sessions.PendingCall do
   @enforce_keys [:call]
   defstruct [
     :call,
+    :activity,
     :tool,
     :args,
     :span,
@@ -82,7 +83,7 @@ defmodule Ankole.Sessions.PendingCall do
     do:
       map(pending, fn p ->
         if p.status in [:worker, :worker_wait],
-          do: %{p | status: :queued, probe?: p.probe? or p.status == :worker},
+          do: %{p | status: :queued, probe?: p.probe? or p.status == :worker, activity: nil},
           else: p
       end)
 

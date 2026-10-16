@@ -5,11 +5,9 @@ import { useMutation } from '@tanstack/react-query'
 import { useId, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ErrorBlock } from '../common/error-block'
-import { internalAPIPost } from '../common/internal-api-client'
+import { localPasswordLogin } from '../common/api/generated/sdk.gen'
 import { PasswordInput } from '../common/password-input'
 import { classifyLoginError, formatRetryDelay, LoginModel, type LoginFormError } from './state/login-model'
-
-type LoginResult = { status: 'ok'; returnTo: string } | { status: 'password_change_required' }
 
 /** Email-and-password sign-in for the built-in local identity provider. */
 export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginModel> }) {
@@ -22,9 +20,11 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
   const login = useMutation({
     mutationFn: (input: { email: string; password: string }) => {
       const query = new URLSearchParams(window.location.search)
-      return internalAPIPost<LoginResult>('/.internal-apis/sessions/local-password', {
-        ...input,
-        flow: query.get('flow')
+      return localPasswordLogin({
+        body: {
+          ...input,
+          flow: query.get('flow')
+        }
       })
     },
     onSuccess: result => {

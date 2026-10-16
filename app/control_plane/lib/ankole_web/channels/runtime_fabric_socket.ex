@@ -19,7 +19,8 @@ defmodule AnkoleWeb.RuntimeFabricSocket do
 
   @impl true
   def connect(params, socket, connect_info) do
-    with {:ok, worker_id} <- worker_id(params),
+    with true <- AnkoleWeb.Plugs.RequestHost.worker_allowed?(Map.get(connect_info, :uri)),
+         {:ok, worker_id} <- worker_id(params),
          {:ok, tenant_id} <- Ankole.Principals.resolve_tenant(worker_id),
          {:ok, %{generation: generation, tenant_id: tenant_id}} <-
            Ankole.Repo.with_tenant(tenant_id, fn ->

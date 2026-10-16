@@ -475,6 +475,65 @@ defmodule AnkoleWeb.BrainControllerTest do
              |> json_response(409)
   end
 
+  test "metadata conflicts and deleted writes are rejected at the Console API", %{conn: conn} do
+    {:ok, _} = SchemaPacks.install_packs([])
+    {conn, writer} = console_conn_with_principal(conn)
+
+    form = %{
+      "slug" => "notes/metadata-conflict",
+      "type" => "note",
+      "subtype" => "reference",
+      "title" => "Metadata conflict",
+      "body" => "Original body",
+      "meta" => %{},
+      "effective_date" => "2026-08-01"
+    }
+
+    %{"object" => original} = conn |> post(~p"/api/v1/brain/objects", form) |> json_response(200)
+    stale = Map.put(form, "expected_content_hash", original["content_hash"])
+
+    %{"object" => current} =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/brain/objects", Map.put(stale, "effective_date", "2026-08-02"))
+      |> json_response(200)
+
+    refute current["content_hash"] == original["content_hash"]
+
+    assert %{"error" => %{"code" => "content_hash_conflict"}} =
+             conn
+             |> recycle_api()
+             |> put(~p"/api/v1/brain/objects", Map.put(stale, "body", "Stale body"))
+             |> json_response(409)
+
+    object = Repo.get_by!(Object, slug: form["slug"])
+    assert object.effective_date == ~D[2026-08-02]
+    assert object.body == form["body"]
+    [version] = Repo.all(from(v in ObjectVersion, where: v.object_id == ^object.id))
+    {:ok, deleted} = Objects.soft_delete(object.slug, reason: "Obsolete", by: writer)
+
+    assert %{"error" => %{"code" => "object_deleted"}} =
+             conn
+             |> recycle_api()
+             |> put(
+               ~p"/api/v1/brain/objects",
+               Map.put(stale, "expected_content_hash", deleted.content_hash)
+             )
+             |> json_response(409)
+
+    assert %{"error" => %{"code" => "object_deleted"}} =
+             conn
+             |> recycle_api()
+             |> post(~p"/api/v1/brain/objects/rollback", %{
+               "slug" => object.slug,
+               "version_id" => version.id
+             })
+             |> json_response(409)
+
+    assert Repo.get!(Object, object.id) == deleted
+    assert Repo.all(from(v in ObjectVersion, where: v.object_id == ^object.id)) == [version]
+  end
+
   defp object_chunk_scopes(object) do
     Chunk
     |> where([chunk], chunk.object_id == ^object.id)
@@ -590,7 +649,7 @@ defmodule AnkoleWeb.BrainControllerTest do
         title: "Repair invalid Markdoc",
         body: invalid_body,
         meta: %{},
-        content_hash: Objects.content_hash("Repair invalid Markdoc", invalid_body, %{}),
+        content_hash: "invalid-markdoc-fixture",
         created_at: now,
         updated_at: now
       })

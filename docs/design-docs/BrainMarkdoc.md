@@ -154,6 +154,13 @@ Console 使用 `/brain/objects/new` 和 `/brain/objects/:slug/edit` 全页路由
 
 保存携带加载时的 `expected_content_hash`。409 时保留本地草稿；操作员可加载
 最新版本对比并更新保存基线，不自动覆盖正文。离开有未保存修改的页面时提示。
+并发基线覆盖同次保存替换的 title、body、meta、subtype 和 effective_date；检索、
+embedding 等派生状态不改变它。升级会转换已有基线，升级前打开的草稿可能需要
+重新加载最新基线。已删除页的普通保存和版本回滚在持有 Object 锁时拒绝，返回
+`object_deleted`；必须先显式恢复。历史版本仍只回滚 body 和 meta。
+
+保存及对比结果只属于发起操作的本次编辑页。离开后请求仍可完成服务端写入和
+全局查询刷新，但迟到结果不改变之后打开的草稿、错误状态或导航。
 创建可填写 slug、type、subtype、title、effective_date 和 meta；编辑时 slug
 和 type 只读。
 

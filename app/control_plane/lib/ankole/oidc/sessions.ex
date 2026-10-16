@@ -8,7 +8,7 @@ defmodule Ankole.OIDC.Sessions do
   alias Ankole.Principals.HumanAccess
 
   def ensure(client_id, auth, scope) do
-    ref = %{"id" => auth["browser_id"], "generation" => auth["browser_generation"]}
+    ref = %{"id" => auth["authentication_id"], "revision" => auth["authentication_revision"]}
 
     BrowserSessions.authorize(ref, auth, fn repo ->
       with :ok <- accepting_work(),
@@ -25,7 +25,8 @@ defmodule Ankole.OIDC.Sessions do
           client_id: client_id,
           principal_uid: auth["principal_uid"],
           browser_id: auth["browser_id"],
-          browser_generation: auth["browser_generation"],
+          authentication_id: auth["authentication_id"],
+          authentication_revision: auth["authentication_revision"],
           access_version: auth["access_version"],
           provider_id: auth["provider_id"],
           auth_time: auth["auth_time"],
@@ -44,7 +45,7 @@ defmodule Ankole.OIDC.Sessions do
                 ]
               ]
             ),
-          conflict_target: [:client_id, :browser_id, :browser_generation, :provider_id],
+          conflict_target: [:client_id, :authentication_id, :authentication_revision],
           returning: true
         )
       end
@@ -69,7 +70,7 @@ defmodule Ankole.OIDC.Sessions do
              DateTime.compare(session.expires_at, DateTime.utc_now()) == :gt,
          true <-
            (kind != :code and offline?(scope)) or
-             (is_nil(session.ended_at) and BrowserSessions.active?(session.browser_id)),
+             (is_nil(session.ended_at) and live_authentication?(session)),
          :ok <- HumanAccess.check(principal_uid, session.access_version),
          {:ok, client} <- OIDC.get_active_client(client_id),
          :ok <- LoginPolicy.authorize_source(client, session.provider_id),
@@ -92,9 +93,22 @@ defmodule Ankole.OIDC.Sessions do
       "provider_id" => session.provider_id,
       "auth_time" => session.auth_time,
       "browser_id" => session.browser_id,
-      "browser_generation" => session.browser_generation,
+      "authentication_id" => session.authentication_id,
+      "authentication_revision" => session.authentication_revision,
       "sid" => session.id
     }
+  end
+
+  defp live_authentication?(session) do
+    ref = %{"id" => session.authentication_id, "revision" => session.authentication_revision}
+
+    case BrowserSessions.identity(ref, session.tenant_id) do
+      %{"principal_uid" => uid, "access_version" => version} ->
+        uid == session.principal_uid and version == session.access_version
+
+      _ ->
+        false
+    end
   end
 
   defp accepting_work do
@@ -109,6 +123,22 @@ defmodule Ankole.OIDC.Sessions do
         session |> Ecto.Changeset.change(revoked_at: DateTime.utc_now()) |> repo.update()
       end
     end)
+  end
+
+  def end_authentication_in_tx(repo, id, revision) do
+    sessions =
+      Repo.across_tenants(fn ->
+        repo.all(
+          from s in Session,
+            where:
+              s.authentication_id == ^id and s.authentication_revision == ^revision and
+                is_nil(s.ended_at),
+            order_by: s.id,
+            lock: "FOR UPDATE"
+        )
+      end)
+
+    terminate_sessions(repo, sessions, :browser)
   end
 
   def end_browser_in_tx(repo, browser_id) do

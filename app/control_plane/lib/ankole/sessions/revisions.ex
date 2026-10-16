@@ -6,6 +6,7 @@ defmodule Ankole.Sessions.Revisions do
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Presentation
   alias Ankole.Signals.Signal
+  alias Ankole.Conversations.MessageInput
   alias Ankole.Sessions.Queue
   alias Ankole.Sessions.ModelHistory
   alias Ankole.Conversations.Delivery.Preview
@@ -73,7 +74,7 @@ defmodule Ankole.Sessions.Revisions do
     do: revise_event_in_tx(repo, target, revision["kind"], revision["entry"], now)
 
   def revise_event_in_tx(repo, event, kind, entry, now) do
-    case Signal.revised_input_attrs(event, kind, entry, now) do
+    case MessageInput.revised_input_attrs(event, kind, entry, now) do
       :no_match ->
         {:ok, event}
 
