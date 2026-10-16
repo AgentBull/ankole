@@ -108,6 +108,7 @@ dependencies = [
  "reqwest",
  "rlibphonenumber",
  "rustler",
+ "rustls",
  "serde",
  "serde_json",
  "sonic-rs",

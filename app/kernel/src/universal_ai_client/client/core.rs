@@ -114,7 +114,10 @@ pub fn start_stream(encoded_spec: &str, sink: EventSink) -> KernelResult<StreamH
     let aborted_sent = Arc::new(AtomicBool::new(false));
 
     runtime.spawn(Abortable::new(
-        run_stream(spec, command_rx, sink.clone(), aborted_sent.clone()),
+        report_stream_panic(
+            run_stream(spec, command_rx, sink.clone(), aborted_sent.clone()),
+            sink.clone(),
+        ),
         abort_registration,
     ));
 
@@ -124,6 +127,14 @@ pub fn start_stream(encoded_spec: &str, sink: EventSink) -> KernelResult<StreamH
         sink,
         aborted_sent,
     })
+}
+
+async fn report_stream_panic(stream: impl Future<Output = ()>, sink: EventSink) {
+    if let Err(panic) = AssertUnwindSafe(stream).catch_unwind().await {
+        sink(StreamEvent::Error(
+            native_panic_error("stream", panic).to_json(),
+        ));
+    }
 }
 
 pub type RequestResultSink = Box<dyn FnOnce(Result<Value, StreamError>) + Send + 'static>;
@@ -163,20 +174,22 @@ async fn deliver_request_result(
     let result = AssertUnwindSafe(request)
         .catch_unwind()
         .await
-        .unwrap_or_else(|panic| {
-            let message = panic
-                .downcast_ref::<&'static str>()
-                .copied()
-                .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
-                .unwrap_or("unknown panic");
-            Err(StreamError::new(
-                "native_request_panicked",
-                "runtime",
-                format!("universal AI client request panicked: {message}"),
-            ))
-        });
+        .unwrap_or_else(|panic| Err(native_panic_error("request", panic)));
 
     deliver(result);
+}
+
+fn native_panic_error(kind: &str, panic: Box<dyn std::any::Any + Send>) -> StreamError {
+    let message = panic
+        .downcast_ref::<&'static str>()
+        .copied()
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("unknown panic");
+    StreamError::new(
+        format!("native_{kind}_panicked"),
+        "runtime",
+        format!("universal AI client {kind} panicked: {message}"),
+    )
 }
 
 async fn run_model_request(spec: ModelRequestSpec) -> Result<Value, StreamError> {
@@ -266,5 +279,26 @@ mod tests {
         let error = result_rx.recv().unwrap().unwrap_err();
         assert_eq!(error.code, "native_request_panicked");
         assert!(error.message.contains("request task exploded"));
+    }
+
+    #[tokio::test]
+    async fn a_panicking_stream_notifies_its_owner() {
+        let (event_tx, event_rx) = std::sync::mpsc::channel();
+        let sink: EventSink = Arc::new(move |event| event_tx.send(event).unwrap());
+
+        report_stream_panic(async { panic!("stream task exploded") }, sink).await;
+
+        let StreamEvent::Error(error) = event_rx.recv().unwrap() else {
+            panic!("expected a stream error");
+        };
+        assert_eq!(error["code"], "native_stream_panicked");
+        assert_eq!(error["stage"], "runtime");
+        assert!(
+            error["message"]
+                .as_str()
+                .unwrap()
+                .contains("stream task exploded")
+        );
+        assert!(event_rx.try_recv().is_err());
     }
 }

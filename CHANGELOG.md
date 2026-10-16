@@ -1,5 +1,14 @@
 # Changelog
 
+## Version 2.0.0-alpha.6 (2026-10-16)
+
+- Set the TLS provider before native I/O starts, so model WebSocket calls work
+  when OpenDAL and HTTP clients enable different crypto providers. Report
+  native stream panics to the caller instead of leaving the Response open.
+- Start the `outbox` queue used by Delivery jobs, so final replies and files
+  reach external conversations and pending deliveries resume after restart.
+- Keep the public Helm tests independent of private deployment assets.
+
 ## Version 2.0.0-alpha.5 (2026-10-16)
 
 - Route every stimulus through `Signals` with one durable intake, source

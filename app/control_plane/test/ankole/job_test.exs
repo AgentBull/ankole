@@ -15,6 +15,29 @@ defmodule Ankole.JobTest do
     def run(_job), do: {:ok, Ankole.Repo.tenant_id()}
   end
 
+  test "every application job has an enabled production queue" do
+    queues =
+      Path.expand("../../config/config.exs", __DIR__)
+      |> Config.Reader.read!(env: :prod)
+      |> Keyword.fetch!(:ankole)
+      |> Keyword.fetch!(Oban)
+      |> Keyword.fetch!(:queues)
+
+    workers =
+      Enum.filter(Application.spec(:ankole, :modules), fn module ->
+        Code.ensure_loaded?(module) and function_exported?(module, :__opts__, 0)
+      end)
+
+    assert workers != []
+
+    for worker <- workers do
+      queue = Keyword.fetch!(worker.__opts__(), :queue)
+
+      assert is_integer(queues[queue]) and queues[queue] > 0,
+             "#{inspect(worker)} has no consumer for queue #{inspect(queue)}"
+    end
+  end
+
   test "new/1 captures the submitting tenant in the durable args", %{tenant: tenant} do
     job = TenantWorker.new(%{work: "resume"}) |> Ecto.Changeset.apply_changes()
     assert job.args["tenant_id"] == tenant.id
