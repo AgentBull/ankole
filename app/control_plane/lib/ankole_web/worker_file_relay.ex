@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.WorkerFileRelayController do
+defmodule AnkoleWeb.WorkerFileRelay do
   @moduledoc """
   Internal relay endpoint that Workers call with a one-time URL.
 
@@ -9,15 +9,40 @@ defmodule AnkoleWeb.WorkerFileRelayController do
   the Worker, path, method, byte bound, and expiry.
   """
 
-  use AnkoleWeb, :controller
+  @behaviour Plug
+  import Plug.Conn, except: [push: 2]
 
   alias Ankole.WorkerFiles.Relay
 
   @chunk_bytes 64 * 1024
   @ack_timeout_ms 30_000
 
-  @spec pull(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def pull(conn, %{"transfer_id" => transfer_id}) do
+  @impl Plug
+  def init(opts), do: opts
+
+  # Relay state belongs to the issuing node. Its capability URL must work on
+  # that node's internal origin, independent of browser host admission.
+  @impl Plug
+  def call(
+        %Plug.Conn{
+          method: method,
+          path_info: ["internal", "runtime-fabric", "file-relay", transfer_id]
+        } = conn,
+        _opts
+      )
+      when method in ["GET", "PUT"] do
+    conn = fetch_query_params(conn)
+
+    case method do
+      "GET" -> pull(conn, transfer_id)
+      "PUT" -> push(conn, transfer_id)
+    end
+    |> halt()
+  end
+
+  def call(conn, _opts), do: conn
+
+  defp pull(conn, transfer_id) do
     case Relay.consume(transfer_id, "GET", conn.query_params["token"]) do
       {:ok, %{source: {:file, path}}} ->
         conn
@@ -29,8 +54,7 @@ defmodule AnkoleWeb.WorkerFileRelayController do
     end
   end
 
-  @spec push(Plug.Conn.t(), map()) :: Plug.Conn.t()
-  def push(conn, %{"transfer_id" => transfer_id}) do
+  defp push(conn, transfer_id) do
     with {:ok, session} <- Relay.consume(transfer_id, "PUT", conn.query_params["token"]),
          {:ok, size} <- content_length(conn, session.max_bytes) do
       consumer_ref = Process.monitor(session.consumer)

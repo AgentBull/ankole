@@ -54,7 +54,7 @@ defmodule Ankole.BrowserSessions do
       {:ok, %Authentication{purpose: :console, tenant_id: tenant_id}} ->
         identity(ref, tenant_id)
 
-      {:ok, %Authentication{purpose: :site}} ->
+      {:ok, %Authentication{purpose: :site, console_authenticated: true}} ->
         with {:ok, tenant} <- Ankole.Tenants.privileged(),
              do: identity(ref, tenant.id),
              else: (_ -> nil)
@@ -416,6 +416,7 @@ defmodule Ankole.BrowserSessions do
              revision: browser.revision + 1,
              auth_time: auth_time,
              external_id: external_id,
+             console_authenticated: transaction.purpose == :console,
              csrf_token: csrf_state(),
              revoked_at: nil,
              expires_at: DateTime.add(DateTime.utc_now(), @session_ttl)

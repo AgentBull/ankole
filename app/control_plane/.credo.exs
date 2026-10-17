@@ -2,7 +2,15 @@
   configs: [
     %{
       name: "default",
-      files: %{included: ["lib/", "../../plugins/*/lib/"], excluded: []},
+      files: %{
+        included:
+          ["lib/", "../../plugins/*/lib/"] ++
+            if(System.get_env("ANKOLE_EDITION") == "saas",
+              do: ["../../internals/control_plane/lib/", "../../internals/plugins/*/lib/"],
+              else: []
+            ),
+        excluded: []
+      },
       strict: true,
       requires: ["credo/*.ex"],
       checks: %{

@@ -1,4 +1,4 @@
-defmodule AnkoleWeb.WorkerFileRelayControllerTest do
+defmodule AnkoleWeb.WorkerFileRelayTest do
   use AnkoleWeb.ConnCase, async: true
 
   alias Ankole.AgentWorkers
@@ -13,12 +13,11 @@ defmodule AnkoleWeb.WorkerFileRelayControllerTest do
     {:ok, %{transfer_id: transfer_id, url: url}} =
       open(direction: :pull, source: {:file, source}, max_bytes: 1024)
 
-    path = "/internal/runtime-fabric/file-relay/#{transfer_id}"
-
     assert %{status: 404} =
-             get(conn, "/internal/runtime-fabric/file-relay/#{Ecto.UUID.generate()}")
+             get(conn, String.replace(url, transfer_id, Ecto.UUID.generate()))
 
-    assert %{status: 401} = get(conn, path <> "?token=forged")
+    forged = url |> URI.parse() |> Map.put(:query, "token=forged") |> URI.to_string()
+    assert %{status: 401} = get(conn, forged)
     assert %{status: 405} = put(conn, url)
 
     assert %{status: 200, resp_body: "relayed bytes"} = get(conn, url)

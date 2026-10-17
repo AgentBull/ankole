@@ -12,6 +12,7 @@ defmodule Ankole.BrowserSessions.Authentication do
     field :subject_id, :string
     field :external_id, :string
     field :purpose, Ecto.Enum, values: [:console, :oauth, :pod, :site]
+    field :console_authenticated, :boolean, default: false
     field :revision, :integer
     field :auth_time, :integer
     field :csrf_token, :string

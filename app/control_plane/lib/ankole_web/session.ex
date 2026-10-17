@@ -11,6 +11,41 @@ defmodule AnkoleWeb.Session do
   @state_ttl 10 * 60
   @secure Application.compile_env(:ankole, :secure_cookies, false)
   @authentication_prefix if(@secure, do: "__Host-ankole-auth-", else: "_ankole-auth-")
+  @handoff_prefix if(@secure, do: "__Host-ankole-handoff-", else: "_ankole-handoff-")
+
+  def put_handoff_state(conn, state, payload) do
+    opts = SessionCookieStore.init(key_context: "browser.handoff", log: false)
+    value = SessionCookieStore.put(cookie_conn(conn), nil, payload, opts)
+
+    put_resp_cookie(conn, @handoff_prefix <> state, value,
+      secure: @secure,
+      http_only: true,
+      same_site: "Lax",
+      path: "/",
+      max_age: @state_ttl
+    )
+  end
+
+  def handoff_state(conn, state) do
+    if name = handoff_cookie_name(state) do
+      conn = fetch_cookies(conn)
+      opts = SessionCookieStore.init(key_context: "browser.handoff", log: false)
+      {_, payload} = SessionCookieStore.get(cookie_conn(conn), conn.req_cookies[name], opts)
+      payload
+    end
+  end
+
+  def clear_handoff_state(conn, state) do
+    if name = handoff_cookie_name(state),
+      do: delete_resp_cookie(conn, name, secure: @secure, path: "/"),
+      else: conn
+  end
+
+  defp handoff_cookie_name(state) when is_binary(state) do
+    if Regex.match?(~r/\A[A-Za-z0-9_-]{43}\z/, state), do: @handoff_prefix <> state
+  end
+
+  defp handoff_cookie_name(_), do: nil
 
   def browser_reference(conn), do: get_session(conn, @browser_key)
 
@@ -58,7 +93,12 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  defp put_authentication(conn, browser, authentication) do
+  @doc "Writes a verified authentication after login or one-use host handoff."
+  def put_authentication(
+        conn,
+        %BrowserSessions.Session{} = browser,
+        %BrowserSessions.Authentication{} = authentication
+      ) do
     reference = BrowserSessions.reference(authentication)
     name = @authentication_prefix <> authentication.id
     value = SessionCookieStore.put(cookie_conn(conn), nil, reference, cookie_options())

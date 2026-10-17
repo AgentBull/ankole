@@ -1,5 +1,24 @@
 # Changelog
 
+## Version 2.0.0-alpha.9 (2026-10-17)
+
+- Add the private SaaS account flow: email sign-in, independent accounts that
+  can share an email, Pod creation, verified identity connections, account
+  selection, and separate sign-out. SaaS deployments must set
+  `ANKOLE_SAAS_DOMAIN`, run their migrations, and configure `saas.email.mail`.
+- Send site login codes through Bamboo and verified SMTP TLS. Keep earlier
+  codes valid after resends, consume each code once, and update protection
+  counters atomically during concurrent cleanup. Keep clear retry results
+  and encrypted transport settings.
+- Route SaaS console and Pod hosts from one bootstrap domain. Use one-use
+  handoffs and independent host cookies, retain pinned page identities, and
+  reuse the existing OIDC Client policy and Human access checks. Keep file
+  relay URLs on the issuing node, with one-time token checks before browser
+  host admission.
+- Require explicit Console login admission for site authentication. Keep
+  siteadmin checks and FOSS single-host behavior. Load edition runtime
+  settings from the compiled configuration owner.
+
 ## Version 2.0.0-alpha.8 (2026-10-16)
 
 - Rename Workplace to Pod and let active Human members sign in and work

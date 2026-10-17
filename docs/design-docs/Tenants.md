@@ -5,6 +5,13 @@ operators. A tenant owns its people, Agents, Brain, integrations, conversations,
 and work. Every Principal belongs to one tenant. A site administrator can select
 another tenant's data without changing their own identity or authorization.
 
+Private SaaS builds present a tenant as a Pod. Self-service creation composes
+`Tenants.create/1`, Human creation, an explicit external identity binding, and
+the browser access proof in one transaction. The creator is an ordinary member.
+The site administration assignment and AuthZ roles stay with their current
+owners. A private migration adds the reserved-slug constraint; FOSS databases
+keep the public slug contract.
+
 ## Durable ownership
 
 `Ankole.Tenants` owns tenant lifecycle. PostgreSQL owns tenant membership and

@@ -24,6 +24,11 @@ const phoenixRestartGuardKey = Symbol.for('ankole.vite.phoenix-restart-guard')
 let phoenixShutdownGuardInstalled = false
 
 const entries = webappEntries()
+const saasDomain = (process.env.ANKOLE_SAAS_DOMAIN || 'ankole.localhost').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const saasOrigins =
+  edition === 'saas'
+    ? [new RegExp(`^http://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.${saasDomain}:${process.env.PORT || '4000'}$`)]
+    : []
 
 // No consumer outside the dynamic import in `common/markdown-renderer.tsx`, so
 // this group stays out of eager entries. A package missing from the list only
@@ -212,7 +217,7 @@ export default defineConfig(({ command }): UserConfig => ({
   server: {
     fs: { allow: [repositoryRoot, artifactRoot] },
     cors: {
-      origin: ['http://localhost:4000', 'http://127.0.0.1:4000']
+      origin: ['http://localhost:4000', 'http://127.0.0.1:4000', ...saasOrigins]
     },
     host: '127.0.0.1',
     hmr: {

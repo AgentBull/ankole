@@ -32,11 +32,16 @@ defmodule AnkoleWeb.Endpoint do
   ]
 
   # An OIDC callback URL must carry the scheme the browser used. This trusts
-  # `x-forwarded-proto` from every caller, so the Installation must terminate TLS
-  # at an ingress that sets this header. A direct-to-BEAM deployment must not
-  # accept requests from outside that ingress.
+  # `x-forwarded-proto` from every caller. SaaS also uses the ingress-supplied
+  # client IP for email protection. The ingress must remove incoming forwarded
+  # headers, set its own values, and be the only public path to this process.
   plug AnkoleWeb.Plugs.ResetTenant
-  plug Plug.RewriteOn, [:x_forwarded_proto]
+
+  plug Plug.RewriteOn,
+       if(Application.compile_env(:ankole, :edition) == :saas,
+         do: [:x_forwarded_proto, :x_forwarded_for],
+         else: [:x_forwarded_proto]
+       )
 
   # One WebSocket per Agent Computer Worker. The worker auth key arrives as
   # the Phoenix auth token; binary frames carry protobuf envelopes and one
@@ -51,6 +56,9 @@ defmodule AnkoleWeb.Endpoint do
     ],
     longpoll: false
 
+  plug RequestID
+  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  plug AnkoleWeb.WorkerFileRelay
   plug AnkoleWeb.Plugs.RequestHost
 
   plug Plug.Static,
@@ -72,8 +80,6 @@ defmodule AnkoleWeb.Endpoint do
     plug Phoenix.Ecto.CheckRepoStatus, otp_app: :ankole
   end
 
-  plug RequestID
-  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
   plug AnkoleWeb.Plugs.WebhookCallbackBodyReader
 
   plug Plug.Parsers,

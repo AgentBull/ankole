@@ -30,6 +30,8 @@ defmodule Ankole.EditionFixture.HostPolicy do
 end
 
 defmodule Ankole.EditionFixture.Config do
+  def runtime_config(_env), do: []
+
   def definitions do
     [
       Ankole.AppConfigure.define(

@@ -42,6 +42,11 @@ A `site` transaction has no tenant. Only a trusted, build-declared site source
 can complete it. Other transactions cannot omit their target tenant. A callback
 enters the recorded tenant; it cannot substitute one from query parameters.
 
+Site authentication also records `console_authenticated`. Only a successful
+`console` login can set it. A site account login through Pod, OAuth, or the
+account center cannot grant Console access. Console requests also check the
+current privileged tenant, Human access proof, and siteadmin membership.
+
 FOSS provides one work identity by default. A new Pod login replaces the old
 Pod authentication. Console and OAuth retain their identity replacement rule:
 a new identity ends a conflicting Console or OAuth context. Contexts for the
@@ -188,6 +193,11 @@ these operations to refresh a proof.
 `consume_login/4` consumes a pending transaction in its fixed context without
 minting an authentication. A private handoff can use this one-use boundary; it
 still owns its origin, state, and parent-proof checks.
+
+`AnkoleWeb.Session` seals each handoff's browser state in a separate host-only
+cookie. Its random name lets concurrent entries keep independent state. A
+successful handoff can write the already verified parent authentication with
+`put_authentication/3`; it cannot extend that authentication's time or expiry.
 
 ## Freshness and logout
 

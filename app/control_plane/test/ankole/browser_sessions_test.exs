@@ -385,6 +385,10 @@ defmodule Ankole.BrowserSessionsTest do
 
     {:ok, _} = first_site_admin_fixture(human.uid)
 
+    {:ok, ordinary_site_login} = site_login(browser, "operator")
+    refute BrowserSessions.authentication(ref(ordinary_site_login), :console)
+    transaction = flow(browser, :console, %{}, provider: "test-site")
+
     assert {:ok, completed} =
              BrowserSessions.complete_site_login(browser, transaction.id, "test-site", proof)
 

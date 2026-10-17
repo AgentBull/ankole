@@ -17,7 +17,7 @@ defmodule Ankole.WorkerFiles.Relay do
   is consumed by the first accepted request and stops when its owner exits.
   The session and its token exist only in this process, so the token needs no
   signature: the relay compares it with the session's own copy. It is a
-  bearer credential; only `AnkoleWeb.WorkerFileRelayController` reads it and
+  bearer credential; only `AnkoleWeb.WorkerFileRelay` reads it and
   it must not be logged.
   """
 

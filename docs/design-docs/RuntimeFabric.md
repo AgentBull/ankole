@@ -661,6 +661,10 @@ load-balanced Service address, because only that Pod holds the relay session.
 control plane derives `http://<POD_IP>:<PORT>` from the Kubernetes Downward
 API. Workers must be able to reach this origin.
 
+The endpoint admits this exact relay path before browser host checks, body
+parsers, and session middleware. The relay validates its one-time token and
+method. Browser pages and APIs still use their configured host policy.
+
 The relay session is supervised memory state with an idle timeout. It is not a
 PostgreSQL row. When the relay Pod, the worker, or the drive RPC fails, the
 whole operation fails, both sides release their state, and the caller repeats

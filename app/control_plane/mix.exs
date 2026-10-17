@@ -122,7 +122,7 @@ defmodule Ankole.MixProject do
       for {key, callbacks} <- [
             http_entry: [init: 1, call: 2, __routes__: 0],
             host_policy: [classify: 1],
-            edition_config: [definitions: 0, patterns: 0]
+            edition_config: [definitions: 0, patterns: 0, runtime_config: 1]
           ] do
         module = Application.fetch_env!(:ankole, key)
 
@@ -226,7 +226,10 @@ defmodule Ankole.MixProject do
       {:aws_signature, "~> 0.4.3"},
       {:aws_credentials, "~> 1.1.1", runtime: false},
       {:kubereq, "~> 0.4.5"},
-      {:gen_smtp, "~> 1.3"},
+      {:gen_smtp, "~> 1.3", override: true},
+      # bamboo_smtp's narrow pins exclude these compatible, transport-tested releases.
+      {:bamboo, "~> 2.5", override: true},
+      {:bamboo_smtp, "~> 4.2"},
       {:codepagex, "~> 0.1.13"},
       {:mint_web_socket, "~> 1.0"},
       {:localize, "~> 1.3"},

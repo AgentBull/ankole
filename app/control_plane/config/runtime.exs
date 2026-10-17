@@ -202,6 +202,12 @@ if config_env() != :test do
   end
 end
 
+edition_runtime =
+  case Application.get_env(:ankole, :edition_config) do
+    nil -> []
+    module -> module.runtime_config(config_env())
+  end
+
 # Node startup facts; provider settings and credentials are owned by PostgreSQL.
 if config_env() != :test do
   config :ankole,
@@ -212,7 +218,8 @@ if config_env() != :test do
     config :ankole, Ankole.AgentWorkers,
       image: Ankole.Config.Bootstrap.env!("ANKOLE_AGENT_COMPUTER_IMAGE"),
       runtime_fabric_endpoint:
-        Ankole.Config.Bootstrap.env!("ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT"),
+        get_in(edition_runtime, [:ankole, Ankole.AgentWorkers, :runtime_fabric_endpoint]) ||
+          Ankole.Config.Bootstrap.env!("ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT"),
       installation: Ankole.Config.Bootstrap.env_string("ANKOLE_WORKER_INSTALLATION") || "ankole"
   end
 end
@@ -239,4 +246,8 @@ if config_env() == :prod do
     ]
 
   config :boruta, Boruta.Oauth, issuer: "https://#{host}"
+end
+
+for {application, values} <- edition_runtime do
+  config application, values
 end
