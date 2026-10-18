@@ -8,6 +8,7 @@ defmodule Ankole.Schedule.Jobs.FireCron do
     unique: [
       fields: [:worker, :args],
       keys: [:cron_schedule_id],
+      period: :infinity,
       states: [:available, :scheduled, :retryable]
     ]
 

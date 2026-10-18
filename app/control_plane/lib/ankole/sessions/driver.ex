@@ -456,7 +456,7 @@ defmodule Ankole.Sessions.Driver do
     acquisition_event(data, :send_failed)
   end
 
-  defp task_result({:worker_send, _id}, {:ok, _}, _state, _data), do: :keep_state_and_data
+  defp task_result({:worker_send, _id}, {:ok, _}, _state, data), do: {:keep_state, data}
 
   defp task_result(:boundary, {:ok, run}, _state, data) do
     case Machine.next(run) do

@@ -66,7 +66,7 @@ if [ "$1" = "postgres" ] && [ ! -s "$PGDATA/PG_VERSION" ]; then
   echo "POSTGRES_HOST_AUTH_METHOD: ${POSTGRES_HOST_AUTH_METHOD}"
   echo "-------------------------------"
 
-  initdb -U "$POSTGRES_USER" --pwfile=<(printf "%s\n" "$POSTGRES_PASSWORD")
+  initdb -U "$POSTGRES_USER" --encoding=UTF8 --pwfile=<(printf "%s\n" "$POSTGRES_PASSWORD")
 
   pg_ctl -D "$PGDATA" -o "-c listen_addresses=''" -w start
 

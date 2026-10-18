@@ -39,6 +39,17 @@ The image follows the usual Postgres container environment variables:
 
 Initialization scripts can be mounted into `/docker-entrypoint-initdb.d`.
 
+New clusters use UTF8 for the template databases and `POSTGRES_DB`, including
+when the container locale is `C`. The devkit also creates new application
+databases with UTF8 from `template0`.
+
+An image update does not change the encoding of an existing database or its
+templates. Check `SHOW server_encoding` in the application database. To change
+an existing encoding, create a logical backup with `pg_dump --encoding=UTF8`,
+restore it into a separate UTF8 database, and verify the data before switching
+the control plane. Keep the original database for recovery. Do not change
+`pg_database.encoding` directly.
+
 Before running Ankole migrations, verify the server rather than assuming the
 image tag is sufficient:
 

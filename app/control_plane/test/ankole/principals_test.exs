@@ -115,13 +115,28 @@ defmodule Ankole.PrincipalsTest do
 
       assert %AgentWorker{
                state: "absent",
+               initial_start_pending: true,
                wanted_until: nil,
                provider_id: provider_id
              } =
                Repo.get!(AgentWorker, principal.uid)
 
       assert provider_id == context.worker_provider_id
-      refute_enqueued(worker: ReconcileJob, args: %{"agent_uid" => principal.uid})
+      assert_enqueued(worker: ReconcileJob, args: %{"agent_uid" => principal.uid})
+    end
+
+    test "create_agent/1 rolls back its Worker startup with the Agent", %{tenant: tenant} do
+      assert {:error, :cancelled} =
+               Repo.transact(fn repo ->
+                 %{principal: principal} = agent_fixture()
+                 assert repo.get!(AgentWorker, principal.uid).initial_start_pending
+                 assert_enqueued(worker: ReconcileJob, args: %{agent_uid: principal.uid})
+                 {:error, :cancelled}
+               end)
+
+      assert Repo.all(AgentWorker) == []
+      refute_enqueued(worker: ReconcileJob, args: %{tenant_id: tenant.id})
+      assert Principals.list_agents() == []
     end
 
     test "create_agent/1 explicitly rejects a request with only the retired uid field" do

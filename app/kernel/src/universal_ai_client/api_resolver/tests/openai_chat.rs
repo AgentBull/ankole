@@ -3,6 +3,44 @@ use super::support::reasoning_source_context;
 use crate::common::base64_url_safe_decode;
 
 #[test]
+fn chat_output_limit_uses_only_the_selected_provider_field() {
+    for stream in [false, true] {
+        for selected in [None, Some("max_tokens"), Some("max_completion_tokens")] {
+            let mut request = json!({"input": "hello", "max_output_tokens": 64});
+            if let Some(field) = selected {
+                request["__ankole_chat_max_tokens_field"] = json!(field);
+            }
+            let resolver = APIResolver::new(
+                APIResolverKind::OpenAIChatCompletions,
+                ResponseContext {
+                    model: "deployment".to_string(),
+                    request,
+                    provider_options: json!({"max_tokens": 1, "max_completion_tokens": 2}),
+                    stream: Some(stream),
+                    include_model: true,
+                },
+            );
+            let body = resolver.build_body().unwrap();
+            let field = selected.unwrap_or("max_tokens");
+            assert_eq!(body[field], 64);
+            for forbidden in [
+                "max_output_tokens",
+                "__ankole_chat_max_tokens_field",
+                "maxTokensParameter",
+            ] {
+                assert!(body.get(forbidden).is_none());
+            }
+            let other = if field == "max_tokens" {
+                "max_completion_tokens"
+            } else {
+                "max_tokens"
+            };
+            assert!(body.get(other).is_none());
+        }
+    }
+}
+
+#[test]
 fn non_responses_wire_rejects_provider_native_compaction_input() {
     let resolver = APIResolver::new(
         APIResolverKind::OpenAIChatCompletions,

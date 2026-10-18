@@ -473,7 +473,9 @@ function UploadDialog({
         <RiUploadCloud2Line className="size-4" data-icon="inline-start" />
         {t('console.agent_files.upload')}
       </Button>
-      <DialogContent closeLabel={t('common.close')}>
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] grid-rows-[auto_minmax(0,1fr)_auto]"
+        closeLabel={t('common.close')}>
         <DialogHeader>
           <DialogTitle>{t('console.agent_files.upload_title')}</DialogTitle>
           <DialogDescription>{t('console.agent_files.upload_hint')}</DialogDescription>
@@ -484,7 +486,7 @@ function UploadDialog({
             event.preventDefault()
             submit()
           }}>
-          <div className="grid gap-4">
+          <div className="grid min-h-0 gap-4 overflow-y-auto">
             <Input
               aria-label={t('console.agent_files.upload')}
               type="file"

@@ -22,6 +22,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
   alias Ankole.Conversations.Delivery.Intent
 
   setup do
+    connections = LarkConnectionReconciler.registered_keys()
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
@@ -29,10 +30,14 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     {:ok, true} = SetupConfig.put_completed(true)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
-    # A saved Lark binding starts an asynchronous pass of the shared Lark
-    # connection reconciler. Wait for the pass before the sandbox owner stops,
-    # so that the pass cannot read the data of a later test.
-    on_exit(fn -> :sys.get_state(LarkConnectionReconciler) end)
+    # Saved bindings and identity providers start an asynchronous pass. Wait
+    # before Sandbox stops, then remove this test's owners to isolate later tests.
+    on_exit(fn ->
+      :sys.get_state(LarkConnectionReconciler)
+
+      (LarkConnectionReconciler.registered_keys() -- connections)
+      |> Enum.each(&LarkConnectionReconciler.stop/1)
+    end)
 
     :ok
   end

@@ -34,7 +34,7 @@ import {
   RiResetLeftLine,
   RiSettings3Line
 } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQuery } from '@tanstack/react-query'
 import { Fragment, useDeferredValue, useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, Outlet, useNavigate, useParams, useSearchParams } from 'react-router'
@@ -72,6 +72,8 @@ import { OBSERVABILITY_TRACE_KEYS } from '../state/observability-setting-editor'
 import { BrainSettingsEditor } from './brain-settings-editor'
 import { ObservabilitySettingsEditor } from './observability-settings-editor'
 import { SettingValueEditor } from './setting-value-editors'
+
+const SETTING_MUTATION_KEY = ['app-configurations']
 
 const SETTING_API = {
   global: {
@@ -309,17 +311,28 @@ export function SettingEditorDrawer() {
   const api = SETTING_API[scope]
   const key = params.key ?? ''
   const [restoreDefaultOpen, setRestoreDefaultOpen] = useState(false)
+  // Global writes can change the inherited tenant value for the same key.
+  const writing =
+    useIsMutating({
+      mutationKey: SETTING_MUTATION_KEY,
+      predicate: mutation => (mutation.state.variables as { path: { key: string } }).path.key === key
+    }) > 0
 
   const list = useQuery(api.index())
   const summary = list.data?.app_configurations.find(item => item.key === key)
   const detail = useQuery({
     ...api.show({ path: { key } }),
-    enabled: Boolean(summary?.editable && key)
+    enabled: Boolean(summary?.editable && key) && !writing,
+    staleTime: 0
   })
   const item = detail.data?.app_configuration ?? summary
   const description = item ? settingDescription(t, item) : undefined
+  const sourceKey = `setting:${scope}:${key}`
+  const sourceReady =
+    model.sourceKey.value === sourceKey ||
+    (!writing && detail.isFetchedAfterMount && detail.isSuccess && detail.fetchStatus === 'idle')
   const settingDraft =
-    !item || detail.isLoading
+    !item || !sourceReady
       ? undefined
       : item.encrypted
         ? item.present
@@ -327,7 +340,7 @@ export function SettingEditorDrawer() {
           : ''
         : formatJSON(item.value ?? null)
   const draftStatus = useEditorDraft(model, {
-    sourceKey: `setting:${scope}:${key}`,
+    sourceKey,
     source: settingDraft,
     absent: () => requestErrorCode(detail.error) === 'not_found' || (list.isSuccess && !list.isFetching && !item)
   })
@@ -351,8 +364,8 @@ export function SettingEditorDrawer() {
     decrypt.reset()
     navigate('/settings')
   }
-  const update = useMutation(api.update())
-  const restoreDefault = useMutation(api.remove())
+  const update = useMutation({ ...api.update(), mutationKey: SETTING_MUTATION_KEY })
+  const restoreDefault = useMutation({ ...api.remove(), mutationKey: SETTING_MUTATION_KEY })
   const restore = () => {
     if (!item?.overridden) return
     return model
@@ -467,7 +480,7 @@ export function SettingEditorDrawer() {
             </DrawerHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
-              {!initialized && (list.isLoading || detail.isLoading) ? (
+              {!initialized && (list.isLoading || detail.isFetching || writing) ? (
                 <div className="grid gap-4">
                   <Skeleton className="h-24 w-full" />
                   <Skeleton className="h-64 w-full" />
@@ -566,26 +579,36 @@ export function SettingGroupDrawer() {
   const groupID = params.group ?? ''
   const group = settingGroup(groupID)
   const [restoreItem, setRestoreItem] = useState<AppConfigurationItem>()
+  const writing =
+    useIsMutating({
+      mutationKey: SETTING_MUTATION_KEY,
+      predicate: mutation =>
+        Boolean(group && (mutation.state.variables as { path: { key: string } }).path.key.startsWith(group.prefix))
+    }) > 0
 
-  const list = useQuery(api.index())
+  const list = useQuery({ ...api.index(), enabled: !writing, staleTime: 0 })
   const items = (list.data?.app_configurations ?? []).filter(
     item => item.editable && group !== undefined && item.key.startsWith(group.prefix)
   )
+  const sourceKey = `setting-group:${scope}:${groupID}`
+  const sourceReady =
+    model.sourceKey.value === sourceKey ||
+    (!writing && list.isFetchedAfterMount && list.isSuccess && list.fetchStatus === 'idle')
   const draftStatus = useEditorDraft(model, {
-    sourceKey: `setting-group:${scope}:${groupID}`,
-    source: group && items.length ? { kind: group.id, items } : undefined,
+    sourceKey,
+    source: sourceReady && group && items.length ? { kind: group.id, items } : undefined,
     absent: () => list.isSuccess && !list.isFetching && items.length === 0
   })
   const saving = model.saving.value
   const headersItem = items.find(item => item.key === OBSERVABILITY_TRACE_KEYS.headers)
 
-  const update = useMutation(api.update())
+  const update = useMutation({ ...api.update(), mutationKey: SETTING_MUTATION_KEY })
   const decrypt = useMutation({
     meta: { invalidates: false },
     ...api.decrypt(),
     gcTime: 0
   })
-  const restoreDefault = useMutation(api.remove())
+  const restoreDefault = useMutation({ ...api.remove(), mutationKey: SETTING_MUTATION_KEY })
 
   useEffect(() => {
     decrypt.reset()
@@ -683,7 +706,7 @@ export function SettingGroupDrawer() {
             </DrawerHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-5">
-              {list.isLoading || (items.length > 0 && draftStatus === 'loading') ? (
+              {list.isLoading || (draftStatus === 'loading' && !list.isError) ? (
                 <div className="grid gap-4">
                   <Skeleton className="h-24 w-full" />
                   <Skeleton className="h-64 w-full" />
@@ -700,7 +723,7 @@ export function SettingGroupDrawer() {
                     }
                   />
 
-                  {group?.id === 'brain' ? (
+                  {draftStatus === 'ready' && group?.id === 'brain' ? (
                     <BrainSettingsEditor
                       drafts={model.drafts.value}
                       items={items}
@@ -710,7 +733,7 @@ export function SettingGroupDrawer() {
                       onModelChange={model.setBrainModel}
                       onRestore={setRestoreItem}
                     />
-                  ) : group?.id === 'observability' ? (
+                  ) : draftStatus === 'ready' && group?.id === 'observability' ? (
                     <ObservabilitySettingsEditor
                       drafts={model.drafts.value}
                       headerRows={model.headerRows.value}

@@ -90,6 +90,26 @@ defmodule Ankole.MixProject do
 
   defp test_paths, do: ["test"] ++ internal_paths(["control_plane/test"])
 
+  # shortcut: Keep this patch until a stable Boruta release fixes both token errors.
+  defp patch_boruta(_args) do
+    Mix.Task.run("deps.loadpaths")
+    patch = Path.join(__DIR__, "patches/boruta-2.3.8.patch")
+    args = ["--directory=app/control_plane/deps/boruta", patch]
+    opts = [cd: Path.expand("../..", __DIR__), stderr_to_stdout: true]
+    {_, status} = System.cmd("git", ["apply", "--check" | args], opts)
+
+    command =
+      if status == 0,
+        do: ["apply" | args],
+        else: ["apply", "--reverse", "--check" | args]
+
+    {output, status} = System.cmd("git", command, opts)
+    if status != 0, do: Mix.raise("Boruta 2.3.8 protocol patch does not match:\n#{output}")
+
+    Mix.Task.reenable("deps.compile")
+    Mix.Task.run("deps.compile", ["boruta"])
+  end
+
   defp prepare_webapps(_args) do
     if edition() == :saas do
       for relative <- [
@@ -262,7 +282,7 @@ defmodule Ankole.MixProject do
   defp aliases do
     [
       setup: ["deps.get", "ecto.setup"],
-      compile: [&prepare_webapps/1, "compile", &validate_build/1],
+      compile: [&prepare_webapps/1, &patch_boruta/1, "compile", &validate_build/1],
       "ecto.migrate": [
         fn args ->
           Mix.Task.run("loadpaths", args)

@@ -17,6 +17,7 @@ import { createCommandTool } from '../src/tools/computer/command-tool'
 import {
   FffSearchRuntime,
   buildSearchQuery,
+  clipSearchLine,
   fileAnnotation,
   normalizeConstraint,
   normalizeExcludes,
@@ -63,6 +64,14 @@ function makeHome(): { agentHome: string; workspaceRoot: string } {
 }
 
 describe('search query building', () => {
+  it('clips a long line without leaving half a Unicode character', () => {
+    const line = 'x'.repeat(499) + '😀tail'
+    const clipped = clipSearchLine(line)
+    expect(clipped.wasClipped).toBe(true)
+    expect(Buffer.from(clipped.text).toString()).toBe(clipped.text)
+    expect(clipped.text).toBe('x'.repeat(499) + '...')
+    expect(clipSearchLine('😀')).toEqual({ text: '😀', wasClipped: false })
+  })
   it('normalizes constraints into parser shapes', () => {
     expect(normalizeConstraint('src')).toBe('src/')
     expect(normalizeConstraint('./src/')).toBe('src/')
@@ -156,6 +165,8 @@ describe('find/grep/ls over a real index', () => {
   writeFileSync(join(workspaceRoot, 'src', 'query-builder.ts'), 'export const queryBuilder = 1\n')
   writeFileSync(join(workspaceRoot, 'docs', 'guide.md'), '# Guide\nuse the finder pool\n')
   writeFileSync(join(workspaceRoot, '.hidden-note'), 'dot\n')
+  writeFileSync(join(workspaceRoot, 'docs', 'exact name.txt'), 'unique scoped marker\n')
+  writeFileSync(join(workspaceRoot, 'docs', 'exact name.txt.backup'), 'unique scoped marker\n')
   for (let index = 0; index < 30; index++) {
     writeFileSync(join(workspaceRoot, 'docs', `page-${String(index).padStart(2, '0')}.md`), `page ${index}\n`)
   }
@@ -163,6 +174,17 @@ describe('find/grep/ls over a real index', () => {
   const find = createFindTool(context, runtime)
   const grep = createGrepTool(context, runtime)
   const ls = createLsTool(context)
+
+  it('keeps literal file constraints exact for find and grep, including spaces and absolute paths', async () => {
+    for (const path of ['docs/exact name.txt', join(workspaceRoot, 'docs/exact name.txt')]) {
+      const found = textOf(await find.execute('exact-find', { path }))
+      expect(found).toContain('exact name.txt')
+      expect(found).not.toContain('exact name.txt.backup')
+      const matched = textOf(await grep.execute('exact-grep', { path, pattern: 'unique scoped marker' }))
+      expect(matched).toContain('unique scoped marker')
+      expect(matched).not.toContain('exact name.txt.backup')
+    }
+  })
 
   it('keeps a search outside the workspace inside its requested directory after a parent search', async () => {
     const parent = join(agentHome, 'user-files')

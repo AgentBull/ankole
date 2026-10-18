@@ -33,8 +33,19 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuardTest do
 
   test "five attempts are reserved per tenant and account" do
     start_guard()
-    for _ <- 1..5, do: assert({:ok, false} = verify())
-    assert {:locked, seconds} = verify()
+    credential_written_at = DateTime.utc_now() |> DateTime.to_unix(:microsecond)
+
+    assert {:ok, false} =
+             verify(@tenant_a, "user@example.com", @hash, not_before_us: credential_written_at)
+
+    [first_attempt] =
+      :sys.get_state(:b16_guard).tenants[@tenant_a][:crypto.hash(:sha256, "user@example.com")]
+
+    assert first_attempt >= credential_written_at
+    opts = [not_before_us: first_attempt]
+
+    for _ <- 2..5, do: assert({:ok, false} = verify(@tenant_a, "user@example.com", @hash, opts))
+    assert {:locked, seconds} = verify(@tenant_a, "user@example.com", @hash, opts)
     assert seconds in 1..1_800
     assert {:ok, false} = verify(@tenant_a, "another@example.com")
     assert {:ok, false} = verify(@tenant_b)
@@ -75,7 +86,7 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuardTest do
 
     assert {:ok, false} =
              verify(@tenant_a, "user@example.com", @hash,
-               not_before_ms: System.system_time(:millisecond)
+               not_before_us: System.os_time(:microsecond)
              )
   end
 

@@ -341,7 +341,7 @@ defmodule Ankole.E2E.Harness do
   Options: `secondary: true` adds the second agent/app, `multi_agent: true`
   adds the multi-agent-room bindings, `real_llm_api_key:` switches the domain
   to the real OpenRouter provider (no fake LLM assertions), `worker: false`
-  runs Worker reconciliation without an initial Worker request,
+  runs Worker reconciliation without waiting for initial Worker readiness,
   `automatic_signal_wakeups: false` leaves due Session wakeups for the test
   to drive explicitly, and `replaces_workers: true` lets the test kill, stop, or
   replace its Workers (see `start_worker!/2`).

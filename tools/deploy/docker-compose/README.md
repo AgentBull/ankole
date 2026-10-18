@@ -175,13 +175,22 @@ can start a second Worker for an Agent.
 
 ## Image policy and upgrades
 
-The default images are the `main-latest` GitHub Container Registry images. The
-control-plane image names the Worker image of the same source revision; the
-control plane creates every Worker with it.
+The defaults pin control plane `2.0.0-alpha.5` and the PostgreSQL digest in
+`compose.yaml`. This is a pre-release. The control-plane image supplies the
+Worker image of the same source revision.
+Use deployment files and images from the same release. `main-latest` can point
+to an older release whose startup contract does not match these files.
+
+The PostgreSQL container uses `C.utf8` so an empty volume initializes with
+UTF8. An image or configuration update does not convert an existing database.
+Check `SHOW server_encoding`; for a SQL_ASCII database, use the separate
+[backup and restore procedure](../../devkit/postgres-for-ankole/README.md)
+before changing its encoding.
 
 For a controlled deployment, set `ANKOLE_CONTROL_PLANE_IMAGE` in `.env` to an
 immutable digest. That digest also fixes the Worker image. You can also pin
-`ANKOLE_POSTGRESQL_IMAGE`.
+`ANKOLE_POSTGRESQL_IMAGE`. Before an upgrade, check both overrides in `.env`;
+an old override takes precedence over the new deployment defaults.
 
 This release requires `RELEASE_COOKIE` in `.env`. An upgraded deployment that
 has no value stops at the first `docker compose` command with a message that
@@ -321,8 +330,8 @@ PostgreSQL is on an internal Docker network. Only Caddy publishes host ports.
 | `ANKOLE_DOCKER_SOCKET` | `/var/run/docker.sock` | Docker socket on the host |
 | `ANKOLE_DATABASE_POOL_SIZE` | `10` | Control-plane database pool |
 | `ANKOLE_WORKER_INSTALLATION` | `ankole` | Label in the names of the Worker containers and Agent volumes; do not change it after the first start |
-| `ANKOLE_CONTROL_PLANE_IMAGE` | `main-latest` image | Control-plane image or digest; it names the Worker image |
-| `ANKOLE_POSTGRESQL_IMAGE` | `main-latest` image | PostgreSQL image or digest |
+| `ANKOLE_CONTROL_PLANE_IMAGE` | `2.0.0-alpha.5` image | Control-plane image or digest; it names the Worker image |
+| `ANKOLE_POSTGRESQL_IMAGE` | Digest in `compose.yaml` | PostgreSQL image or digest |
 
 ## Troubleshooting
 

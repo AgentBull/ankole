@@ -41,6 +41,7 @@
     "@bufbuild/protoc-gen-es": "2.16.0",
     "@types/bun": "1.4.3",
     "@types/phoenix": "^1.6.7",
-    "gpt-tokenizer": "4.0.3"
+    "gpt-tokenizer": "4.0.3",
+    "openai": "7.38.0"
   }
 }

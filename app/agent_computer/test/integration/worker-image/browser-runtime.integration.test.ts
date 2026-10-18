@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { readFileSync } from 'node:fs'
 import { mkdirAgent } from '../../../src/common/agent-user'
 import { sendBrowserCommand } from '@ankole/browser'
 import { BrowserRuntime, browserRuntimeEnv, type MaterializedBrowserRuntime } from '../../../src/browser-runtime'
@@ -54,6 +55,23 @@ describe('browser runtime reached by Agent commands', () => {
     }
     await browserRuntime?.stop().catch(() => undefined)
     if (root) await rm(root, { recursive: true, force: true })
+  }, 20_000)
+
+  test('OfficeCLI discovers Chromium and produces a real document screenshot', () => {
+    const document = join(workspaceRoot, 'office-preview.docx')
+    const output = join(workspaceRoot, 'office-preview.png')
+    for (const args of [
+      ['create', document],
+      ['add', document, '/body', '--type', 'paragraph', '--prop', 'text=Screenshot regression'],
+      ['view', document, 'screenshot', '--grid', 'auto', '-o', output]
+    ]) {
+      const result = runCommand(['env', 'OFFICECLI_NO_AUTO_RESIDENT=1', 'officecli', ...args])
+      expect(result.status, `${result.stderr}\n${result.stdout}`).toBe(0)
+    }
+    const png = readFileSync(output)
+    expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    expect(png.readUInt32BE(16)).toBeGreaterThan(0)
+    expect(png.readUInt32BE(20)).toBeGreaterThan(0)
   }, 20_000)
 
   test('the CLI reaches the Worker browser daemon from a command environment', () => {

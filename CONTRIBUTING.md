@@ -93,7 +93,7 @@ A full local setup is complete only when all of these are true:
 
 1. Bun, Elixir/Erlang, Rust, Docker, and Docker Compose work from a new terminal.
 2. The devkit PostgreSQL service is healthy and the control-plane database is migrated.
-3. `bun dev` runs the Phoenix control plane, Web Console, and frontend assets. Agent creation leaves its Worker absent. Environment tools or Jobs request it when needed; pure questions do not start or wait for it.
+3. `bun dev` runs the Phoenix control plane, Web Console, and frontend assets. Agent creation requests Worker startup. Environment tools or Jobs request it again after idle release; pure questions do not wait for it.
 4. The first administrator can sign in, and an LLM provider, agent, and Signal binding are configured.
 5. A real message sent through Feishu/Lark reaches the agent and receives the expected reply.
 
@@ -256,7 +256,7 @@ Run:
 bun dev
 ```
 
-Keep this terminal open. The devkit starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. When an Agent needs its computer, the control plane creates its Worker container, which runs the local Agent Computer source in watch mode.
+Keep this terminal open. The devkit starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. Agent creation requests a Worker container, which runs the local Agent Computer source in watch mode.
 
 `mix ecto.migrate` also runs the temporary 2026-10 data upgrade from
 `Ankole.Upgrade202610`. `ecto.setup`, `kit app-db` and `bun dev` use this same
@@ -278,7 +278,7 @@ bun run services:status
 curl -I http://localhost:4000/
 ```
 
-The database must be healthy and the HTTP request must reach the control plane. Then open [`http://localhost:4000`](http://localhost:4000). Creating an Agent leaves its Worker absent. An environment tool or Job requests the Worker when needed. List the containers with `docker ps -a --filter label=ankole.installation=dev`; pure questions do not start or wait for them.
+The database must be healthy and the HTTP request must reach the control plane. Then open [`http://localhost:4000`](http://localhost:4000). Create an Agent and wait for its Worker to become ready. List the containers with `docker ps -a --filter label=ankole.installation=dev`. Initial image preparation can take time; the creation request does not wait for it. After idle release, an environment tool or Job requests the Worker again; pure questions do not wait for it.
 
 The development control plane listens on every interface, because Worker containers reach it through the Docker bridge gateway (`host.docker.internal`). On a shared network, block port 4000 from other machines.
 

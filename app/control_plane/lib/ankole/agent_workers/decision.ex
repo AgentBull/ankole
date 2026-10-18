@@ -154,6 +154,8 @@ defmodule Ankole.AgentWorkers.Decision do
   defp wanted?(%{agent: :active} = facts), do: requested?(facts) or facts.turn_in_progress?
   defp wanted?(_facts), do: false
 
+  defp requested?(%{worker: %{initial_start_pending: true}}), do: true
+
   defp requested?(%{worker: %{wanted_until: %DateTime{} = until}, now: now}),
     do: DateTime.compare(until, now) == :gt
 

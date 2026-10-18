@@ -15,8 +15,14 @@ defmodule AnkoleWeb.OIDCLogoutController do
   def request(%{method: "POST"} = conn, params) do
     # A top-level GET recovers the SameSite cookie before confirmation. A
     # cross-site form POST must not replace an existing browser reference.
-    query = URI.encode_query(Map.take(params, @request_fields))
-    conn |> put_status(303) |> redirect(to: "/oauth/logout?" <> query)
+    params = Map.take(params, @request_fields)
+
+    if Enum.all?(params, fn {_field, value} -> is_binary(value) end) do
+      query = URI.encode_query(params)
+      conn |> put_status(303) |> redirect(to: "/oauth/logout?" <> query)
+    else
+      conn |> put_status(400) |> AnkoleWeb.SpaController.logout_error(%{})
+    end
   end
 
   def request(conn, params) do

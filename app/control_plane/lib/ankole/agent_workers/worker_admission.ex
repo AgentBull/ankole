@@ -150,6 +150,37 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
 
   def mark_route_unusable(_route, _reason), do: :ok
 
+  @doc "Expires a connection after 60 seconds without a heartbeat, on any control-plane node."
+  @spec expire_connection(String.t()) :: :ok | {:error, term()}
+  def expire_connection(agent_uid) do
+    with {:ok, disconnected} <-
+           Repo.transact(fn repo ->
+             worker =
+               repo.one(
+                 from w in AgentWorker,
+                   where: w.agent_uid == ^agent_uid and w.state in ^@connected_states,
+                   where: not is_nil(w.transport_route),
+                   where:
+                     is_nil(w.last_worker_heartbeat_at) or
+                       w.last_worker_heartbeat_at <=
+                         fragment("clock_timestamp() - interval '60 seconds'"),
+                   lock: "FOR UPDATE"
+               )
+
+             if worker,
+               do: disconnect(repo, worker, "heartbeat_timeout"),
+               else: {:ok, nil}
+           end) do
+      if disconnected do
+        {worker, route} = disconnected
+        AgentWorkers.notify_changed(worker.agent_uid)
+        WorkerRoute.close_connection(worker.agent_uid, route, :worker_heartbeat_timeout)
+      end
+
+      :ok
+    end
+  end
+
   defp admit_in_tx(repo, agent_uid, generation, route, attrs) do
     case AgentWorkers.lock_in_tx(repo, agent_uid) do
       %AgentWorker{state: state, generation: ^generation} = worker when state in @join_states ->
@@ -161,6 +192,7 @@ defmodule Ankole.AgentWorkers.WorkerAdmission do
           {:ok, worker} =
             update_row(repo, agent_uid,
               state: "ready",
+              initial_start_pending: false,
               incarnation_id: attrs.incarnation_id,
               transport_route: route,
               capacity: attrs.capacity,

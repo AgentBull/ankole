@@ -910,6 +910,20 @@ fn output_text_part(text: &str) -> Option<Value> {
 }
 
 fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value>, StreamError> {
+    let token_field = match context.request.get("__ankole_chat_max_tokens_field") {
+        None => "max_tokens",
+        Some(value) => match value.as_str() {
+            Some("max_tokens") => "max_tokens",
+            Some("max_completion_tokens") => "max_completion_tokens",
+            _invalid => {
+                return Err(StreamError::new(
+                    "invalid_chat_max_tokens_field",
+                    "api_resolver",
+                    "Chat token limit requires max_tokens or max_completion_tokens",
+                ));
+            }
+        },
+    };
     let request = context.resolved_provider_request_object();
     let stream = request
         .get("stream")
@@ -945,7 +959,10 @@ fn build_openai_chat_body(context: &ResponseContext) -> Result<Map<String, Value
         .cloned()
         .filter(useful_value)
     {
-        body.insert("max_tokens".to_string(), value);
+        body.remove("max_output_tokens");
+        body.remove("max_tokens");
+        body.remove("max_completion_tokens");
+        body.insert(token_field.to_string(), value);
     }
 
     if let Some(tools) = chat_tools(request.get("tools"))? {

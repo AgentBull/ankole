@@ -32,6 +32,7 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
 
     busy = agent_in!(provider, "ready", load: %{"active_tasks" => 1, "idle_for_ms" => 0})
     wanted = agent_in!(provider, "absent", wanted: true)
+    initial = agent_in!(provider, "absent", initial_start_pending: true)
     unwanted = agent_in!(provider, "absent")
     starting = agent_in!(provider, "starting")
     stale = agent_in!(provider, "stale")
@@ -56,6 +57,7 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
     for uid <- [
           idle,
           wanted,
+          initial,
           starting,
           stale,
           draining,
@@ -164,6 +166,7 @@ defmodule Ankole.AgentWorkers.SweepJobTest do
       Repo.update_all(from(w in AgentWorker, where: w.agent_uid == ^agent.uid),
         set: [
           state: state,
+          initial_start_pending: Keyword.get(opts, :initial_start_pending, false),
           generation: generation,
           state_changed_at: now,
           token_digest: credential.token_digest,

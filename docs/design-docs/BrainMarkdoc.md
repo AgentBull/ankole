@@ -145,8 +145,9 @@ Objects 校验写入作用域并按 segment 分块。GetPage 按读取与披露�
 ### 编辑器行为
 
 Console 使用 `/brain/objects/new` 和 `/brain/objects/:slug/edit` 全页路由。
-源码输入使用 textarea。`previewBrainObjectBody` 用本地 fence 状态和标签行
-识别生成预览 segment，`MarkdownBody` 渲染正文并显示 scope badge；
+源码输入使用 textarea。`previewBrainObjectBody` 复用 CommonMark 解析库识别
+fenced、indented 和跨行 inline code 的源码范围，再按范围外的标签行生成
+预览 segment，`MarkdownBody` 渲染正文并显示 scope badge；
 `[[slug]]` 在预览中显示为字面文本。
 
 本地分段只服务预览。保存时服务端重新分析全文；预览与服务端不一致时，以服务端

@@ -6,10 +6,192 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
   alias Ankole.E2E.FakeOpenAIState
 
   @moduletag timeout: 600_000
-  @moduletag :compose_upgrade
 
+  @tag :compose_upgrade
+  test "default Compose images migrate an empty database and retain setup after restart" do
+    {deployment, owner} = Compose.start!() |> Compose.setup_admin!()
+
+    assert %{"worker_providers" => [%{"provider_id" => "docker"}]} =
+             Compose.api!(deployment, :get, "/api/v1/site/worker-providers")
+
+    assert %{"agent" => %{"uid" => uid}} =
+             Compose.api!(deployment, :post, "/api/v1/agents", %{
+               handle: "fresh-install-agent",
+               display_name: "Fresh installation Agent",
+               role: "Verify installation",
+               owner_principal_uid: owner
+             })
+
+    assert %{"workers" => [%{"agent_uid" => ^uid, "state" => "absent"}]} =
+             Compose.api!(deployment, :get, "/api/v1/agent-workers")
+
+    extensions =
+      Compose.compose!(deployment, [
+        "exec",
+        "-T",
+        "postgresql",
+        "psql",
+        "-U",
+        "ankole",
+        "-d",
+        "ankole",
+        "-Atc",
+        "SELECT extname FROM pg_extension WHERE extname IN ('pg_search', 'vector') ORDER BY extname"
+      ])
+
+    assert String.split(extensions) == ["pg_search", "vector"]
+
+    assert compose_query!(deployment, "SELECT to_json(current_setting('server_encoding'))") ==
+             "UTF8"
+
+    unicode_path_query = "SELECT to_json(substring('/根/子目录' FROM 4))"
+    assert compose_query!(deployment, unicode_path_query) == "子目录"
+    Compose.compose!(deployment, ["restart", "postgresql", "control-plane"])
+    deployment = Compose.wait_http!(deployment)
+
+    assert compose_query!(deployment, unicode_path_query) == "子目录"
+
+    assert %{"agent" => %{"uid" => ^uid}} =
+             Compose.api!(deployment, :get, "/api/v1/agents/#{uid}")
+
+    Compose.compose!(deployment, ["up", "--no-deps", "--force-recreate", "migrate"])
+    migration = String.trim(Compose.compose!(deployment, ["ps", "-aq", "migrate"]))
+    assert String.trim(Compose.docker!(["wait", migration])) == "0"
+  end
+
+  @tag :compose_upgrade
+  test "Agent creation starts isolated Workers and deletion removes their instances and storage" do
+    {deployment, owner} = Compose.start!(:source) |> Compose.setup_admin!()
+
+    workers =
+      for handle <- ["automatic-worker-a", "automatic-worker-b"] do
+        assert %{"agent" => %{"uid" => uid}} =
+                 Compose.api!(deployment, :post, "/api/v1/agents", %{
+                   handle: handle,
+                   display_name: handle,
+                   role: "Verify automatic startup",
+                   owner_principal_uid: owner
+                 })
+
+        # No model, environment call, or explicit Worker request starts this Agent.
+        assert {:ok, worker} =
+                 wait_until(deadline(120_000), fn ->
+                   deployment
+                   |> Compose.api!(:get, "/api/v1/agent-workers")
+                   |> Map.fetch!("workers")
+                   |> Enum.find(&(&1["agent_uid"] == uid and &1["state"] == "ready"))
+                 end)
+
+        [name] =
+          Compose.docker!([
+            "ps",
+            "-a",
+            "--format",
+            "{{.Names}}",
+            "--filter",
+            "label=ankole.installation=#{deployment.project}",
+            "--filter",
+            "label=ankole.agent-uid=#{uid}"
+          ])
+          |> String.split("\n", trim: true)
+
+        [inspection] = Compose.docker!(["inspect", name]) |> Ankole.JSON.decode!()
+        volumes = for mount <- inspection["Mounts"], mount["Type"] == "volume", do: mount["Name"]
+        assert length(volumes) == 2
+
+        assert Compose.docker!([
+                 "exec",
+                 "--user",
+                 "1000:1000",
+                 name,
+                 "sh",
+                 "-ec",
+                 "test \"$(readlink /agents/#{uid})\" = /workspace; printf #{uid} > /workspace/creation-proof"
+               ]) == ""
+
+        {uid, name, volumes, worker["generation"]}
+      end
+
+    assert length(Enum.uniq(for {_, name, _, _} <- workers, do: name)) == 2
+    assert length(Enum.uniq(Enum.flat_map(workers, fn {_, _, volumes, _} -> volumes end))) == 4
+
+    containers = fn deployment ->
+      for service <- ["control-plane", "postgresql"], into: %{} do
+        {service, String.trim(Compose.compose!(deployment, ["ps", "-q", service]))}
+      end
+    end
+
+    previous = containers.(deployment)
+    Compose.compose!(deployment, ["down"])
+
+    for container <- Map.values(previous) do
+      assert {_, 1} = System.cmd("docker", ["inspect", container], stderr_to_stdout: true)
+    end
+
+    Compose.compose!(deployment, ["up", "-d", "control-plane"])
+    deployment = Compose.wait_http!(deployment)
+    recreated = containers.(deployment)
+
+    for {service, container} <- previous do
+      refute recreated[service] in ["", container]
+    end
+
+    assert length(Compose.api!(deployment, :get, "/api/v1/agents")["agents"]) == 2
+
+    for {uid, name, volumes, generation} <- workers do
+      assert {:ok, _worker} =
+               wait_until(deadline(120_000), fn ->
+                 Enum.find(
+                   Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
+                   &(&1["agent_uid"] == uid and &1["generation"] == generation and
+                       &1["state"] == "ready")
+                 )
+               end)
+
+      assert Compose.docker!(["exec", name, "cat", "/workspace/creation-proof"]) == uid
+      present = String.split(Compose.docker!(["volume", "ls", "--format", "{{.Name}}"]))
+      for volume <- volumes, do: assert(volume in present)
+    end
+
+    for {uid, name, volumes, _generation} <- workers do
+      assert %{"agent" => %{"status" => "disabled"}} =
+               Compose.api!(deployment, :delete, "/api/v1/agents/#{uid}")
+
+      Compose.api!(deployment, :delete, "/api/v1/agents/#{uid}")
+
+      assert {:ok, true} =
+               wait_until(deadline(120_000), fn ->
+                 remaining = Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"]
+                 Enum.all?(remaining, &(&1["agent_uid"] != uid))
+               end)
+
+      refute name in String.split(Compose.docker!(["ps", "-a", "--format", "{{.Names}}"]))
+      present = String.split(Compose.docker!(["volume", "ls", "--format", "{{.Name}}"]))
+      for volume <- volumes, do: refute(volume in present)
+
+      for {other_uid, other_name, _, generation} <- workers,
+          other_uid != uid,
+          Enum.any?(
+            Compose.api!(deployment, :get, "/api/v1/agents")["agents"],
+            &(&1["uid"] == other_uid)
+          ) do
+        assert Compose.docker!(["exec", other_name, "cat", "/workspace/creation-proof"]) ==
+                 other_uid
+
+        assert Enum.any?(
+                 Compose.api!(deployment, :get, "/api/v1/agent-workers")["workers"],
+                 &(&1["agent_uid"] == other_uid and &1["generation"] == generation and
+                     &1["state"] == "ready")
+               )
+      end
+    end
+
+    assert %{"workers" => []} = Compose.api!(deployment, :get, "/api/v1/agent-workers")
+  end
+
+  @tag :compose_upgrade
   test "a pooled deployment migrates its Homes and adopts a command after all control-plane processes restart" do
-    {old, owner} = Compose.start_legacy!() |> Compose.setup_admin!()
+    {old, owner} = Compose.start!(:pooled) |> Compose.setup_admin!()
     uid = "compose-upgrade-agent"
 
     assert %{"agent" => %{"uid" => ^uid}} =
@@ -306,7 +488,7 @@ defmodule Ankole.E2E.ComposeUpgradeTest do
     app_secret = "compose-fake-platform-only"
     :ok = FakeFeishu.State.register_app(platform, app_id, app_secret, bot_open_id: "ou_bot")
 
-    {old, owner} = Compose.start_legacy!() |> Compose.setup_admin!()
+    {old, owner} = Compose.start!(:pooled) |> Compose.setup_admin!()
     uid = "compose-real-llm-agent"
     proof = "preserved-" <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
     work = "/workspace/sessions/compose-real-llm"

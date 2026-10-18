@@ -303,7 +303,7 @@ defmodule Ankole.IdentityProviders.LocalPassword do
       case RetryGuard.verify_password(Repo.tenant_id!(), account_key, password, password_hash,
              retry_protection?: retry_protection?,
              clear_on_match?: match?({:ok, %{credential: %LocalCredential{}}}, login),
-             not_before_ms: credential_written_at_ms(login)
+             not_before_us: credential_written_at_us(login)
            ) do
         {:ok, true} -> verified_login(provider, login, account_key)
         {:ok, false} -> {:error, :invalid_credentials}
@@ -389,12 +389,12 @@ defmodule Ankole.IdentityProviders.LocalPassword do
       select: %{principal: principal, human_user: human_user, credential: credential}
   end
 
-  defp credential_written_at_ms(
+  defp credential_written_at_us(
          {:ok, %{credential: %LocalCredential{updated_at: %DateTime{} = at}}}
        ),
-       do: DateTime.to_unix(at, :millisecond)
+       do: DateTime.to_unix(at, :microsecond)
 
-  defp credential_written_at_ms(_login), do: nil
+  defp credential_written_at_us(_login), do: nil
 
   defp retry_protection_enabled?(provider) do
     with config_key when is_binary(config_key) <- provider["config_key"],

@@ -183,8 +183,8 @@ defmodule Ankole.AgentWorkers do
   Records that a path needs the Agent's Worker now, and schedules
   reconciliation. It does not wait for the Worker.
 
-  Only paths that need a Worker call it: an environment tool, a Codex Job,
-  or an Automation Job run. A disabled Agent never
+  Environment tools, Codex Jobs, and Automation runs call it after the
+  initial startup request. A disabled Agent never
   gets a running Worker, whatever it requests.
   """
   @spec request(String.t()) :: :ok
@@ -263,16 +263,24 @@ defmodule Ankole.AgentWorkers do
         worker.generation
       ])
 
-  @doc "Inserts the absent Worker row in a new Agent's creation transaction."
+  @doc "Records and enqueues initial Worker startup in the Agent's creation transaction."
   @spec insert_in_tx(module(), String.t(), String.t()) :: :ok
   def insert_in_tx(repo, agent_uid, provider_id)
       when is_binary(agent_uid) and is_binary(provider_id) do
     {1, _rows} =
       repo.insert_all(
         AgentWorker,
-        [%{tenant_id: Repo.tenant_id!(), agent_uid: agent_uid, provider_id: provider_id}]
+        [
+          %{
+            tenant_id: Repo.tenant_id!(),
+            agent_uid: agent_uid,
+            provider_id: provider_id,
+            initial_start_pending: true
+          }
+        ]
       )
 
+    %{agent_uid: agent_uid} |> ReconcileJob.new() |> Oban.insert!()
     :ok
   end
 
@@ -290,6 +298,7 @@ defmodule Ankole.AgentWorkers do
         state: "deleting",
         incarnation_id: nil,
         transport_route: nil,
+        initial_start_pending: false,
         wanted_until: nil,
         state_changed_at: fragment("now()")
       ]

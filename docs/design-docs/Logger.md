@@ -164,6 +164,12 @@ method accepts an event, message, and fields map.
 
 `Ankole.Logging.JSONFormatter` writes the JSON line. It promotes the special top-level fields and removes reserved payload copies.
 
+Before output, the formatter replaces Webhook capability values with
+`[REDACTED]` across the complete JSON entry, including framework messages and
+nested fields. It recognizes the `wh_` format from `Ankole.Signals.Webhooks`,
+including percent-encoded forms. Route templates keep `:token`. Phoenix
+parameter filtering also hides the `token` parameter in debug logs.
+
 The formatter also removes old Google special names and the legacy `httpRequest` name.
 
 Do not call the standard Logger directly in control-plane or first-party Plugin

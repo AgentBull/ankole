@@ -53,6 +53,8 @@ spec:
               containerPort: {{ .Values.postgresql.port }}
               protocol: TCP
           env:
+            - name: LANG
+              value: C.utf8
             - name: PGDATA
               value: {{ .Values.postgresql.pgdata | quote }}
             - name: POSTGRES_USER

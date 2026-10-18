@@ -20,13 +20,14 @@ export default defineConfig(async env => {
               (!request.url?.startsWith('/pod') &&
                 !request.url?.startsWith('/providers') &&
                 !request.url?.startsWith('/brain') &&
+                !/^\/(settings|tenants|webhooks|files|schedules|library|worker-env)(\/|\?|$)/.test(request.url ?? '') &&
                 !request.url?.startsWith('/console-home'))
             ) {
               return next()
             }
             const html = await readFile(path.join(import.meta.dirname, 'index.html'), 'utf8')
             response.setHeader('Content-Type', 'text/html')
-            response.end(await server.transformIndexHtml(request.url, html))
+            response.end(await server.transformIndexHtml(request.url ?? '/', html))
           })
         }
       }

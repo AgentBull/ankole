@@ -35,7 +35,7 @@ x-logging: &default-logging
 
 services:
   postgresql:
-    image: ${ANKOLE_POSTGRESQL_IMAGE:-ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest}
+    image: ${ANKOLE_POSTGRESQL_IMAGE:-ghcr.io/agentbull/ankole-postgres-for-ankole@sha256:002f1569c7d90cc31b74e5eca3225a138d5e3b8a748f32eaa78752304502de71}
     pull_policy: always
     restart: unless-stopped
     command:
@@ -45,6 +45,7 @@ services:
       - -c
       - max_connections=${ANKOLE_POSTGRES_MAX_CONNECTIONS:-300}
     environment:
+      LANG: C.utf8
       POSTGRES_USER: ankole
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ankole
@@ -63,7 +64,7 @@ services:
       - backend
 
   migrate:
-    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:main-latest}
+    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:2.0.0-alpha.5}
     pull_policy: always
     restart: "no"
     command:
@@ -97,7 +98,7 @@ services:
     logging: *default-logging
 
   control-plane:
-    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:main-latest}
+    image: ${ANKOLE_CONTROL_PLANE_IMAGE:-ghcr.io/agentbull/ankole-agent-control-plane:2.0.0-alpha.5}
     pull_policy: always
     restart: unless-stopped
     environment: *control-plane-environment

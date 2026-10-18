@@ -233,7 +233,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
         "code_verifier" => String.duplicate("b", 43)
       })
 
-    assert %{"error" => "invalid_request"} = json_response(wrong, 400)
+    assert %{"error" => "invalid_grant"} = json_response(wrong, 400)
 
     malformed =
       conn
@@ -992,6 +992,119 @@ defmodule AnkoleWeb.OIDCControllerTest do
 
       assert redirect_query(response)["error"] == "invalid_request"
     end
+  end
+
+  for type <- ["public", "confidential"] do
+    @client_type type
+    test "#{type} token errors preserve the code and distinguish credentials from the grant", %{
+      conn: conn
+    } do
+      human = human_fixture(%{uid: unique_uid("token-errors")})
+
+      {:ok, %{client: client, client_secret: secret}} =
+        OIDC.create_client(
+          client_attrs(%{
+            type: @client_type,
+            redirect_uris: [@redirect_uri, @redirect_uri <> "/second"]
+          })
+        )
+
+      verifier = pkce_verifier()
+      code = authorize_code!(conn, human.principal.uid, client.id, verifier, "openid")
+
+      params = %{
+        "grant_type" => "authorization_code",
+        "client_id" => client.id,
+        "code" => code,
+        "code_verifier" => verifier,
+        "redirect_uri" => @redirect_uri
+      }
+
+      params = if secret, do: Map.delete(params, "client_id"), else: params
+
+      for changed <- [
+            %{"code_verifier" => String.duplicate("b", 43)},
+            %{"redirect_uri" => @redirect_uri <> "/second"},
+            %{"redirect_uri" => "https://unregistered.example/callback"}
+          ] do
+        request = recycle(conn)
+
+        request =
+          if secret,
+            do: put_req_header(request, "authorization", basic(client.id, secret)),
+            else: request
+
+        response = post(request, "/oauth/token", Map.merge(params, changed)) |> json_response(400)
+        assert response["error"] == "invalid_grant"
+        refute Map.has_key?(response, "access_token")
+      end
+
+      if secret do
+        wrong =
+          conn
+          |> recycle()
+          |> put_req_header("authorization", basic(client.id, "wrong"))
+          |> post("/oauth/token", params)
+
+        assert %{"error" => "invalid_client"} = json_response(wrong, 401)
+      end
+
+      request = recycle(conn)
+
+      request =
+        if secret,
+          do: put_req_header(request, "authorization", basic(client.id, secret)),
+          else: request
+
+      assert %{"access_token" => token} =
+               request |> post("/oauth/token", params) |> json_response(200)
+
+      assert is_binary(token)
+    end
+  end
+
+  test "logout rejects structured parameters without creating a redirect or revoking a login", %{
+    conn: conn
+  } do
+    human = human_fixture(%{uid: unique_uid("logout-shape")})
+    session = oauth_session_conn(conn, human.principal.uid)
+
+    for key <- ~w(id_token_hint client_id post_logout_redirect_uri state),
+        value <- [["x"], %{"x" => "y"}] do
+      result = session |> recycle() |> post("/oauth/logout", %{key => value})
+      assert result.status == 400
+      assert get_resp_header(result, "location") == []
+    end
+
+    valid = session |> recycle() |> post("/oauth/logout", %{"state" => "one & two"})
+
+    assert URI.decode_query(URI.parse(redirected_to(valid, 303)).query) == %{
+             "state" => "one & two"
+           }
+
+    assert WebSession.oauth_session(session)["principal_uid"] == human.principal.uid
+  end
+
+  test "an unparsed POST body needs a valid CSRF header and the same origin", %{conn: conn} do
+    human = human_fixture(%{uid: unique_uid("csrf-body")})
+    session = oauth_session_conn(conn, human.principal.uid)
+    session = %{session | method: "POST", body_params: %Plug.Conn.Unfetched{aspect: :body_params}}
+    session = put_private(session, :plug_skip_csrf_protection, false)
+    state = WebSession.csrf_state(session)
+    assert is_binary(state)
+    :ok = Plug.CSRFProtection.load_state(session.secret_key_base, state)
+    token = Plug.CSRFProtection.get_csrf_token()
+    options = AnkoleWeb.Plugs.BrowserCSRF.init([])
+    valid = put_req_header(session, "x-csrf-token", token)
+    assert %Plug.Conn{} = AnkoleWeb.Plugs.BrowserCSRF.call(valid, options)
+
+    for request <- [session, put_req_header(valid, "origin", "https://untrusted.example")] do
+      assert_raise Plug.CSRFProtection.InvalidCSRFTokenError, fn ->
+        AnkoleWeb.Plugs.BrowserCSRF.call(request, options)
+      end
+    end
+
+    Plug.CSRFProtection.delete_csrf_token()
   end
 
   defp add_authentication(conn, principal) do

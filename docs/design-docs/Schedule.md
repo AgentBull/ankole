@@ -123,7 +123,8 @@ The creation idempotency key is:
 (agent_uid, owner_session_id, idempotency_key)
 ```
 
-When present, a name must be unique among the Agent's active rules.
+A recurring rule requires a name that is not blank. The name must be unique
+among the Agent's active rules.
 
 ### The Cron Execution Session
 

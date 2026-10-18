@@ -76,6 +76,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
   import Ankole.ExternalConversationsFixtures
 
   import Ankole.Eventually, only: [eventually: 1]
+  import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
   import Ankole.FilesFixtures, only: [assert_stored_attachment!: 5]
   import Ankole.PrincipalsFixtures
   import Ankole.SignalsFixtures
@@ -577,18 +578,28 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert_receive {:gateway, %{"op" => 6, "d" => %{"seq" => 2, "session_id" => "sess-1"}}},
                      5_000
 
-      assert eventually(fn -> ConnectionOwner.status(owner).sequence == 6 end),
-             inspect(ConnectionOwner.status(owner))
+      assert {:ok, %{state: :running, session?: true, sequence: 6, pending_events: 0}} =
+               wait_until(deadline(5_000), fn ->
+                 status = ConnectionOwner.status(owner)
+                 if status.sequence == 6 and status.pending_events == 0, do: status
+               end)
 
-      assert %{state: :running, session?: true, pending_events: 0} =
-               ConnectionOwner.status(owner)
+      for message <- [blocked | Enum.map(backlog, & &1["d"])] do
+        assert %{text: text} =
+                 message_snapshot!(
+                   conversation_id: @dm_channel,
+                   provider_message_id: message["id"]
+                 )
 
-      assert eventually(fn ->
-               message_snapshot(
-                 conversation_id: @dm_channel,
-                 provider_message_id: List.last(backlog)["d"]["id"]
-               ) != nil
-             end)
+        assert text == message["content"]
+      end
+
+      conversation_id = Ankole.Conversations.Assertions.conversation_id!(@dm_channel)
+
+      assert Repo.aggregate(
+               from(m in Message, where: m.conversation_id == ^conversation_id),
+               :count
+             ) == 5
     end
 
     test "acknowledges a component while an earlier attachment is still downloading" do
@@ -1154,6 +1165,8 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       assert {:ok, first} = preview_update(request)
       assert first.created_provider_message_id == "900"
+      assert first.provider_thread_id == event.provider_thread_id
+      refute first.provider_thread_id == request.conversation_id
 
       assert first.reply_preview_checkpoint["messages"] == [
                %{"index" => 0, "message_id" => "900"}

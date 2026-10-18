@@ -9,6 +9,7 @@ import {
   displayPath,
   fffSearchRuntime,
   fileAnnotation,
+  findWithinScope,
   normalizeExcludes,
   resolveSearchTarget,
   scanNotice,
@@ -79,6 +80,7 @@ export function createFindTool(
 
       let root: string
       let query: string
+      let constraint: string | undefined
       let pattern: string
       let pageSize: number
       let offset: number
@@ -92,6 +94,7 @@ export function createFindTool(
         }
         root = state.root
         query = state.query
+        constraint = state.constraint
         pattern = state.pattern
         pageSize = state.pageSize
         offset = state.nextOffset
@@ -104,6 +107,7 @@ export function createFindTool(
           return { content: [{ type: 'text', text: target.message }], details: { totalMatched: 0, totalFiles: 0 } }
         }
         root = target.root
+        constraint = target.constraint
         pattern = params.pattern ?? ''
         pageSize = params.limit ?? DEFAULT_LIMIT
         offset = 0
@@ -113,8 +117,7 @@ export function createFindTool(
       }
 
       const acquired = await runtime.acquire(root)
-      // fff's `pageIndex` counts items, not pages (verified against 0.10.5).
-      const searched = acquired.finder.fileSearch(query, { pageIndex: offset, pageSize })
+      const searched = findWithinScope(acquired.finder, query, constraint, offset, pageSize)
       if (!searched.ok) throw new Error(`find failed: ${searched.error}`)
       const result = searched.value
 
@@ -156,6 +159,7 @@ export function createFindTool(
         const cursor = runtime.storeFindCursor({
           root: acquired.root,
           query,
+          constraint,
           pattern,
           pageSize,
           nextOffset: shownSoFar

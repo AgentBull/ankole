@@ -977,6 +977,8 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
       assert {:ok, first} = preview_update(request)
       assert first.created_provider_message_id == "900"
+      assert first.provider_thread_id == event.provider_thread_id
+      refute first.provider_thread_id == request.conversation_id
 
       assert first.reply_preview_checkpoint["messages"] == [
                %{"index" => 0, "message_id" => "900"}

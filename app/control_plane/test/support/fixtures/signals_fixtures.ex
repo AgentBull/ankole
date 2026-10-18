@@ -20,10 +20,20 @@ defmodule Ankole.SignalsFixtures do
     consumers = Enum.map(consumers, &Map.put_new(&1, :tenant_id, Ankole.Repo.tenant_id!()))
     key = module.connection_key(config, consumers)
 
-    DynamicSupervisor.start_child(
-      module.__connection_lifecycle__().supervisor,
-      module.owner_child_spec(key, config, consumers)
-    )
+    case DynamicSupervisor.start_child(
+           module.__connection_lifecycle__().supervisor,
+           module.owner_child_spec(key, config, consumers)
+         ) do
+      {:ok, _pid} = result ->
+        ExUnit.Callbacks.on_exit(fn ->
+          if Process.whereis(module.__connection_lifecycle__().registry), do: module.stop(key)
+        end)
+
+        result
+
+      error ->
+        error
+    end
   end
 
   @doc "Whether the running owner of `key` serves exactly this config and consumer list."

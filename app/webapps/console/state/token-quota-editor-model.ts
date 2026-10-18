@@ -117,7 +117,15 @@ export const TokenQuotaEditorModel = createModel(() => {
       const limit = positiveInteger(limitTokens.value)
       if (limit === undefined) return { ok: false, error: 'limit_tokens_invalid' }
 
-      return { ok: true, body: { period_days: days, period_start_at: periodStartInstant, limit_tokens: limit } }
+      return {
+        ok: true,
+        body: {
+          period_days: days,
+          // Keep the control plane's exact reset instant when the picker did not change.
+          ...(startAt !== initialDraft.value?.periodStartAt ? { period_start_at: periodStartInstant } : {}),
+          limit_tokens: limit
+        }
+      }
     }
   }
 })

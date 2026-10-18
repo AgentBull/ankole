@@ -1439,6 +1439,7 @@ def _execute_via_websocket(
     }
 
     reply: dict[str, Any] | None = None
+    idle_received = False
     events: list[dict[str, Any]] = []
     notebook_events: list[dict[str, Any]] | None = (
         [] if capture_notebook_events else None
@@ -1475,8 +1476,9 @@ def _execute_via_websocket(
             if (
                 msg_type == "status"
                 and (msg.get("content") or {}).get("execution_state") == "idle"
-                and reply
             ):
+                idle_received = True
+            if idle_received and reply:
                 break
         else:
             raise CommandError(

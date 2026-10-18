@@ -9,6 +9,8 @@ defmodule Ankole.Logging.JSONFormatter do
 
   @behaviour :logger_formatter
 
+  @webhook_capability ~r/(?:w|%77)(?:h|%68)(?:_|%5[fF])(?:[A-Za-z0-9_-]|%[A-Fa-f0-9]{2})+/
+
   @internal_metadata_keys MapSet.new([
                             "time",
                             "pid",
@@ -84,7 +86,9 @@ defmodule Ankole.Logging.JSONFormatter do
       |> put_promoted(metadata, :span_id, "span_id")
       |> put_promoted(metadata, :trace_sampled, "trace_sampled")
 
-    [Ankole.JSON.encode!(entry), "\n"]
+    # Framework messages and nested fields can also contain encoded capabilities.
+    line = entry |> Ankole.JSON.encode!() |> String.replace(@webhook_capability, "[REDACTED]")
+    [line, "\n"]
   rescue
     _error ->
       ~s({"severity":"ERROR","message":"failed to format log entry","event":"logger.formatter_failed"}\n)

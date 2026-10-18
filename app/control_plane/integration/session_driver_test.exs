@@ -591,6 +591,76 @@ defmodule Ankole.Sessions.DriverTest do
     end
   end
 
+  @tag :worker_replacement_regression
+  test "a live Driver probes a sent command after Worker replacement without executing it twice",
+       %{key: key, script: script} do
+    route = RuntimeCase.unique_route()
+    next_route = RuntimeCase.unique_route()
+    :ok = WorkerRoute.register_local_worker(route, self())
+    :ok = WorkerRoute.register_local_worker(next_route, self())
+
+    on_exit(fn ->
+      WorkerRoute.unregister_local_worker(route)
+      WorkerRoute.unregister_local_worker(next_route)
+    end)
+
+    assert {:ok, _} = RuntimeCase.admit_worker(route, %{worker_id: key.agent_uid})
+
+    Agent.update(
+      script,
+      &%{&1 | calls: [tool_call("once", "command", %{"command" => "printf side-effect"})]}
+    )
+
+    assert {:ok, event} = Ankole.Signals.accept(attrs(key))
+    _ = await_request(key)
+    ready_workspace(key)
+    assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, original}}}, 5000
+    assert original.mode == "execute"
+    driver = Ankole.Sessions.driver_pid(key)
+
+    assert {:ok, :marked_stale} =
+             Ankole.AgentWorkers.WorkerAdmission.mark_route_unusable(route, :socket_closed)
+
+    assert {:ok, _} =
+             RuntimeCase.admit_worker(next_route, %{
+               worker_id: key.agent_uid,
+               incarnation_id: "replacement"
+             })
+
+    ready_workspace(key)
+    assert_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, probe}}}, 5000
+    assert probe.mode == "probe"
+
+    assert {probe.call_id, probe.response_id, probe.run} ==
+             {original.call_id, original.response_id, original.run}
+
+    assert Ankole.Sessions.driver_pid(key) == driver
+
+    assert :ok =
+             SessionLane.handle(
+               %Proto.Envelope{
+                 body:
+                   {:tool_status,
+                    %Proto.ToolStatus{
+                      run: probe.run,
+                      response_id: probe.response_id,
+                      call_id: probe.call_id,
+                      state: "unknown"
+                    }}
+               },
+               %{worker_id: key.agent_uid}
+             )
+
+    next = await_request(key)
+
+    assert [%{"tool_call_id" => "once", "content" => content}] =
+             Enum.filter(next.body["messages"], &(&1["role"] == "tool"))
+
+    assert content =~ "interrupted"
+    assert wait_for_completion(event.id).attempt_count == 1
+    refute_receive {:actor_lane, %Proto.Envelope{body: {:tool_call, _}}}, 100
+  end
+
   for recovered? <- [false, true] do
     @tag adopted_worker_call: recovered?
     test(

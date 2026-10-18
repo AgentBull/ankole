@@ -154,11 +154,17 @@ Agent、聊天渠道绑定和 WorkerEnv 密钥。不要把模型提供商的 API
 
 ## 镜像策略和升级
 
-默认使用 GitHub Container Registry 的 `main-latest` 镜像。控制面镜像指定相同源码
-revision 的 Worker 镜像；控制面用这个 Worker 镜像创建每个 Worker。
+默认固定控制面 `2.0.0-alpha.5` 和 `compose.yaml` 中的 PostgreSQL digest。
+这是预发布版本。控制面镜像指定相同源码 revision 的 Worker 镜像。
+请使用同一发布版本的部署文件和镜像；`main-latest` 可能指向启动契约不匹配的旧版本。
+
+PostgreSQL 容器使用 `C.utf8`，空卷首次初始化为 UTF8。更新镜像或配置不会转换
+现有数据库编码。先检查 `SHOW server_encoding`；SQL_ASCII 旧库需要另行执行
+[备份、转换与恢复](../../devkit/postgres-for-ankole/README.md)，不能直接修改编码标记。
 
 受控部署应在 `.env` 中把 `ANKOLE_CONTROL_PLANE_IMAGE` 设置为不可变 digest。
 这个 digest 同时固定 Worker 镜像。也可以固定 `ANKOLE_POSTGRESQL_IMAGE`。
+升级前检查 `.env` 中这两个覆盖值；已有覆盖值的优先级高于新版部署文件的默认值。
 
 本版本要求 `.env` 中有 `RELEASE_COOKIE`。升级后的部署如果没有这个值，
 第一条 `docker compose` 命令就会停止，并提示该变量名。请在升级前加上：
@@ -283,8 +289,8 @@ Docker internal network。只有 Caddy 会发布主机端口。
 | `ANKOLE_DOCKER_SOCKET` | `/var/run/docker.sock` | 主机上的 Docker socket |
 | `ANKOLE_DATABASE_POOL_SIZE` | `10` | 控制面数据库连接池 |
 | `ANKOLE_WORKER_INSTALLATION` | `ankole` | Worker 容器与 Agent 卷名称中的标签；首次启动后不能修改 |
-| `ANKOLE_CONTROL_PLANE_IMAGE` | `main-latest` 镜像 | 控制面镜像或 digest；它指定 Worker 镜像 |
-| `ANKOLE_POSTGRESQL_IMAGE` | `main-latest` 镜像 | PostgreSQL 镜像或 digest |
+| `ANKOLE_CONTROL_PLANE_IMAGE` | `2.0.0-alpha.5` 镜像 | 控制面镜像或 digest；它指定 Worker 镜像 |
+| `ANKOLE_POSTGRESQL_IMAGE` | `compose.yaml` 中的 digest | PostgreSQL 镜像或 digest |
 
 ## 故障排查
 

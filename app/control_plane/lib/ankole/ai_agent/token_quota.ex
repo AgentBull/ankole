@@ -51,7 +51,7 @@ defmodule Ankole.AIAgent.TokenQuota do
   def put(agent_uid, attrs) do
     Repo.transact(fn repo ->
       with %Agent{} = agent <- lock_agent(repo, agent_uid),
-           {:ok, quota} <- normalize(attrs),
+           {:ok, quota} <- normalize(attrs, quota_from_agent(agent)),
            {:ok, _agent} <- write_quota(repo, agent, quota) do
         {:ok, quota}
       else
@@ -150,8 +150,11 @@ defmodule Ankole.AIAgent.TokenQuota do
     DateTime.add(period_start_at, periods * period_seconds, :second)
   end
 
-  defp normalize(attrs) when is_map(attrs) do
-    attrs = Attrs.normalize_external_attrs(attrs)
+  defp normalize(attrs, stored_quota) when is_map(attrs) do
+    attrs =
+      attrs
+      |> Attrs.normalize_external_attrs()
+      |> Map.put_new("period_start_at", (stored_quota || %{})["period_start_at"])
 
     with {:ok, period_days} <- positive_integer(attrs, "period_days", :invalid_period_days),
          {:ok, period_start_at} <- required_instant(attrs, "period_start_at"),
@@ -165,7 +168,7 @@ defmodule Ankole.AIAgent.TokenQuota do
     end
   end
 
-  defp normalize(_attrs), do: {:error, :invalid_token_quota}
+  defp normalize(_attrs, _stored_quota), do: {:error, :invalid_token_quota}
 
   defp positive_integer(attrs, key, error) do
     case Map.get(attrs, key) do

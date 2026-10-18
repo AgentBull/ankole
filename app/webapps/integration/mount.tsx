@@ -1,7 +1,9 @@
 import '@ankole/uikit/styles.css'
 import '../common/styles.css'
 import { createRoot } from 'react-dom/client'
-import { createBrowserRouter, Link, Outlet, RouterProvider } from 'react-router'
+import { createBrowserRouter, Link, Outlet, RouterProvider, useParams } from 'react-router'
+import { useModel } from '@preact/signals-react'
+import { useSignals } from '@preact/signals-react/runtime'
 import { AppProviders, createQueryClient } from '../common/providers'
 import { loadLocale } from '../common/i18n'
 import { configureConsoleAPIClient } from '../console/api/client'
@@ -10,12 +12,24 @@ import { ProviderEditorPage, ProvidersListPage } from '../console/pages/provider
 import { HomePage } from '../console/pages/home'
 import { BrainObjectEditorPage } from '../console/pages/brain/object-editor'
 import { BrainObjectDrawer, BrainObjectsPage } from '../console/pages/brain/objects'
+import { SettingsPage, SettingEditorDrawer, SettingGroupDrawer } from '../console/pages/settings'
+import { TenantEditorPage } from '../console/pages/tenants'
+import { WebhooksPage } from '../console/pages/webhooks'
+import { AgentFilesPage } from '../console/pages/agent-files'
+import { ScheduleCronEditorPage, SchedulesListPage } from '../console/pages/schedules'
+import { AgentLibraryEditor } from '../console/pages/agent-library-editor'
+import { AgentLibraryEditorModel } from '../console/state/agent-library-editor-model'
+import { WorkerEnvAgentSection } from '../console/pages/worker-env-agent-section'
 
 await loadLocale('en-US')
 const provider = window.location.pathname.startsWith('/providers')
 const home = window.location.pathname.startsWith('/console-home')
 const brain = window.location.pathname.startsWith('/brain')
-const consoleSurface = provider || home || brain
+const consoleSurface =
+  provider ||
+  home ||
+  brain ||
+  /^\/(settings|tenants|webhooks|files|schedules|library|worker-env)(\/|$)/.test(window.location.pathname)
 const client = createQueryClient(consoleSurface ? createConsoleMutationCache() : undefined)
 Object.assign(window, {
   testMutationStatuses: () =>
@@ -31,6 +45,26 @@ const app = consoleSurface ? (
     return (
       <RouterProvider
         router={createBrowserRouter([
+          {
+            element: <RegressionNavigation />,
+            children: [
+              {
+                path: '/settings',
+                element: <SettingsPage />,
+                children: [
+                  { path: 'group/:group', element: <SettingGroupDrawer /> },
+                  { path: ':key', element: <SettingEditorDrawer /> }
+                ]
+              },
+              { path: '/tenants/new', element: <TenantEditorPage /> },
+              { path: '/webhooks', element: <WebhooksPage /> },
+              { path: '/files/:uid', element: <AgentFilesPage /> },
+              { path: '/schedules', element: <SchedulesListPage /> },
+              { path: '/schedules/new', element: <ScheduleCronEditorPage /> },
+              { path: '/library/:uid', element: <LibraryTestPage /> },
+              { path: '/worker-env', element: <WorkerEnvAgentSection agentUID="agent-one" /> }
+            ]
+          },
           { path: '/console-home', element: <HomePage /> },
           { path: '/providers', element: <ProvidersListPage /> },
           { path: '/providers/new', element: <ProviderEditorPage /> },
@@ -55,6 +89,25 @@ const app = consoleSurface ? (
   <PodApp />
 ) : null
 createRoot(document.getElementById('root')!).render(<AppProviders queryClient={client}>{app}</AppProviders>)
+
+function RegressionNavigation() {
+  return (
+    <>
+      <nav aria-label="Regression navigation">
+        <Link to="/settings">Settings</Link>
+        <Link to="/library/agent-one">Library</Link>
+        <Link to="/schedules/new?agent=agent-one&amp;cron=cron-one">Schedule</Link>
+      </nav>
+      <Outlet />
+    </>
+  )
+}
+
+function LibraryTestPage() {
+  useSignals()
+  const model = useModel(AgentLibraryEditorModel)
+  return <AgentLibraryEditor agentUID={useParams().uid!} model={model} />
+}
 
 // Test-only links change router parameters without replacing the application or its QueryClient.
 function BrainTestNavigation() {

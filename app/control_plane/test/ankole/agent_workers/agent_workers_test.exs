@@ -93,6 +93,8 @@ defmodule Ankole.AgentWorkers.AgentWorkersTest do
               %AgentWorker{state: "ready", transport_route: "route-1", incarnation_id: "inc-1"}} =
                join_worker(ctx.agent_uid, "route-1", "inc-1")
 
+      refute Repo.get!(AgentWorker, ctx.agent_uid).initial_start_pending
+
       set_row!(ctx.agent_uid, state: "stale", transport_route: nil)
 
       assert {:ok, %AgentWorker{state: "ready", transport_route: "route-2"}} =

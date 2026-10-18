@@ -70,6 +70,8 @@ const ROW_CONTROLS =
 function followRowLink(event: React.MouseEvent<HTMLTableRowElement>) {
   if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
   const row = event.currentTarget
+  // Portal events bubble through React, but do not belong to this row.
+  if (!row.contains(event.target as Node)) return
   const control = (event.target as Element).closest(ROW_CONTROLS)
   if (control && row.contains(control)) return
   if (document.getSelection()?.isCollapsed === false) return

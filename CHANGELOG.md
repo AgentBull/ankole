@@ -1,5 +1,41 @@
 # Changelog
 
+## Version 2.0.0-alpha.10 (2026-10-18)
+
+- Request Worker startup when an Agent is created, retain the request until
+  the Worker connects, and cancel startup when the Agent is deleted. Expire
+  stale restored connections without changing the Worker generation or Home.
+  Resume pending tool calls after Worker replacement; report an interrupted
+  result for an unsafe operation whose outcome is unknown.
+- Use compatible published control-plane and PostgreSQL images in Docker
+  Compose and Helm. Check existing image overrides before an upgrade: an old
+  control-plane image can fail with newer database extensions. Use UTF8 for
+  new databases in Compose, bundled Helm PostgreSQL, the source initializer,
+  and devkit database creation. Existing databases keep their encoding and
+  need a separate backup, encoding conversion, and restore.
+- Accept Azure OpenAI v1 endpoints on Foundry resource hosts. Send Chat output
+  limits as `max_completion_tokens`; for an older model, set
+  `maxTokensParameter` to `max_tokens` in its model profile. Keep Telegram and
+  Discord previews on the provider thread.
+- Keep password lockout counters consistent with credential timestamps and
+  password resets. Reject malformed logout parameters, handle an unparsed
+  CSRF request body, and correct OAuth token errors. Redact URL-encoded signal
+  capability tokens, reject unknown Brain configuration fields, and preserve
+  quota-period precision when only the limit changes.
+- Preserve Console drafts and saved values across delayed requests and editor
+  reopening. Validate schedule names, tenant slugs, and declared numeric
+  bounds; preserve unchanged interval schedules and one pending cron job
+  across pause and resume. Correct Brain audience previews, Pod selection,
+  Webhook creation results, menu navigation, and upload-dialog actions. Hide
+  revealed environment values after save or clear, and keep validation notices
+  visible without blocking dialog actions.
+- Enforce exact file scopes in find and grep, and preserve Unicode characters
+  when clipping results. Wait for Notebook reply and idle messages in either
+  order. Let OfficeCLI use the installed Chromium, verify screenshot output,
+  and correct Office file-editing guidance. Add behavioral regressions and
+  missing test dependencies; keep browser, image, upgrade, and Driver recovery
+  checks outside the default fast suites.
+
 ## Version 2.0.0-alpha.9 (2026-10-17)
 
 - Add the private SaaS account flow: email sign-in, independent accounts that

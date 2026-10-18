@@ -235,8 +235,10 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
   @tag timeout: 900_000
   @tag ownership_timeout: 900_000
   test "computer tools, skills, attachments, and workspace persistence" do
-    ctx = start_worker_e2e_stack!(worker: false)
-    worker_before = Repo.get!(AgentWorker, ctx.agent.uid)
+    ctx = start_worker_e2e_stack!()
+
+    %AgentWorker{state: "ready", generation: generation, incarnation_id: incarnation_id} =
+      Repo.get!(AgentWorker, ctx.agent.uid)
 
     attachment = run_file_attachment_roundtrip(ctx)
 
@@ -288,9 +290,12 @@ defmodule Ankole.E2E.WorkerComputerE2ETest do
       "om_skill_disabled_1"
     )
 
-    assert Repo.get!(AgentWorker, ctx.agent.uid) == worker_before
+    assert %AgentWorker{
+             state: "ready",
+             generation: ^generation,
+             incarnation_id: ^incarnation_id
+           } = Repo.get!(AgentWorker, ctx.agent.uid)
 
-    ctx = Map.merge(ctx, start_worker!([ctx.agent.uid], server_port: ctx.server_port))
     reply_attachment = run_reply_attachment_tool_loop(ctx)
 
     dispatch_and_assert_lark_file_intent(

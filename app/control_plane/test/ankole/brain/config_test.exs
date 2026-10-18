@@ -94,6 +94,17 @@ defmodule Ankole.Brain.ConfigTest do
     assert {:error, :agent_not_found} = Config.maintainer_subject_uid()
   end
 
+  test "unknown fields reject a known setting without replacing its value" do
+    for key <- ["brain.chunking", "brain.forgetting"] do
+      before = AppConfigure.get_by_key(key)
+
+      assert {:error, {:invalid_field, "qa_unknown"}} =
+               AppConfigure.put_tenant_by_key(key, %{"qa_unknown" => 1})
+
+      assert AppConfigure.get_by_key(key) == before
+    end
+  end
+
   test "a disabled maintainer Agent stops Brain execution until it is replaced or enabled" do
     %{principal: maintainer} = agent_fixture()
     %{principal: replacement} = agent_fixture()

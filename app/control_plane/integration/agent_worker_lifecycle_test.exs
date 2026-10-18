@@ -36,7 +36,18 @@ defmodule Ankole.AgentWorkerLifecycleIntegrationTest do
 
     old_options = Application.get_env(:ankole, :docker_api_req_options)
     Application.put_env(:ankole, :docker_api_req_options, adapter: BarrierHTTP)
-    %{principal: agent} = Sandbox.unboxed_run(Repo, &agent_fixture/0)
+
+    %{principal: agent} =
+      Sandbox.unboxed_run(Repo, fn ->
+        socket = System.get_env("ANKOLE_WORKER_PROVIDER_TEST_SOCKET", "/var/run/docker.sock")
+
+        provider =
+          worker_provider_fixture(%{
+            config: "socket: #{Ankole.JSON.encode!(socket)}\nnetwork: bridge\n"
+          })
+
+        agent_fixture(%{worker_provider_id: provider.provider_id})
+      end)
 
     {:ok, provider} =
       Sandbox.unboxed_run(Repo, fn ->

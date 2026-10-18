@@ -31,6 +31,10 @@ Worker Pod 不需要额外的内核权限：容器就是每个 Agent 的隔离�
 
 ## 使用内置 PostgreSQL 安装
 
+内置 PostgreSQL 容器使用 `C.utf8`，空卷首次初始化为 UTF8。已有卷的数据库编码
+保持不变。先检查 `SHOW server_encoding`；SQL_ASCII 旧库需要另行执行
+[备份、转换与恢复](../../../devkit/postgres-for-ankole/README.md)。
+
 内置 PostgreSQL 只有一个副本，默认没有防止自愿驱逐的配置。生产环境应使用外部
 PostgreSQL。若在 Karpenter 管理的节点上使用内置数据库，可添加 Pod 注解：
 
@@ -199,14 +203,9 @@ Agent、聊天渠道绑定和 WorkerEnv 密钥。不要把模型提供商的 API
 
 只支持从 v0.70.0 或更高版本直接升级到本版本。不支持从更早的版本升级。
 
-默认镜像是：
-
-```text
-ghcr.io/agentbull/ankole-agent-control-plane:main-latest
-ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest
-```
-
-`main-latest` 跟随最近一次成功的 GitHub 发布。受控生产升级前，解析并记录控制面 digest：
+默认固定控制面 `2.0.0-alpha.5` 和 `values.yaml` 中的 PostgreSQL digest。
+这是预发布版本。请使用同一发布版本的部署文件和镜像；`main-latest` 可能指向
+启动契约不同的旧版本。受控生产升级前，解析并记录控制面 digest：
 
 ```yaml
 controlPlane:
@@ -215,6 +214,7 @@ controlPlane:
 ```
 
 控制面镜像已带有与它匹配的不可变 Worker 镜像引用。`worker.image` 留空即可使用该引用。
+若改用其他 PostgreSQL tag，也要清空 `postgresql.image.digest`；digest 的优先级高于 tag。
 只有显式覆盖时才设置 `worker.image.repository` 及其 tag 或 digest；覆盖镜像必须与控制面来自同一源码 revision。
 
 升级后，控制面会在 Agent 空闲时替换镜像与当前配置不同的 Worker；正在运行的 Job
@@ -385,7 +385,7 @@ kubectl -n ankole exec statefulset/ankole-postgresql -- \
 | 配置 | 默认值 | 用途 |
 | --- | --- | --- |
 | `secrets.existingSecret` | 空 | 已有 bootstrap Secret |
-| `controlPlane.image.tag` | `main-latest` | 可移动的 GitHub 镜像通道 |
+| `controlPlane.image.tag` | `2.0.0-alpha.5` | 不可变的已发布版本 |
 | `controlPlane.image.digest` | 空 | 固定控制面镜像 |
 | `controlPlane.publicHost` | `ankole.example.com` | Phoenix 对外域名 |
 | `worker.image.digest` | 空 | 显式覆盖 Worker 镜像时使用的 digest |

@@ -1,5 +1,5 @@
 defmodule Ankole.E2E.ComposeDeployment do
-  @moduledoc "The released Compose deployment and its Console HTTP client for upgrade tests."
+  @moduledoc "The released Compose deployment and its Console HTTP client for installation and upgrade tests."
 
   import ExUnit.Assertions
   import ExUnit.Callbacks, only: [on_exit: 1]
@@ -7,38 +7,72 @@ defmodule Ankole.E2E.ComposeDeployment do
 
   @root Path.expand("../../..", __DIR__)
   @compose Path.join(@root, "tools/deploy/docker-compose/compose.yaml")
-  @external_resource Path.join(@root, "tools/e2e/pooled-worker-revision")
-  @legacy_revision @external_resource |> File.read!() |> String.trim()
+  @legacy_revision_path Path.join(@root, "tools/e2e/pooled-worker-revision")
+  @external_resource @legacy_revision_path
+  @legacy_revision @legacy_revision_path |> File.read!() |> String.trim()
+  @legacy_postgres_image_path Path.join(@root, "tools/e2e/pooled-postgres-image")
+  @external_resource @legacy_postgres_image_path
+  @legacy_postgres_image @legacy_postgres_image_path |> File.read!() |> String.trim()
+  @admin_email "compose-e2e@example.test"
+  @admin_password "Compose-E2E-Only-1234"
 
-  def start_legacy! do
+  def start!(release \\ :current) when release in [:current, :source, :pooled] do
     suffix = Base.encode16(:crypto.strong_rand_bytes(5), case: :lower)
     project = "e2e-up-" <> suffix
     directory = Path.join(System.tmp_dir!(), project)
     File.mkdir_p!(directory)
 
-    {legacy, 0} =
-      System.cmd("git", ["show", "#{@legacy_revision}:tools/deploy/docker-compose/compose.yaml"],
-        cd: @root
-      )
-
     legacy_path = Path.join(directory, "legacy.yaml")
     override_path = Path.join(directory, "test.json")
     seed_path = Path.join(directory, "providers.yaml")
-    File.write!(legacy_path, legacy)
+
+    compose =
+      if release == :pooled do
+        {legacy, 0} =
+          System.cmd(
+            "git",
+            ["show", "#{@legacy_revision}:tools/deploy/docker-compose/compose.yaml"],
+            cd: @root
+          )
+
+        File.write!(legacy_path, legacy)
+        legacy_path
+      else
+        @compose
+      end
+
+    seed = File.read!(Path.join(@root, "tools/deploy/docker-compose/worker-providers.yaml"))
+
+    File.write!(
+      seed_path,
+      String.replace(seed, "network: ankole_workers", "network: #{project}_workers")
+    )
+
+    services = %{
+      postgresql: %{pull_policy: "never"},
+      migrate: %{pull_policy: "never"},
+      "control-plane": %{
+        pull_policy: "never",
+        ports: ["127.0.0.1::4000"],
+        volumes: ["#{seed_path}:/etc/ankole/worker-providers.yaml:ro"]
+      }
+    }
+
+    services =
+      if release == :pooled do
+        Map.merge(services, %{
+          "bootstrap-worker-auth-key": %{pull_policy: "never", profiles: ["legacy"]},
+          worker: %{pull_policy: "never", profiles: ["legacy"]}
+        })
+      else
+        Map.put(services, :"migrate-agent-homes", %{pull_policy: "never"})
+      end
 
     # Only image selection, the test's network, and a host port differ from
     # deployment YAML. The migration and its dependency remain unchanged.
     File.write!(
       override_path,
-      Ankole.JSON.encode!(%{
-        services: %{
-          postgresql: %{pull_policy: "never"},
-          migrate: %{pull_policy: "never"},
-          "bootstrap-worker-auth-key": %{pull_policy: "never", profiles: ["legacy"]},
-          worker: %{pull_policy: "never", profiles: ["legacy"]},
-          "control-plane": %{pull_policy: "never", ports: ["127.0.0.1::4000"]}
-        }
-      })
+      Ankole.JSON.encode!(%{services: services})
     )
 
     environment = [
@@ -49,18 +83,30 @@ defmodule Ankole.E2E.ComposeDeployment do
       {"POSTGRES_PASSWORD", Base.encode16(:crypto.strong_rand_bytes(24))},
       {"ANKOLE_HOST", "127.0.0.1"},
       {"ACME_EMAIL", "compose-e2e@example.test"},
-      {"ANKOLE_DOCKER_GID", "0"},
-      {"ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY", Base.encode64(:crypto.strong_rand_bytes(32))},
-      {"ANKOLE_WORKER_IMAGE",
-       "ghcr.io/agentbull/ankole-agent-computer-worker:#{@legacy_revision}"},
-      {"ANKOLE_CONTROL_PLANE_IMAGE",
-       "ghcr.io/agentbull/ankole-agent-control-plane:#{@legacy_revision}"}
+      {"ANKOLE_DOCKER_GID", "0"}
     ]
+
+    environment =
+      if release == :pooled do
+        environment ++
+          [
+            {"ANKOLE_POSTGRESQL_IMAGE", @legacy_postgres_image},
+            {"ANKOLE_RUNTIME_FABRIC_WORKER_AUTH_KEY",
+             Base.encode64(:crypto.strong_rand_bytes(32))},
+            {"ANKOLE_WORKER_IMAGE",
+             "ghcr.io/agentbull/ankole-agent-computer-worker:#{@legacy_revision}"},
+            {"ANKOLE_CONTROL_PLANE_IMAGE",
+             "ghcr.io/agentbull/ankole-agent-control-plane:#{@legacy_revision}"}
+          ]
+      else
+        image = if release == :source, do: System.fetch_env!("ANKOLE_E2E_CONTROL_PLANE_IMAGE")
+        environment ++ [{"ANKOLE_CONTROL_PLANE_IMAGE", image}, {"ANKOLE_POSTGRESQL_IMAGE", nil}]
+      end
 
     deployment = %{
       project: project,
       directory: directory,
-      compose: legacy_path,
+      compose: compose,
       override: override_path,
       seed: seed_path,
       env: environment,
@@ -72,11 +118,13 @@ defmodule Ankole.E2E.ComposeDeployment do
     }
 
     on_exit(fn -> cleanup(deployment) end)
-    compose!(deployment, ["--profile", "legacy", "up", "-d", "worker"])
+    service = if release == :pooled, do: "worker", else: "control-plane"
+    compose!(deployment, ["--profile", "legacy", "up", "-d", service])
     wait_http!(deployment)
   end
 
   def upgrade!(deployment, opts \\ []) do
+    %{"principalUID" => principal_uid} = api!(deployment, :get, "/.internal-apis/session")
     compose!(deployment, ["stop", "control-plane"])
     seed = File.read!(Path.join(@root, "tools/deploy/docker-compose/worker-providers.yaml"))
 
@@ -113,13 +161,31 @@ defmodule Ankole.E2E.ComposeDeployment do
       deployment
       | compose: @compose,
         env:
-          List.keystore(
-            deployment.env,
+          deployment.env
+          |> List.keystore("ANKOLE_POSTGRESQL_IMAGE", 0, {"ANKOLE_POSTGRESQL_IMAGE", nil})
+          |> List.keystore(
             "ANKOLE_CONTROL_PLANE_IMAGE",
             0,
             {"ANKOLE_CONTROL_PLANE_IMAGE", image}
           )
     }
+
+    compose!(deployment, ["up", "-d", "--wait", "postgresql"])
+
+    compose!(deployment, [
+      "exec",
+      "-T",
+      "postgresql",
+      "psql",
+      "-U",
+      "ankole",
+      "-d",
+      "ankole",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-c",
+      "ALTER EXTENSION pg_search UPDATE"
+    ])
 
     try do
       compose!(deployment, ["up", "-d", "control-plane"])
@@ -129,10 +195,41 @@ defmodule Ankole.E2E.ComposeDeployment do
         flunk(Exception.message(error) <> "\nMigration logs:\n" <> logs)
     end
 
-    # The old release needs bearer minting until pooled-worker-revision includes Console cookies.
+    # The authentication migration requires a new login with the original account.
     deployment = deployment |> Map.put(:token, nil) |> wait_http!()
+
+    {_response, deployment} =
+      request!(deployment, :get, "/api/v1/site/privileged-tenant", nil, 401)
+
+    deployment = login_admin!(deployment)
+
+    assert %{"authenticated" => true, "principalUID" => ^principal_uid} =
+             api!(deployment, :get, "/.internal-apis/session")
+
     %{"tenant" => %{"id" => tenant_id}} = api!(deployment, :get, "/api/v1/site/privileged-tenant")
     %{deployment | tenant_id: tenant_id}
+  end
+
+  defp login_admin!(deployment) do
+    {redirect, deployment} = request!(deployment, :get, "/site-admin-console", nil, 302)
+    [path] = Req.Response.get_header(redirect, "location")
+    %{"flow" => flow} = path |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+
+    {page, deployment} = request!(deployment, :get, path)
+    [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, page.body)
+    deployment = %{deployment | csrf: csrf}
+
+    {login, deployment} =
+      request!(deployment, :post, "/.internal-apis/sessions/local-password", %{
+        flow: flow,
+        email: @admin_email,
+        password: @admin_password
+      })
+
+    assert %{"status" => "ok", "returnTo" => return_to} = login.body
+    {page, deployment} = request!(deployment, :get, return_to)
+    [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, page.body)
+    %{deployment | csrf: csrf}
   end
 
   # The release keeps its production endpoint rule. Only this deployment's
@@ -181,7 +278,7 @@ defmodule Ankole.E2E.ComposeDeployment do
         end
       end)
 
-    assert is_binary(code), "The old control plane must print its setup activation code"
+    assert is_binary(code), "The control plane must print its setup activation code"
 
     {_response, deployment} =
       request!(deployment, :post, "/.internal-apis/setup/sessions", %{activationCode: code})
@@ -195,8 +292,8 @@ defmodule Ankole.E2E.ComposeDeployment do
 
     {setup, deployment} =
       request!(deployment, :post, "/.internal-apis/setup/local-admin", %{
-        email: "compose-e2e@example.test",
-        password: "Compose-E2E-Only-1234",
+        email: @admin_email,
+        password: @admin_password,
         display_name: "Compose test owner"
       })
 
@@ -207,13 +304,19 @@ defmodule Ankole.E2E.ComposeDeployment do
     [_, csrf] = Regex.run(~r/<meta name="csrf-token" content="([^"]+)"/, response.body)
     deployment = %{deployment | csrf: csrf}
 
-    {token, deployment} =
-      request!(deployment, :post, "/oauth/token", %{
-        grant_type: "urn:ankole:params:oauth:grant-type:browser-session"
-      })
+    deployment =
+      if deployment.compose == @compose do
+        deployment
+      else
+        {token, deployment} =
+          request!(deployment, :post, "/oauth/token", %{
+            grant_type: "urn:ankole:params:oauth:grant-type:browser-session"
+          })
 
-    {%{deployment | token: Map.fetch!(token.body, "access_token")},
-     Map.fetch!(session.body, "principalUID")}
+        %{deployment | token: Map.fetch!(token.body, "access_token")}
+      end
+
+    {deployment, Map.fetch!(session.body, "principalUID")}
   end
 
   def api!(deployment, method, path, body \\ nil) do
@@ -225,6 +328,8 @@ defmodule Ankole.E2E.ComposeDeployment do
     docker!(
       [
         "compose",
+        "--env-file",
+        "/dev/null",
         "-p",
         deployment.project,
         "-f",
@@ -242,7 +347,7 @@ defmodule Ankole.E2E.ComposeDeployment do
     output
   end
 
-  defp request!(deployment, method, path, body \\ nil) do
+  defp request!(deployment, method, path, body \\ nil, expected_status \\ 200) do
     headers = [{"origin", deployment.origin}]
 
     headers =
@@ -273,7 +378,7 @@ defmodule Ankole.E2E.ComposeDeployment do
     options = if body, do: Keyword.put(options, :json, body), else: options
     response = Req.request!(options)
 
-    assert response.status == 200,
+    assert response.status == expected_status,
            "#{method} #{path}: #{response.status} #{inspect(response.body)}"
 
     cookies =
@@ -329,7 +434,7 @@ defmodule Ankole.E2E.ComposeDeployment do
       docker!(["rm", name])
     end
 
-    # Use the legacy file for teardown: it also declares the old Home volume.
+    # Keep the original file so pooled teardown includes its old Home volume.
     compose!(deployment, ["--profile", "legacy", "down", "--volumes", "--remove-orphans"])
 
     # The new deployment can add volumes and networks absent from the old file.

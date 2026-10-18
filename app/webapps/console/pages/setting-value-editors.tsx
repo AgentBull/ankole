@@ -164,8 +164,7 @@ function AIGatewayCompactionEditor({ onChange, value }: SettingValueEditorProps)
           key={field.key}
           label={t(`console.settings.compaction_field_${field.key}`)}
           description={t(`console.settings.compaction_field_${field.key}_hint`, {
-            max: field.max.toLocaleString(),
-            min: field.min.toLocaleString()
+            max: field.max.toLocaleString()
           })}>
           <Input
             max={field.max}

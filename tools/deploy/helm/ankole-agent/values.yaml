@@ -37,7 +37,7 @@ controlPlane:
   terminationGracePeriodSeconds: 60
   image:
     repository: ghcr.io/agentbull/ankole-agent-control-plane
-    tag: main-latest
+    tag: 2.0.0-alpha.5
     digest: ""
     pullPolicy: Always
   publicHost: ankole.example.com
@@ -165,7 +165,7 @@ postgresql:
   image:
     repository: ghcr.io/agentbull/ankole-postgres-for-ankole
     tag: main-latest
-    digest: ""
+    digest: sha256:002f1569c7d90cc31b74e5eca3225a138d5e3b8a748f32eaa78752304502de71
     pullPolicy: Always
   auth:
     username: ankole

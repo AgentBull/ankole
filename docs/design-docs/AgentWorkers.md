@@ -54,6 +54,11 @@ The Worker image owns the Skill roots: `/repo/app/library`, and
 `skill_view` without loading a provider or starting a Worker. Provider values
 for `ANKOLE_BUILTIN_SKILLS_ROOT` and `ANKOLE_INTERNAL_SKILLS_ROOT` have no effect.
 
+The image exposes its installed Chromium headless shell as
+`/usr/local/bin/chromium`. OfficeCLI uses PATH to find this browser. Its
+Chrome-family lookup does not read `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE` or
+`PLAYWRIGHT_BROWSERS_PATH`.
+
 A provider cannot be deleted while a Worker row refers to it. Without an
 explicit provider or a default, Agent creation fails with
 `worker_provider_required`. There is at most one default provider.
@@ -114,7 +119,9 @@ The Worker Pod does not satisfy the restricted standard.
 ## The Worker Row
 
 There is one logged `agent_workers` row per Agent. Agent creation inserts it
-in the same transaction. It does not request an instance. There is no
+and its initial reconciliation job in the same transaction. The request
+remains pending until the Worker first connects, including during a slow
+image download or control-plane restart. There is no
 foreign key from `agent_uid` to the Agent: deletion keeps this row until the
 platform instances and storage are gone.
 
@@ -130,6 +137,7 @@ platform instances and storage are gone.
 | `storage_ref` | Committed provider storage reference or storage-deletion progress |
 | `image`, `protocol_version`, `settings_digest`, `instance_settings` | Target and instance configuration selected for this generation |
 | `wanted_until` | A request needs a Worker until this time |
+| `initial_start_pending` | Agent creation requests startup until the Worker first connects |
 | `last_error`, `last_error_kind` | Console reason and acquisition category: `rejected`, `transient`, or `pending`; both are cleared together |
 | `state_changed_at` | Lifecycle state time |
 | `incarnation_id`, `transport_route` | Process admitted last and its unique connection route |
@@ -222,6 +230,11 @@ Worker whose last heartbeat is less than 60 seconds old. Admission checks this
 under the same row lock as heartbeats. Disconnect or heartbeat silence permits
 a new incarnation. Join is the only transition into `ready`.
 
+The sweep includes connected rows with an expired or missing heartbeat.
+Reconciliation expires the route under the Worker row lock before it makes
+a lifecycle decision. It uses database time and keeps the generation and Home.
+This also removes routes restored from a database backup after the old node stops.
+
 The channel registers its route before admission so the first message after
 commit can find it. Until commit, the route fence rejects that connection.
 The same incarnation on a new connection changes only the route. A new
@@ -302,10 +315,15 @@ Pure questions send no Worker messages. `worker.workspace_prepared` records
 `duration_ms` for each successful workspace preparation.
 
 `request/1` keeps `wanted_until` at least five minutes ahead.
-Agent creation leaves the Worker absent with no demand. Environment calls,
-Codex placement, and Automation runs request Workers. Reconciliation then
-prepares storage and starts the computer. Pure questions and control-plane
-tools do not request or wait for a Worker.
+Agent creation sets `initial_start_pending` and queues reconciliation. The
+creation response does not wait for the provider. Reconciliation prepares
+storage and starts the computer; admission clears the initial request when
+the Worker connects. A sweep recovers pending startup after a restart or a
+lost job. Existing Agents keep their current lifecycle during an upgrade.
+Environment calls, Codex placement, and Automation runs renew demand after
+initial startup. Pure questions and control-plane tools do not request or
+wait for a Worker. A disabled Agent does not start; deletion clears the
+initial request and removes its instances and storage.
 
 All provider types default `idleReleaseAfter` to `15m`. An explicit `never`
 remains an operator choice. Existing saved provider YAML keeps its explicit
