@@ -37,6 +37,30 @@ defmodule Ankole.ScheduleTest do
   setup :use_mock_signal_provider_plugin
 
   describe "durable schedule domain" do
+    test "resuming a schedule retains its pending job after the old uniqueness window" do
+      %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+
+      assert {:ok, %{cron_schedule: schedule}} =
+               create_cron_schedule(
+                 cron_attrs(agent.uid,
+                   name: "old-pending-job",
+                   idempotency_key: "old-pending-job",
+                   schedule: every_schedule(DateTime.add(@base_time, 3600, :second))
+                 ),
+                 now: @base_time
+               )
+
+      job = cron_job(schedule.id)
+
+      from(j in Oban.Job, where: j.id == ^job.id)
+      |> Repo.update_all(set: [inserted_at: DateTime.add(DateTime.utc_now(), -120, :second)])
+
+      assert {:ok, _} = Schedule.pause_cron_schedule(schedule.id, now: @base_time)
+      assert {:ok, _} = Schedule.resume_cron_schedule(schedule.id, now: @base_time)
+      assert cron_job(schedule.id).id == job.id
+      assert cron_job(schedule.id).attempt == 0
+    end
+
     test "model projections reduce operator errors to stable schedule reasons" do
       internal_id = "019f0000-0000-7000-8000-000000000001"
 

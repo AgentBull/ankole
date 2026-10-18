@@ -35,7 +35,7 @@ defmodule AnkoleWeb.Plugs.BrowserCSRF do
 
   defp valid_request?(conn, state) do
     header = List.first(get_req_header(conn, "x-csrf-token"))
-    body = if is_map(conn.body_params), do: conn.body_params["_csrf_token"]
+    body = if is_non_struct_map(conn.body_params), do: conn.body_params["_csrf_token"]
 
     (Plug.CSRFProtection.valid_state_and_csrf_token?(state, header) or
        Plug.CSRFProtection.valid_state_and_csrf_token?(state, body)) and same_origin?(conn)

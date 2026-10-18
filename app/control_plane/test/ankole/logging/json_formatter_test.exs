@@ -75,6 +75,22 @@ defmodule Ankole.Logging.JSONFormatterTest do
            }
   end
 
+  test "capability tokens cannot escape through plain messages or nested report fields" do
+    for token <- ["wh_test-secret_123", "%77%68%5Ftest%2Dsecret_123"] do
+      entry =
+        format(%{
+          level: :info,
+          msg: {:string, "POST /webhooks/#{token}?mode=sync"},
+          meta: %{payload: %{request: %{path: "/webhooks/#{token}"}, status: 400}}
+        })
+
+      refute Jason.encode!(entry) =~ token
+      assert entry["severity"] == "INFO"
+      assert entry["status"] == 400
+      assert entry["message"] =~ "?mode=sync"
+    end
+  end
+
   test "promotes operation, http_request, insert_id, and trace fields" do
     entry =
       format(%{

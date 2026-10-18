@@ -263,6 +263,7 @@ defmodule Ankole.AgentWorkers.CloudflareTest do
         state: "draining",
         drain_reason: "idle_release",
         wanted_until: nil,
+        initial_start_pending: false,
         instance_seen_at: DateTime.utc_now(:microsecond)
       ]
     )

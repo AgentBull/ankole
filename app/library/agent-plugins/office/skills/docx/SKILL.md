@@ -52,8 +52,12 @@ A `.docx` is a ZIP of XML parts (`document.xml`, `styles.xml`, `numbering.xml`, 
 docx paths contain `[]`; some prop values contain `$`. Both are shell metacharacters. Escaping happens at three layers — keep them separate.
 
 1. **Shell.** ALWAYS quote element paths: `"/body/p[1]"`, not `/body/p[1]` (zsh/bash glob `[N]`). Single-quote any value containing `$`: `--prop text='$50M'` — at any length, the whole value inside one pair of single quotes. Unquoted `$50M` is stripped to `M`; mixing `'…$var…'` and `"…$50…"` on one long string is where the `$50` silently vanishes.
-2. **CLI (`text=`).** The two-char escapes `\n` and `\t` ARE interpreted in `--prop text=` — `\n` becomes a `<w:br/>` soft line break, `\t` a `<w:tab/>` — consistently across docx / pptx / xlsx. Double them (`\\n`) for a literal backslash-n (rarely wanted). This applies to row-level table `c1…cN` shortcuts too (`\n` → `<w:br/>` within the cell).
-3. **JSON (batch).** A real newline can also be passed as `"\n"` in the JSON string of a `batch` heredoc; same result.
+2. **CLI (`text=`).** Newline rules depend on the operation and element:
+   - `add --type paragraph`: literal `\n` or a real newline creates separate paragraphs with the same style and properties. Literal `\v` or a real vertical tab creates a `<w:br/>` soft line break within one paragraph. This also applies when adding paragraphs under a table cell.
+   - `set` on an existing paragraph, or row-level table `c1…cN` shortcuts: `\n` and `\v` create soft line breaks within one paragraph, including when passed as real control characters.
+   - Direct cell `text=`: a newline stays in the text node, without `<w:br/>`; `\v` is rejected. Use row shortcuts for cell soft line breaks, or add paragraphs under the cell for separate paragraphs.
+   - `\t` in paragraph text creates a `<w:tab/>`.
+3. **JSON (batch).** For a batch without a legacy `dumpVersion` marker, JSON `"\n"` passes a real newline and follows the operation and element rules above. To add a paragraph with a soft line break, use JSON `"\u000b"`. JSON `"\\n"` and `"\\v"` stay as literal text: batch does not decode the single-command CLI escapes. `"\v"` is not a valid JSON escape. Use a single-quoted heredoc delimiter to preserve these escapes.
 
 If in doubt, `view text` after writing and compare character-for-character.
 
@@ -456,8 +460,16 @@ Borders use the format `style;size;color;space`: `single;4;FF0000;1`. Hex colors
 2. `officecli view "$FILE" outline` — heading hierarchy (no H1 → H3 skips), TOC presence, section count.
 3. `officecli view "$FILE" text --max-lines 400` — typos, stray `\$`/`\t`/`\n` literals, placeholder tokens.
 4. `officecli validate "$FILE"` — schema check (the Delivery Gate re-runs this on the closed, on-disk file).
-5. **Visual pass — whole document as a contact sheet** (vision-capable agents only — if you cannot interpret images, skip this step: steps 1–4 are your ceiling, and flag the document "not visually verified" at handoff). `officecli view "$FILE" screenshot --grid auto -o /tmp/sheet.png`, then Read it. `--grid auto` tiles **every page** into one image (auto column count; `--grid 4` to force) — you *see* pagination, blank pages, heading rhythm, lopsided margins, and TOC/cover placement, not just the DOM. Windows+Word renders each page through real Word; elsewhere HTML. If the screenshot fails, fall back to `view html` and flag cross-page breaks / alignment / rhythm as "not visually verified". Thumbnails only **locate**: confirm any fine call (column alignment, line spacing, indents, dark-on-dark, caption placement) on the suspect page at full resolution with `screenshot --page N` (no `--grid`; real Word on Windows). "validate pass" is not delivery; "looks like a real document" is.
+5. **Visual pass — whole document as a contact sheet** (vision-capable agents only — if you cannot interpret images, skip this step: steps 1–4 are your ceiling, and flag the document "not visually verified" at handoff). Use the checked screenshot command below, then Read its PNG. `--grid auto` tiles **every page** into one image (auto column count; `--grid 4` to force) — you *see* pagination, blank pages, heading rhythm, lopsided margins, and TOC/cover placement, not just the DOM. Windows+Word renders each page through real Word; elsewhere HTML. If the screenshot fails, fall back to `view html` and flag cross-page breaks / alignment / rhythm as "not visually verified". Thumbnails only **locate**: confirm any fine call (column alignment, line spacing, indents, dark-on-dark, caption placement) on the suspect page at full resolution with `screenshot --page N` (no `--grid`; real Word on Windows). "validate pass" is not delivery; "looks like a real document" is.
 6. If anything failed, fix, then **rerun the full cycle** — one fix commonly creates another problem.
+
+OfficeCLI 1.0.157 can return exit 0 after a screenshot failure. Use a new output directory for each capture and require a non-empty file. Read the PNG only after the full command succeeds. Apply the same check to single-page captures.
+
+```bash
+PREVIEW_DIR=$(mktemp -d) &&
+  officecli view "$FILE" screenshot --grid auto -o "$PREVIEW_DIR/sheet.png" &&
+  test -s "$PREVIEW_DIR/sheet.png"
+```
 
 ### Delivery Gate (run before handing off — any failure = REJECT, do NOT deliver)
 

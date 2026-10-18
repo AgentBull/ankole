@@ -53,7 +53,7 @@ export const createLocalAppDatabase = async (databaseName: string): Promise<void
       'if psql -U "$POSTGRES_USER" -d postgres -Atqc "SELECT datname FROM pg_database" | grep -Fxq "$DB_NAME"; then',
       '  echo "Database $DB_NAME already exists."',
       'else',
-      '  createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" "$DB_NAME"',
+      '  createdb -U "$POSTGRES_USER" -O "$POSTGRES_USER" --encoding=UTF8 --template=template0 "$DB_NAME"',
       '  echo "Database $DB_NAME created."',
       'fi'
     ].join('\n')

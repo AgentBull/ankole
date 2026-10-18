@@ -4,6 +4,33 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
   alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.WorkerAdmission
 
+  test "restored routes expire by heartbeat while fresh routes and generation facts survive" do
+    for state <- ["ready", "draining"],
+        heartbeat <- [nil, DateTime.add(DateTime.utc_now(), -61, :second)] do
+      %{principal: agent} = agent_fixture()
+      route = unique_route()
+      assert {:ok, admitted} = admit_worker(route, %{worker_id: agent.uid})
+      assert :ok = WorkerAdmission.expire_connection(agent.uid)
+      assert Repo.get!(AgentWorker, agent.uid).transport_route == route
+
+      from(w in AgentWorker, where: w.agent_uid == ^agent.uid)
+      |> Repo.update_all(
+        set: [
+          state: state,
+          last_worker_heartbeat_at: heartbeat
+        ]
+      )
+
+      assert :ok = WorkerAdmission.expire_connection(agent.uid)
+      expired = Repo.get!(AgentWorker, agent.uid)
+      assert expired.transport_route == nil
+      assert expired.generation == admitted.generation
+      assert expired.state == if(state == "draining", do: "draining", else: "stale")
+      assert :ok = WorkerAdmission.expire_connection(agent.uid)
+      assert Repo.get!(AgentWorker, agent.uid) == expired
+    end
+  end
+
   test "join, capacity, drain, and disconnect publish committed Worker facts (G2)" do
     %{principal: agent} = agent_fixture()
     uid = agent.uid

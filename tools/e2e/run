@@ -181,6 +181,18 @@ preflight_compose_upgrade() {
     return
   fi
 
+  local deployment_images
+  deployment_images="$(ANKOLE_HOST=127.0.0.1 ACME_EMAIL=e2e@example.test \
+    ANKOLE_SECRET_BASE=compose-test-only RELEASE_COOKIE=compose-test-only \
+    POSTGRES_PASSWORD=compose-test-only ANKOLE_DOCKER_GID=0 \
+    ANKOLE_CONTROL_PLANE_IMAGE= ANKOLE_POSTGRESQL_IMAGE= \
+    docker compose --env-file /dev/null -f "$ROOT_DIR/tools/deploy/docker-compose/compose.yaml" config --images)"
+  while IFS= read -r image; do
+    if ! docker image inspect "$image" >/dev/null 2>&1; then
+      docker pull "$image"
+    fi
+  done <<< "$deployment_images"
+
   local legacy_revision
   legacy_revision="$(tr -d '\r\n' < "$ROOT_DIR/tools/e2e/pooled-worker-revision")"
   for repository in ankole-agent-control-plane ankole-agent-computer-worker; do
@@ -189,6 +201,12 @@ preflight_compose_upgrade() {
       docker pull "$image"
     fi
   done
+
+  local legacy_postgres_image
+  legacy_postgres_image="$(tr -d '\r\n' < "$ROOT_DIR/tools/e2e/pooled-postgres-image")"
+  if ! docker image inspect "$legacy_postgres_image" >/dev/null 2>&1; then
+    docker pull "$legacy_postgres_image"
+  fi
 
   if [[ -z "${ANKOLE_E2E_CONTROL_PLANE_IMAGE:-}" ]]; then
     if [[ "$allow_build" -ne 1 ]]; then

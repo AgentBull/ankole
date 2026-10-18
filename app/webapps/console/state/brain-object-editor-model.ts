@@ -1,4 +1,6 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
+import type { Nodes } from 'mdast'
+import { fromMarkdown } from 'mdast-util-from-markdown'
 import type { BrainObjectCreateRequest, BrainObjectPage, BrainObjectUpdateRequest } from '../api/generated/types.gen'
 
 export type BrainObjectPreviewSegment = { scope: string; text: string }
@@ -58,64 +60,58 @@ export function parseBrainObjectMeta(text: string): Record<string, unknown> | un
 
 /**
  * Produces a preview only. The native server parser remains authoritative.
- * This small scanner recognizes root tag lines and fenced code so a tag shown
- * as code does not change the preview scope.
+ * CommonMark supplies code ranges; root tag lines supply preview scopes.
  */
 export function previewBrainObjectBody(body: string): BrainObjectPreviewSegment[] {
   const openTag = /^\{%\s*audience\s+scope="([^"]*)"\s*%\}[ \t\r]*$/
   const closeTag = /^\{%\s*\/audience\s*%\}[ \t\r]*$/
-  const fenceLine = /^( {0,3})(`{3,}|~{3,})(.*)$/
+  const codeRanges: [number, number][] = []
+  const visit = (node: Nodes) => {
+    if ((node.type === 'code' || node.type === 'inlineCode') && node.position) {
+      codeRanges.push([node.position.start.offset!, node.position.end.offset!])
+    }
+    if ('children' in node) for (const child of node.children) visit(child)
+  }
+  visit(fromMarkdown(body))
   const segments: BrainObjectPreviewSegment[] = []
-  let scope = 'world'
+  let scope: string | undefined
   let text = ''
-  let fence: { marker: '`' | '~'; length: number } | undefined
+  let offset = 0
+  let codeIndex = 0
 
   const push = () => {
     if (!text.trim()) {
       text = ''
       return
     }
+    const segmentScope = scope ?? 'world'
     const previous = segments.at(-1)
-    if (previous?.scope === scope) previous.text += text
-    else segments.push({ scope, text })
+    if (previous?.scope === segmentScope) previous.text += text
+    else segments.push({ scope: segmentScope, text })
     text = ''
   }
 
   const lines = body.match(/[^\n]*(?:\n|$)/g)?.filter(line => line.length > 0) ?? []
   for (const rawLine of lines) {
+    const lineStart = offset
+    offset += rawLine.length
     const line = rawLine.endsWith('\n') ? rawLine.slice(0, -1) : rawLine
-    const fenceMatch = fenceLine.exec(line)
-
-    if (fence) {
-      text += rawLine
-      if (
-        fenceMatch &&
-        fenceMatch[2]?.[0] === fence.marker &&
-        fenceMatch[2].length >= fence.length &&
-        !fenceMatch[3]?.trim()
-      ) {
-        fence = undefined
-      }
-      continue
-    }
-
-    if (fenceMatch) {
-      const marker = fenceMatch[2]![0] as '`' | '~'
-      fence = { marker, length: fenceMatch[2]!.length }
+    while (codeRanges[codeIndex] && codeRanges[codeIndex]![1] <= lineStart) codeIndex++
+    if (codeRanges[codeIndex] && codeRanges[codeIndex]![0] <= lineStart) {
       text += rawLine
       continue
     }
 
     const open = openTag.exec(line)
-    if (open && scope === 'world') {
+    if (open && scope === undefined) {
       push()
       scope = open[1] ?? 'world'
       continue
     }
 
-    if (closeTag.test(line) && scope !== 'world') {
+    if (closeTag.test(line) && scope !== undefined) {
       push()
-      scope = 'world'
+      scope = undefined
       continue
     }
 

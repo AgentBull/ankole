@@ -29,6 +29,24 @@ defmodule Ankole.AgentWorkers.DecisionTest do
     test "is not created for an Agent that is not active" do
       assert :none = next(worker: %{state: "absent"}, wanted: true, agent: :disabled)
     end
+
+    test "initial startup survives an expired request until the first connection" do
+      for state <- ["absent", "starting"] do
+        worker = %{
+          state: state,
+          initial_start_pending: true,
+          instance_seen_at: ago(@minute),
+          wanted_until: ago(30 * @minute)
+        }
+
+        if state == "absent" do
+          assert :begin_create = next(worker: worker)
+          assert :none = next(worker: worker, agent: :disabled)
+        else
+          assert {:wait, _} = next(worker: worker, object: :running)
+        end
+      end
+    end
   end
 
   describe "a running Worker" do

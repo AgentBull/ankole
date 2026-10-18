@@ -2975,7 +2975,7 @@ export type OidcClientCreateRequest = {
 export type TokenQuotaWriteRequest = {
   limit_tokens: number
   period_days: number
-  period_start_at: string
+  period_start_at?: string
 }
 
 /**

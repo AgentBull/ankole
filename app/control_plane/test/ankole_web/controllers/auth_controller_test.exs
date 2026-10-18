@@ -509,12 +509,16 @@ defmodule AnkoleWeb.AuthControllerTest do
       %{email: email} = local_admin_user("correct-horse")
 
       for _attempt <- 1..5 do
-        conn
-        |> init_test_session(%{})
-        |> post_password(%{
-          "email" => email,
-          "password" => "wrong"
-        })
+        response =
+          conn
+          |> init_test_session(%{})
+          |> post_password(%{
+            "email" => email,
+            "password" => "wrong"
+          })
+          |> AnkoleWeb.InternalAPIContract.json_response(401)
+
+        assert response["error"] == "invalid_credentials"
       end
 
       conn =

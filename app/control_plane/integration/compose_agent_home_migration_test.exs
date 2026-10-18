@@ -12,7 +12,13 @@ defmodule Ankole.ComposeAgentHomeMigrationIntegrationTest do
   @moduletag :external
   @compose Path.expand("../../../tools/deploy/docker-compose/compose.yaml", __DIR__)
 
-  test "the Compose migration stops a paused legacy writer, copies Home, and never overwrites a completed copy" do
+  setup do
+    Ankole.DataCase.setup_sandbox(%{async: false})
+    {:ok, tenant: Ankole.DataCase.create_tenant()}
+  end
+
+  test "the Compose migration stops a paused legacy writer, copies Home, and never overwrites a completed copy",
+       %{tenant: tenant} do
     image = System.fetch_env!("ANKOLE_WORKER_PROVIDER_TEST_IMAGE")
     project = "wp-mig-#{System.unique_integer([:positive])}"
     legacy = project <> "_agents_data"
@@ -82,9 +88,15 @@ defmodule Ankole.ComposeAgentHomeMigrationIntegrationTest do
     docker!(["pause", old])
     run_migration(project, env)
     assert String.trim(docker!(["inspect", "--format", "{{.State.Running}}", old])) == "false"
-    assert :ok = Docker.prepare_storage(provider, uid)
+
+    assert :ok =
+             Ankole.Repo.with_tenant(tenant.id, fn -> Docker.prepare_storage(provider, uid) end)
+
     spec = WorkerBootstrap.agent_worker_spec(provider, uid, "migrated", "migration-test")
-    assert {:ok, nil} = Docker.create_instance(provider, spec)
+
+    assert {:ok, nil} =
+             Ankole.Repo.with_tenant(tenant.id, fn -> Docker.create_instance(provider, spec) end)
+
     name = ProviderKind.instance_name(project, uid, "migrated")
 
     assert {:ok, true} =
@@ -115,7 +127,8 @@ defmodule Ankole.ComposeAgentHomeMigrationIntegrationTest do
     assert String.trim(docker!(["volume", "inspect", "--format", "{{.Name}}", legacy])) == legacy
   end
 
-  test "a rerun of the Compose migration completes a partial copy and skips deleted Agents" do
+  test "a rerun of the Compose migration completes a partial copy and skips deleted Agents",
+       %{tenant: tenant} do
     project = "wp-mig-#{System.unique_integer([:positive])}"
     legacy = project <> "_agents_data"
     uid = "legacy-agent"
@@ -144,7 +157,9 @@ defmodule Ankole.ComposeAgentHomeMigrationIntegrationTest do
 
     # The interrupted run created the target volume and copied part of one
     # file. It stopped before it changed the owner and wrote the marker.
-    assert :ok = Docker.prepare_storage(provider, uid)
+    assert :ok =
+             Ankole.Repo.with_tenant(tenant.id, fn -> Docker.prepare_storage(provider, uid) end)
+
     in_volumes!([{home, "/target"}], "printf ol > /target/keep")
 
     assert run_migration(project, env) =~ "Skipped the Home of a deleted Agent: #{deleted}"
@@ -193,7 +208,10 @@ defmodule Ankole.ComposeAgentHomeMigrationIntegrationTest do
   end
 
   defp docker_provider(project, image) do
-    {:ok, settings} = Configuration.parse(Docker.definition().schema, "network: bridge\n")
+    socket = System.get_env("ANKOLE_WORKER_PROVIDER_TEST_SOCKET", "/var/run/docker.sock")
+
+    {:ok, settings} =
+      Configuration.parse(Docker.definition().schema, Ankole.JSON.encode!(%{socket: socket}))
 
     %Provider{
       provider_id: "docker",

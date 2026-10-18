@@ -62,6 +62,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const save = useMutation({
     ...ankoleWebWorkerEnvControllerUpdateForAgentMutation(),
     onSuccess: (_data, variables) => {
+      hideRevealed(variables.path.name)
       toast.success(t('console.worker_envs.saved', { name: variables.path.name }))
       setDraft(emptyDraft)
       setEditing(undefined)
@@ -73,6 +74,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const clear = useMutation({
     ...ankoleWebWorkerEnvControllerDeleteForAgentMutation(),
     onSuccess: (_data, variables) => {
+      hideRevealed(variables.path.name)
       toast.success(t('console.worker_envs.cleared', { name: variables.path.name }))
     },
     onError: error => toast.error(requestErrorMessage(error))

@@ -15,6 +15,29 @@ defmodule Ankole.AIAgent.TokenQuotaTest do
   end
 
   describe "configuration" do
+    test "a limit-only write retains the exact reset boundary and excludes earlier usage", %{
+      agent_uid: uid
+    } do
+      start = DateTime.utc_now() |> DateTime.add(-60, :second)
+      start = %{start | microsecond: {158_479, 6}}
+      instant = DateTime.to_iso8601(start)
+      assert {:ok, _} = put_quota(uid, 7, instant, 100)
+      record_usage(uid, 50, 0, DateTime.add(start, -1, :microsecond))
+      record_usage(uid, 10, 0, start)
+      assert {:ok, quota} = TokenQuota.put(uid, %{"period_days" => 7, "limit_tokens" => 200})
+      assert quota["period_start_at"] == instant
+      assert {:ok, %{usage: %{used_tokens: 10}}} = TokenQuota.status(uid)
+
+      for invalid <- [nil, ""] do
+        assert {:error, :invalid_period_start_at} = put_quota(uid, 7, invalid, 200)
+      end
+
+      assert {:ok, _} = TokenQuota.delete(uid)
+
+      assert {:error, :invalid_period_start_at} =
+               TokenQuota.put(uid, %{"period_days" => 7, "limit_tokens" => 200})
+    end
+
     test "a written quota keeps the model profiles of the same Agent", %{agent_uid: agent_uid} do
       assert {:ok, _profile} =
                Ankole.AIAgent.ModelProfiles.put_provider_hosted_capabilities(agent_uid, %{

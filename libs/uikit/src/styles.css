@@ -553,6 +553,11 @@
 
 /* Sonner styles its toasts outside the cascade layers, so a utility class cannot change them.
    These rules are more specific than the Sonner rules: a toast gets the ceramic surface and an ink focus ring. */
+[data-sonner-toaster][data-y-position='bottom'] {
+  /* Keep entry and exit motion above the footer, with room for the toast shadow. */
+  clip-path: inset(-100dvh -100vw -0.5rem);
+}
+
 [data-sonner-toaster] [data-sonner-toast][data-styled='true'] {
   @apply ceramic;
   border-color: transparent;

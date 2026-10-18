@@ -301,6 +301,7 @@ impl ResponseContext {
         request.remove("__ankole_native_encrypted_tool_fields");
         request.remove("__ankole_stateful_provider_replay");
         request.remove("__ankole_emulate_custom_tools");
+        request.remove("__ankole_chat_max_tokens_field");
 
         if let Some(stream) = self.stream {
             request.insert("stream".to_string(), json!(stream));

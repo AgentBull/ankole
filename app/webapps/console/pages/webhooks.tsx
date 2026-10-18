@@ -43,6 +43,18 @@ export function WebhooksPage() {
   const [includeFinished, setIncludeFinished] = useState(false)
   const scope = useAgentScope()
 
+  // Keep the one-time result mounted when the list moves its create button.
+  const [open, setOpen] = useState(false)
+  const [label, setLabel] = useState('')
+  const [expiresAt, setExpiresAt] = useState('')
+  const create = useMutation({
+    ...ankoleWebWebhookEndpointControllerCreateMutation(),
+    onSuccess: () => scope.selectAgent(''),
+    onError: error => toast.error(requestErrorMessage(error))
+  })
+  const created = create.data
+  const url = created ? `${window.location.origin}/signals/v1/cloudevents/${created.token}` : ''
+
   const endpoints = useQuery({
     ...ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: scope.agentUID || undefined } }),
     refetchInterval: LIST_REFRESH_MS
@@ -72,145 +84,72 @@ export function WebhooksPage() {
   })
 
   return (
-    <ResourceListPage
-      title={t('console.webhooks.title')}
-      description={t('console.webhooks.description')}
-      createAction={<CreateCloudEventEndpoint onCreated={() => scope.selectAgent('')} />}
-      columns={[
-        t('console.webhooks.label'),
-        t('console.agents.agent'),
-        t('console.session'),
-        t('console.webhooks.route'),
-        t('console.webhooks.mode'),
-        t('console.webhooks.status'),
-        t('console.webhooks.expires_at')
-      ]}
-      count={rows.length}
-      emptyTitle={t('console.webhooks.empty_title')}
-      emptyIcon={<RiWebhookLine aria-hidden />}
-      emptyDescription={t('console.webhooks.empty_description')}
-      error={endpoints.error}
-      isEmpty={rows.length === 0}
-      isFiltered={Boolean(query.trim()) || Boolean(scope.agentUID)}
-      onClearFilters={() => {
-        setQuery('')
-        scope.selectAgent('')
-      }}
-      isLoading={endpoints.isLoading}
-      toolbarCanRevealRows
-      toolbar={
-        <ResourceSearch
-          label={t('console.webhooks.search_placeholder')}
-          value={query}
-          onChange={setQuery}
-          filters={
-            <>
-              <AgentFilter scope={scope} />
-              <FilterSwitch
-                checked={includeFinished}
-                label={t('console.include_finished')}
-                onChange={setIncludeFinished}
-              />
-            </>
-          }
-        />
-      }>
-      {rows.map(endpoint => (
-        <WebhookEndpointRow
-          key={`${endpoint.agent_uid}:${endpoint.id}`}
-          endpoint={endpoint}
-          cancelling={cancel.isPending}
-          onCancel={() =>
-            cancel.mutate({
-              path: { webhook_endpoint_id: endpoint.id }
-            })
-          }
-        />
-      ))}
-    </ResourceListPage>
-  )
-}
-
-function WebhookEndpointRow({
-  endpoint,
-  cancelling,
-  onCancel
-}: {
-  endpoint: WebhookEndpointItem
-  cancelling: boolean
-  onCancel: () => void
-}) {
-  const { t } = useTranslation()
-
-  return (
-    <TableRow>
-      <TableCell>
-        <div className="grid gap-1">
-          <span className="font-medium">{endpoint.label}</span>
-          <span className="font-mono text-xs text-muted-foreground">{formatConsoleDate(endpoint.created_at)}</span>
-        </div>
-      </TableCell>
-      {endpoint.agent_uid ? <AgentCell uid={endpoint.agent_uid} /> : <TableCell>—</TableCell>}
-      <TableCell>
-        <span className="block max-w-56 truncate font-mono text-xs" title={endpoint.session_id ?? undefined}>
-          {endpoint.session_id}
-        </span>
-      </TableCell>
-      <TableCell>
-        <div className="grid gap-1 font-mono text-xs">
-          <span>{endpoint.binding_name ?? (endpoint.event_format === 'cloudevents' ? 'CloudEvents' : '—')}</span>
-          <span>{endpoint.id}</span>
-          <span className="max-w-72 truncate text-muted-foreground">{endpoint.conversation_id ?? '—'}</span>
-        </div>
-      </TableCell>
-      <TableCell>{t(`console.webhooks.mode_${endpoint.mode}`)}</TableCell>
-      <TableCell>
-        <StatusIndicator tone={webhookStatusTone(endpoint.status)}>
-          {t(`console.webhooks.status_${endpoint.status}`)}
-        </StatusIndicator>
-      </TableCell>
-      <TableCell>{formatConsoleDate(endpoint.expires_at)}</TableCell>
-      <TableCell className="text-right">
-        {live(endpoint) ? (
-          <ConfirmDeleteButton
-            icon={<RiCloseCircleLine />}
-            pending={cancelling}
-            confirm={{
-              title: t('console.webhooks.cancel_title'),
-              description: t('console.webhooks.cancel_description', { label: endpoint.label }),
-              confirmLabel: t('console.webhooks.cancel')
-            }}
-            onConfirm={onCancel}
-          />
-        ) : null}
-      </TableCell>
-    </TableRow>
-  )
-}
-
-function CreateCloudEventEndpoint({ onCreated }: { onCreated: () => void }) {
-  const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const [label, setLabel] = useState('')
-  const [expiresAt, setExpiresAt] = useState('')
-  const create = useMutation({
-    ...ankoleWebWebhookEndpointControllerCreateMutation(),
-    onSuccess: onCreated,
-    onError: error => toast.error(requestErrorMessage(error))
-  })
-  const created = create.data
-  const url = created ? `${window.location.origin}/signals/v1/cloudevents/${created.token}` : ''
-
-  return (
     <>
-      <Button
-        type="button"
-        onClick={() => {
-          create.reset()
-          setOpen(true)
-        }}>
-        {t('console.webhooks.create')}
-      </Button>
+      <ResourceListPage
+        title={t('console.webhooks.title')}
+        description={t('console.webhooks.description')}
+        createAction={
+          <Button
+            type="button"
+            onClick={() => {
+              create.reset()
+              setOpen(true)
+            }}>
+            {t('console.webhooks.create')}
+          </Button>
+        }
+        columns={[
+          t('console.webhooks.label'),
+          t('console.agents.agent'),
+          t('console.session'),
+          t('console.webhooks.route'),
+          t('console.webhooks.mode'),
+          t('console.webhooks.status'),
+          t('console.webhooks.expires_at')
+        ]}
+        count={rows.length}
+        emptyTitle={t('console.webhooks.empty_title')}
+        emptyIcon={<RiWebhookLine aria-hidden />}
+        emptyDescription={t('console.webhooks.empty_description')}
+        error={endpoints.error}
+        isEmpty={rows.length === 0}
+        isFiltered={Boolean(query.trim()) || Boolean(scope.agentUID)}
+        onClearFilters={() => {
+          setQuery('')
+          scope.selectAgent('')
+        }}
+        isLoading={endpoints.isLoading}
+        toolbarCanRevealRows
+        toolbar={
+          <ResourceSearch
+            label={t('console.webhooks.search_placeholder')}
+            value={query}
+            onChange={setQuery}
+            filters={
+              <>
+                <AgentFilter scope={scope} />
+                <FilterSwitch
+                  checked={includeFinished}
+                  label={t('console.include_finished')}
+                  onChange={setIncludeFinished}
+                />
+              </>
+            }
+          />
+        }>
+        {rows.map(endpoint => (
+          <WebhookEndpointRow
+            key={`${endpoint.agent_uid}:${endpoint.id}`}
+            endpoint={endpoint}
+            cancelling={cancel.isPending}
+            onCancel={() =>
+              cancel.mutate({
+                path: { webhook_endpoint_id: endpoint.id }
+              })
+            }
+          />
+        ))}
+      </ResourceListPage>
       <Dialog
         open={open}
         onOpenChange={next => {
@@ -277,6 +216,63 @@ function CreateCloudEventEndpoint({ onCreated }: { onCreated: () => void }) {
         </DialogContent>
       </Dialog>
     </>
+  )
+}
+
+function WebhookEndpointRow({
+  endpoint,
+  cancelling,
+  onCancel
+}: {
+  endpoint: WebhookEndpointItem
+  cancelling: boolean
+  onCancel: () => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <TableRow>
+      <TableCell>
+        <div className="grid gap-1">
+          <span className="font-medium">{endpoint.label}</span>
+          <span className="font-mono text-xs text-muted-foreground">{formatConsoleDate(endpoint.created_at)}</span>
+        </div>
+      </TableCell>
+      {endpoint.agent_uid ? <AgentCell uid={endpoint.agent_uid} /> : <TableCell>—</TableCell>}
+      <TableCell>
+        <span className="block max-w-56 truncate font-mono text-xs" title={endpoint.session_id ?? undefined}>
+          {endpoint.session_id}
+        </span>
+      </TableCell>
+      <TableCell>
+        <div className="grid gap-1 font-mono text-xs">
+          <span>{endpoint.binding_name ?? (endpoint.event_format === 'cloudevents' ? 'CloudEvents' : '—')}</span>
+          <span>{endpoint.id}</span>
+          <span className="max-w-72 truncate text-muted-foreground">{endpoint.conversation_id ?? '—'}</span>
+        </div>
+      </TableCell>
+      <TableCell>{t(`console.webhooks.mode_${endpoint.mode}`)}</TableCell>
+      <TableCell>
+        <StatusIndicator tone={webhookStatusTone(endpoint.status)}>
+          {t(`console.webhooks.status_${endpoint.status}`)}
+        </StatusIndicator>
+      </TableCell>
+      <TableCell>{formatConsoleDate(endpoint.expires_at)}</TableCell>
+      <TableCell className="text-right">
+        {live(endpoint) ? (
+          <ConfirmDeleteButton
+            icon={<RiCloseCircleLine />}
+            pending={cancelling}
+            confirm={{
+              title: t('console.webhooks.cancel_title'),
+              description: t('console.webhooks.cancel_description', { label: endpoint.label }),
+              confirmLabel: t('console.webhooks.cancel')
+            }}
+            onConfirm={onCancel}
+          />
+        ) : null}
+      </TableCell>
+    </TableRow>
   )
 }
 

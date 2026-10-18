@@ -48,7 +48,7 @@ defmodule Ankole.Plugins.DiscordAdapter.ReplyPreview do
          client <- Config.client(config),
          {:ok, chunks} <- Presentation.render(presentation, event.id),
          {:ok, channel} <- Delivery.parse_channel(event.conversation_id) do
-      {:ok, chunks, {client, channel}, event.conversation_id}
+      {:ok, chunks, {client, channel}, event.provider_thread_id}
     end
   end
 

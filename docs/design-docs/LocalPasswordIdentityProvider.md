@@ -106,6 +106,10 @@ A password reset ends that email key's wait at once: attempts recorded before
 the credential row's `updated_at` do not count, because guesses against a
 replaced password prove nothing about the new one. The `updated_at` fact is
 durable, so a rescue reset from another OS process also unlocks the account.
+The guard uses the OS clock, as Ecto does for credential timestamps. The VM
+system clock can differ from the OS clock during clock correction. The guard
+compares credential and attempt times in microseconds. An attempt
+at the credential timestamp still counts; only an earlier attempt is removed.
 
 A capacity lock applies only to that tenant. The tenant can hold at most
 10,000 fixed-size email hashes; its next new key waits until an admitted key

@@ -436,12 +436,16 @@ export function ScheduleCronEditorPage() {
   })
   const runRows = (runs.data?.schedule_runs ?? []).slice(0, 25)
 
+  // A reopened editor must not seed its draft from an invalidated cache entry.
+  const sourceKey = `cron:${agentUID}:${cronID ?? 'new'}`
+  const sourceReady =
+    model.sourceKey.value === sourceKey || (!existing.isError && (!existing.isStale || existing.isFetchedAfterMount))
   const scheduleDraft = useMemo(
-    () => (editing ? (existingRow ? draftFromCron(existingRow) : undefined) : emptyDraft()),
-    [editing, existingRow]
+    () => (editing ? (existingRow && sourceReady ? draftFromCron(existingRow) : undefined) : emptyDraft()),
+    [editing, existingRow, sourceReady]
   )
   const draftStatus = useEditorDraft(model, {
-    sourceKey: `cron:${cronID ?? 'new'}`,
+    sourceKey,
     source: scheduleDraft,
     absent: () => editing && requestErrorCode(existing.error) === 'not_found'
   })
@@ -737,8 +741,16 @@ export function ScheduleCronEditorPage() {
             </p>
           ) : null}
         </LabeledField>
-        <LabeledField label={t('console.schedules.name')} description={t('console.schedules.name_hint')}>
-          <Input value={model.name.value} onChange={event => (model.name.value = event.target.value)} />
+        <LabeledField
+          label={t('console.schedules.name')}
+          required
+          description={t('console.schedules.name_hint')}
+          invalidError={t('common.field_required', { field: t('console.schedules.name') })}>
+          <Input
+            pattern=".*\S.*"
+            value={model.name.value}
+            onChange={event => (model.name.value = event.target.value)}
+          />
         </LabeledField>
       </div>
 

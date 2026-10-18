@@ -301,7 +301,9 @@ export const ScheduleEditorModel = createModel(() => {
       if (trimmedName !== original.name.trim()) body.name = trimmedName
       if (scheduleFieldsChanged(original)) body.schedule = schedule
       const tz = effectiveTimezone()
-      if (tz !== original.timezone.trim()) body.timezone = tz || null
+      if ((schedule.kind === 'cron' || original.scheduleKind === 'cron') && tz !== original.timezone.trim()) {
+        body.timezone = tz || null
+      }
       if (deliveryFieldsChanged(original)) body.delivery = delivery
       if (!sameJSON(nextPayload, parseJSON(original.payload))) body.payload = nextPayload
       return body

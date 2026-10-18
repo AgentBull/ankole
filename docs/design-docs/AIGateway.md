@@ -202,6 +202,18 @@ Subscription, Azure OpenAI, OpenAI, and OpenAI-compatible providers use this
 open string form for `serviceTier`. They suggest `fast` and `flex`, accept a
 provider-specific value, and omit `service_tier` when the setting is empty.
 
+Azure Chat Completions maps `max_output_tokens`, or its `max_tokens` alias, to
+`max_completion_tokens` by default. The request setting `maxTokensParameter`
+can select `max_tokens` for an older deployed model. Set this option in each
+affected model profile before use. Azure deployment names are operator-defined,
+so Ankole does not infer model capabilities from them. Microsoft documents the
+[reasoning model field](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/reasoning)
+and the [older model restriction](https://learn.microsoft.com/en-us/azure/foundry-classic/openai/faq#do-all-azure-openai-models-support-max_completion_tokens-with-the-chat-completions-api).
+The Azure provider selects the field through a private codec marker. Rust
+removes that marker and writes one token limit; a public limit replaces
+conflicting token fields from provider options or `extra_body`. Other Chat
+providers keep `max_tokens`. Responses keeps `max_output_tokens`.
+
 A language-model capability can declare `supports_parallel_tool_calls` and
 `supports_native_image_generation`. Both declarations default to false.
 
@@ -1182,6 +1194,12 @@ The `ai_gateway.compaction` AppConfigure value has these fields:
 - `user_message_budget_tokens` defaults to `20000` and controls only local
   user-message retention.
 - `upstream` defaults to `false` and selects the pass-through backend.
+
+`CompactionPolicy` accepts a `threshold` greater than zero and at most one.
+The token fields must be positive integers; `tail_rows` must be a nonnegative
+integer. These integer fields have no configured maximum. The Console accepts
+integers through `9007199254740991` and rejects larger values to prevent JSON
+number precision loss.
 
 Automatic compaction compares the latest provider usage with the effective
 trigger. That usage includes instructions and tool definitions. Local

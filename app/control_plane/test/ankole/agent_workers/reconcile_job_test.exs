@@ -197,7 +197,7 @@ defmodule Ankole.AgentWorkers.ReconcileJobTest do
     assert Repo.get!(AgentWorker, uid).last_error_kind == "pending"
 
     Agent.update(api, &%{&1 | hold_kill: false})
-    set_row!(uid, wanted_until: nil)
+    set_row!(uid, wanted_until: nil, initial_start_pending: false)
     assert :ok = reconcile(uid)
     assert :ok = reconcile(uid)
     assert %AgentWorker{state: "absent", last_error: nil} = Repo.get!(AgentWorker, uid)

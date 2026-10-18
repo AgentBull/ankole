@@ -35,6 +35,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
 
   alias Ankole.AgentWorkers.Providers.Configuration
   alias Ankole.AgentWorkers.AgentWorker
+  alias Ankole.AgentWorkers.WorkerAdmission
   alias Ankole.AgentWorkers.WorkerBootstrap
   alias Ankole.AgentWorkers.WorkerRoute
 
@@ -70,8 +71,9 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   def backoff(%Oban.Job{attempt: attempt}), do: min(Integer.pow(2, attempt), 60)
 
   @impl true
-  def run(%Oban.Job{args: %{"agent_uid" => uid}}) when is_binary(uid),
-    do: loop(uid, @max_steps, nil, nil)
+  def run(%Oban.Job{args: %{"agent_uid" => uid}}) when is_binary(uid) do
+    with :ok <- WorkerAdmission.expire_connection(uid), do: loop(uid, @max_steps, nil, nil)
+  end
 
   def run(%Oban.Job{}), do: {:cancel, :missing_agent_uid}
 

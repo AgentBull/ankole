@@ -86,8 +86,12 @@ defmodule Ankole.AgentWorkers.SweepJob do
                 w.protocol_version != ^provider.runtime.protocol_version or
                 w.settings_digest != ^provider.settings_digest)) or
           (w.state in ["absent", "paused"] and p.status == :active and
-             (w.wanted_until > fragment("now()") or ^turn)) or
-          (w.state == "ready" and (is_nil(p.uid) or p.status != :active or ^idle))
+             (w.initial_start_pending or w.wanted_until > fragment("now()") or ^turn)) or
+          (w.state == "ready" and
+             (is_nil(p.uid) or p.status != :active or ^idle or
+                is_nil(w.last_worker_heartbeat_at) or
+                w.last_worker_heartbeat_at <=
+                  fragment("clock_timestamp() - interval '60 seconds'")))
       )
 
     rows(

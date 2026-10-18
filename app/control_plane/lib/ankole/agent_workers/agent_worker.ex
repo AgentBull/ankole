@@ -37,6 +37,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     field :settings_digest, :string
     field :instance_settings, :map, default: %{}
     field :wanted_until, :utc_datetime_usec
+    field :initial_start_pending, :boolean, default: false
     field :last_error, :string
     field :last_error_kind, :string
     field :state_changed_at, :utc_datetime_usec, read_after_writes: true
@@ -65,6 +66,7 @@ defmodule Ankole.AgentWorkers.AgentWorker do
           settings_digest: String.t() | nil,
           instance_settings: map(),
           wanted_until: DateTime.t() | nil,
+          initial_start_pending: boolean(),
           last_error: String.t() | nil,
           last_error_kind: String.t() | nil,
           state_changed_at: DateTime.t() | nil,

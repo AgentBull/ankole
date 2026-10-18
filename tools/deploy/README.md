@@ -20,10 +20,12 @@ Both targets run the same production path:
   that needs one; its Agent Home persists separately from its cache;
 - RuntimeFabric connects the control plane and the Workers on a private network.
 
-The defaults pull `main-latest` images from the GitHub Container Registry. The
-RuntimeFabric workflow publishes the control-plane and worker tags only after it
-verifies the pair. These tags are mutable. For a controlled production rollout,
-pin the Ankole images to digests from the same verified pair.
+The defaults pin control plane `2.0.0-alpha.5` and a PostgreSQL image digest.
+This is a pre-release. Use deployment files and images from the same release.
+The control-plane image supplies its matching Worker image.
+`main-latest` follows full releases, including release candidates; `canary`
+follows alpha and beta releases. A channel can point to an older release than
+the deployment files in `main`.
 
 A Worker container is the computer of one Agent and its only isolation
 boundary: it needs no extra kernel privileges, and Agents share no Worker. The

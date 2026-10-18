@@ -15,6 +15,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps['theme']}
       className="toaster group"
+      // Keep bottom notifications above the fixed footer actions.
+      offset={{ bottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}
+      mobileOffset={{ bottom: 'calc(5rem + env(safe-area-inset-bottom, 0px))' }}
       icons={{
         success: <RiCheckboxCircleLine className="size-4" />,
         info: <RiInformationLine className="size-4" />,

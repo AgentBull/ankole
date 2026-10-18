@@ -25,6 +25,20 @@ const draft: ScheduleEditorDraft = {
 }
 
 describe('ScheduleEditorModel', () => {
+  test('an unchanged interval produces no write, even when its stored timezone is present', () => {
+    const model = new ScheduleEditorModel()
+    model.initialize('interval', {
+      ...draft,
+      scheduleKind: 'every',
+      everyMs: '60000',
+      anchorAt: '2030-01-01T00:00:00Z'
+    })
+    expect(model.dirty.value).toBe(false)
+    expect(model.toUpdateBody()).toEqual({})
+    model.name.value = 'renamed'
+    expect(model.toUpdateBody()).toEqual({ name: 'renamed' })
+    model[Symbol.dispose]()
+  })
   test('creates a native delivery without a routing rule and preserves mixed destinations', () => {
     const model = new ScheduleEditorModel()
     const id = '019a5bc0-0000-7000-8000-000000000001'

@@ -720,7 +720,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.TokenQuotaWriteRequest do
         period_start_at: %Schema{type: :string},
         limit_tokens: %Schema{type: :integer, minimum: 1}
       },
-      required: [:period_days, :period_start_at, :limit_tokens],
+      required: [:period_days, :limit_tokens],
       additionalProperties: false
     },
     struct?: false

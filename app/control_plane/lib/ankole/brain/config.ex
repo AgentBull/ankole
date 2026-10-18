@@ -406,7 +406,7 @@ defmodule Ankole.Brain.Config do
 
   defp validate_dimensions(value, false) do
     case Map.has_key?(value, "dimensions") do
-      true -> {:error, {:unknown_key, "dimensions"}}
+      true -> {:error, {:invalid_field, "dimensions"}}
       false -> :ok
     end
   end
@@ -493,7 +493,7 @@ defmodule Ankole.Brain.Config do
   defp only_keys(value, allowed_keys) do
     case Map.keys(value) -- allowed_keys do
       [] -> :ok
-      [key | _rest] -> {:error, {:unknown_key, key}}
+      [key | _rest] -> {:error, {:invalid_field, key}}
     end
   end
 

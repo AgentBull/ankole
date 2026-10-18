@@ -26,6 +26,7 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
   @max_attempts 5
   @max_account_keys 10_000
   @window_ms :timer.minutes(30)
+  @window_us @window_ms * 1_000
   @wait_ms 1_000
   @max_waiters 2
   @concurrency_key "principals.local_password.max_verifications"
@@ -57,7 +58,7 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
       account_key: :crypto.hash(:sha256, account_key),
       password: password,
       password_hash: password_hash,
-      not_before_ms: Keyword.get(opts, :not_before_ms),
+      not_before_us: Keyword.get(opts, :not_before_us),
       retry_protection?: Keyword.get(opts, :retry_protection?, true),
       clear_on_match?: Keyword.get(opts, :clear_on_match?, true)
     }
@@ -158,12 +159,12 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
   @impl true
   def handle_info(:sweep, state) do
     Process.send_after(self(), :sweep, @window_ms)
-    now_ms = now_ms()
+    now_us = now_us()
 
     tenants =
       state.tenants
       |> Enum.flat_map(fn {tenant_id, accounts} ->
-        case sweep_accounts(accounts, now_ms) do
+        case sweep_accounts(accounts, now_us) do
           accounts when map_size(accounts) == 0 -> []
           accounts -> [{tenant_id, accounts}]
         end
@@ -171,7 +172,7 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
       |> Map.new()
 
     saturated =
-      Map.filter(state.saturated, fn {tenant_id, _until_ms} ->
+      Map.filter(state.saturated, fn {tenant_id, _until_us} ->
         map_size(Map.get(tenants, tenant_id, %{})) >= @max_account_keys
       end)
 
@@ -279,11 +280,11 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
   defp reserve_attempt(state, %{retry_protection?: false}), do: {:ok, state}
 
   defp reserve_attempt(state, request) do
-    now_ms = now_ms()
+    now_us = now_us()
     accounts = Map.get(state.tenants, request.tenant_id, %{})
 
     attempts =
-      accounts |> Map.get(request.account_key, []) |> prune(request.not_before_ms, now_ms)
+      accounts |> Map.get(request.account_key, []) |> prune(request.not_before_us, now_us)
 
     accounts = if attempts == [], do: Map.delete(accounts, request.account_key), else: accounts
 
@@ -292,30 +293,30 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
         do: put_accounts(state, request.tenant_id, accounts),
         else: state
 
-    saturated_until_ms = Map.get(state.saturated, request.tenant_id)
+    saturated_until_us = Map.get(state.saturated, request.tenant_id)
 
     accounts =
-      if saturated_until_ms && saturated_until_ms <= now_ms,
-        do: sweep_accounts(accounts, now_ms),
+      if saturated_until_us && saturated_until_us <= now_us,
+        do: sweep_accounts(accounts, now_us),
         else: accounts
 
     cond do
       length(attempts) >= @max_attempts ->
-        {locked_until(List.last(attempts) + @window_ms, now_ms), state}
+        {locked_until(List.last(attempts) + @window_us, now_us), state}
 
       map_size(accounts) >= @max_account_keys ->
         state =
-          if saturated_until_ms <= now_ms do
+          if saturated_until_us <= now_us do
             state = %{state | saturated: Map.delete(state.saturated, request.tenant_id)}
             put_accounts(state, request.tenant_id, accounts)
           else
             state
           end
 
-        {locked_until(Map.fetch!(state.saturated, request.tenant_id), now_ms), state}
+        {locked_until(Map.fetch!(state.saturated, request.tenant_id), now_us), state}
 
       true ->
-        accounts = Map.put(accounts, request.account_key, [now_ms | attempts])
+        accounts = Map.put(accounts, request.account_key, [now_us | attempts])
         {:ok, put_accounts(state, request.tenant_id, accounts)}
     end
   end
@@ -334,7 +335,7 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
     saturated =
       if map_size(accounts) >= @max_account_keys do
         Map.put_new_lazy(state.saturated, tenant_id, fn ->
-          accounts |> Map.values() |> Enum.map(&(hd(&1) + @window_ms)) |> Enum.min()
+          accounts |> Map.values() |> Enum.map(&(hd(&1) + @window_us)) |> Enum.min()
         end)
       else
         Map.delete(state.saturated, tenant_id)
@@ -348,10 +349,10 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
     GenServer.reply(request.from, result)
   end
 
-  defp sweep_accounts(accounts, now_ms) do
+  defp sweep_accounts(accounts, now_us) do
     accounts
     |> Enum.flat_map(fn {key, attempts} ->
-      case prune(attempts, nil, now_ms) do
+      case prune(attempts, nil, now_us) do
         [] -> []
         attempts -> [{key, attempts}]
       end
@@ -359,15 +360,16 @@ defmodule Ankole.IdentityProviders.LocalPassword.RetryGuard do
     |> Map.new()
   end
 
-  defp prune(attempts, not_before_ms, now_ms) do
-    cutoff_ms = max(now_ms - @window_ms, not_before_ms || 0)
-    Enum.take_while(attempts, &(&1 > cutoff_ms))
+  defp prune(attempts, not_before_us, now_us) do
+    cutoff_us = now_us - @window_us
+    Enum.take_while(attempts, &(&1 > cutoff_us and &1 >= (not_before_us || 0)))
   end
 
-  defp locked_until(unlock_at_ms, now_ms),
-    do: {:locked, max(div(unlock_at_ms - now_ms + 999, 1_000), 1)}
+  defp locked_until(unlock_at_us, now_us),
+    do: {:locked, max(div(unlock_at_us - now_us + 999_999, 1_000_000), 1)}
 
   defp validate_concurrency(value) when is_integer(value) and value > 0, do: {:ok, value}
   defp validate_concurrency(_value), do: {:error, :expected_positive_integer}
-  defp now_ms, do: System.system_time(:millisecond)
+  # Use the same OS clock as Ecto credential timestamps during clock correction.
+  defp now_us, do: System.os_time(:microsecond)
 end

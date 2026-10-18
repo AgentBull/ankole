@@ -21,6 +21,14 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
     setting(:api_version, default: "2025-04-01-preview", advanced: true)
     setting(:deployment)
 
+    setting(:maxTokensParameter,
+      type: :select,
+      default: "max_completion_tokens",
+      options: ~w(max_completion_tokens max_tokens),
+      scope: :request,
+      advanced: true
+    )
+
     setting(:auth_scheme,
       type: :select,
       default: "api_key",
@@ -63,13 +71,28 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
   @doc """
   Builds an Azure OpenAI language-model request.
 
-  Azure has several URL shapes for the same OpenAI protocol family. This
-  function resolves only Azure endpoint/path/auth details; it still selects an
-  OpenAI API resolver because the request and response bodies are OpenAI-shaped.
+  Selects the Azure endpoint, authentication, and Chat token limit field.
+  The shared OpenAI resolver encodes the request and decodes the response.
   """
   def prepare_language_model(ctx) do
     responses? = Providers.responses_endpoint?(ctx)
     options = Map.new(ctx.settings, fn {key, value} -> {Atom.to_string(key), value} end)
+    ctx = %{ctx | provider_options: Map.delete(ctx.provider_options, "maxTokensParameter")}
+
+    ctx =
+      if responses? do
+        ctx
+      else
+        %{
+          ctx
+          | request:
+              Map.put(
+                ctx.request,
+                "__ankole_chat_max_tokens_field",
+                options["maxTokensParameter"] || "max_completion_tokens"
+              )
+        }
+      end
 
     with {:ok, path, include_model?} <- azure_response_path(ctx.runtime, responses?, options) do
       ctx
@@ -123,24 +146,22 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
     end
   end
 
-  # Azure OpenAI has at least three relevant URL families:
-  # `/openai/v1/*`, traditional `/openai/deployments/*`, and Foundry endpoints.
-  # Foundry is rejected here because it is not the same OpenAI-compatible wire
-  # contract and should not be silently sent to an OpenAI resolver.
+  # Azure OpenAI v1 also uses Foundry resource hosts. Reject other Foundry
+  # paths because they use a different wire protocol.
   defp azure_response_path(runtime, responses?, options) do
     base_url = options |> Map.get("base_url", "") |> to_string()
     api_version = Map.get(options, "api_version") || "2025-04-01-preview"
     deployment = Map.get(options, "deployment") || runtime["model"]
 
     cond do
-      azure_foundry_base_url?(base_url) ->
-        {:error, :unsupported_azure_foundry_endpoint}
-
       azure_v1_base_url?(base_url) and responses? ->
         {:ok, "responses", true}
 
       azure_v1_base_url?(base_url) ->
         {:ok, "chat/completions", true}
+
+      azure_foundry_base_url?(base_url) ->
+        {:error, :unsupported_azure_foundry_endpoint}
 
       responses? ->
         {:ok,
@@ -192,8 +213,11 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
 
   defp azure_v1_base_url?(base_url) do
     case URI.parse(base_url) do
-      %URI{path: path} when is_binary(path) -> String.contains?(path, "/openai/v1")
-      _uri -> false
+      %URI{path: path} when is_binary(path) ->
+        path |> String.trim_trailing("/") |> String.ends_with?("/openai/v1")
+
+      _uri ->
+        false
     end
   end
 

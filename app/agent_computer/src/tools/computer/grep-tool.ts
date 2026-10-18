@@ -12,6 +12,7 @@ import {
   displayPath,
   fffSearchRuntime,
   fileAnnotation,
+  grepWithinScope,
   normalizeExcludes,
   resolveSearchTarget,
   scanNotice,
@@ -145,6 +146,7 @@ export function createGrepTool(
 
       let root: string
       let query: string
+      let constraint: string | undefined
       let mode: 'plain' | 'regex' | 'fuzzy'
       let smartCase: boolean
       let contextLines: number
@@ -152,6 +154,7 @@ export function createGrepTool(
       if (resumed) {
         root = resumed.root
         query = resumed.query
+        constraint = resumed.constraint
         mode = resumed.mode
         smartCase = resumed.smartCase
         contextLines = resumed.context
@@ -184,6 +187,7 @@ export function createGrepTool(
           return { content: [{ type: 'text', text: target.message }], details: emptyDetails }
         }
         root = target.root
+        constraint = target.constraint
         smartCase = params.caseSensitive !== true
         contextLines = params.context ?? 0
         pageSize = params.limit ?? DEFAULT_LIMIT
@@ -203,7 +207,7 @@ export function createGrepTool(
         afterContext: contextLines,
         timeBudgetMs: GREP_TIME_BUDGET_MS
       }
-      const searched = acquired.finder.grep(query, grepOptions)
+      const searched = grepWithinScope(acquired.finder, query, constraint, grepOptions)
       if (!searched.ok) throw new Error(`grep failed: ${searched.error}`)
       let result = searched.value
 
@@ -211,7 +215,12 @@ export function createGrepTool(
       // near-miss identifier still surfaces something actionable.
       let fuzzyNotice: string | undefined
       if (result.items.length === 0 && !result.nextCursor && !resumed && mode !== 'regex') {
-        const fuzzy = acquired.finder.grep(query, { ...grepOptions, mode: 'fuzzy', beforeContext: 0, afterContext: 0 })
+        const fuzzy = grepWithinScope(acquired.finder, query, constraint, {
+          ...grepOptions,
+          mode: 'fuzzy',
+          beforeContext: 0,
+          afterContext: 0
+        })
         if (fuzzy.ok && fuzzy.value.items.length > 0) {
           fuzzyNotice = '0 exact matches. Maybe you meant this?'
           result = fuzzy.value
@@ -243,6 +252,7 @@ export function createGrepTool(
           cursor: result.nextCursor,
           root: acquired.root,
           query,
+          constraint,
           mode,
           smartCase,
           context: contextLines,

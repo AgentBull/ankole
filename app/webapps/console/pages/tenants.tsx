@@ -209,7 +209,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
         <Input
           value={model.slug.value}
           onChange={event => (model.slug.value = event.target.value)}
-          pattern="[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?"
+          pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
           autoComplete="off"
           spellCheck={false}
         />

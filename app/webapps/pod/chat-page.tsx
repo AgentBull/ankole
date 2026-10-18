@@ -81,9 +81,8 @@ function ChatPage({ conversationID }: { conversationID?: string }) {
   })
   const data = detail.data
   const availableAgents = agents.data?.agents ?? []
-  const selectedAgentUID = availableAgents.some(agent => agent.uid === model.selectedAgentUID.value)
-    ? model.selectedAgentUID.value
-    : ''
+  const selection = model.selectedAgentUID.value
+  const selectedAgentUID = availableAgents.some(agent => agent.uid === selection) ? selection : ''
   const agentUID =
     data?.conversation.agent.uid ?? (availableAgents.length === 1 ? availableAgents[0]!.uid : selectedAgentUID)
   const sending = send.isPending || model.pending.value?.state === 'sending'

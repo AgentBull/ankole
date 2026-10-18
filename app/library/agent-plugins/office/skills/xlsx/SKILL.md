@@ -50,7 +50,7 @@ Help reflects the installed CLI version. When this skill and help disagree, **he
 - ALWAYS quote element paths: `"/Sheet1/row[1]"`, not `/Sheet1/row[1]`.
 - Use **single quotes** for any prop value containing `$`: `numFmt='$#,##0'`.
 - For formulas with cross-sheet `!` references, use `batch` with a `<<'EOF'` heredoc (see Known Issues).
-- `\n` and `\t` in a prop value ARE interpreted by the CLI — `\n` is a real in-cell line break (pair with `--prop wrapText=true`), `\t` a tab — consistent across xlsx / docx / pptx. Double them (`\\n`) for a literal backslash-n (rarely wanted). (`$` is the shell layer above — single-quote it.)
+- `\n` and `\t` in a prop value ARE interpreted by the CLI — `\n` is a real in-cell line break (pair with `--prop wrapText=true`), `\t` a tab. Double them (`\\n`) for a literal backslash-n (rarely wanted). (`$` is the shell layer above — single-quote it.)
 
 **Incremental execution.** Run commands one at a time and read each exit code. `officecli` mutates the file on every call; a 50-command script that fails at command 3 will cascade silently. One command → check output → continue.
 
@@ -478,14 +478,16 @@ EOF
 
 ### CLI bug backlog (short)
 
-CLI constraints and gaps to work around — not defects in the output file.
+CLI behavior and known gaps.
 
 - **Chart series are immutable after create** — to add/change a series: `remove` + `add` with the full series list. (Position is mutable: `set chart[N] --prop anchor=` / `x/y/width/height`.) `remove chart[N]` shifts subsequent indices down; re-add appends at end.
 - **Standalone import does not persist reliably in 1.0.144** — it can print `Imported N rows x M cols` while the next fresh read sees an empty sheet. Use the non-resident import batch in CSV / bulk import; its second mutation makes the batch durable, and the required fresh read rejects an empty result.
 - **Cross-sheet formula batches run fine through one resident** — a prior "deadlocks even at 3-5 ops" caution no longer reproduces. Pure value-set batches stay reliable at 50-80+ ops too. If you hit a hang, fall back to one non-resident batch or individual `set` calls. OfficeCLI 1.0.144 canonicalizes symlinked path identities, but it does not make concurrent writers safe: keep one serial writer for each file.
 - **Conditional formatting naming asymmetry** — the element name for `--type` is `conditionalformatting`; the path suffix is `/cf[N]`. Use `officecli help xlsx conditionalformatting` for schema, `/cf[N]` for paths.
 - **Sheet `position` prop on add** — help says Add processes `position`, but the prop is often ignored. Reorder with `officecli move --index` / `--after` / `--before` after creating the sheet.
-- **`remove /sheet[N]` cascade guard** — rejects sheet remove/rename when the sheet is referenced by validation / conditional format / sparkline / hyperlink / named range on another sheet. Remove those dependent elements first, then remove the sheet.
+- **Sheet rename in OfficeCLI 1.0.157** — `set "$FILE" "/Source Data" --prop name=Renamed` updates references in data validation, conditional formatting, sparklines, and named ranges, including sheet names with spaces or apostrophes. These references do not require removal before rename.
+- **Sheet removal rules in 1.0.157** — the intended rules are to reject removal while validation, conditional formatting, sparklines, or internal hyperlinks reference the sheet. An unused named range is removed with its sheet. If a formula on another sheet uses that name, removal must be rejected. Remove or repoint these dependencies before sheet removal. The gaps below can bypass these rules.
+- **Sheet lifecycle gaps in 1.0.157** — a sheet name with an apostrophe can bypass dependency checks on removal. Quoted sheet references in named ranges can escape both cleanup and use checks. Internal hyperlinks with absolute coordinates can remain in relationships that rename does not update and removal does not check. Work on a copy, inspect references after each operation, and test internal links in the target viewer. Exit code 0 and `validate` do not prove that references are intact.
 - **Batch JSON rejects cell `color` alias** — inside batch `props`, `"color": "FF0000"` errors `ambiguous in cell context — use 'font.color' (text) or 'fill' (bg)`. The CLI at shell level accepts `--prop color=...` / `--prop size=14` as aliases on non-cell elements, but inside batch JSON on a cell always write the full dotted name: `"font.color"`, `"font.size"`, `"font.name"`.
 
 ### Renderer caveats (cross-viewer color fidelity)

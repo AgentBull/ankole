@@ -1,7 +1,7 @@
 import { Button, Skeleton, Tabs, TabsContent, TabsList, TabsTrigger, Textarea, toast } from '@ankole/uikit'
 import { useSignals } from '@preact/signals-react/runtime'
 import { RiEditLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQuery } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
@@ -34,14 +34,26 @@ export function AgentLibraryEditor({
   const { t } = useTranslation()
   const pendingSubmissions = useRef(new Map<string, AgentLibraryDocumentSubmission>())
   const [activeKind, setActiveKind] = useState<AgentLibraryDocumentKind>('mission')
-  const documents = useQuery(ankoleWebAgentLibraryControllerIndexOptions({ path: { agent_uid: agentUID } }))
+  const mutationKey = ['agent-library-documents', agentUID]
+  const saving = useIsMutating({ mutationKey }) > 0
+  // A reopened editor waits for earlier saves before it loads its draft source.
+  const documents = useQuery({
+    ...ankoleWebAgentLibraryControllerIndexOptions({ path: { agent_uid: agentUID } }),
+    enabled: !saving,
+    staleTime: 0
+  })
+  const sourceKey = `agent:${agentUID}`
+  const sourceReady =
+    model.sourceKey.value === sourceKey ||
+    (!saving && documents.isFetchedAfterMount && documents.isSuccess && documents.fetchStatus === 'idle')
   const draftStatus = useEditorDraft(model, {
-    sourceKey: `agent:${agentUID}`,
-    source: documents.data?.library_documents as AgentLibraryDocumentsSnapshot | undefined,
+    sourceKey,
+    source: sourceReady ? (documents.data?.library_documents as AgentLibraryDocumentsSnapshot | undefined) : undefined,
     absent: () => requestErrorCode(documents.error) === 'not_found'
   })
   const replaceDocument = useMutation({
     ...ankoleWebAgentLibraryControllerUpdateMutation(),
+    mutationKey,
     onSuccess: (response, variables) => {
       const savedAgentUID = variables.path.agent_uid
       const kind = variables.path.document_kind as AgentLibraryDocumentKind

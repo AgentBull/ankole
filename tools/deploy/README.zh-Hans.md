@@ -18,10 +18,10 @@
   Agent Home 与缓存分开，实例删除后保留 Agent Home；
 - RuntimeFabric 通过私有网络连接控制面和 Worker。
 
-默认配置从 GitHub Container Registry 拉取 `main-latest` 镜像。
-RuntimeFabric 工作流验证控制面与 Worker 镜像配对成功后，才会发布这两个
-tag。tag 会移动。受控生产发布应把 Ankole 镜像固定到同一组已验证镜像的
-digest。
+默认配置固定控制面 `2.0.0-alpha.5` 和 PostgreSQL 镜像 digest。这是预发布版本。
+请使用同一发布版本的部署文件和镜像；控制面镜像已指定配套的 Worker 镜像。
+`main-latest` 跟随正式发布（包括候选版），`canary` 跟随 alpha 和 beta 发布。
+通道所指的版本可能早于 `main` 分支中的部署文件。
 
 Worker 容器是一个 Agent 的电脑，也是它唯一的隔离边界：它不需要额外的内核
 权限，Agent 之间不共用 Worker。控制面需要创建 Worker 容器的权限：Compose

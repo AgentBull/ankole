@@ -182,7 +182,9 @@ shows the period length, the period start time, the limit, a usage bar with
 the used tokens and their share of the limit, the start and end time of the
 current window, and a `Reset` button with a confirmation dialog. The period
 start time is a date-time picker in the operator's browser time zone; the
-stored value is a UTC instant at second precision.
+picker edits whole seconds. The stored UTC instant keeps its original
+precision, including microseconds from a reset. A save omits `period_start_at`
+when the picker value did not change.
 
 The routes are:
 
@@ -190,6 +192,11 @@ The routes are:
 - `PUT /api/v1/agents/:agent_uid/token-quota`
 - `DELETE /api/v1/agents/:agent_uid/token-quota`
 - `POST /api/v1/agents/:agent_uid/token-quota/reset`
+
+`PUT` requires `period_days` and `limit_tokens`. If `period_start_at` is
+absent, the control plane keeps the stored start time under the Agent row lock.
+An Agent without a quota must supply a valid start time. An explicit start
+time replaces the stored instant; `null` and invalid values are rejected.
 
 Every route answers with the configuration and the current window:
 

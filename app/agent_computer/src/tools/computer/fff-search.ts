@@ -1,7 +1,8 @@
 import { ms } from '@agentbull/active-support'
-import type { FileFinder, GrepCursor } from '@ff-labs/fff-bun'
+import type { FileFinder, GrepCursor, GrepOptions, GrepResult, Result, SearchResult } from '@ff-labs/fff-bun'
 import { realpathSync, statSync } from 'node:fs'
 import { normalize, relative, resolve } from 'node:path'
+import { truncateUtf16Safe } from '../../common/text-sanitize'
 import { pathIsWithin } from '../../core/path-boundary'
 
 /**
@@ -49,6 +50,7 @@ export interface GrepCursorState {
   cursor: GrepCursor
   root: string
   query: string
+  constraint?: string
   mode: 'plain' | 'regex' | 'fuzzy'
   smartCase: boolean
   context: number
@@ -58,9 +60,10 @@ export interface GrepCursorState {
 export interface FindCursorState {
   root: string
   query: string
+  constraint?: string
   pattern: string
   pageSize: number
-  /** Item offset of the next page: `fileSearch`'s `pageIndex` counts items, not pages. */
+  /** Item offset of the next page within the scoped results. */
   nextOffset: number
 }
 
@@ -200,7 +203,7 @@ export type SearchTarget =
       ok: true
       /** Realpath of the search root to acquire a finder for. */
       root: string
-      /** Path constraint relative to `root`, already normalized for the query. */
+      /** Path constraint relative to `root`, normalized for the native glob scope. */
       constraint?: string
     }
   | { ok: false; message: string }
@@ -250,11 +253,12 @@ export function resolveSearchTarget(scope: SearchScope, rawPath: string | undefi
 
   if (pathIsWithin(workspaceReal, rootReal)) {
     const rebase = relative(workspaceReal, rootReal)
-    const constraint = normalizeConstraint(joinConstraint(rebase, split.suffix))
+    const path = joinConstraint(rebase, split.suffix)
+    const constraint = split.file ? path : normalizeConstraint(split.suffix || !path ? path : `${path}/`)
     return { ok: true, root: workspaceReal, ...(constraint ? { constraint } : {}) }
   }
 
-  const constraint = normalizeConstraint(split.suffix)
+  const constraint = split.file ? split.suffix : normalizeConstraint(split.suffix)
   return { ok: true, root: rootReal, ...(constraint ? { constraint } : {}) }
 }
 
@@ -264,7 +268,7 @@ export function resolveSearchTarget(scope: SearchScope, rawPath: string | undefi
  * a partially wrong path still resolves to a usable search root. A path that
  * lands on a file searches the parent directory constrained to that file.
  */
-function splitExistingRoot(absPath: string): { root: string; suffix: string } | undefined {
+function splitExistingRoot(absPath: string): { root: string; suffix: string; file?: boolean } | undefined {
   const trimmed = normalize(absPath).replace(/\/+$/, '') || '/'
   const parts = trimmed.split('/')
   const firstGlob = parts.findIndex(part => /[*?[{]/.test(part))
@@ -279,7 +283,7 @@ function splitExistingRoot(absPath: string): { root: string; suffix: string } | 
       continue
     }
     if (stat.isFile()) {
-      return { root: parts.slice(0, index - 1).join('/') || '/', suffix: parts.slice(index - 1).join('/') }
+      return { root: parts.slice(0, index - 1).join('/') || '/', suffix: parts.slice(index - 1).join('/'), file: true }
     }
     return { root: candidate, suffix: parts.slice(index).join('/') }
   }
@@ -334,11 +338,90 @@ export function buildSearchQuery(input: {
   pattern: string
 }): string {
   const parts: string[] = []
-  if (input.constraint) parts.push(input.constraint)
+  if (input.constraint) {
+    // fff splits on whitespace and treats bare filenames as fuzzy text.
+    // This glob is a prefilter; the native glob API enforces the exact scope.
+    const constraint = input.constraint
+    const prefix = !constraint.includes('/') && /[*?[{]/.test(constraint) ? '**/' : './'
+    parts.push(
+      constraint.endsWith('/') && !/\p{White_Space}/u.test(constraint)
+        ? constraint
+        : `${prefix}${constraint.replace(/\p{White_Space}/gu, '*')}${constraint.endsWith('/') ? '**/*' : '*'}`
+    )
+  }
   parts.push(...input.excludes)
   const pattern = input.pattern.trim()
   if (pattern) parts.push(pattern)
   return parts.join(' ')
+}
+
+const SCOPE_PAGE_SIZE = 1000
+
+function scopePaths(finder: FileFinder, constraint: string): Result<Set<string>> {
+  let glob = constraint.endsWith('/') ? `${constraint}**/*` : constraint
+  if (!glob.includes('/') && /[*?[{]/.test(glob)) glob = `**/${glob}`
+  const paths = new Set<string>()
+  let offset = 0
+  while (true) {
+    const searched = finder.glob(glob, { pageIndex: offset, pageSize: SCOPE_PAGE_SIZE })
+    if (!searched.ok) return searched
+    for (const item of searched.value.items) paths.add(item.relativePath)
+    offset += searched.value.items.length
+    if (searched.value.items.length === 0 || offset >= searched.value.totalMatched) return { ok: true, value: paths }
+  }
+}
+
+export function findWithinScope(
+  finder: FileFinder,
+  query: string,
+  constraint: string | undefined,
+  offset: number,
+  pageSize: number
+): Result<SearchResult> {
+  if (!constraint) return finder.fileSearch(query, { pageIndex: offset, pageSize })
+  const scoped = scopePaths(finder, constraint)
+  if (!scoped.ok) return scoped
+  const result: SearchResult = { items: [], scores: [], totalMatched: 0, totalFiles: 0 }
+  let nativeOffset = 0
+  // Count the complete ordered result before applying the tool's page offset.
+  while (true) {
+    const searched = finder.fileSearch(query, { pageIndex: nativeOffset, pageSize: SCOPE_PAGE_SIZE })
+    if (!searched.ok) return searched
+    const page = searched.value
+    result.totalFiles = page.totalFiles
+    page.items.forEach((item, index) => {
+      if (!scoped.value.has(item.relativePath)) return
+      if (result.totalMatched >= offset && result.items.length < pageSize) {
+        result.items.push(item)
+        result.scores.push(page.scores[index]!)
+      }
+      result.totalMatched++
+    })
+    nativeOffset += page.items.length
+    if (page.items.length === 0 || nativeOffset >= page.totalMatched) return { ok: true, value: result }
+  }
+}
+
+export function grepWithinScope(
+  finder: FileFinder,
+  query: string,
+  constraint: string | undefined,
+  options: GrepOptions
+): Result<GrepResult> {
+  if (!constraint) return finder.grep(query, options)
+  const scoped = scopePaths(finder, constraint)
+  if (!scoped.ok) return scoped
+  let cursor = options.cursor
+  while (true) {
+    const searched = finder.grep(query, { ...options, cursor })
+    if (!searched.ok) return searched
+    const result = searched.value
+    const items = result.items.filter(item => scoped.value.has(item.relativePath))
+    if (items.length > 0 || !result.nextCursor) {
+      return { ok: true, value: { ...result, items, totalMatched: items.length } }
+    }
+    cursor = result.nextCursor
+  }
 }
 
 const HOT_FRECENCY = 25
@@ -364,7 +447,7 @@ export const SEARCH_MAX_LINE_LENGTH = 500
 export function clipSearchLine(line: string): { text: string; wasClipped: boolean } {
   const trimmed = line.trimEnd()
   if (trimmed.length <= SEARCH_MAX_LINE_LENGTH) return { text: trimmed, wasClipped: false }
-  return { text: `${trimmed.slice(0, SEARCH_MAX_LINE_LENGTH)}...`, wasClipped: true }
+  return { text: `${truncateUtf16Safe(trimmed, SEARCH_MAX_LINE_LENGTH)}...`, wasClipped: true }
 }
 
 /** Render a result path the way the model can feed straight back into read_file. */

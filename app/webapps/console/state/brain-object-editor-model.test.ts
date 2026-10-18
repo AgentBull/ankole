@@ -7,6 +7,44 @@ import {
 } from './brain-object-editor-model'
 
 describe('previewBrainObjectBody', () => {
+  test('multiline code spans keep audience tags literal in public and private text', () => {
+    for (const delimiter of ['`', '``', '````']) {
+      const code = `Example: ${delimiter}\n{% audience scope="principal:bob" %}\nliteral\n{% /audience %}\nend ${delimiter}\n`
+      expect(previewBrainObjectBody(code)).toEqual([{ scope: 'world', text: code }])
+      expect(
+        previewBrainObjectBody(`{% audience scope="principal:alice" %}\n${code}Still private\n{% /audience %}`)
+      ).toEqual([{ scope: 'principal:alice', text: `${code}Still private\n` }])
+    }
+  })
+
+  test('an unmatched code delimiter does not hide a real audience boundary', () => {
+    expect(
+      previewBrainObjectBody('Example: `\n{% audience scope="principal:alice" %}\nPrivate\n{% /audience %}')
+    ).toEqual([
+      { scope: 'world', text: 'Example: `\n' },
+      { scope: 'principal:alice', text: 'Private\n' }
+    ])
+  })
+
+  test('an explicit world block closes before an adjacent private block', () => {
+    expect(
+      previewBrainObjectBody(
+        [
+          '{% audience scope="world" %}',
+          'Public',
+          '{% /audience %}',
+          '{% audience scope="principal:alice" %}',
+          'Private',
+          '{% /audience %}',
+          'Tail'
+        ].join('\n')
+      )
+    ).toEqual([
+      { scope: 'world', text: 'Public\n' },
+      { scope: 'principal:alice', text: 'Private\n' },
+      { scope: 'world', text: 'Tail' }
+    ])
+  })
   test('splits root audience blocks and keeps document order', () => {
     const body = [
       '# Public',

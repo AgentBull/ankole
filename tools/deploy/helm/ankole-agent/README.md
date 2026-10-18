@@ -35,6 +35,11 @@ ServiceAccount without permissions.
 
 ## Install with bundled PostgreSQL
 
+The bundled PostgreSQL container uses `C.utf8` so an empty volume initializes
+with UTF8. Existing volumes keep their database encoding. Check
+`SHOW server_encoding`; a SQL_ASCII database needs a separate
+[backup and restore](../../../devkit/postgres-for-ankole/README.md).
+
 The bundled PostgreSQL has one replica and no protection against voluntary
 Pod disruption. For production, use an external PostgreSQL database. If you
 use the bundled database on Karpenter-managed nodes, set this Pod annotation:
@@ -216,15 +221,11 @@ put provider API keys in Helm values.
 Direct upgrades to this release are supported only from v0.70.0 or later.
 Upgrades from an older release are not supported.
 
-The default images are:
-
-```text
-ghcr.io/agentbull/ankole-agent-control-plane:main-latest
-ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest
-```
-
-`main-latest` follows the most recent successful GitHub publish. Before a
-controlled production upgrade, resolve and record the control-plane digest:
+The defaults pin control plane `2.0.0-alpha.5` and the PostgreSQL digest in
+`values.yaml`. This is a pre-release. Use deployment files and images from the
+same release; `main-latest` can point to an older release with a different
+startup contract. Before a controlled production upgrade, resolve and record
+the control-plane digest:
 
 ```yaml
 controlPlane:
@@ -233,6 +234,8 @@ controlPlane:
 ```
 
 The control-plane image supplies its matching immutable Worker image.
+To select another PostgreSQL tag, clear `postgresql.image.digest` as well;
+the digest takes precedence over the tag.
 Leave `worker.image` empty to use that image. Set `worker.image.repository`
 and its tag or digest only for an explicit Worker image override. An override
 must come from the same source revision as the control plane.
@@ -449,7 +452,7 @@ kubectl -n ankole exec statefulset/ankole-postgresql -- \
 | Value | Default | Purpose |
 | --- | --- | --- |
 | `secrets.existingSecret` | empty | Existing bootstrap Secret |
-| `controlPlane.image.tag` | `main-latest` | Mutable GitHub image channel |
+| `controlPlane.image.tag` | `2.0.0-alpha.5` | Immutable published release |
 | `controlPlane.image.digest` | empty | Immutable control-plane image |
 | `controlPlane.publicHost` | `ankole.example.com` | Phoenix public host |
 | `worker.image.digest` | empty | Digest for an explicit Worker image override |

@@ -287,6 +287,149 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert gateway_row_counts() == baseline
   end
 
+  for ingress <- [:cloudevents, :raw] do
+    @ingress ingress
+    @tag :external_signal_roundtrip
+    test "#{ingress} HTTP input reaches the native Session and replay does not answer twice",
+         %{human: human, agent: agent, script: script} do
+      Agent.update(
+        script,
+        &%{
+          &1
+          | block_first?: false,
+            rounds: [
+              {:text, "Initial native answer."},
+              {:text, "External report received."}
+            ]
+        }
+      )
+
+      id = Ecto.UUID.generate()
+      message_id = Ecto.UUID.generate()
+      nonce = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               Conversations.create(human.uid, %{
+                 conversation_id: id,
+                 agent_uid: agent.uid,
+                 message_id: message_id,
+                 text: "Watch incoming external reports."
+               })
+
+      _ = await_request()
+      source = wait_for_completion(event_for(message_id).id)
+      expires = DateTime.add(DateTime.utc_now(:microsecond), 1, :hour)
+
+      attrs =
+        case @ingress do
+          :cloudevents ->
+            %{
+              label: "External report",
+              mode: "standing",
+              event_format: "cloudevents",
+              expires_at: expires
+            }
+
+          :raw ->
+            %{
+              label: "External receipt",
+              mode: "one_shot",
+              agent_uid: agent.uid,
+              session_id: source.session_id,
+              conversation_id: id,
+              source_signal_id: source.id,
+              source_provenance: %{"kind" => "integration"},
+              expires_at: expires
+            }
+        end
+
+      assert {:ok, endpoint} = Ankole.Signals.Webhooks.create_endpoint(attrs)
+
+      if @ingress == :cloudevents do
+        assert {:ok, _} =
+                 Ankole.Signals.Bindings.put_binding(agent.uid, "cloudevents", "reports", %{
+                   "config" => %{"webhook_endpoint_id" => endpoint.webhook_endpoint.id},
+                   "target" => %{"conversation_id" => id},
+                   "filters" => %{"cel" => "signal.data.priority == 'urgent'"}
+                 })
+      end
+
+      on_exit(
+        Repo.bind_tenant(fn ->
+          Repo.delete_all(
+            from b in Ankole.Signals.Binding,
+              where: b.agent_uid == ^agent.uid and b.adapter == "cloudevents"
+          )
+
+          Repo.delete_all(
+            from e in Ankole.Signals.WebhookEndpoint, where: e.id == ^endpoint.webhook_endpoint.id
+          )
+        end)
+      )
+
+      server =
+        start_supervised!(
+          {Bandit, plug: AnkoleWeb.Endpoint, ip: {127, 0, 0, 1}, port: 0, startup_log: false},
+          id: :signal_ingress
+        )
+
+      {:ok, {_, port}} = ThousandIsland.listener_info(server)
+
+      {path, content_type, body, type, status} =
+        case @ingress do
+          :cloudevents ->
+            {"/signals/v1/cloudevents/#{endpoint.token}", "application/cloudevents+json",
+             %{
+               "specversion" => "1.0",
+               "id" => nonce,
+               "source" => "https://reports.example/changes",
+               "type" => "report.changed",
+               "data" => %{"priority" => "urgent", "nonce" => nonce}
+             }, "report.changed", 202}
+
+          :raw ->
+            {"/webhooks/v1/event-callbacks/#{endpoint.token}", "application/json",
+             %{"nonce" => nonce}, "webhook.received", 204}
+        end
+
+      url = "http://127.0.0.1:#{port}#{path}"
+      headers = [{"content-type", content_type}]
+
+      if @ingress == :cloudevents do
+        filtered = put_in(body, ["data", "priority"], "low")
+
+        assert %{status: 202, body: %{"signal_ids" => []}} =
+                 Req.post!(url, headers: headers, json: filtered)
+
+        refute_receive {:native_model_request, _}, 100
+      end
+
+      assert %{status: ^status} = Req.post!(url, headers: headers, json: body)
+      request = await_request()
+      assert Ankole.JSON.encode!(request.body["messages"]) =~ nonce
+      signal = Repo.one!(from s in Signal, where: s.agent_uid == ^agent.uid and s.type == ^type)
+      assert wait_for_completion(signal.id).attempt_count == 1
+      assert signal.session_id == source.session_id
+      assert signal.conversation_id == id
+      assert {:ok, detail} = Conversations.get(human.uid, id)
+      assert List.last(detail.messages).text == "External report received."
+      assert List.last(detail.messages).signal_id == signal.id
+
+      assert %{status: ^status} = Req.post!(url, headers: headers, json: body)
+      assert %{failure: 0} = Oban.drain_queue(queue: :conversations, with_scheduled: true)
+      refute_receive {:native_model_request, _}, 150
+
+      assert Repo.aggregate(
+               from(s in Signal, where: s.agent_uid == ^agent.uid and s.type == ^type),
+               :count
+             ) == 1
+
+      assert {:ok, after_replay} = Conversations.get(human.uid, id)
+      assert length(after_replay.messages) == length(detail.messages)
+      assert Agent.get(script, & &1.requests) == 2
+    end
+  end
+
   test "a native cron report is a committed statement that the owning session reads once",
        context do
     %{human: human, agent: agent, script: script} = context

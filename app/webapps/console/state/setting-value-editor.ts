@@ -17,23 +17,21 @@ const SPECIFIC_SETTING_EDITORS = new Map<string, SettingEditorKind>([
 ])
 
 /**
- * Mirrors the bounds that `Ankole.AIGateway.Compaction` enforces, so a value out
- * of range is reported in the field instead of returning as one opaque server
- * rejection. `threshold` is a ratio of the model input context, so it is the one
- * field that is not an integer.
+ * Field controls follow `Ankole.AIGateway.CompactionPolicy`. Integer maxima
+ * prevent JSON number precision loss in the Console.
  */
 export type CompactionField = {
   key: string
   max: number
   min: number
-  step?: number
+  step?: number | 'any'
 }
 
 export const AI_GATEWAY_COMPACTION_FIELDS: CompactionField[] = [
-  { key: 'threshold', min: 0.01, max: 1, step: 0.01 },
-  { key: 'max_threshold_tokens', min: 1, max: 10_000_000 },
-  { key: 'tail_rows', min: 0, max: 1_000 },
-  { key: 'user_message_budget_tokens', min: 1, max: 1_000_000 }
+  { key: 'threshold', min: Number.MIN_VALUE, max: 1, step: 'any' },
+  { key: 'max_threshold_tokens', min: 1, max: Number.MAX_SAFE_INTEGER },
+  { key: 'tail_rows', min: 0, max: Number.MAX_SAFE_INTEGER },
+  { key: 'user_message_budget_tokens', min: 1, max: Number.MAX_SAFE_INTEGER }
 ]
 
 export type AIGatewayCompactionDraft = {

@@ -131,8 +131,8 @@ defmodule Ankole.Principals do
   end
 
   @doc """
-  Creates an agent Principal, its agent subtype, and its absent Worker row
-  in one transaction. The first environment tool or Job requests the Worker.
+  Creates an agent Principal, its agent subtype, and its Worker startup
+  request in one transaction. Reconciliation starts the Worker after commit.
   """
   @spec create_agent(map()) ::
           {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}

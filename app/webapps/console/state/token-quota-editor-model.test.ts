@@ -94,7 +94,7 @@ describe('TokenQuotaEditorModel', () => {
     expect(submission.body.period_days).toBe(7)
     expect(submission.body.limit_tokens).toBe(1_000_000)
     expect(submission.body.period_start_at).toMatch(/Z$/)
-    expect(Date.parse(submission.body.period_start_at)).toBe(storedInstant)
+    expect(Date.parse(submission.body.period_start_at!)).toBe(storedInstant)
     model[Symbol.dispose]()
   })
 
@@ -110,6 +110,22 @@ describe('TokenQuotaEditorModel', () => {
     expect(model.dirty.value).toBe(false)
     expect(model.periodStartAt.value).toBe(dateTimeLocalValue(storedQuota.period_start_at))
     expect(model.validationError.value).toBeUndefined()
+    model[Symbol.dispose]()
+  })
+
+  test('a limit-only edit preserves the server reset instant; a changed picker sends a new instant', () => {
+    const model = new TokenQuotaEditorModel()
+    model.initialize(
+      'agent:reset',
+      draftFromTokenQuota({ ...storedQuota, period_start_at: '2026-09-09T00:00:00.158479Z' })
+    )
+    model.limitTokens.value = '2000000'
+    expect(model.submission()).toEqual({ ok: true, body: { period_days: 7, limit_tokens: 2000000 } })
+    model.periodStartAt.value = dateTimeLocalValue('2026-09-10T00:00:00Z')
+    expect(model.submission()).toEqual({
+      ok: true,
+      body: { period_days: 7, limit_tokens: 2000000, period_start_at: '2026-09-10T00:00:00.000Z' }
+    })
     model[Symbol.dispose]()
   })
 })

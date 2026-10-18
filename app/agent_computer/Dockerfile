@@ -149,7 +149,8 @@ RUN set -eux; \
   officecli_base_url="https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}"; \
   curl -fsSL "${officecli_base_url}/${officecli_asset}" -o /usr/local/bin/officecli; \
   chmod +x /usr/local/bin/officecli; \
-  test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"
+  test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"; \
+  ln -s /opt/ankole-browser/browsers/chromium/chrome-headless-shell /usr/local/bin/chromium
 
 # Typst is not packaged for Debian trixie, so the pinned release binary is
 # installed here.
