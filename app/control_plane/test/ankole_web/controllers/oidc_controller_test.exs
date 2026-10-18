@@ -304,7 +304,24 @@ defmodule AnkoleWeb.OIDCControllerTest do
         "code_verifier" => verifier
       })
 
-    assert %{"error" => "invalid_client"} = json_response(basic_with_body_client, 400)
+    assert %{"error" => "invalid_request"} = json_response(basic_with_body_client, 400)
+    assert get_resp_header(basic_with_body_client, "www-authenticate") == []
+
+    bearer =
+      conn
+      |> recycle()
+      |> put_req_header("authorization", "Bearer rejected-client-credential")
+      |> post("/oauth/token", %{
+        "grant_type" => "authorization_code",
+        "redirect_uri" => @redirect_uri,
+        "code" => code,
+        "code_verifier" => verifier
+      })
+
+    assert %{"error" => "invalid_client"} = json_response(bearer, 401)
+
+    assert get_resp_header(bearer, "www-authenticate") ==
+             ["Basic realm=\"OIDC token\""]
 
     token_set =
       conn

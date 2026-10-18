@@ -45,6 +45,7 @@ export function ModelProfileEditorCard({
   label,
   draft,
   dirty,
+  disabled,
   required,
   hint,
   nameField,
@@ -66,6 +67,7 @@ export function ModelProfileEditorCard({
   label: string
   draft: ProfileDraft
   dirty?: boolean
+  disabled?: boolean
   required?: boolean
   hint?: string
   nameField?: ReactNode
@@ -137,6 +139,7 @@ export function ModelProfileEditorCard({
   const renderOptionSetting = (setting: ProviderSetting) => (
     <div key={setting.key} className={setting.type === 'map' ? 'md:col-span-2' : undefined}>
       <ProviderSettingField
+        disabled={disabled}
         setting={setting}
         value={draft.providerOptions[setting.key]}
         onChange={value =>
@@ -176,7 +179,7 @@ export function ModelProfileEditorCard({
               <Switch
                 aria-label={providerHosted.label}
                 checked={providerHosted.checked}
-                disabled={providerHosted.pending}
+                disabled={disabled || providerHosted.pending}
                 onCheckedChange={providerHosted.onChange}
               />
               {providerHosted.label}
@@ -184,7 +187,7 @@ export function ModelProfileEditorCard({
           ) : null}
           {onSave ? (
             <SaveButton
-              disabled={disableSave || hostedActive}
+              disabled={disabled || disableSave || hostedActive}
               incomplete={incomplete && !disableSave}
               loading={persistencePending}
               size="xs"
@@ -196,12 +199,12 @@ export function ModelProfileEditorCard({
             <ConfirmDeleteButton
               confirm={deleteConfirm}
               label={deleteLabel}
-              pending={deleteDisabled || persistencePending || hostedActive}
+              pending={disabled || deleteDisabled || persistencePending || hostedActive}
               onConfirm={onDelete}
             />
           ) : (
             <Button
-              disabled={deleteDisabled || persistencePending || hostedActive}
+              disabled={disabled || deleteDisabled || persistencePending || hostedActive}
               size="xs"
               type="button"
               variant="ghost"
@@ -215,7 +218,7 @@ export function ModelProfileEditorCard({
         {/* Only the profile fields freeze while the provider hosts the
                 capability. The header switch and the collapse trigger must stay
                 operable, or turning hosting on would lock its own off switch. */}
-        <fieldset className="contents" disabled={hostedActive}>
+        <fieldset className="contents" disabled={disabled || hostedActive}>
           {providerHosted ? (
             <p className="text-xs leading-5 text-muted-foreground">{providerHosted.description}</p>
           ) : null}
@@ -235,6 +238,7 @@ export function ModelProfileEditorCard({
             className={configurableModel ? 'grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_9rem]' : 'grid gap-4'}>
             <LabeledField label={t('console.models.provider')} error={providerError} required>
               <Select
+                disabled={disabled}
                 value={draft.providerID}
                 onValueChange={value => {
                   const nextProviderID = String(value)
@@ -270,7 +274,7 @@ export function ModelProfileEditorCard({
                   <CreatableCombobox
                     ariaLabel={t('console.models.model')}
                     clearLabel={t('common.clear')}
-                    disabled={!providerID}
+                    disabled={disabled || !providerID}
                     required
                     options={modelOptions}
                     placeholder={
@@ -287,7 +291,7 @@ export function ModelProfileEditorCard({
                 </LabeledField>
                 <LabeledField label={t('console.models.context')}>
                   <Input
-                    disabled={!providerID}
+                    disabled={disabled || !providerID}
                     inputMode="numeric"
                     placeholder={providerID ? undefined : t('console.models.provider_required_placeholder')}
                     value={draft.contextLength}

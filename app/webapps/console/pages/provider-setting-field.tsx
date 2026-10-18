@@ -46,6 +46,7 @@ export function providerSettingPresentation(t: TFunction, key: string): { label:
 
 /** Renders one ProviderDSL setting using its projected type and storage metadata. */
 export function ProviderSettingField({
+  disabled,
   keepStored,
   onChange,
   secretPresent,
@@ -54,6 +55,7 @@ export function ProviderSettingField({
 }: {
   /** Blank drafts keep the stored value (credential edit), so blank controls show that instead of the DSL default. */
   keepStored?: boolean
+  disabled?: boolean
   onChange: (value: string) => void
   secretPresent?: boolean
   setting: ProviderSetting
@@ -72,6 +74,7 @@ export function ProviderSettingField({
     return (
       <LabeledField label={label} description={description} required={setting.required && !secretPresent}>
         <EncryptedValueInput
+          disabled={disabled}
           placeholder={secretPresent ? '••••••••' : 'sk-...'}
           revealLabel={t('console.aria.reveal_secret')}
           value={draft}
@@ -83,14 +86,16 @@ export function ProviderSettingField({
 
   if (setting.type === 'map') {
     return (
-      <JSONField
-        label={label}
-        description={t('console.providers.map_hint')}
-        minRows={4}
-        required={setting.required}
-        value={draft}
-        onChange={onChange}
-      />
+      <fieldset className="contents" disabled={disabled}>
+        <JSONField
+          label={label}
+          description={t('console.providers.map_hint')}
+          minRows={4}
+          required={setting.required}
+          value={draft}
+          onChange={onChange}
+        />
+      </fieldset>
     )
   }
 
@@ -98,6 +103,7 @@ export function ProviderSettingField({
     return (
       <LabeledField label={label} description={description} required={setting.required}>
         <Select
+          disabled={disabled}
           value={draft || UNSET_BOOLEAN}
           onValueChange={next => onChange(String(next) === UNSET_BOOLEAN ? '' : String(next))}>
           <SelectTrigger className="w-full">
@@ -126,6 +132,7 @@ export function ProviderSettingField({
         <div className="flex min-h-12 items-center justify-between border border-border bg-muted/30 px-4 py-3">
           <span className="text-sm text-foreground">{t('common.enable')}</span>
           <Switch
+            disabled={disabled}
             aria-label={label}
             checked={enabled}
             onCheckedChange={checked => onChange(checked ? 'websocket' : 'sse')}
@@ -144,6 +151,7 @@ export function ProviderSettingField({
     return (
       <LabeledField label={label} description={description} required={setting.required}>
         <CreatableCombobox
+          disabled={disabled}
           ariaLabel={label}
           clearLabel={t('common.clear')}
           value={draft}
@@ -160,6 +168,7 @@ export function ProviderSettingField({
     return (
       <LabeledField label={label} description={description} required={setting.required}>
         <Select
+          disabled={disabled}
           value={selectControlValue(draft, defaultDraft, keepStored ?? false)}
           onValueChange={next => onChange(String(next) === UNSET_SELECT ? '' : String(next))}>
           <SelectTrigger className="w-full">
@@ -183,6 +192,7 @@ export function ProviderSettingField({
   return (
     <LabeledField label={label} description={description} required={setting.required}>
       <Input
+        disabled={disabled}
         type={numeric ? 'number' : 'text'}
         step={setting.type === 'integer' ? 1 : numeric ? 'any' : undefined}
         placeholder={setting.default != null ? String(setting.default) : undefined}

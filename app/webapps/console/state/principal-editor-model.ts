@@ -14,6 +14,7 @@ const emailSchema = v.pipe(v.string(), v.email())
 
 /** Shared draft for the create and edit pages of a local human user. */
 export const PrincipalEditorModel = createModel(() => {
+  let source = Symbol()
   const sourceKey = signal<string>()
   const displayName = signal('')
   const email = signal('')
@@ -34,6 +35,7 @@ export const PrincipalEditorModel = createModel(() => {
     validationError,
     initialize(nextSourceKey: string, draft: PrincipalEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
+      source = Symbol()
       batch(() => {
         sourceKey.value = nextSourceKey
         displayName.value = draft.displayName
@@ -42,6 +44,18 @@ export const PrincipalEditorModel = createModel(() => {
         initialDraft.value = { ...draft }
         validationError.value = undefined
       })
+    },
+    async save(request: () => Promise<unknown>, onSaved: (clean: boolean) => void) {
+      const requestedSource = source
+      const sentDraft = { displayName: displayName.value, email: email.value }
+      await request()
+      if (source !== requestedSource) return
+      initialDraft.value = sentDraft
+      onSaved(!dirty.peek())
+    },
+    resetSource() {
+      source = Symbol()
+      sourceKey.value = undefined
     },
     clearValidation() {
       validationError.value = undefined

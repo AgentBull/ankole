@@ -584,29 +584,28 @@ defmodule Ankole.Brain.Dreaming do
 
     usable_terms = Enum.reject(vocabulary_terms, &MapSet.member?(installed, &1))
 
-    usage =
+    tag_pages =
       Tag
       |> where([tag], tag.tag in ^usable_terms)
-      |> group_by([tag], tag.tag)
-      |> select([tag], {tag.tag, count(tag.object_slug, :distinct)})
-      |> Repo.all()
-      |> Map.new()
+      |> select([tag], %{term: tag.tag, slug: tag.object_slug})
 
-    subtype_usage =
+    subtype_pages =
       Object
       |> where([object], is_nil(object.deleted_at))
       |> where([object], object.subtype in ^usable_terms)
-      |> group_by([object], object.subtype)
-      |> select([object], {object.subtype, count(object.id)})
-      |> Repo.all()
+      |> select([object], %{term: object.subtype, slug: object.slug})
 
-    combined =
-      Enum.reduce(subtype_usage, usage, fn {term, count}, acc ->
-        Map.update(acc, term, count, &(&1 + count))
-      end)
+    usage =
+      tag_pages
+      |> union_all(^subtype_pages)
+      |> subquery()
+      |> group_by([page], page.term)
+      |> select([page], {page.term, count(page.slug, :distinct)})
+      |> Repo.all()
+      |> Map.new()
 
     suggested =
-      Enum.count(combined, fn {term, count} ->
+      Enum.count(usage, fn {term, count} ->
         cond do
           count >= @suggest_type_threshold ->
             insert_suggestion(term, "new_type", count) == :ok
@@ -619,7 +618,7 @@ defmodule Ankole.Brain.Dreaming do
         end
       end)
 
-    %{status: :ok, suggested: suggested, terms: map_size(combined)}
+    %{status: :ok, suggested: suggested, terms: map_size(usage)}
   end
 
   defp insert_suggestion(term, kind, count) do

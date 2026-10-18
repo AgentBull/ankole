@@ -215,7 +215,7 @@ read-only subset `recall` and `get_page`.
 | `entity` | Resolves a name to a page through aliases; ambiguity returns candidates |
 | `whoknows` | Reports which Principals' scopes hold knowledge on a topic |
 | `synthesize` | Writes an analysis page from reachable knowledge, at the caller's eligibility |
-| `delta` | Reports knowledge changes since a cursor |
+| `delta` | Reports knowledge changes since a cursor; excludes forgotten pages |
 
 `context_pack` and `volunteer_pointers` serve the memory injection of a
 stateful Response rather than the model. `docs/design-docs/AIGateway.md`
@@ -352,6 +352,8 @@ one failing phase is recorded without blocking the rest:
    pages it proposes a subtype; at 100 pages it proposes a type. The Console
    retains approval and rejection records. Approval registers the schema and
    updates affected pages and slug references in one tenant transaction.
+   Promotion keeps each Human Principal's canonical `people/<uid>` page in
+   place. Other tagged person pages can move to the new type.
 8. `merge_suggest` — the mechanical backstop behind write-time entity
    dedup: pairs live pages of one type that share a normalized alias
    into `brain_merge_suggestions`, one row per

@@ -217,6 +217,14 @@ defmodule AnkoleWeb.AuthZGroupControllerTest do
     conn =
       conn
       |> recycle_api()
+      |> delete(~p"/api/v1/principal-groups/#{directory.name}")
+
+    assert %{"error" => %{"code" => "group_domain_mismatch"}} = json_response(conn, 409)
+    assert {:ok, ^directory} = AuthZ.get_principal_group(directory.id)
+
+    conn =
+      conn
+      |> recycle_api()
       |> delete(~p"/api/v1/principal-groups/#{name}/members/#{member.uid}")
 
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)

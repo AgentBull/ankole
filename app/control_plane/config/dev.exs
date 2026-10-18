@@ -1,5 +1,8 @@
 import Config
 
+Code.require_file("support/dev_code_reload.exs", __DIR__)
+config :ankole, :connection_lifecycle_error_handler, Ankole.DevCodeReload
+
 webapps_path = Path.expand("../../webapps", __DIR__)
 
 config :ankole, Ankole.Repo,

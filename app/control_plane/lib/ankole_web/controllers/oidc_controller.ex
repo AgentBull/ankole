@@ -123,7 +123,7 @@ defmodule AnkoleWeb.OIDCController do
   def token(conn, params) do
     case token_request_kind(conn, params) do
       {:oidc, client} -> oidc_token(conn, client)
-      {:error, code, description} -> oauth_json_error(conn, 400, code, description)
+      {:error, code, description} -> token_json_error(conn, 400, code, description)
     end
   end
 
@@ -213,7 +213,7 @@ defmodule AnkoleWeb.OIDCController do
 
   @impl true
   def token_error(conn, %OAuthError{} = error) do
-    oauth_json_error(
+    token_json_error(
       conn,
       Plug.Conn.Status.code(error.status),
       Atom.to_string(error.error),
@@ -472,7 +472,7 @@ defmodule AnkoleWeb.OIDCController do
 
   defp client_authentication_shape(%Client{client_type: :confidential}, :basic, params) do
     if Map.has_key?(params, "client_id") or forbidden_oidc_auth_param?(params),
-      do: {:error, "invalid_client", "confidential Client must use client_secret_basic only"},
+      do: {:error, "invalid_request", "confidential Client must use client_secret_basic only"},
       else: :ok
   end
 
@@ -559,6 +559,22 @@ defmodule AnkoleWeb.OIDCController do
     |> put_status(status)
     |> json(%{error: code, error_description: description})
   end
+
+  defp token_json_error(conn, _status, "invalid_client", description) do
+    case get_req_header(conn, "authorization") do
+      [] ->
+        oauth_json_error(conn, 400, "invalid_client", description)
+
+      _headers ->
+        # Other schemes need their own challenge protocol; do not reflect request schemes.
+        conn
+        |> put_resp_header("www-authenticate", "Basic realm=\"OIDC token\"")
+        |> oauth_json_error(401, "invalid_client", description)
+    end
+  end
+
+  defp token_json_error(conn, status, code, description),
+    do: oauth_json_error(conn, status, code, description)
 
   defp encode_userinfo(payload) when is_map(payload), do: Ankole.JSON.encode!(payload)
   defp encode_userinfo(payload) when is_binary(payload), do: payload
