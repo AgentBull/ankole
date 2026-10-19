@@ -16,6 +16,7 @@ defmodule Ankole.AuthZ.Store do
   def delete_operator_group(repo, id_or_name) do
     with {:ok, group} <- fetch_group_for_update(repo, id_or_name),
          :ok <- ensure_operator_group(group),
+         :ok <- ensure_operator_domain(group),
          :ok <- ensure_group_has_no_grants(repo, group.id) do
       repo.delete(group)
     end

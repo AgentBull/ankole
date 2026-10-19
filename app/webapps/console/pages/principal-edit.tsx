@@ -41,10 +41,7 @@ export function PrincipalEditPage() {
 
   const update = useMutation({
     ...ankoleWebPrincipalControllerUpdateMutation(),
-    onSuccess: () => {
-      toast.success(t('console.principals.profile_saved'))
-      navigate(detailPath)
-    }
+    mutationKey: ['principal-update', uid]
   })
 
   const submit = () => {
@@ -54,7 +51,18 @@ export function PrincipalEditPage() {
       model.validationError.value = draftError
       return
     }
-    if (loadedPrincipal) update.mutate({ body: model.updateBody(), path: { uid: loadedPrincipal.uid } })
+    if (!loadedPrincipal) return
+    void model
+      .save(
+        () => update.mutateAsync({ body: model.updateBody(), path: { uid: loadedPrincipal.uid } }),
+        clean => {
+          toast.success(t('console.principals.profile_saved'))
+          if (clean) void navigate(detailPath)
+        }
+      )
+      .catch(() => {
+        /* The mutation owns the displayed request error. */
+      })
   }
 
   if (draftStatus === 'absent') {
@@ -77,6 +85,7 @@ export function PrincipalEditPage() {
       <LabeledField label={t('console.principals.display_name')} required>
         <Input
           required
+          disabled={update.isPending || draftStatus !== 'ready'}
           value={model.displayName.value}
           onChange={event => (model.displayName.value = event.target.value)}
         />
@@ -84,6 +93,7 @@ export function PrincipalEditPage() {
       <LabeledField label={t('console.principals.email')} required={emailRequired}>
         <Input
           required={emailRequired}
+          disabled={update.isPending || draftStatus !== 'ready'}
           type="email"
           value={model.email.value}
           onChange={event => (model.email.value = event.target.value)}

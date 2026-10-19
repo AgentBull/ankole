@@ -17,6 +17,7 @@ defmodule Ankole.Brain.Promotion do
   alias Ankole.Brain.Schemas.SlugAlias
   alias Ankole.Brain.Schemas.Tag
   alias Ankole.Ecto.UUIDv7
+  alias Ankole.Principals.Principal
   alias Ankole.Repo
 
   @promoted_pack "promoted"
@@ -135,11 +136,16 @@ defmodule Ankole.Brain.Promotion do
       |> join(:inner, [object], tag in Tag,
         on: tag.tenant_id == object.tenant_id and tag.object_slug == object.slug
       )
-      |> where([_object, tag], tag.tag == ^term)
-      |> where([object, _tag], is_nil(object.deleted_at))
-      |> where([object, _tag], is_nil(object.managed_by_source_id))
-      |> where([object, _tag], object.type != "agent")
-      |> select([object, _tag], object)
+      |> join(:left, [object, _tag], principal in Principal,
+        on:
+          principal.tenant_id == object.tenant_id and principal.type == :human and
+            object.slug == fragment("'people/' || ?", principal.uid)
+      )
+      |> where([_object, tag, _principal], tag.tag == ^term)
+      |> where([object, _tag, _principal], is_nil(object.deleted_at))
+      |> where([object, _tag, _principal], is_nil(object.managed_by_source_id))
+      |> where([object, _tag, principal], object.type != "agent" and is_nil(principal.uid))
+      |> select([object, _tag, _principal], object)
       |> distinct(true)
       |> repo.all()
 

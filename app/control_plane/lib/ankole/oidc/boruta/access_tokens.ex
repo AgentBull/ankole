@@ -226,9 +226,21 @@ defmodule Ankole.OIDC.Boruta.AccessTokens do
   end
 
   defp ensure_current_scope(%Client{scopes: scopes}, requested_scope) do
-    if requested_scope_allowed?(requested_scope, Enum.join(scopes, " ")),
-      do: :ok,
-      else: {:error, :scope_revoked}
+    cond do
+      not scope?(requested_scope, "openid") ->
+        {:error,
+         %Error{
+           status: :bad_request,
+           error: :invalid_scope,
+           error_description: "Scope must include openid."
+         }}
+
+      requested_scope_allowed?(requested_scope, Enum.join(scopes, " ")) ->
+        :ok
+
+      true ->
+        {:error, :scope_revoked}
+    end
   end
 
   defp ensure_current_gateway_access(client_id, principal_uid, scope) do

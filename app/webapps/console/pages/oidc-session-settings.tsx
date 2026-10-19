@@ -12,9 +12,11 @@ import { LabeledField } from '../console-form'
 import type { ClientDraft } from '../state/oidc-client-editor-model'
 
 export function OIDCSessionSettings({
+  disabled,
   draft,
   setDraft
 }: {
+  disabled: boolean
   draft: ClientDraft
   setDraft: (draft: ClientDraft) => void
 }) {
@@ -29,6 +31,7 @@ export function OIDCSessionSettings({
         {(providers.data?.sources ?? []).map(provider => (
           <label key={provider.provider_id} className="flex items-center gap-3 text-sm">
             <Checkbox
+              disabled={disabled}
               checked={draft.allowedIdentityProviderIDs.includes(provider.provider_id)}
               onCheckedChange={checked =>
                 setDraft({
@@ -51,6 +54,7 @@ export function OIDCSessionSettings({
             <label key={id} className="flex items-center gap-3 text-sm">
               <Checkbox
                 checked
+                disabled={disabled}
                 onCheckedChange={() =>
                   setDraft({
                     ...draft,
@@ -74,6 +78,7 @@ export function OIDCSessionSettings({
       </LabeledField>
       <label className="flex items-center gap-3 text-sm">
         <Checkbox
+          disabled={disabled}
           checked={draft.backchannelLogoutSessionRequired}
           onCheckedChange={checked => setDraft({ ...draft, backchannelLogoutSessionRequired: checked === true })}
         />
@@ -90,7 +95,7 @@ export function OIDCSessionSettings({
       </LabeledField>
       <label className="flex items-center gap-3 text-sm">
         <Checkbox
-          disabled={draft.type !== 'confidential'}
+          disabled={disabled || draft.type !== 'confidential'}
           checked={draft.allowInsecureLocalLogout}
           onCheckedChange={checked => setDraft({ ...draft, allowInsecureLocalLogout: checked === true })}
         />

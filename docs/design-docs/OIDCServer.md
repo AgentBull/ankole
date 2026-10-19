@@ -38,9 +38,23 @@ token endpoint with its `client_id`. A confidential Client uses
 URIs match exactly. HTTP redirect URIs must use HTTPS, except for localhost.
 Native redirect URIs can use a safe application scheme.
 
+At the token endpoint, a Basic request with Client credentials in its body
+returns `400 invalid_request`. Failed Client authentication through the
+Authorization header returns `401 invalid_client` with a Basic challenge.
+An unsupported Authorization scheme is also rejected with the Basic challenge;
+the server does not create a challenge for an unimplemented scheme. Schemes
+can require their own challenge parameters and response handling, such as
+Digest nonce and quality-of-protection values. The token endpoint does not
+negotiate those methods or copy request credentials into a challenge. See
+[OAuth Working Group issue 162](https://github.com/oauth-wg/oauth-v2-1/issues/162)
+for the specification wording about unsupported methods.
+These failures do not consume the authorization code or Refresh Token.
+
 The scope vocabulary is `openid`, `profile`, `email`, `offline_access`, and
 `ai_gateway.write`. Every authorization request includes `openid`. The server
 issues an OIDC Refresh Token only when the request includes `offline_access`.
+A refresh request must retain `openid`. If it does not, the server returns
+`400 invalid_scope` without consuming the original Refresh Token.
 
 ## Human Login
 

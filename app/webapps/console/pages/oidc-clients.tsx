@@ -46,7 +46,7 @@ import {
   useComboboxAnchor
 } from '@ankole/uikit'
 import { RiCheckLine, RiFileCopyLine, RiKey2Line, RiRefreshLine } from '@remixicon/react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -190,10 +190,13 @@ export function OIDCClientEditorPage() {
   const [secret, setSecret] = useState<SecretState>()
   const nextAliasID = useRef(0)
   const aiGatewayEnabled = draft.scopes.includes('ai_gateway.write')
+  const mutationKey = ['oidc-client', clientID]
+  const writing = useIsMutating({ mutationKey }) > 0
 
   const clientQuery = useQuery({
     ...ankoleWebOidcClientControllerShowOptions({ path: { id: clientID ?? '' } }),
-    enabled: Boolean(clientID)
+    enabled: Boolean(clientID) && !writing,
+    staleTime: 0
   })
   const groups = useQuery(ankoleWebAuthZGroupControllerIndexOptions())
   const providers = useQuery({
@@ -210,16 +213,29 @@ export function OIDCClientEditorPage() {
   })
   const loadedClient = clientQuery.data?.oidc_client
 
+  // A reopened editor waits for earlier saves and a successful source read.
+  const sourceKey = clientID ? `client:${clientID}` : 'new'
+  const sourceReady =
+    model.sourceKey.value === sourceKey ||
+    (!writing && clientQuery.isFetchedAfterMount && clientQuery.isSuccess && clientQuery.fetchStatus === 'idle')
   const draftStatus = useEditorDraft(model, {
-    sourceKey: clientID ? `client:${clientID}` : 'new',
-    source: mode === 'new' ? emptyDraft() : loadedClient ? draftFromClient(loadedClient) : undefined,
+    sourceKey,
+    source: mode === 'new' ? emptyDraft() : loadedClient && sourceReady ? draftFromClient(loadedClient) : undefined,
     absent: () => mode === 'edit' && requestErrorCode(clientQuery.error) === 'not_found'
   })
   const dirty = model.dirty.value
 
+  useEffect(() => {
+    setSecret(undefined)
+    setValidationError(undefined)
+  }, [sourceKey])
+
   const createClient = useMutation({
     ...ankoleWebOidcClientControllerCreateMutation(),
-    onSuccess: response => {
+    mutationKey: ['oidc-client-create', sourceKey],
+    onMutate: model.captureSource,
+    onSuccess: (response, _variables, requestedSource) => {
+      if (!model.isCurrentSource(requestedSource)) return
       const next = draftFromClient(response.oidc_client)
       model.markSaved(next)
 
@@ -231,7 +247,10 @@ export function OIDCClientEditorPage() {
   })
   const updateClient = useMutation({
     ...ankoleWebOidcClientControllerUpdateMutation(),
-    onSuccess: response => {
+    mutationKey,
+    onMutate: model.captureSource,
+    onSuccess: (response, _variables, requestedSource) => {
+      if (!model.isCurrentSource(requestedSource)) return
       const next = draftFromClient(response.oidc_client)
       model.markSaved(next)
 
@@ -240,19 +259,29 @@ export function OIDCClientEditorPage() {
   })
   const rotateSecret = useMutation({
     ...ankoleWebOidcClientControllerRotateSecretMutation(),
-    onSuccess: response => {
+    mutationKey: ['oidc-client-rotate-secret', clientID],
+    onMutate: model.captureSource,
+    onSuccess: (response, _variables, requestedSource) => {
+      if (!model.isCurrentSource(requestedSource)) return
       if (response.client_secret) setSecret({ value: response.client_secret })
       toast.success(t('console.oidc_clients.secret_rotated'))
     },
-    onError: error => toast.error(requestErrorMessage(error))
+    onError: (error, _variables, requestedSource) => {
+      if (model.isCurrentSource(requestedSource)) toast.error(requestErrorMessage(error))
+    }
   })
   const removeClient = useMutation({
     ...ankoleWebOidcClientControllerDeleteMutation(),
-    onSuccess: response => {
+    mutationKey: ['oidc-client-delete', clientID],
+    onMutate: model.captureSource,
+    onSuccess: (response, _variables, requestedSource) => {
+      if (!model.isCurrentSource(requestedSource)) return
       toast.success(t('console.oidc_clients.deleted', { name: response.oidc_client.name }))
       navigate('/oidc-clients')
     },
-    onError: error => toast.error(requestErrorMessage(error))
+    onError: (error, _variables, requestedSource) => {
+      if (model.isCurrentSource(requestedSource)) toast.error(requestErrorMessage(error))
+    }
   })
 
   const submit = () => {
@@ -347,10 +376,11 @@ export function OIDCClientEditorPage() {
   }
 
   const pending = createClient.isPending || updateClient.isPending
+  const fieldsDisabled = pending || draftStatus !== 'ready'
   const mutationError = createClient.error ?? updateClient.error
 
   return (
-    <>
+    <fieldset className="contents" disabled={fieldsDisabled}>
       <ResourceEditorPage
         title={mode === 'new' ? t('console.oidc_clients.new') : (loadedClient?.name ?? clientID ?? '')}
         description={t('console.oidc_clients.editor_description')}
@@ -405,7 +435,7 @@ export function OIDCClientEditorPage() {
           </LabeledField>
         ) : null}
 
-        <OIDCSessionSettings draft={draft} setDraft={setDraft} />
+        <OIDCSessionSettings disabled={fieldsDisabled} draft={draft} setDraft={setDraft} />
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <LabeledField label={t('console.oidc_clients.name')} required>
             <Input required value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} />
@@ -439,6 +469,7 @@ export function OIDCClientEditorPage() {
           </span>
           <Checkbox
             checked={draft.enabled}
+            disabled={fieldsDisabled}
             onCheckedChange={checked => setDraft({ ...draft, enabled: checked === true })}
           />
         </label>
@@ -462,7 +493,7 @@ export function OIDCClientEditorPage() {
               <label key={scope} className="flex items-start gap-3 border border-border/70 bg-card/60 p-4">
                 <Checkbox
                   checked={draft.scopes.includes(scope)}
-                  disabled={scope === 'openid'}
+                  disabled={fieldsDisabled || scope === 'openid'}
                   onCheckedChange={checked => setScope(scope, checked === true)}
                 />
                 <span className="grid gap-1">
@@ -485,6 +516,7 @@ export function OIDCClientEditorPage() {
               required>
               <AllowedGroupsPicker
                 ariaLabel={t('console.oidc_clients.allowed_groups')}
+                disabled={fieldsDisabled}
                 groups={groups.data?.principal_groups ?? []}
                 isLoading={groups.isLoading}
                 error={groups.error}
@@ -546,6 +578,7 @@ export function OIDCClientEditorPage() {
                   }
                   showDescription
                   persistencePending={pending}
+                  disabled={fieldsDisabled}
                   deleteConfirm={
                     alias.persisted
                       ? {
@@ -590,7 +623,7 @@ export function OIDCClientEditorPage() {
           if (nextPath) navigate(nextPath)
         }}
       />
-    </>
+    </fieldset>
   )
 }
 
@@ -603,6 +636,7 @@ type GroupOption = {
 
 function AllowedGroupsPicker({
   ariaLabel,
+  disabled,
   error,
   groups,
   id,
@@ -615,6 +649,7 @@ function AllowedGroupsPicker({
   'aria-invalid': ariaInvalid
 }: {
   ariaLabel: string
+  disabled: boolean
   error: unknown
   groups: PrincipalGroupItem[]
   id?: string
@@ -643,6 +678,7 @@ function AllowedGroupsPicker({
 
   return (
     <Combobox<GroupOption, true>
+      disabled={disabled}
       multiple
       filter={null}
       inputValue={inputValue}

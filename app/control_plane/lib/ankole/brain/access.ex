@@ -12,6 +12,7 @@ defmodule Ankole.Brain.Access do
   import Ecto.Query, warn: false
 
   alias Ankole.Brain.Claims
+  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Scope
   alias Ankole.Principals.Agent
   alias Ankole.Repo
@@ -148,14 +149,19 @@ defmodule Ankole.Brain.Access do
 
   @doc """
   Applies the timeline knowledge boundary as a SQL prefilter, so a `limit`
-  never spends its budget on unreachable rows. Timelines carry no holder;
-  reachability is scope, author, or the narrowed owner exemption over the
-  author.
+  never spends its budget on unreachable rows. The host Object must be live.
+  Timelines carry no holder; reachability is scope, author, or the narrowed
+  owner exemption over the author.
   """
   @spec filter_timelines(Ecto.Query.t(), t()) :: Ecto.Query.t()
   def filter_timelines(query, %__MODULE__{} = access) do
-    where(
-      query,
+    query
+    |> join(:inner, [timeline], object in Object,
+      on:
+        object.tenant_id == timeline.tenant_id and object.slug == timeline.object_slug and
+          is_nil(object.deleted_at)
+    )
+    |> where(
       [timeline],
       timeline.audience_scope in ^access.scopes or
         timeline.author == ^access.querier_ref or

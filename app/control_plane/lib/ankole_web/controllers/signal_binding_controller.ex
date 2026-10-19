@@ -286,7 +286,7 @@ defmodule AnkoleWeb.SignalBindingController do
       title: standing_orders.title,
       orders: standing_orders.orders,
       set_by: standing_orders.set_by,
-      updated_at: standing_orders.updated_at
+      updated_at: Ankole.JSON.plain(standing_orders.updated_at)
     }
   end
 

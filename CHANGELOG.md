@@ -1,5 +1,24 @@
 # Changelog
 
+## Version 2.0.0-alpha.11 (2026-10-19)
+
+- Return OIDC token authentication errors with the implemented Basic challenge;
+  reject unsupported authentication schemes without consuming credentials.
+  Reject refresh scopes without `openid` before consuming the credential;
+  retain valid scope reduction and the original absolute expiry.
+- Keep person and OIDC Client drafts with their current editor source. Freeze
+  fields during saves, read fresh Client details before reopening, and ignore
+  old responses after navigation or a source change.
+- Accept standing orders of up to 4,000 characters, including Chinese text and
+  emoji. Return ISO 8601 timestamps when operators read, save, or clear them.
+- Reject operator deletion of directory, chat, and signal source groups.
+  Retain their memberships and external bindings.
+- Keep forgotten Brain pages and timelines out of model reads while retaining
+  management history and recovery. Count distinct pages for promotion
+  thresholds and keep Human Principal pages at their canonical paths.
+- Keep development connection reconcilers running while Phoenix recompiles
+  their modules. Restart the development server once after this update.
+
 ## Version 2.0.0-alpha.10 (2026-10-18)
 
 - Request Worker startup when an Agent is created, retain the request until

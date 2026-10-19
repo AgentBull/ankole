@@ -238,7 +238,13 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   end
 
   @impl true
-  def init(state), do: {:ok, state, {:continue, :reconcile}}
+  def init(state) do
+    if handler = Application.get_env(:ankole, :connection_lifecycle_error_handler) do
+      Process.flag(:error_handler, handler)
+    end
+
+    {:ok, state, {:continue, :reconcile}}
+  end
 
   @impl true
   def handle_continue(:reconcile, state) do

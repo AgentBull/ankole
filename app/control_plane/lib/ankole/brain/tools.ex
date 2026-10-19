@@ -292,7 +292,10 @@ defmodule Ankole.Brain.Tools do
               visibility
             )
 
-          {:ok, %{"entity" => JSON.plain(card)}}
+          case card do
+            nil -> {:ok, %{"error" => "not_found"}}
+            card -> {:ok, %{"entity" => JSON.plain(card)}}
+          end
 
         {:ambiguous, candidates} ->
           {:ok, %{"candidates" => JSON.plain(candidates)}}

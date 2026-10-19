@@ -145,6 +145,7 @@ function lines(value: string): string[] {
   ]
 }
 export const OIDCClientEditorModel = createModel(() => {
+  let source = Symbol()
   const sourceKey = signal<string>()
   const draft = signal<ClientDraft>(emptyDraft())
   const savedDraft = signal(draftKey(draft.value))
@@ -159,11 +160,18 @@ export const OIDCClientEditorModel = createModel(() => {
     draft,
     dirty,
     markSaved,
-    initialize(key: string, source: ClientDraft) {
+    captureSource: () => source,
+    isCurrentSource: (requestedSource: symbol | undefined) => requestedSource === source,
+    initialize(key: string, next: ClientDraft) {
+      source = Symbol()
       batch(() => {
         sourceKey.value = key
-        markSaved(source)
+        markSaved(next)
       })
+    },
+    resetSource() {
+      source = Symbol()
+      sourceKey.value = undefined
     },
     setDraft(next: ClientDraft | ((current: ClientDraft) => ClientDraft)) {
       draft.value = typeof next === 'function' ? next(draft.value) : next

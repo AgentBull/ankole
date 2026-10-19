@@ -258,6 +258,11 @@ bun dev
 
 Keep this terminal open. The devkit starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. Agent creation requests a Worker container, which runs the local Agent Computer source in watch mode.
 
+During development, connection reconcilers wait for Phoenix when compilation
+temporarily unloads an application module. The error handler stays outside the
+Mix compile paths. Missing functions and other code errors still raise normally.
+Restart the development server after updating this handler.
+
 `mix ecto.migrate` also runs the temporary 2026-10 data upgrade from
 `Ankole.Upgrade202610`. `ecto.setup`, `kit app-db` and `bun dev` use this same
 entry point. Release runs the same data steps through `Release.migrate`.

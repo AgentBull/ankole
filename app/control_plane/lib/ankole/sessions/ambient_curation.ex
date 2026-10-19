@@ -535,11 +535,12 @@ defmodule Ankole.Sessions.AmbientCuration do
       "" ->
         {:ok, nil}
 
-      trimmed when byte_size(trimmed) > @standing_orders_max_chars ->
-        {:error, :standing_orders_too_long}
-
       trimmed ->
-        {:ok, trimmed}
+        if String.length(trimmed) > @standing_orders_max_chars do
+          {:error, :standing_orders_too_long}
+        else
+          {:ok, trimmed}
+        end
     end
   end
 
