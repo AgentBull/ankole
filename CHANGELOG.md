@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 2.0.0-alpha.13 (2026-10-19)
+
+- Fix Control Plane image builds that failed because the Applet SDK and Block
+  Editor workspaces were missing during dependency installation.
+
 ## Version 2.0.0-alpha.12 (2026-10-19)
 
 - Keep every local document draft after repeated external resets, protect
