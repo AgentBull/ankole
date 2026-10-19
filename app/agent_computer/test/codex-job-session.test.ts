@@ -30,7 +30,10 @@ import { FakeDrive } from './support/fake-drive'
  * and writes every request it receives to a log file.
  */
 
-type FakeTurn = { status: 'completed'; text: string } | { status: 'failed'; error: Record<string, unknown> }
+type FakeAgentMessage = { text: string; phase?: string | null }
+type FakeTurn =
+  | ({ status: 'completed' } & ({ text: string } | { messages: FakeAgentMessage[] }))
+  | { status: 'failed'; error: Record<string, unknown>; messages?: FakeAgentMessage[] }
 
 type FakeScenario = {
   /** One entry for each accepted `turn/start`, in order. */
@@ -147,6 +150,103 @@ describe('@ankole/agent-computer Codex Job session recovery ladder', () => {
     expect(parsedJSON(fixture.statusUpdates.at(-1)?.resultJson)?.output_text).toBe('Published the report once.')
     expect(readFileSync(report, 'utf8')).toBe('completed report')
     expect(fixture.drive.paths()).toEqual([])
+  })
+
+  for (const phase of ['commentary', 'partial_answer', 'future_phase']) {
+    it(`requests the existing report retry when a completed turn has only ${phase}`, async () => {
+      const fixture = sessionFixture(`intermediate-${phase}`, {
+        turns: [
+          { status: 'completed', messages: [{ text: 'Still checking the browser.', phase }] },
+          {
+            status: 'completed',
+            messages: [{ text: 'Saved the report: ankole:page/report.', phase: 'final_answer' }]
+          }
+        ],
+        coalesceTurnStarts: true
+      })
+
+      await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
+
+      expect(fixture.statusUpdates.at(-1)?.status).toBe('succeeded')
+      expect(parsedJSON(fixture.statusUpdates.at(-1)?.resultJson)?.output_text).toBe(
+        'Saved the report: ankole:page/report.'
+      )
+      const inputs = fixture.log().filter(entry => entry.received === 'turn/start')
+      expect(inputs).toHaveLength(2)
+      expect(inputs[1]?.input).toContain('The Job produced no final report.')
+      const persistedItems = fixture.turnUpserts.flatMap(update =>
+        update.turnItemsJson ? [new TextDecoder().decode(update.turnItemsJson)] : []
+      )
+      expect(persistedItems.some(items => items.includes(`"phase":"${phase}"`))).toBe(true)
+    })
+  }
+
+  it('keeps the final answer when later commentary or a partial answer completes', async () => {
+    const fixture = sessionFixture('final-before-commentary', {
+      turns: [
+        {
+          status: 'completed',
+          messages: [
+            { text: 'The report is ready.', phase: 'final_answer' },
+            { text: 'Still checking a browser detail.', phase: 'commentary' },
+            { text: 'A partial update.', phase: 'partial_answer' }
+          ]
+        }
+      ]
+    })
+
+    await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
+
+    expect(parsedJSON(fixture.statusUpdates.at(-1)?.resultJson)?.output_text).toBe('The report is ready.')
+    expect(fixture.log().filter(entry => entry.received === 'turn/start')).toHaveLength(1)
+  })
+
+  it('fails after one report retry if both completed turns contain only intermediate messages', async () => {
+    const fixture = sessionFixture('intermediate-report-retry-exhausted', {
+      turns: ['commentary', 'partial_answer'].map(phase => ({
+        status: 'completed',
+        messages: [{ text: 'The work is still in progress.', phase }]
+      }))
+    })
+
+    await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
+
+    expect(fixture.statusUpdates.map(update => update.status)).toEqual(['running', 'failed'])
+    expect(parsedJSON(fixture.statusUpdates.at(-1)?.errorJson)?.code).toBe('codex_empty_report')
+    expect(fixture.log().filter(entry => entry.received === 'turn/start')).toHaveLength(2)
+  })
+
+  for (const phase of [undefined, null]) {
+    it(`keeps legacy final reports with ${phase === null ? 'null' : 'missing'} phase`, async () => {
+      const fixture = sessionFixture(`legacy-phase-${phase}`, {
+        turns: [{ status: 'completed', messages: [{ text: 'Legacy final report.', phase }] }]
+      })
+
+      await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
+
+      expect(parsedJSON(fixture.statusUpdates.at(-1)?.resultJson)?.output_text).toBe('Legacy final report.')
+      expect(fixture.log().filter(entry => entry.received === 'turn/start')).toHaveLength(1)
+    })
+  }
+
+  it('clears a prior failed turn report before a retry that has only commentary', async () => {
+    const fixture = sessionFixture('stale-final-on-retry', {
+      turns: [
+        {
+          status: 'failed',
+          error: { message: 'server overloaded', codexErrorInfo: 'serverOverloaded' },
+          messages: [{ text: 'Obsolete final report.', phase: 'final_answer' }]
+        },
+        { status: 'completed', messages: [{ text: 'Checking the saved work.', phase: 'commentary' }] },
+        { status: 'completed', messages: [{ text: 'Verified the saved report.', phase: 'final_answer' }] }
+      ],
+      coalesceTurnStarts: true
+    })
+
+    await runCodexJobSession(turnStart(), fixture.opts, jobID, fixture.job, fixture.prepared)
+
+    expect(parsedJSON(fixture.statusUpdates.at(-1)?.resultJson)?.output_text).toBe('Verified the saved report.')
+    expect(fixture.log().filter(entry => entry.received === 'turn/start')).toHaveLength(3)
   })
 
   it('retries a transient turn failure on the same thread with the continuation input', async () => {
@@ -653,8 +753,9 @@ function handle(message) {
     ]
     if (scenario.duplicateCompletions && previousCompletion) notifications.push(previousCompletion)
     if (outcome) {
-      if (outcome.status === 'completed') {
-        notifications.push({ method: 'item/completed', params: { threadId, turnId, item: { type: 'agentMessage', id: 'message-' + turnCount, text: outcome.text } } })
+      const messages = outcome.messages ?? (outcome.status === 'completed' ? [{ text: outcome.text }] : [])
+      for (const [index, message] of messages.entries()) {
+        notifications.push({ method: 'item/completed', params: { threadId, turnId, item: { type: 'agentMessage', id: 'message-' + turnCount + '-' + index, ...message } } })
       }
       previousCompletion = { method: 'turn/completed', params: { threadId, turn: { id: turnId, status: outcome.status, ...(outcome.status === 'failed' ? { error: outcome.error } : {}) } } }
       notifications.push(previousCompletion)

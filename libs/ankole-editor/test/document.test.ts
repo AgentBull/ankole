@@ -32,10 +32,25 @@ const pairs: [string, string, string, Element][] = [
     )
   ],
   [
-    'callout and database reference',
-    '<callout tone="warning">\n  本期数据包含新增产品。\n</callout>\n\n<database ref="db_q3" />',
-    '<page><callout tone="warning"><p>本期数据包含新增产品。</p></callout><database ref="db_q3" /></page>',
-    page(e('callout', { tone: 'warning' }, [p('本期数据包含新增产品。')]), e('database', { ref: 'db_q3' }))
+    'callout and embed',
+    '<callout tone="warning">\n  本期数据包含新增产品。\n</callout>\n\n<embed ref="db_q3" />',
+    '<page><callout tone="warning"><p>本期数据包含新增产品。</p></callout><embed ref="db_q3" /></page>',
+    page(e('callout', { tone: 'warning' }, [p('本期数据包含新增产品。')]), e('embed', { ref: 'db_q3' }))
+  ],
+  [
+    'database embed with a table and a view',
+    '<embed ref="db_q3" table="tbl_sales" view="viw_march" />',
+    '<page><embed ref="db_q3" table="tbl_sales" view="viw_march" /></page>',
+    page(e('embed', { ref: 'db_q3', table: 'tbl_sales', view: 'viw_march' }))
+  ],
+  [
+    'page link and asset image addresses',
+    '见 [季度目标](ankole:page/019a2b00-0000-7000-8000-000000000001)。\n\n![图](ankole:asset/3f786850e387550fdab836ed7e6dc881de23001b/chart.png)',
+    '<page><p>见 <a href="ankole:page/019a2b00-0000-7000-8000-000000000001">季度目标</a>。</p><p><img alt="图" src="ankole:asset/3f786850e387550fdab836ed7e6dc881de23001b/chart.png" /></p></page>',
+    page(
+      p('见 ', e('a', { href: 'ankole:page/019a2b00-0000-7000-8000-000000000001' }, [t('季度目标')]), '。'),
+      p(e('img', { src: 'ankole:asset/3f786850e387550fdab836ed7e6dc881de23001b/chart.png', alt: '图' }))
+    )
   ],
   [
     'exact mixed content of an unknown element',

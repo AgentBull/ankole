@@ -13,7 +13,8 @@ import { materializeSkills } from '../skills/drive_skills'
 import { startSocketLineBridge, type SocketLineBridge } from '../core/socket-line-bridge'
 import { prepareExecutionMaterials } from '../core/execution/execution-materials'
 import { commandEnv } from '../core/execution/command-env'
-import { agentProcessArgv, killProcessGroup } from '../core/execution/process-group'
+import commandProcess from '../tools/computer/command-process.py' with { type: 'text' }
+import { agentProcessArgv } from '../core/execution/process-group'
 import { loadEnabledSkillMCPServers } from '../tools/mcp'
 import {
   type AutomationJobRunRequest,
@@ -35,6 +36,8 @@ type AutomationRunOptions = {
   rpc: RPCRequester
   /** SDK module to preload; the default is the installed Worker SDK. */
   sdkPath?: string
+  signal?: AbortSignal
+  deadlineUnixMs?: number
 }
 
 /**
@@ -55,14 +58,36 @@ export async function runAutomationJob(
   request: AutomationJobRunRequest,
   opts: AutomationRunOptions
 ): Promise<RunResult> {
-  const paths = agentHomePaths(opts.config.agentHomeRoot)
-  const agentHome = realpathSync(paths.home)
-  const runRoot = join(automationRunsRoot(agentHome), request.attemptId)
-  const directoryPath = join(runRoot, 'script')
-  const skillsRoot = join(runRoot, 'skills')
-  const drive = new Drive({ agentHome, rpc: opts.rpc })
-
+  const deadlineUnixMs = Math.min(Date.now() + Math.max(1, request.timeoutMs), opts.deadlineUnixMs ?? Infinity)
+  const budget = new AbortController()
+  const signal = AbortSignal.any([budget.signal, ...(opts.signal ? [opts.signal] : [])])
+  const timer = setTimeout(
+    () => budget.abort(new DOMException('Automation job budget expired', 'TimeoutError')),
+    Math.max(0, deadlineUnixMs - Date.now())
+  )
+  const rpc: RPCRequester = (method, payload, frame, options) => {
+    signal.throwIfAborted()
+    const remaining = deadlineUnixMs - Date.now()
+    if (remaining <= 0) throw new DOMException('Automation job budget expired', 'TimeoutError')
+    return opts.rpc(method, payload, frame, {
+      ...options,
+      timeoutMs: Math.min(remaining, options?.timeoutMs ?? Infinity),
+      signal: options?.signal ? AbortSignal.any([signal, options.signal]) : signal
+    })
+  }
+  let execution: RunExecution | undefined
+  let runRoot: string | undefined
   try {
+    signal.throwIfAborted()
+    if (deadlineUnixMs <= Date.now()) throw new DOMException('Automation job budget expired', 'TimeoutError')
+    const paths = agentHomePaths(opts.config.agentHomeRoot)
+    const agentHome = realpathSync(paths.home)
+    runRoot = join(automationRunsRoot(agentHome), request.attemptId)
+    const directoryPath = join(runRoot, 'script')
+    const skillsRoot = join(runRoot, 'skills')
+    const drive = new Drive({ agentHome, rpc })
+    execution = { agentHome, agentInstalledSkillsRoot: skillsRoot, directoryPath, started: false }
+
     await mkdirAgent(directoryPath)
     const files = await downloadFolder(drive, request.drivePrefix, directoryPath)
     if (!files.some(file => file.path === `${request.drivePrefix}/main.ts`)) {
@@ -71,9 +96,18 @@ export async function runAutomationJob(
 
     await materializeSkills(drive, paths.installedSkills, skillsRoot)
 
-    return await runPreparedJob(request, { agentHome, agentInstalledSkillsRoot: skillsRoot, directoryPath }, opts)
+    signal.throwIfAborted()
+    return await runPreparedJob(request, execution, { ...opts, rpc, signal, deadlineUnixMs })
+  } catch (error) {
+    throw Object.assign(new Error(errorMessage(error), { cause: error }), {
+      code: execution?.started ? 'automation_result_unknown' : 'automation_preparation_failed'
+    })
   } finally {
-    await rm(runRoot, { recursive: true, force: true })
+    try {
+      if (runRoot) await rm(runRoot, { recursive: true, force: true })
+    } finally {
+      clearTimeout(timer)
+    }
   }
 }
 
@@ -113,6 +147,7 @@ async function runPreparedJob(
   }
 
   const materials = await prepareExecutionMaterials({
+    abortSignal: opts.signal,
     agentHome: execution.agentHome,
     rpc: opts.rpc,
     bindingName: request.bindingName,
@@ -121,7 +156,7 @@ async function runPreparedJob(
   const contextPath = join(WORKER_SHARE_ROOT, `ankole-aj-context-${randomUUID()}.json`)
 
   try {
-    const emitBridge = startEmitBridge(request, opts.rpc)
+    const emitBridge = startEmitBridge(request, opts.rpc, new Drive({ agentHome: execution.agentHome, rpc: opts.rpc }))
     try {
       writeFileAtomicSync(
         contextPath,
@@ -142,7 +177,9 @@ async function runPreparedJob(
         contextPath,
         emitBridge.socketPath,
         materials.runtimeEnv,
-        opts.sdkPath ?? workerSDKPath
+        opts.sdkPath ?? workerSDKPath,
+        opts.signal,
+        opts.deadlineUnixMs
       )
     } finally {
       emitBridge.close()
@@ -154,6 +191,7 @@ async function runPreparedJob(
 }
 
 type RunExecution = {
+  started: boolean
   agentHome: string
   agentInstalledSkillsRoot: string
   directoryPath: string
@@ -166,7 +204,9 @@ async function runProcess(
   contextPath: string,
   socketPath: string,
   executionRuntimeEnv: Record<string, string>,
-  sdkPath: string
+  sdkPath: string,
+  signal?: AbortSignal,
+  deadlineUnixMs?: number
 ): Promise<RunResult> {
   const timeoutMs = Math.max(1, request.timeoutMs)
   const env = commandEnv(undefined, {
@@ -178,29 +218,42 @@ async function runProcess(
       ...executionRuntimeEnv
     }
   })
-  // Its own process group lets the timeout end every process of the script.
-  const proc = Bun.spawn(agentProcessArgv(['bun', '--preload', sdkPath, 'main.ts']), {
-    cwd: execution.directoryPath,
-    env,
-    stdin: 'ignore',
-    stdout: 'pipe',
-    stderr: 'pipe',
-    detached: true
-  })
+  signal?.throwIfAborted()
+  const python = Bun.which('python3')
+  if (!python) throw new Error('Automation jobs require Python 3')
+  if (deadlineUnixMs !== undefined && Date.now() >= deadlineUnixMs) {
+    throw new DOMException('Automation job budget expired', 'TimeoutError')
+  }
+  // The existing foreground owner pins the group leader until every terminal
+  // path has killed descendants. Output EOF is no longer the completion owner.
+  execution.started = true
+  const proc = Bun.spawn(
+    agentProcessArgv([python, '-I', '-S', '-c', commandProcess, '0', 'bun', '--preload', sdkPath, 'main.ts']),
+    {
+      cwd: execution.directoryPath,
+      env,
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'pipe',
+      detached: true
+    }
+  )
 
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    killProcessGroup(proc.pid)
-  }, timeoutMs)
-
+  const abort = () => proc.kill('SIGTERM')
+  signal?.addEventListener('abort', abort, { once: true })
+  if (signal?.aborted) abort()
+  const drain = new AbortController()
+  const output = Promise.all([
+    readBoundedTail(proc.stdout, logMaxBytes, drain.signal),
+    readBoundedTail(proc.stderr, logMaxBytes, drain.signal)
+  ])
+  void output.catch(abort)
+  let drainTimer: ReturnType<typeof setTimeout> | undefined
   try {
-    const [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      readBoundedTail(proc.stdout, logMaxBytes),
-      readBoundedTail(proc.stderr, logMaxBytes)
-    ])
-
+    const exitCode = await proc.exited
+    drainTimer = setTimeout(() => drain.abort(), 1_000)
+    const [stdout, stderr] = await output
+    const timedOut = signal?.aborted && signal.reason?.name === 'TimeoutError'
     const stdoutText = stdout.bytes.toString('utf8')
     const stderrText = stderr.bytes.toString('utf8')
     if (!timedOut && exitCode === 0) {
@@ -217,7 +270,9 @@ async function runProcess(
 
     const error = timedOut
       ? `automation job timed out after ${timeoutMs} ms`
-      : failureSummary(stderrText) || `automation job exited with code ${exitCode}`
+      : signal?.aborted
+        ? 'automation job cancelled'
+        : failureSummary(stderrText) || `automation job exited with code ${exitCode}`
 
     return {
       status: 'failed',
@@ -229,21 +284,57 @@ async function runProcess(
       stderrTruncated: stderr.truncated
     }
   } finally {
-    clearTimeout(timer)
+    if (drainTimer) clearTimeout(drainTimer)
+    signal?.removeEventListener('abort', abort)
+    if (proc.exitCode === null) {
+      abort()
+      await proc.exited
+    }
+    drain.abort()
+    await output.catch(() => undefined)
   }
 }
 
-function startEmitBridge(request: AutomationJobRunRequest, rpc: RPCRequester): SocketLineBridge {
+function startEmitBridge(request: AutomationJobRunRequest, rpc: RPCRequester, drive: Drive): SocketLineBridge {
   return startSocketLineBridge({
     socketPath: join(WORKER_SHARE_ROOT, `ankole-aj-emit-${randomUUID()}.sock`),
     maxRequestBytes: emitRequestMaxBytes,
-    oversizeError: 'emitEvent payload is too large',
-    handleLine: line => emitLine(line, request, rpc).then(() => ({ ok: true }))
+    oversizeError: 'Automation request is too large',
+    handleLine: line => emitLine(line, request, rpc, drive)
   })
 }
 
-async function emitLine(line: string, request: AutomationJobRunRequest, rpc: RPCRequester): Promise<void> {
-  const command = JSON.parse(line) as { payload?: unknown }
+async function emitLine(
+  line: string,
+  request: AutomationJobRunRequest,
+  rpc: RPCRequester,
+  drive: Drive
+): Promise<unknown> {
+  const command = JSON.parse(line) as {
+    operation?: string
+    payload?: unknown
+    binding_id?: string
+    records_path?: unknown
+    cursor?: unknown
+  }
+  if (command.operation === 'pod.sync') {
+    if (typeof command.binding_id !== 'string' || typeof command.records_path !== 'string') {
+      throw new Error('syncRecords requires a binding ID and record file')
+    }
+    const result = await rpc(
+      'pod.sync',
+      {
+        bindingId: command.binding_id,
+        automationJobRunId: request.automationJobRunId,
+        attemptId: request.attemptId,
+        recordsHomeRelativePath: await drive.homeRelativePath(command.records_path),
+        cursorJson: jsonBytes(command.cursor as never)
+      },
+      undefined
+    )
+    return { ok: true, result: jsonObjectFromBytes(result.bodyJson, 'Pod sync response')?.result ?? {} }
+  }
+  if (command.operation !== undefined) throw new Error('Unknown automation operation')
   if (!Object.prototype.hasOwnProperty.call(command, 'payload')) {
     throw new Error('emitEvent request is missing payload')
   }
@@ -257,33 +348,44 @@ async function emitLine(line: string, request: AutomationJobRunRequest, rpc: RPC
     },
     undefined
   )
+  return { ok: true, result: {} }
 }
 
 async function readBoundedTail(
   stream: ReadableStream<Uint8Array> | null,
-  maxBytes: number
+  maxBytes: number,
+  signal?: AbortSignal
 ): Promise<{ bytes: Buffer; truncated: boolean }> {
   if (!stream) return { bytes: Buffer.alloc(0), truncated: false }
 
   const reader = stream.getReader()
+  const abort = () => {
+    void reader.cancel().catch(() => undefined)
+  }
+  signal?.addEventListener('abort', abort, { once: true })
   let retained = Buffer.alloc(0)
   let totalBytes = 0
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
 
-    const chunk = Buffer.from(value)
-    totalBytes += chunk.length
-    if (chunk.length >= maxBytes) {
-      retained = chunk.subarray(chunk.length - maxBytes)
-    } else {
-      retained = Buffer.concat([retained, chunk])
-      if (retained.length > maxBytes) retained = retained.subarray(retained.length - maxBytes)
+      const chunk = Buffer.from(value)
+      totalBytes += chunk.length
+      if (chunk.length >= maxBytes) {
+        retained = chunk.subarray(chunk.length - maxBytes)
+      } else {
+        retained = Buffer.concat([retained, chunk])
+        if (retained.length > maxBytes) retained = retained.subarray(retained.length - maxBytes)
+      }
     }
-  }
 
-  return { bytes: retained, truncated: totalBytes > maxBytes }
+    return { bytes: retained, truncated: totalBytes > maxBytes || signal?.aborted === true }
+  } finally {
+    signal?.removeEventListener('abort', abort)
+    reader.releaseLock()
+  }
 }
 
 function failedResult(error: string): RunResult {

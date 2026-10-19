@@ -1,0 +1,30 @@
+{
+  "name": "@ankole/applet-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx",
+    "./types": "./src/types.ts",
+    "./server": {
+      "types": "./src/server.ts"
+    }
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "bun test ./test"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "typescript": "7.0.2"
+  },
+  "peerDependencies": {
+    "@ankole/uikit": "0.1.0",
+    "@tanstack/react-query": "5.104.3",
+    "i18next": "26.4.7",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

@@ -30,7 +30,7 @@ defmodule Ankole.Sessions.JobDriver do
     Process.flag(:trap_exit, true)
     Phoenix.PubSub.subscribe(Ankole.PubSub, AgentWorkers.topic(key.agent_uid))
 
-    {:ok, :idle, %{key: key, event: nil, attempt: nil, tasks: %{}},
+    {:ok, :idle, %{key: key, event: nil, attempt: nil, tasks: %{}, mailbox_dirty: false},
      [{:next_event, :internal, :rebuild}]}
   end
 
@@ -155,13 +155,22 @@ defmodule Ankole.Sessions.JobDriver do
   defp result(_, {:error, reason}, _, data) when reason in [:stale_driver, :run_closed],
     do: {:stop, :normal, data}
 
+  defp result(:mailbox, value, _, %{mailbox_dirty: true} = data) do
+    if match?({:error, _}, value),
+      do: Logger.warning("Job driver mailbox failed: #{inspect(value)}")
+
+    {:keep_state,
+     task(%{data | mailbox_dirty: false}, :mailbox, fn -> CodexJob.mailbox(data.attempt) end),
+     [{:state_timeout, @poll_ms, :poll}]}
+  end
+
   defp result(kind, {:error, reason}, _, data) when kind in [:start, :mailbox, :observe] do
     Logger.warning("Job driver #{kind} failed: #{inspect(reason)}")
     {:keep_state, data, [{:state_timeout, @poll_ms, :poll}]}
   end
 
   defp result(_, {:error, reason}, _, data), do: {:stop, {:admission_failed, reason}, data}
-  defp result(_, _, _, _), do: :keep_state_and_data
+  defp result(_, _, _, data), do: {:keep_state, data}
 
   defp start(data),
     do:
@@ -175,15 +184,19 @@ defmodule Ankole.Sessions.JobDriver do
   end
 
   defp task(data, kind, fun) do
-    task = Task.Supervisor.async_nolink(Ankole.Sessions.Tasks, Repo.bind_tenant(fun))
-    %{data | tasks: Map.put(data.tasks, task.ref, {kind, task.pid})}
+    if kind == :mailbox and Enum.any?(data.tasks, fn {_, {running, _}} -> running == :mailbox end) do
+      %{data | mailbox_dirty: true}
+    else
+      task = Task.Supervisor.async_nolink(Ankole.Sessions.Tasks, Repo.bind_tenant(fun))
+      %{data | tasks: Map.put(data.tasks, task.ref, {kind, task.pid})}
+    end
   end
 
   defp rebuild(data) do
     clear_tasks(data)
     if data.attempt, do: Observability.finish_turn(data.attempt.span, outcome: "job_finished")
 
-    {:next_state, :idle, %{data | attempt: nil, event: nil, tasks: %{}},
+    {:next_state, :idle, %{data | attempt: nil, event: nil, tasks: %{}, mailbox_dirty: false},
      [{:next_event, :internal, :rebuild}]}
   end
 

@@ -1034,6 +1034,14 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
           conn.method == "POST" and String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
             Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
 
+          conn.method == "GET" and conn.request_path == "/v1.0/subscriptions" ->
+            Req.Test.json(conn, %{"value" => []})
+
+          conn.method == "GET" and String.starts_with?(conn.request_path, "/v1.0/subscriptions/") ->
+            Req.Test.json(conn, %{
+              "id" => String.replace_prefix(conn.request_path, "/v1.0/subscriptions/", "")
+            })
+
           conn.method == "POST" and conn.request_path == "/v1.0/subscriptions" ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
             subscription = Torque.decode!(body)
@@ -1084,6 +1092,156 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert_received {:renewed, "/v1.0/subscriptions/sub-/users"}
     end
 
+    test "a lost POST reply recovers the persisted secret, and missing remote ids are recreated" do
+      {:ok, config} = Config.validate_identity_config(identity_config())
+      provider_id = "entra-recovery-#{System.unique_integer([:positive])}"
+      parent = self()
+      store = start_supervised!({Agent, fn -> %{remote: %{}, halt_once: true, posts: 0} end})
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        cond do
+          conn.method == "POST" and String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
+            Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
+
+          conn.method == "GET" and conn.request_path == "/v1.0/subscriptions" ->
+            entries =
+              Agent.get(store, fn state ->
+                Enum.map(Map.values(state.remote), &Map.delete(&1, "clientState"))
+              end)
+
+            Req.Test.json(conn, %{"value" => entries})
+
+          conn.method == "GET" ->
+            id = String.replace_prefix(conn.request_path, "/v1.0/subscriptions/", "")
+
+            case Agent.get(store, &Map.get(&1.remote, id)) do
+              nil -> Plug.Conn.send_resp(conn, 404, "")
+              entry -> Req.Test.json(conn, Map.delete(entry, "clientState"))
+            end
+
+          conn.method == "POST" ->
+            {:ok, body, conn} = Plug.Conn.read_body(conn)
+            body = Torque.decode!(body)
+
+            result =
+              Agent.get_and_update(store, fn state ->
+                if Enum.any?(state.remote, fn {_id, entry} ->
+                     entry["resource"] == body["resource"]
+                   end) do
+                  {:conflict, state}
+                else
+                  id = "sub-#{state.posts}"
+                  entry = Map.put(body, "id", id)
+
+                  {{:created, entry, state.halt_once},
+                   %{
+                     state
+                     | remote: Map.put(state.remote, id, entry),
+                       posts: state.posts + 1,
+                       halt_once: false
+                   }}
+                end
+              end)
+
+            case result do
+              :conflict ->
+                Plug.Conn.send_resp(conn, 409, "")
+
+              {:created, entry, true} ->
+                send(parent, {:created_before_reply, self()})
+
+                receive do
+                  :release_reply -> :ok
+                end
+
+                Req.Test.json(conn, Map.delete(entry, "clientState"))
+
+              {:created, entry, false} ->
+                Req.Test.json(conn, Map.delete(entry, "clientState"))
+            end
+
+          conn.method == "DELETE" ->
+            id = String.replace_prefix(conn.request_path, "/v1.0/subscriptions/", "")
+            Agent.update(store, &%{&1 | remote: Map.delete(&1.remote, id)})
+            Plug.Conn.send_resp(conn, 204, "")
+        end
+      end)
+
+      {pid, monitor} =
+        spawn_monitor(Repo.bind_tenant(fn -> GraphSubscriptions.ensure(provider_id, config) end))
+
+      assert_receive {:created_before_reply, ^pid}, 2_000
+      Process.exit(pid, :kill)
+      assert_receive {:DOWN, ^monitor, :process, ^pid, :killed}
+
+      assert {:ok, %{"subscriptions" => [pending]}} =
+               AppConfigure.get_by_key(Config.subscription_state_key(provider_id))
+
+      assert pending["phase"] == "creating"
+
+      assert {:ok, %{subscriptions: [users, _groups]}} =
+               GraphSubscriptions.ensure(provider_id, config)
+
+      assert users["clientState"] == pending["clientState"]
+      assert GraphSubscriptions.valid_client_state?(provider_id, users["clientState"])
+      assert Agent.get(store, & &1.posts) == 2
+      # A remote delete without a local write used to remain invisible for days.
+      Agent.update(store, &%{&1 | remote: Map.delete(&1.remote, users["id"])})
+
+      assert {:ok, %{subscriptions: [recreated, _]}} =
+               GraphSubscriptions.ensure(provider_id, config)
+
+      refute recreated["id"] == users["id"]
+      assert Agent.get(store, &map_size(&1.remote)) == 2
+      assert Agent.get(store, & &1.posts) == 3
+    end
+
+    test "a queued reconciliation reads desired mode after the provider lock" do
+      provider_id = "entra-current-#{System.unique_integer([:positive])}"
+      config_key = Config.identity_config_key(provider_id)
+
+      assert {:ok, _} =
+               IdentityProviders.save_provider(provider_id, "entra-id", identity_config(), true,
+                 reconcile_realtime?: false
+               )
+
+      parent = self()
+      resource = {GraphSubscriptions, Repo.tenant_id!(), provider_id}
+
+      {holder, monitor} =
+        spawn_monitor(fn ->
+          :global.trans({resource, self()}, fn ->
+            send(parent, :provider_locked)
+
+            receive do
+              :release -> :ok
+            end
+          end)
+        end)
+
+      assert_receive :provider_locked
+
+      {waiting, wait_monitor} =
+        spawn_monitor(
+          Repo.bind_tenant(fn ->
+            send(parent, :reconcile_queued)
+
+            send(
+              parent,
+              {:reconciled, GraphSubscriptions.reconcile_current(provider_id, config_key)}
+            )
+          end)
+        )
+
+      assert_receive :reconcile_queued
+      disabled = Map.put(identity_config(), "sync", %{"realtime" => false})
+      assert {:ok, _} = AppConfigure.put_tenant_by_key(config_key, disabled)
+      send(holder, :release)
+      assert_receive {:DOWN, ^monitor, :process, ^holder, :normal}
+      assert_receive {:reconciled, {:skipped, ^provider_id}}, 2_000
+      assert_receive {:DOWN, ^wait_monitor, :process, ^waiting, :normal}
+    end
+
     test "an unexpired legacy subscription is recreated with a tenant-qualified callback URL" do
       {:ok, config} = Config.validate_identity_config(identity_config())
       provider_id = "legacy-url"
@@ -1110,6 +1268,14 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
           conn.method == "DELETE" ->
             send(parent, {:legacy_deleted, conn.request_path})
             Plug.Conn.send_resp(conn, 204, "")
+
+          conn.method == "GET" and conn.request_path == "/v1.0/subscriptions" ->
+            Req.Test.json(conn, %{"value" => []})
+
+          conn.method == "GET" and String.starts_with?(conn.request_path, "/v1.0/subscriptions/") ->
+            Req.Test.json(conn, %{
+              "id" => String.replace_prefix(conn.request_path, "/v1.0/subscriptions/", "")
+            })
 
           conn.method == "POST" and conn.request_path == "/v1.0/subscriptions" ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
@@ -1203,6 +1369,14 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
           conn.method == "POST" and String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
             Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
 
+          conn.method == "GET" and conn.request_path == "/v1.0/subscriptions" ->
+            Req.Test.json(conn, %{"value" => []})
+
+          conn.method == "GET" and String.starts_with?(conn.request_path, "/v1.0/subscriptions/") ->
+            Req.Test.json(conn, %{
+              "id" => String.replace_prefix(conn.request_path, "/v1.0/subscriptions/", "")
+            })
+
           conn.method == "POST" and conn.request_path == "/v1.0/subscriptions" ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
             subscription = Torque.decode!(body)
@@ -1233,11 +1407,24 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
       assert_received {:created, "/users"}
       assert_received {:denied, "/groups"}
 
-      assert {:ok, %{"subscriptions" => [users_entry]}} =
+      assert {:ok, %{"subscriptions" => [users_entry, pending_groups]}} =
                AppConfigure.get_by_key(Config.subscription_state_key(provider_id))
+
+      assert pending_groups["resource"] == "/groups"
+      assert pending_groups["phase"] == "creating"
+      assert is_binary(pending_groups["clientState"])
 
       assert users_entry["resource"] == "/users"
       assert users_entry["id"] == "sub-users"
+
+      # A permission repair can happen after the original intent expires.
+      assert {:ok, _} =
+               AppConfigure.put_tenant_by_key(Config.subscription_state_key(provider_id), %{
+                 "subscriptions" => [
+                   users_entry,
+                   Map.put(pending_groups, "expiration", "2000-01-01T00:00:00Z")
+                 ]
+               })
 
       # After the permission is granted, the second run only creates /groups.
       Req.Test.stub(__MODULE__, fn conn ->
@@ -1245,10 +1432,25 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
           conn.method == "POST" and String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
             Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
 
+          conn.method == "GET" and conn.request_path == "/v1.0/subscriptions" ->
+            Req.Test.json(conn, %{"value" => []})
+
+          conn.method == "GET" and String.starts_with?(conn.request_path, "/v1.0/subscriptions/") ->
+            Req.Test.json(conn, %{
+              "id" => String.replace_prefix(conn.request_path, "/v1.0/subscriptions/", "")
+            })
+
           conn.method == "POST" and conn.request_path == "/v1.0/subscriptions" ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
             subscription = Torque.decode!(body)
             send(parent, {:created, subscription["resource"]})
+
+            assert subscription["clientState"] == pending_groups["clientState"]
+
+            assert {:ok, expires_at, _} =
+                     DateTime.from_iso8601(subscription["expirationDateTime"])
+
+            assert DateTime.compare(expires_at, DateTime.utc_now()) == :gt
 
             Req.Test.json(conn, %{
               "id" => "sub-#{subscription["resource"]}",
@@ -1352,6 +1554,14 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
           conn.method == "POST" and String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
             Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
 
+          conn.method == "GET" and conn.request_path == "/v1.0/subscriptions" ->
+            Req.Test.json(conn, %{"value" => []})
+
+          conn.method == "GET" and String.starts_with?(conn.request_path, "/v1.0/subscriptions/") ->
+            Req.Test.json(conn, %{
+              "id" => String.replace_prefix(conn.request_path, "/v1.0/subscriptions/", "")
+            })
+
           conn.method == "POST" and conn.request_path == "/v1.0/subscriptions" ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
             subscription = Torque.decode!(body)
@@ -1423,6 +1633,14 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
           conn.method == "POST" and String.ends_with?(conn.request_path, "/oauth2/v2.0/token") ->
             Req.Test.json(conn, %{"access_token" => "cc", "expires_in" => 3600})
 
+          conn.method == "GET" and conn.request_path == "/v1.0/subscriptions" ->
+            Req.Test.json(conn, %{"value" => []})
+
+          conn.method == "GET" and String.starts_with?(conn.request_path, "/v1.0/subscriptions/") ->
+            Req.Test.json(conn, %{
+              "id" => String.replace_prefix(conn.request_path, "/v1.0/subscriptions/", "")
+            })
+
           conn.method == "POST" and conn.request_path == "/v1.0/subscriptions" ->
             {:ok, body, conn} = Plug.Conn.read_body(conn)
             subscription = Torque.decode!(body)
@@ -1462,6 +1680,27 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
       assert removed >= 1
       assert_received {:deleted, "/v1.0/subscriptions/sub-r"}
+
+      # Disabling the provider itself must also reach teardown, not disappear
+      # from the scheduler's provider list while remote subscriptions survive.
+      assert {:ok, _} =
+               IdentityProviders.save_provider(provider_id, "entra-id", identity_config(), true,
+                 reconcile_realtime?: false
+               )
+
+      assert %{ensured: ensured_again, errors: []} = SubscriptionReconciler.reconcile_once()
+      assert ensured_again >= 1
+
+      assert {:ok, _} =
+               IdentityProviders.save_provider(provider_id, "entra-id", identity_config(), false,
+                 reconcile_realtime?: false
+               )
+
+      assert %{removed: removed_again, errors: []} = SubscriptionReconciler.reconcile_once()
+      assert removed_again >= 1
+
+      assert {:ok, %{"subscriptions" => []}} =
+               AppConfigure.get_by_key(Config.subscription_state_key(provider_id))
     end
   end
 

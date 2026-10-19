@@ -20,6 +20,185 @@ defmodule Ankole.Conversations.Route do
           provider_message_id: String.t() | nil
         }
 
+  @doc "Returns the creation source Message through Job wakeups and continuations."
+  def source_message_id(turn), do: source_message([turn], MapSet.new(), :origin)
+
+  @doc "Returns the current causal native Human request, not attached or delegated text."
+  def human_request(turn) do
+    case human_request_message(turn) do
+      %{request: request} ->
+        request
+
+      nil ->
+        nil
+    end
+  end
+
+  @doc "Returns the current Main input from its admitted root and actually injected steers."
+  def current_input_signal_id(run) do
+    [run.signal_id | Map.get(run, :steer_event_ids, [])]
+    |> Enum.reduce(run.signal_id, fn id, current_id ->
+      if direct_human_message(id, run.agent_uid), do: id, else: current_id
+    end)
+  end
+
+  @doc "Selects a newly applied Human steer without allowing older summaries to reset intent."
+  def applied_human_source(job, events) do
+    current = human_request_message(%{job_id: job.id, agent_uid: job.agent_uid})
+
+    events
+    |> Enum.reduce({current, nil}, fn event, {latest, selected} ->
+      message =
+        case event do
+          %Signal{
+            producer: :kernel,
+            source: "control-plane://background-agent-job",
+            type: "command.steer",
+            data: %{"source_signal_id" => id}
+          } ->
+            direct_human_message(id, job.agent_uid)
+
+          _ ->
+            nil
+        end
+
+      if newer_human?(message, latest), do: {message, event.id}, else: {latest, selected}
+    end)
+    |> elem(1)
+  end
+
+  defp human_request_message(turn) do
+    source_message(
+      [Map.take(turn, [:signal_id, :agent_uid]), turn],
+      MapSet.new(),
+      :instructions
+    )
+  end
+
+  defp direct_human_message(id, uid) do
+    case Repo.get_by(Signal, id: id, agent_uid: uid) do
+      %Signal{producer: :kernel} = source -> native_human_request(source)
+      _ -> nil
+    end
+  end
+
+  defp native_human_request(source) do
+    message = Ankole.Conversations.message_for_signal(source)
+    text = get_in(source.data, ["entry", "text"]) || source.data["text"]
+
+    case message do
+      %Ankole.Conversations.Message{origin: :native, author_type: :human, kind: :message}
+      when is_binary(text) and text != "" ->
+        %{signal: source, request: %{"message_id" => message.id, "text" => text}}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp newer_human?(nil, _current), do: false
+  defp newer_human?(_message, nil), do: true
+
+  defp newer_human?(%{signal: source}, %{signal: current}) do
+    if source.session_id == current.session_id do
+      {source.queue_sequence, source.id} > {current.queue_sequence, current.id}
+    else
+      # Queue sequences are Session-local. Across Sessions use the immutable
+      # accepted version time; a provider retry is not a new Human request.
+      {DateTime.to_unix(source.occurred_at, :microsecond), source.id} >
+        {DateTime.to_unix(current.occurred_at, :microsecond), current.id}
+    end
+  end
+
+  defp select_source_message(source, _rest, _visited, :origin), do: source.message_id
+
+  defp select_source_message(source, rest, visited, :instructions) do
+    message = native_human_request(source)
+    current = source_message(rest, visited, :instructions)
+    if newer_human?(message, current), do: message, else: current
+  end
+
+  # The creation source stays fixed. Only execution instructions follow the
+  # CP's latest applied Human steer reference.
+  defp source_message([%{job_id: id, agent_uid: uid} | rest], visited, mode)
+       when is_integer(id) do
+    if MapSet.member?(visited, {:job, id}) do
+      source_message(rest, visited, mode)
+    else
+      visited = MapSet.put(visited, {:job, id})
+
+      case Repo.get_by(Job, id: id, agent_uid: uid) do
+        %Job{} = job ->
+          applied =
+            if mode == :instructions,
+              do: [%{signal_id: job.metadata["applied_source_signal_id"], agent_uid: uid}],
+              else: []
+
+          source_message(
+            applied ++
+              [
+                %{signal_id: job.source_signal_id, agent_uid: uid},
+                %{job_id: job.continued_from_job_id, agent_uid: uid}
+                | rest
+              ],
+            visited,
+            mode
+          )
+
+        _ ->
+          source_message(rest, visited, mode)
+      end
+    end
+  end
+
+  defp source_message([%{signal_id: id, agent_uid: uid} | rest], visited, mode)
+       when is_binary(id) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         false <- MapSet.member?(visited, {:signal, id}) do
+      visited = MapSet.put(visited, {:signal, id})
+
+      case Repo.get_by(Signal, id: id, agent_uid: uid) do
+        %Signal{message_id: id} = source when is_binary(id) ->
+          select_source_message(source, rest, visited, mode)
+
+        %Signal{
+          producer: :kernel,
+          source: "control-plane://background-agent-job",
+          type: "command.steer",
+          data: %{"source_signal_id" => source_id}
+        } ->
+          # A Main summary is not a new Human request. It must not reset an
+          # already-applied Human steer to the Main turn's earlier wakeup.
+          source = Repo.get_by(Signal, id: source_id, agent_uid: uid)
+
+          case source && Ankole.Conversations.message_for_signal(source) do
+            %Ankole.Conversations.Message{origin: :native, author_type: :human} ->
+              source_message([%{signal_id: source_id, agent_uid: uid} | rest], visited, mode)
+
+            _ ->
+              source_message(rest, visited, mode)
+          end
+
+        %Signal{producer: :kernel, type: type, data: %{"job_id" => job_id}}
+        when type in [
+               "background_agent_job.dispatch",
+               "background_agent_job.completed",
+               "background_agent_job.failed",
+               "background_agent_job.waiting"
+             ] ->
+          source_message([%{job_id: job_id, agent_uid: uid} | rest], visited, mode)
+
+        _ ->
+          source_message(rest, visited, mode)
+      end
+    else
+      _ -> source_message(rest, visited, mode)
+    end
+  end
+
+  defp source_message([_turn | rest], visited, mode), do: source_message(rest, visited, mode)
+  defp source_message([], _visited, _mode), do: nil
+
   @doc """
   Resolves the durable reply route for one turn.
   """

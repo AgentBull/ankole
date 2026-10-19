@@ -65,12 +65,22 @@ defmodule Ankole.Sessions.Commands do
 
   def injectable?(event),
     do:
-      route(event) == :run and
+      not queued_followup?(event) and route(event) == :run and
         event.type in [
           "command.steer",
           "conversation.message.addressed",
           "input.revised"
         ]
+
+  @doc "A native follow-up that must start its own turn, rather than join the active one."
+  def queued_followup?(%Signal{
+        producer: :kernel,
+        type: "conversation.message.addressed",
+        data: %{"delivery_mode" => "queue"}
+      }),
+      do: true
+
+  def queued_followup?(_event), do: false
 
   @spec profile(Signal.t()) :: String.t() | nil
   def profile(%Signal{producer: :kernel, data: data}) when is_map(data),
@@ -322,7 +332,20 @@ defmodule Ankole.Sessions.Commands do
          do: consume_command_feedback(repo, event, "Started a new conversation.", now)
   end
 
-  defp apply_command(repo, key, %{type: "command.retry"} = event, now) do
+  defp apply_command(repo, key, %{type: "command.retry"} = event, now),
+    do: retry_in_tx(repo, key, event, now)
+
+  defp apply_command(repo, _key, %{type: "command.steer"} = event, now),
+    do: consume_command_feedback(repo, event, "Steer requires instructions.", now)
+
+  defp apply_command(repo, _key, %{type: type} = event, now)
+       when type in ["command.llm_help", "command.llm"] do
+    with {:ok, profiles} <- ModelProfiles.list_custom_model_profiles(event.agent_uid),
+         do: consume_command_feedback(repo, event, llm_help_text(profiles), now)
+  end
+
+  @doc "Applies an explicit retry under the caller's existing session lock and transaction."
+  def retry_in_tx(repo, key, %{type: "command.retry"} = event, now) do
     case retry_target(event) do
       {:target, id} ->
         case append_retry_event(repo, key, event, id, now) do
@@ -340,15 +363,6 @@ defmodule Ankole.Sessions.Commands do
       _ ->
         consume_retry_target_required(repo, event, now)
     end
-  end
-
-  defp apply_command(repo, _key, %{type: "command.steer"} = event, now),
-    do: consume_command_feedback(repo, event, "Steer requires instructions.", now)
-
-  defp apply_command(repo, _key, %{type: type} = event, now)
-       when type in ["command.llm_help", "command.llm"] do
-    with {:ok, profiles} <- ModelProfiles.list_custom_model_profiles(event.agent_uid),
-         do: consume_command_feedback(repo, event, llm_help_text(profiles), now)
   end
 
   defp compress(key, event) do
@@ -516,7 +530,8 @@ defmodule Ankole.Sessions.Commands do
     end
   end
 
-  defp retry_source_in_tx(repo, key, command_event, id) do
+  @doc false
+  def retry_source_in_tx(repo, key, command_event, id) do
     with %Signal{} = source <- lock_retry_source(repo, key, id),
          :ok <- validate_retry_source(repo, command_event, source),
          true <- ModelHistory.exact_turn_retryable_in_tx(repo, key, source.id) do
@@ -527,6 +542,8 @@ defmodule Ankole.Sessions.Commands do
   end
 
   defp append_signal_retry(repo, command_event, source, intents, now) do
+    source = native_edit_source(command_event, source)
+
     payload =
       Signal.envelope(source)
       |> retry_payload(source)
@@ -560,8 +577,39 @@ defmodule Ankole.Sessions.Commands do
     end
   end
 
-  defp retry_payload(payload, %Signal{producer: :kernel, id: id}),
-    do: Signal.put_retry_metadata(payload, id, "command.retry", %{})
+  # The original Signal is the consumed text version. A native edit changes
+  # only the new retry payload; it must not change a running Job's old input.
+  defp native_edit_source(
+         %Signal{
+           producer: :kernel,
+           source: "native-control:" <> conversation_id,
+           data: %{"native_action" => "edit_last", "native_edit_text" => text}
+         },
+         %Signal{producer: :kernel, conversation_id: conversation_id} = source
+       )
+       when is_binary(text) or is_nil(text) do
+    text = if is_binary(text) and String.trim(text) == "", do: nil, else: text
+    data = Map.put(source.data, "text", text)
+    data = if is_map(data["entry"]), do: put_in(data, ["entry", "text"], text), else: data
+    %{source | data: data}
+  end
+
+  defp native_edit_source(_command, source), do: source
+
+  defp retry_payload(payload, %Signal{producer: :kernel, id: id} = source) do
+    payload =
+      if source.type == "conversation.message.addressed" and is_binary(source.data["text"]) do
+        update_in(payload, ["data", "entry"], fn entry ->
+          Map.put_new(entry || %{}, "text", source.data["text"])
+        end)
+      else
+        payload
+      end
+
+    payload
+    |> Signal.put_retry_metadata(id, "command.retry", %{})
+    |> Map.update!("data", &Map.delete(&1, "delivery_mode"))
+  end
 
   defp retry_payload(payload, _external_source), do: payload
 
@@ -613,9 +661,10 @@ defmodule Ankole.Sessions.Commands do
 
   defp validate_retry_source(repo, command_event, source) do
     candidate_types = Preview.channel_reply_event_types()
+    before_sequence = command_event && command_event.queue_sequence
 
     cond do
-      source.queue_sequence >= command_event.queue_sequence ->
+      before_sequence && source.queue_sequence >= before_sequence ->
         {:error, :invalid_retry_target}
 
       Signal.produced_by_kernel?(source) and source.type not in candidate_types ->
@@ -633,7 +682,7 @@ defmodule Ankole.Sessions.Commands do
           is_nil(source.final_response_id) ->
         {:error, :invalid_retry_target}
 
-      intermediate_signal?(repo, source, command_event) ->
+      intermediate_signal?(repo, source, before_sequence) ->
         {:error, :invalid_retry_target}
 
       not retry_source_retained?(repo, source) ->
@@ -655,14 +704,20 @@ defmodule Ankole.Sessions.Commands do
 
   defp terminal_retry_source?(%Signal{}), do: false
 
-  defp intermediate_signal?(repo, source, command_event) do
-    Signal
-    |> where([event], event.agent_uid == ^source.agent_uid)
-    |> where([event], event.session_id == ^source.session_id)
-    |> where([event], event.queue_sequence > ^source.queue_sequence)
-    |> where([event], event.queue_sequence < ^command_event.queue_sequence)
-    |> where([event], event.producer != :kernel or event.type != "command.retry")
-    |> repo.exists?()
+  defp intermediate_signal?(repo, source, before_sequence) do
+    query =
+      Signal
+      |> where([event], event.agent_uid == ^source.agent_uid)
+      |> where([event], event.session_id == ^source.session_id)
+      |> where([event], event.queue_sequence > ^source.queue_sequence)
+      |> where([event], event.producer != :kernel or event.type != "command.retry")
+
+    query =
+      if before_sequence,
+        do: where(query, [event], event.queue_sequence < ^before_sequence),
+        else: query
+
+    repo.exists?(query)
   end
 
   defp retry_source_retained?(_repo, %Signal{conversation_id: nil}), do: true

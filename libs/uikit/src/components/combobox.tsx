@@ -97,7 +97,7 @@ function ComboboxContent({
           data-slot="combobox-content"
           data-chips={!!anchor}
           className={cn(
-            'ceramic group/combobox-content relative outline-none max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) overflow-hidden text-popover-foreground transition-opacity duration-(--duration-overlay) ease-out *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:w-auto data-starting-style:opacity-0 data-ending-style:opacity-0',
+            'ceramic group/combobox-content relative outline-none max-h-(--available-height) w-(--anchor-width) max-w-(--available-width) origin-(--transform-origin) overflow-hidden text-popover-foreground transition-none *:data-[slot=input-group]:m-1 *:data-[slot=input-group]:w-auto data-starting-style:opacity-0 data-ending-style:opacity-0',
             className
           )}
           {...props}

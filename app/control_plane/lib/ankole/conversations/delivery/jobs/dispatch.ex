@@ -38,6 +38,9 @@ defmodule Ankole.Conversations.Delivery.Jobs.Dispatch do
       {:ok, _} ->
         :ok
 
+      {:error, :reply_preview_settle_timeout} ->
+        {:snooze, 1}
+
       {:error, reason}
       when reason in [
              :intent_not_dispatchable,

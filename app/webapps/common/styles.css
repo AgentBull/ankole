@@ -1,3 +1,6 @@
+@import '@ankole/uikit/styles.css';
+@import '@ankole/block-editor/styles.css';
+
 #ankole-app {
   min-height: 100vh;
 }

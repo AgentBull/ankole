@@ -13,7 +13,7 @@ defmodule AnkoleWeb.AgentFileController do
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Files
-  alias Ankole.Files.Schemas.AgentFile
+  alias Ankole.Files.Schemas.DriveFile
   alias Ankole.Principals
   alias Ankole.WorkerFiles
   alias AnkoleWeb.ConsoleErrors
@@ -113,7 +113,7 @@ defmodule AnkoleWeb.AgentFileController do
 
     try do
       with {:ok, agent_uid} <- authorize(conn, agent_uid, "read"),
-           {:ok, %AgentFile{} = file} <- Files.read_to_file(agent_uid, path, local_path) do
+           {:ok, %DriveFile{} = file} <- Files.read_to_file(agent_uid, path, local_path) do
         conn
         |> put_resp_content_type(file.content_type)
         |> put_resp_header(
@@ -172,7 +172,7 @@ defmodule AnkoleWeb.AgentFileController do
     end
   end
 
-  defp file_json(%AgentFile{} = file) do
+  defp file_json(%DriveFile{} = file) do
     %{
       path: file.path,
       size: file.size,

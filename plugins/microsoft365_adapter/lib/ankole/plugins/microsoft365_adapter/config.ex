@@ -209,8 +209,20 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   end
 
   defp valid_subscription_entry?(entry) when is_map(entry) do
-    is_binary(MapHelpers.optional_text(entry, "id")) and
-      is_binary(MapHelpers.optional_text(entry, "resource")) and
+    identity =
+      case entry["phase"] do
+        "creating" ->
+          is_binary(MapHelpers.optional_text(entry, "notificationUrl")) and
+            is_binary(MapHelpers.optional_text(entry, "expiration"))
+
+        nil ->
+          is_binary(MapHelpers.optional_text(entry, "id"))
+
+        _ ->
+          false
+      end
+
+    identity and is_binary(MapHelpers.optional_text(entry, "resource")) and
       is_binary(MapHelpers.optional_text(entry, "clientState"))
   end
 

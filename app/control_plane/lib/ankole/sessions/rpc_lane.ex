@@ -71,6 +71,9 @@ defmodule Ankole.Sessions.RPCLane do
     "files.list" => {FilesRPCBroker, :handle_list},
     "files.get" => {FilesRPCBroker, :handle_get},
     "files.commit" => {FilesRPCBroker, :handle_commit},
+    "pod.read" => {Ankole.Pod.RPCBroker, :handle_read},
+    "pod.write" => {Ankole.Pod.RPCBroker, :handle_write},
+    "pod.sync" => {Ankole.Pod.RPCBroker, :handle_sync},
     "worker_env.resolve" => {WorkerEnvBroker, :handle_request}
   }
 
@@ -134,7 +137,13 @@ defmodule Ankole.Sessions.RPCLane do
       )
       when is_binary(route) and is_binary(worker_id) do
     request_id = presence(request.request_id) || "rpc-#{Ecto.UUID.generate()}"
-    ctx = %{route: route, worker_id: worker_id, request_id: request_id}
+
+    ctx = %{
+      route: route,
+      worker_id: worker_id,
+      request_id: request_id,
+      deadline_unix_ms: request.deadline_unix_ms
+    }
 
     case dispatch_method_safely(request, ctx) do
       {:ok, %_{} = response_struct} ->

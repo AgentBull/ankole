@@ -173,6 +173,36 @@ defmodule Ankole.AppConfigure do
     end
   end
 
+  @doc "Initializes a generated global value once and returns the persisted winner."
+  @spec ensure_generated_global(Definition.t()) :: {:ok, term()} | {:error, term()}
+  def ensure_generated_global(%Definition{} = definition) do
+    result =
+      Repo.transact(fn repo ->
+        with {:ok, registered} <- Registry.require_definition(definition),
+             :ok <- ensure_scope(registered, @global_scope),
+             :ok <- lock_global_key(repo, registered.key) do
+          case get_global_by_key_in_tx(repo, registered.key) do
+            {:ok, value} ->
+              {:ok, {:existing, value}}
+
+            :error ->
+              with {:ok, value} <- generate(registered),
+                   {:ok, write} <- put_row(repo, @global_scope, registered.key, registered, value),
+                   do: {:ok, {:created, write}}
+
+            error ->
+              error
+          end
+        end
+      end)
+
+    case result do
+      {:ok, {:created, committed}} -> cache_committed_write(committed)
+      {:ok, {:existing, value}} -> {:ok, value}
+      error -> error
+    end
+  end
+
   @doc """
   Atomically transforms one installation-wide value under a per-key database lock.
 

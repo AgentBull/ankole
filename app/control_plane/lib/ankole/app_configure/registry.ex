@@ -87,12 +87,14 @@ defmodule Ankole.AppConfigure.Registry do
     GenServer.call(__MODULE__, {:classify_key, key})
   end
 
-  @doc """
-  Resets registered AppConfigure metadata to the boot state for tests.
-  """
-  @spec clear_for_test() :: :ok
-  def clear_for_test do
-    GenServer.call(__MODULE__, :clear_for_test)
+  if Mix.env() == :test do
+    @doc """
+    Resets registered AppConfigure metadata to the boot state for tests.
+    """
+    @spec clear_for_test() :: :ok
+    def clear_for_test do
+      GenServer.call(__MODULE__, :clear_for_test)
+    end
   end
 
   @impl true
@@ -152,10 +154,12 @@ defmodule Ankole.AppConfigure.Registry do
     {:reply, classify_registered_key(state, key), state}
   end
 
-  @impl true
-  def handle_call(:clear_for_test, _from, _state) do
-    {:ok, state} = boot_state()
-    {:reply, :ok, state}
+  if Mix.env() == :test do
+    @impl true
+    def handle_call(:clear_for_test, _from, _state) do
+      {:ok, state} = boot_state()
+      {:reply, :ok, state}
+    end
   end
 
   defp boot_state do

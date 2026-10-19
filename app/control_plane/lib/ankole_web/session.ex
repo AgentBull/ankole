@@ -5,12 +5,12 @@ defmodule AnkoleWeb.Session do
   alias Ankole.Principals.HumanAccess
   alias Ankole.AuthZ
   alias AnkoleWeb.SessionCookieStore
+  alias AnkoleWeb.SessionCookies
 
   @browser_key :browser_session
   @setup_ttl 24 * 60 * 60
   @state_ttl 10 * 60
   @secure Application.compile_env(:ankole, :secure_cookies, false)
-  @authentication_prefix if(@secure, do: "__Host-ankole-auth-", else: "_ankole-auth-")
   @handoff_prefix if(@secure, do: "__Host-ankole-handoff-", else: "_ankole-handoff-")
 
   def put_handoff_state(conn, state, payload) do
@@ -68,12 +68,27 @@ defmodule AnkoleWeb.Session do
              browser_reference(conn),
              purpose,
              request,
-             Keyword.put_new(opts, :mode, Map.get(conn.assigns, :browser_login_mode, :replace))
+             Keyword.put_new(
+               opts,
+               :mode,
+               Map.get(
+                 conn.assigns,
+                 :browser_login_mode,
+                 if(purpose == :pod, do: :add, else: :replace)
+               )
+             )
            ),
          do: {:ok, conn, transaction}
   end
 
-  def login_transaction(conn, id), do: BrowserSessions.login(browser_reference(conn), id)
+  def login_transaction(conn, id) do
+    with {:ok, transaction} <- BrowserSessions.login(browser_reference(conn), id) do
+      case conn.assigns[:host_context] do
+        {:pod, tenant_id} when transaction.tenant_id != tenant_id -> {:error, :login_expired}
+        _ -> {:ok, transaction}
+      end
+    end
+  end
 
   def put_privileged_tenant do
     with {:ok, tenant} <- Ankole.Tenants.privileged(), do: Ankole.Repo.put_tenant_id(tenant.id)
@@ -100,18 +115,10 @@ defmodule AnkoleWeb.Session do
         %BrowserSessions.Authentication{} = authentication
       ) do
     reference = BrowserSessions.reference(authentication)
-    name = @authentication_prefix <> authentication.id
-    value = SessionCookieStore.put(cookie_conn(conn), nil, reference, cookie_options())
 
     conn
     |> put_session(@browser_key, BrowserSessions.reference(browser))
-    |> put_resp_cookie(name, value,
-      secure: @secure,
-      http_only: true,
-      same_site: "Lax",
-      path: "/",
-      max_age: max(DateTime.diff(authentication.expires_at, DateTime.utc_now()), 0)
-    )
+    |> put_authentication_cookie(authentication)
     |> put_private(:browser_authentication_ref, reference)
     |> put_private(
       :browser_authentication_proofs,
@@ -144,12 +151,14 @@ defmodule AnkoleWeb.Session do
 
     cookie_refs =
       Enum.flat_map(conn.req_cookies, fn {name, value} ->
-        if String.starts_with?(name, @authentication_prefix) do
+        if prefix =
+             Enum.find(SessionCookies.authentication_prefixes(), &String.starts_with?(name, &1)) do
           {_sid, reference} = SessionCookieStore.get(cookie_conn(conn), value, cookie_options())
 
-          if reference["id"] == String.replace_prefix(name, @authentication_prefix, ""),
-            do: [reference],
-            else: []
+          if reference["id"] ==
+               String.replace_prefix(name, prefix, ""),
+             do: [reference],
+             else: []
         else
           []
         end
@@ -166,53 +175,103 @@ defmodule AnkoleWeb.Session do
   end
 
   def authentication_reference(conn) do
-    candidate =
-      case get_req_header(conn, "x-ankole-authentication") do
-        [] ->
-          conn.private[:browser_authentication_ref] || parameter_reference(conn) ||
-            BrowserSessions.current_reference(browser_reference(conn))
-
-        [value] ->
-          decode_reference(value)
-
-        _ ->
-          :invalid
-      end
-
+    candidate = authentication_candidate(conn)
     if authentication_proven?(conn, candidate), do: candidate
   end
 
-  def authentication_proven?(conn, %{"id" => id} = reference) when is_binary(id) do
-    conn = fetch_cookies(conn)
-    name = @authentication_prefix <> id
+  defp authentication_candidate(conn) do
+    case get_req_header(conn, "x-ankole-authentication") do
+      [] ->
+        conn.private[:browser_authentication_ref] || parameter_reference(conn) ||
+          BrowserSessions.current_reference(browser_reference(conn))
 
-    {_sid, cookie_ref} =
-      SessionCookieStore.get(cookie_conn(conn), conn.req_cookies[name], cookie_options())
+      [value] ->
+        decode_reference(value)
 
-    with true <-
-           cookie_ref == reference or
-             reference in (conn.private[:browser_authentication_proofs] || []),
-         %{"id" => browser_id} <- browser_reference(conn),
-         {:ok, %{browser_id: ^browser_id}} <- BrowserSessions.get_authentication(reference) do
-      true
-    else
-      _ -> false
+      _ ->
+        :invalid
     end
   end
 
-  def authentication_proven?(_, _), do: false
+  def authentication_proven?(conn, reference) do
+    with true <- authentication_cookie_proven?(conn, reference),
+         %{"id" => browser_id} <- browser_reference(conn),
+         {:ok, %{browser_id: ^browser_id}} <- BrowserSessions.get_authentication(reference),
+         do: true,
+         else: (_ -> false)
+  end
 
-  # EventSource cannot send the page's authentication header. Navigation URLs
-  # must not select a different signed-in identity.
+  defp authentication_cookie_proven?(conn, %{"id" => id} = reference) when is_binary(id) do
+    conn = fetch_cookies(conn)
+    raw = Enum.find_value(SessionCookies.authentication_prefixes(), &conn.req_cookies[&1 <> id])
+
+    {_sid, cookie_ref} =
+      SessionCookieStore.get(cookie_conn(conn), raw, cookie_options())
+
+    cookie_ref == reference or reference in (conn.private[:browser_authentication_proofs] || [])
+  end
+
+  defp authentication_cookie_proven?(_, _), do: false
+
+  @doc "Copies only verified legacy proofs into shared cookies without changing the active identity."
+  def migrate_legacy_authentications(conn) do
+    Enum.reduce(authentication_references(conn), conn, fn reference, conn ->
+      name = "__Host-ankole-auth-" <> reference["id"]
+
+      if conn.req_cookies[name] do
+        case BrowserSessions.get_authentication(reference) do
+          {:ok, authentication} -> put_authentication_cookie(conn, authentication)
+          _ -> conn
+        end
+      else
+        conn
+      end
+    end)
+  end
+
+  defp put_authentication_cookie(conn, authentication) do
+    value =
+      SessionCookieStore.put(
+        cookie_conn(conn),
+        nil,
+        BrowserSessions.reference(authentication),
+        cookie_options()
+      )
+
+    put_resp_cookie(
+      conn,
+      SessionCookies.authentication_prefix() <> authentication.id,
+      value,
+      Keyword.put(
+        SessionCookies.options(),
+        :max_age,
+        max(DateTime.diff(authentication.expires_at, DateTime.utc_now()), 0)
+      )
+    )
+  end
+
+  # EventSource and file subresources cannot send the document's authentication
+  # header. Other API URLs must not select a different signed-in identity.
   defp parameter_reference(
          %{method: "GET", path_info: [".internal-apis", "pod", "conversations", _id, "events"]} =
            conn
        ) do
-    case param(conn, "authentication_ref") do
-      nil -> nil
-      value -> decode_reference(value)
-    end
+    parameter_authentication(conn)
   end
+
+  defp parameter_reference(
+         %{method: "GET", path_info: [".internal-apis", "pod", "pages", _id, "files", "content"]} =
+           conn
+       ),
+       do: parameter_authentication(conn)
+
+  defp parameter_reference(
+         %{
+           method: "GET",
+           path_info: [".internal-apis", "pod", "conversations", _id, "attachments", _message_id]
+         } = conn
+       ),
+       do: parameter_authentication(conn)
 
   defp parameter_reference(%{path_info: [prefix | _]} = conn)
        when prefix in [".internal-apis", "api"] do
@@ -220,6 +279,13 @@ defmodule AnkoleWeb.Session do
   end
 
   defp parameter_reference(_conn), do: nil
+
+  defp parameter_authentication(conn) do
+    case param(conn, "authentication_ref") do
+      nil -> nil
+      value -> decode_reference(value)
+    end
+  end
 
   defp decode_reference(value) do
     case BrowserSessions.decode_reference(value) do
@@ -269,8 +335,7 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  def admin_session(conn),
-    do: BrowserSessions.authentication(authentication_reference(conn), :console)
+  def admin_session(conn), do: browser_authentication(conn, :console)
 
   def site_admin_session(conn) do
     case admin_session(conn) do
@@ -279,10 +344,20 @@ defmodule AnkoleWeb.Session do
     end
   end
 
-  def oauth_session(conn),
-    do: BrowserSessions.authentication(authentication_reference(conn), :oauth)
+  def oauth_session(conn), do: browser_authentication(conn, :oauth)
 
-  def pod_session(conn), do: BrowserSessions.authentication(authentication_reference(conn), :pod)
+  def pod_session(conn), do: browser_authentication(conn, :pod)
+
+  defp browser_authentication(conn, purpose) do
+    reference = authentication_candidate(conn)
+
+    with true <- authentication_cookie_proven?(conn, reference),
+         %{"id" => browser_id} <- browser_reference(conn),
+         %{"browser_id" => ^browser_id} = identity <-
+           BrowserSessions.authentication(reference, purpose),
+         do: identity,
+         else: (_ -> nil)
+  end
 
   def csrf_state(conn) do
     flow = param(conn, "flow")
@@ -311,7 +386,11 @@ defmodule AnkoleWeb.Session do
          {:ok, _} <- BrowserSessions.revoke(browser_reference(conn), ref) do
       {:ok,
        conn
-       |> delete_resp_cookie(@authentication_prefix <> ref["id"], secure: @secure, path: "/")
+       |> delete_resp_cookie(
+         SessionCookies.authentication_prefix() <> ref["id"],
+         SessionCookies.delete_options()
+       )
+       |> delete_resp_cookie("__Host-ankole-auth-" <> ref["id"], secure: true, path: "/")
        |> put_private(:browser_authentication_ref, nil)
        |> put_private(
          :browser_authentication_proofs,
@@ -341,9 +420,16 @@ defmodule AnkoleWeb.Session do
 
     conn =
       Enum.reduce(conn.req_cookies, conn, fn {name, _}, acc ->
-        if String.starts_with?(name, @authentication_prefix),
-          do: delete_resp_cookie(acc, name, secure: @secure, path: "/"),
-          else: acc
+        cond do
+          String.starts_with?(name, SessionCookies.authentication_prefix()) ->
+            delete_resp_cookie(acc, name, SessionCookies.delete_options())
+
+          String.starts_with?(name, "__Host-ankole-auth-") ->
+            delete_resp_cookie(acc, name, secure: true, path: "/")
+
+          true ->
+            acc
+        end
       end)
 
     conn
@@ -392,10 +478,10 @@ defmodule AnkoleWeb.Session do
   def safe_return_to(value) when is_binary(value) do
     if String.starts_with?(value, "/") and not String.starts_with?(value, ["//", "/\\"]),
       do: value,
-      else: "/pod"
+      else: "/"
   end
 
-  def safe_return_to(_), do: "/pod"
+  def safe_return_to(_), do: "/"
 
   defp put_expiring_session(conn, key, attrs, ttl) do
     now = System.system_time(:second)

@@ -1,7 +1,7 @@
 import { runAutomationJob } from '../automation-jobs/run'
 import { pullFile, pushBundle, pushFile } from '../lanes/file/relay'
 import { type RuntimeRPCClient } from '../lanes/rpc_lane'
-import { type WorkerRPCHandlers } from '../lanes/rpc_contract'
+import { type WorkerRPCContext, type WorkerRPCHandlers } from '../lanes/rpc_contract'
 import type { WorkerConfig } from './config'
 import { throwingRPCRequester } from './rpc_requests'
 
@@ -9,19 +9,46 @@ import { throwingRPCRequester } from './rpc_requests'
 type HandlerConfig = Pick<WorkerConfig, 'agentHomeRoot' | 'builtinSkillsRoot' | 'internalSkillsRoot'>
 
 /** Binds control-plane-initiated RPCs to operations executed by this Worker. */
-export function createWorkerRPCHandlers(config: HandlerConfig, rpcClient: RuntimeRPCClient): WorkerRPCHandlers {
-  return {
-    pullWorkerFile: async request => ({ size: BigInt((await pullFile(config, request)).size) }),
-    pushWorkerFile: async request => {
-      const result =
-        request.bundlePaths.length > 0 ? await pushBundle(config, request) : await pushFile(config, request)
-      return { size: BigInt(result.size) }
-    },
-    runAutomationJob: request => {
-      return runAutomationJob(request, {
-        config,
-        rpc: throwingRPCRequester(rpcClient)
-      })
+export function createWorkerRPCHandlers(
+  config: HandlerConfig,
+  rpcClient: RuntimeRPCClient
+): WorkerRPCHandlers & { close(): Promise<void> } {
+  const shutdown = new AbortController()
+  const active = new Set<Promise<unknown>>()
+  async function own<T>(context: WorkerRPCContext, operation: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const signal = AbortSignal.any([shutdown.signal, context.signal])
+    signal.throwIfAborted()
+    const pending = operation(signal)
+    active.add(pending)
+    try {
+      return await pending
+    } finally {
+      active.delete(pending)
     }
+  }
+  return {
+    async close() {
+      shutdown.abort(new DOMException('Worker stopped', 'AbortError'))
+      await Promise.allSettled(active)
+    },
+    pullWorkerFile: (request, context) =>
+      own(context, async signal => ({ size: BigInt((await pullFile(config, request, signal)).size) })),
+    pushWorkerFile: (request, context) =>
+      own(context, async signal => {
+        const result =
+          request.bundlePaths.length > 0
+            ? await pushBundle(config, request, signal)
+            : await pushFile(config, request, signal)
+        return { size: BigInt(result.size) }
+      }),
+    runAutomationJob: (request, context) =>
+      own(context, signal => {
+        return runAutomationJob(request, {
+          config,
+          rpc: throwingRPCRequester(rpcClient),
+          signal,
+          deadlineUnixMs: context.deadlineUnixMs
+        })
+      })
   }
 }

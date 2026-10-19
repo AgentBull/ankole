@@ -1,4 +1,6 @@
 import path from 'node:path'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { gzipSync } from 'node:zlib'
 import {
   artifactRoot,
   assetsDirectory,
@@ -12,7 +14,9 @@ import {
 import { fileURLToPath } from 'node:url'
 import babel from '@rolldown/plugin-babel'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 import { defineConfig, type Plugin, type UserConfig, type ViteDevServer } from 'vite'
+import { podLocaleCatalogPlugin } from './scripts/pod-locale-catalog.ts'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -30,9 +34,8 @@ const saasOrigins =
     ? [new RegExp(`^http://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.${saasDomain}:${process.env.PORT || '4000'}$`)]
     : []
 
-// No consumer outside the dynamic import in `common/markdown-renderer.tsx`, so
-// this group stays out of eager entries. A package missing from the list only
-// lands in `vendor-utilities`.
+// Keep Markdown dependencies separate from routes that do not use the renderer
+// or the document editor's Markdown import and export.
 const markdownPipelinePrefixes = [
   'character-entities',
   'hast-util-',
@@ -78,8 +81,9 @@ function nodeModulePackageName(moduleID: string): string | undefined {
 }
 
 function manualChunks(moduleID: string): string | undefined {
-  if (!moduleID.includes('/node_modules/')) return undefined
-  if (moduleID.includes('/react/') || moduleID.includes('/react-dom/') || moduleID.includes('/scheduler/')) {
+  const packageName = nodeModulePackageName(moduleID)
+  if (!packageName) return undefined
+  if (packageName === 'react' || packageName === 'react-dom' || packageName === 'scheduler') {
     return 'vendor-react'
   }
   if (moduleID.includes('/react-router/')) return 'vendor-router'
@@ -94,11 +98,18 @@ function manualChunks(moduleID: string): string | undefined {
   // Markdown pipeline.
   if (moduleID.includes('/any-ascii/')) return 'vendor-transliteration'
   if (moduleID.includes('/json-edit-react/')) return 'vendor-json-editor'
-  const packageName = nodeModulePackageName(moduleID)
+  if (moduleID.includes('/xlsx/')) return 'vendor-spreadsheet'
+  if (moduleID.includes('/@office-kit/') || moduleID.includes('/fflate/')) return 'vendor-presentation'
   if (
-    packageName &&
-    (markdownPipelinePackages.has(packageName) ||
-      markdownPipelinePrefixes.some(prefix => packageName.startsWith(prefix)))
+    packageName.startsWith('@garfish/') ||
+    packageName === '@alioth-org/es-module-lexer' ||
+    packageName === 'eventemitter2'
+  ) {
+    return 'vendor-applet'
+  }
+  if (
+    markdownPipelinePackages.has(packageName) ||
+    markdownPipelinePrefixes.some(prefix => packageName.startsWith(prefix))
   ) {
     return 'vendor-markdown'
   }
@@ -196,6 +207,7 @@ function forcedExitTimer(): ReturnType<typeof setTimeout> {
 export default defineConfig(({ command }): UserConfig => ({
   base: command === 'build' ? '/assets/' : '/',
   plugins: [
+    podLocaleCatalogPlugin(localeDirectory),
     {
       name: 'ankole-edition-styles',
       enforce: 'pre',
@@ -206,9 +218,24 @@ export default defineConfig(({ command }): UserConfig => ({
       }
     },
     react(),
+    tailwindcss(),
     babel({
       presets: [reactCompilerPreset()]
     }),
+    {
+      name: 'ankole-precompressed-assets',
+      apply: 'build',
+      closeBundle() {
+        // Plug.Static serves these sidecars without changing Vite's hashed files or manifest.
+        for (const file of readdirSync(outputPath, { recursive: true, encoding: 'utf8' })) {
+          if (!/\.(css|js|json|map|svg)$/.test(file)) continue
+          const sourcePath = path.join(outputPath, file)
+          const source = readFileSync(sourcePath)
+          const compressed = gzipSync(source)
+          if (compressed.byteLength < source.byteLength) writeFileSync(`${sourcePath}.gz`, compressed)
+        }
+      }
+    },
     phoenixShellPlugin()
   ],
   publicDir: false,
@@ -253,7 +280,10 @@ export default defineConfig(({ command }): UserConfig => ({
         },
         chunkFileNames: 'js/[name]-[hash].js',
         entryFileNames: 'js/[name]-[hash].js',
-        manualChunks
+        codeSplitting: {
+          // Shared dependencies must not pull applet-only code into every entry.
+          groups: [{ name: manualChunks, debugName: 'vendor-packages', entriesAware: true }]
+        }
       }
     }
   },

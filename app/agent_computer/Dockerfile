@@ -11,9 +11,13 @@ WORKDIR /repo
 COPY package.json bun.lock ./
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
+COPY libs/ankole-editor/package.json ./libs/ankole-editor/package.json
+COPY libs/ankole-editor/patches ./libs/ankole-editor/patches
+COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
+COPY libs/uikit/package.json ./libs/uikit/package.json
 
 # Only the Worker and its workspace dependencies are present in this image.
-RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser"]; delete p.patchedDependencies["mdast-util-to-markdown@2.2.0"]; await Bun.write("package.json", JSON.stringify(p));'
+RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser", "libs/ankole-editor", "libs/applet-sdk", "libs/uikit"]; await Bun.write("package.json", JSON.stringify(p));'
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   set -eux; \
@@ -26,6 +30,10 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 
 COPY app/agent_computer ./app/agent_computer
 COPY app/ankole-browser ./app/ankole-browser
+COPY libs/ankole-editor/src ./libs/ankole-editor/src
+COPY libs/ankole-editor/upstream ./libs/ankole-editor/upstream
+COPY libs/applet-sdk/src ./libs/applet-sdk/src
+COPY libs/uikit/src ./libs/uikit/src
 
 WORKDIR /repo/app/ankole-browser
 
@@ -97,6 +105,7 @@ RUN set -eux; \
 COPY --from=build /repo/node_modules ./node_modules
 COPY --from=build /repo/app/agent_computer/node_modules ./app/agent_computer/node_modules
 COPY --from=build /repo/app/ankole-browser/node_modules ./app/ankole-browser/node_modules
+COPY --from=build /repo/libs ./libs
 COPY --from=build /tmp/ankole-browser-runtime /opt/ankole-browser
 COPY tsconfig.base.json ./tsconfig.base.json
 COPY app/library ./app/library
@@ -237,10 +246,11 @@ RUN set -eux; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/automation-jobs/automation-job-cli.ts show "$@"' > /usr/local/bin/show-automation-job-cli; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/automation-jobs/automation-job-cli.ts cancel "$@"' > /usr/local/bin/cancel-automation-job-cli; \
   printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/drive/drive-cli.ts "$@"' > /usr/local/bin/ankole-files; \
+  printf '%s\n' '#!/usr/bin/env sh' 'exec bun /repo/app/agent_computer/src/cli/pod/pod-cli.ts "$@"' > /usr/local/bin/ankole-pod; \
   codex_native="$(find -L /root/.bun/install/global/node_modules/@openai -path '*/vendor/*/bin/codex' -type f -print -quit)"; \
   test -n "$codex_native"; \
   ln -s "$codex_native" /usr/local/bin/apply_patch; \
-  chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/create-webhook-cli /usr/local/bin/list-webhooks-cli /usr/local/bin/cancel-webhook-cli /usr/local/bin/create-automation-job-cli /usr/local/bin/list-automation-jobs-cli /usr/local/bin/show-automation-job-cli /usr/local/bin/cancel-automation-job-cli /usr/local/bin/ankole-files; \
+  chmod +x /usr/local/bin/ankole-browser /usr/local/bin/ankole-browserd /usr/local/bin/create-webhook-cli /usr/local/bin/list-webhooks-cli /usr/local/bin/cancel-webhook-cli /usr/local/bin/create-automation-job-cli /usr/local/bin/list-automation-jobs-cli /usr/local/bin/show-automation-job-cli /usr/local/bin/cancel-automation-job-cli /usr/local/bin/ankole-files /usr/local/bin/ankole-pod; \
   ! command -v node; \
   bun -e 'if (typeof Bun.TOML.stringify !== "function") throw new Error("Bun.TOML.stringify is required")'; \
   /opt/ankole-browser/browsers/chromium/chrome-headless-shell --version >/dev/null; \

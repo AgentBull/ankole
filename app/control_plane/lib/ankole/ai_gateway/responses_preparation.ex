@@ -145,13 +145,16 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   the model and its credential are selected, so a rejection touches no
   credential, and a terminal quota answer is never hidden behind a retryable
   credential-pool answer.
+
+  A control-plane Applet call sets `check_token_quota: false` and keeps the
+  Agent subject type. Its configured Agent owns usage but has no quota gate.
   """
   @spec ensure_token_quota(String.t(), keyword()) ::
           :ok | {:error, {:agent_token_quota_exceeded, map()}}
   def ensure_token_quota(subject_uid, opts) do
-    case Keyword.get(opts, :subject_type) do
-      "agent" -> TokenQuota.ensure_available(subject_uid)
-      _in_process_or_human -> :ok
+    case {Keyword.get(opts, :subject_type), Keyword.get(opts, :check_token_quota, true)} do
+      {"agent", true} -> TokenQuota.ensure_available(subject_uid)
+      _system_or_human -> :ok
     end
   end
 

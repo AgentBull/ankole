@@ -34,17 +34,10 @@ defmodule Ankole.Conversations.Target do
   end
 
   def for_delivery_in_tx(repo, agent_uid, item) do
-    with {:ok, id} <- Ecto.UUID.cast(value(item, :conversation_id)),
-         %Conversation{} = conversation <- repo.get_by(Conversation, id: id),
-         true <-
-           repo.exists?(
-             from(p in Participant,
-               where:
-                 p.conversation_id == ^id and p.principal_uid == ^agent_uid and p.role == :agent
-             )
-           ) do
+    with {:ok, conversation} <-
+           conversation_for_agent_in_tx(repo, agent_uid, value(item, :conversation_id)) do
       target = %__MODULE__{
-        conversation_id: id,
+        conversation_id: conversation.id,
         kind: conversation.kind,
         binding_name: value(item, :binding_name),
         provider_thread_id: value(item, :provider_thread_id),
@@ -57,8 +50,19 @@ defmodule Ankole.Conversations.Target do
     end
   end
 
-  def accepts_attachments?(%__MODULE__{kind: :native}), do: false
-  def accepts_attachments?(%__MODULE__{kind: :external}), do: true
+  @doc "Resolves a conversation for an Agent that is one of its declared participants."
+  def conversation_for_agent_in_tx(repo, agent_uid, id) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         %Conversation{} = conversation <- repo.get_by(Conversation, id: id),
+         true <-
+           repo.exists?(
+             from p in Participant,
+               where:
+                 p.conversation_id == ^id and p.principal_uid == ^agent_uid and p.role == :agent
+           ),
+         do: {:ok, conversation},
+         else: (_ -> {:error, :conversation_not_found})
+  end
 
   def reply_eligible?(%__MODULE__{kind: :native}, _event), do: true
 

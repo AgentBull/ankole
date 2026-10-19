@@ -70,6 +70,11 @@ function xmlEscape(value: string, attribute = false): string {
 }
 
 export function printXml(tree: Element): string {
+  return printNormalizedXml(normalizeTree(tree))
+}
+
+/** @internal The caller already validated and normalized this tree. */
+export function printNormalizedXml(tree: Element): string {
   function print(node: Node): string {
     if (node.type === 'text') return xmlEscape(node.value)
     const attrs = Object.entries(node.attrs)
@@ -79,5 +84,5 @@ export function printXml(tree: Element): string {
       ? `<${node.name}${attrs}>${node.children.map(print).join('')}</${node.name}>`
       : `<${node.name}${attrs} />`
   }
-  return print(normalizeTree(tree))
+  return print(tree)
 }

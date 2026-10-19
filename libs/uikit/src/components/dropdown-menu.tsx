@@ -40,7 +40,7 @@ function DropdownMenuContent({
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
           className={cn(
-            'ceramic ceramic-primary z-50 max-h-(--available-height) w-(--anchor-width) min-w-40 origin-(--transform-origin) overflow-x-hidden overflow-y-auto p-1 text-popover-foreground outline-none transition-opacity duration-(--duration-overlay) ease-out data-closed:overflow-hidden data-starting-style:opacity-0 data-ending-style:opacity-0',
+            'ceramic ceramic-primary z-50 max-h-(--available-height) w-(--anchor-width) min-w-40 origin-(--transform-origin) overflow-x-hidden overflow-y-auto p-1 text-popover-foreground outline-none transition-none data-closed:overflow-hidden data-starting-style:opacity-0 data-ending-style:opacity-0',
             className
           )}
           {...props}

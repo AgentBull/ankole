@@ -5,7 +5,7 @@ for (const [name, markdown, expected] of [
   ['a table', '| a | b |\n| - | - |\n| c | d |', '| a | b |\n| - | - |\n| c | d |\n\nx'],
   ['a quote', '> quote', '> quote\n\nx'],
   ['a callout', '<callout tone="info">c</callout>', '<callout tone="info">\n  c\n</callout>\n\nx'],
-  ['a database reference', 'a\n\n<database ref="t" />', 'a\n\n<database ref="t" />\n\nx'],
+  ['an embed', 'a\n\n<embed ref="t" />', 'a\n\n<embed ref="t" />\n\nx'],
   ['a divider', 'a\n\n---', 'a\n\n---\n\nx'],
   ['a paragraph', 'a\n\nlast', 'a\n\nlastx'],
   ['a list', '- one\n- two', '- one\n- twox']

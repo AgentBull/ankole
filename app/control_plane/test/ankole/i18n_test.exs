@@ -124,7 +124,32 @@ defmodule Ankole.I18nTest do
       assert I18n.configured_default_locale() == {:ok, "zh-Hans-CN"}
     end
 
-    test "direct AppConfigure writes are validated when the runtime default is applied" do
+    test "a stored unavailable global default does not prevent catalog boot or reload" do
+      definition = Config.default_locale_definition()
+      assert {:ok, "en-US"} = AppConfigure.put_global(definition, "en-US")
+      schema = AppConfig.for_scope("global")
+
+      Repo.update_all(
+        from(row in schema, where: row.scope == "global" and row.key == ^definition.key),
+        set: [value: %{"type" => "plaintext", "value" => "fr-FR"}]
+      )
+
+      Cache.clear_for_test()
+
+      log =
+        capture_log([format: "$metadata $message\n", metadata: [:event]], fn ->
+          assert :ok = I18n.reload()
+          # init loads the release catalog before reading the same persisted row.
+          assert {:ok, _state} = Ankole.I18n.Catalog.init([])
+        end)
+
+      assert log =~ "i18n.catalog.default_unavailable"
+      assert Resolver.language_tag_to_locale(I18n.default_locale()) == "en-US"
+      assert Repo.get_by!(schema, scope: "global", key: definition.key).value["value"] == "fr-FR"
+      assert {:ok, "en-US"} = AppConfigure.put_global(definition, "en-US")
+    end
+
+    test "direct AppConfigure writes reject unavailable active defaults before persistence" do
       restore_default_locale = fn ->
         {:ok, "en-US"} = AppConfigure.put_global(Config.default_locale_definition(), "en-US")
         :ok = I18n.reload()
@@ -132,10 +157,16 @@ defmodule Ankole.I18nTest do
 
       on_exit(restore_default_locale)
 
-      assert {:ok, "fr-FR"} = AppConfigure.put_global(Config.default_locale_definition(), "fr-FR")
-      assert {:error, %ArgumentError{} = error} = I18n.reload()
-      assert Exception.message(error) =~ "configured i18n.default_locale"
-      assert Exception.message(error) =~ "fr-FR"
+      assert {:error, :unavailable_locale} =
+               AppConfigure.put_global(Config.default_locale_definition(), "fr-FR")
+
+      assert {:error, :unavailable_locale} =
+               AppConfigure.put_global_by_key("i18n.default_locale", "fr-FR")
+
+      assert {:error, :unavailable_locale} =
+               AppConfigure.put_tenant_by_key("i18n.default_locale", "fr-FR")
+
+      assert :ok = I18n.reload()
 
       restore_default_locale.()
     end

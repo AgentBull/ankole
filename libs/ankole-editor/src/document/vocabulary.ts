@@ -52,7 +52,7 @@ export const vocabulary: Readonly<Record<string, ElementRule>> = {
   th: cell,
   td: cell,
   callout: { kind: 'block', content: 'blocks', attributes: { tone: /^(info|warning)$/ } },
-  database: { kind: 'block', content: 'empty', attributes: { ref: null } },
+  embed: { kind: 'block', content: 'empty', attributes: { ref: null, table: null, view: null } },
   a: { kind: 'inline', content: 'inline', attributes: { href: null, title: null }, required: ['href'] },
   img: { kind: 'inline', content: 'empty', attributes: { src: null, alt: null, title: null }, required: ['src'] },
   br: { kind: 'inline', content: 'empty', attributes: {} },

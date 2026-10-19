@@ -40,8 +40,9 @@ config :codepagex, :encodings, [
 ]
 
 config :ankole, AnkoleWeb.Endpoint,
-  url: [host: "localhost"],
+  url: [host: "ankole.localhost"],
   adapter: Bandit.PhoenixAdapter,
+  http: [websocket_options: [max_fragmented_message_size: 32 * 1024 * 1024]],
   render_errors: [
     formats: [html: AnkoleWeb.ErrorHTML, json: AnkoleWeb.ErrorJSON],
     layout: false
@@ -64,7 +65,7 @@ config :boruta, Boruta.Oauth,
     refresh_token: 30 * 24 * 60 * 60
   ],
   token_generator: Ankole.OIDC.Boruta.TokenGenerator,
-  issuer: "http://localhost:4000"
+  issuer: "http://ankole.localhost:4000"
 
 # Configure Elixir's Logger for Docker/Kubernetes structured-log ingestion.
 config :logger, :default_handler,

@@ -135,7 +135,7 @@ export function block(depth: number): fc.Arbitrary<Element> {
         ])
       ),
     fc.oneof(fc.constant({}), attributes).map(attrs => e('hr', attrs)),
-    fc.option(word, { nil: undefined }).map(ref => e('database', ref === undefined ? {} : { ref })),
+    fc.dictionary(fc.constantFrom('ref', 'table', 'view'), word, { maxKeys: 3 }).map(attrs => e('embed', attrs)),
     fc
       .tuple(
         fc.integer({ min: 1, max: 3 }),

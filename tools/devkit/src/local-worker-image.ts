@@ -33,6 +33,9 @@ const sharedInputRoots = [
   'app/agent_computer/tsconfig.json',
   'app/ankole-browser',
   'app/library',
+  'libs/ankole-editor',
+  'libs/applet-sdk',
+  'libs/uikit',
   'package.json',
   'bun.lock',
   'tsconfig.base.json'

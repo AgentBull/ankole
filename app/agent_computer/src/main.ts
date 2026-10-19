@@ -144,6 +144,7 @@ async function runWorker(): Promise<void> {
     // export could still be answered. This second flush covers the path that
     // leaves the loop by throwing; it has nothing to send after a clean drain.
     try {
+      await workerRPCHandlers.close()
       await browserRuntime.stop()
     } finally {
       try {

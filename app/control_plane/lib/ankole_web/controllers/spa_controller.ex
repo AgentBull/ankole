@@ -14,6 +14,7 @@ defmodule AnkoleWeb.SpaController do
   alias Ankole.Version
   alias AnkoleWeb.Session, as: WebSession
   alias AnkoleWeb.Assets
+  alias AnkoleWeb.PodURL
 
   # Maps each logical screen to its Vite entry bundle and document <title>. Note
   # the `:sessions` screen mounts the `auth` bundle — the route name and the
@@ -26,7 +27,7 @@ defmodule AnkoleWeb.SpaController do
   }
 
   def home(conn, _params) do
-    if setup_completed?(), do: redirect(conn, to: ~p"/pod"), else: redirect(conn, to: ~p"/setup")
+    if setup_completed?(), do: pod(conn, %{}), else: redirect(conn, to: ~p"/setup")
   end
 
   def logout_confirmation(conn, _params), do: render_spa(conn, :sessions)
@@ -51,15 +52,22 @@ defmodule AnkoleWeb.SpaController do
 
   defp pod_login(conn, params) do
     with :ok <- put_pod_target(conn) do
-      if params["switch"] != "1" and is_map(WebSession.pod_session(conn)) do
-        target =
-          if params["tenant_id"],
-            do: "/pod?" <> URI.encode_query(%{"tenant_id" => Ankole.Repo.tenant_id!()}),
-            else: "/pod"
+      {:ok, tenant} = Ankole.Tenants.get(Ankole.Repo.tenant_id!())
+      origin = PodURL.origin(conn, tenant)
 
-        redirect(conn, to: target)
-      else
-        begin_login(conn, :pod, params)
+      cond do
+        request_origin(conn) != origin ->
+          query = params |> Map.delete("tenant_id") |> URI.encode_query()
+
+          redirect(conn,
+            external: origin <> "/sessions/new" <> if(query == "", do: "", else: "?" <> query)
+          )
+
+        params["switch"] != "1" and is_map(WebSession.pod_session(conn)) ->
+          redirect(conn, to: "/")
+
+        true ->
+          begin_login(conn, :pod, params)
       end
     else
       _ -> send_resp(conn, 404, "Pod not found")
@@ -95,10 +103,18 @@ defmodule AnkoleWeb.SpaController do
   def pod(conn, params) do
     with true <- setup_completed?(),
          {:ok, tenant_id} <- AnkoleWeb.Plugs.RequirePodSession.target_tenant(conn),
-         :ok <- Ankole.Repo.put_tenant_id(tenant_id) do
-      case WebSession.pod_session(conn) do
-        nil -> begin_login(conn, :pod, Map.put(params, "return_to", current_return_to(conn)))
-        _ -> render_spa(conn, :pod)
+         :ok <- Ankole.Repo.put_tenant_id(tenant_id),
+         {:ok, tenant} <- Ankole.Tenants.get(tenant_id),
+         {:ok, path} <- PodURL.path(conn) do
+      canonical = PodURL.origin(conn, tenant) <> path
+
+      if Plug.Conn.request_url(conn) != canonical do
+        redirect(conn, external: canonical)
+      else
+        case WebSession.pod_session(conn) do
+          nil -> begin_login(conn, :pod, Map.put(params, "return_to", path))
+          _ -> render_spa(conn, :pod)
+        end
       end
     else
       false -> redirect(conn, to: ~p"/setup")
@@ -128,8 +144,7 @@ defmodule AnkoleWeb.SpaController do
 
   defp login_return_to(:console, nil), do: AnkoleWeb.SiteAdminConsole.path()
 
-  defp login_return_to(:pod, nil),
-    do: "/pod?" <> URI.encode_query(%{"tenant_id" => Ankole.Repo.tenant_id!()})
+  defp login_return_to(:pod, nil), do: "/"
 
   defp login_return_to(_, return_to), do: WebSession.safe_return_to(return_to)
 
@@ -195,7 +210,7 @@ defmodule AnkoleWeb.SpaController do
       authentication_meta(conn),
       console_path_meta(entry),
       Assets.entry_tags(conn, entry),
-      Assets.locale_preload_tags(locale),
+      Assets.locale_preload_tags(locale, entry),
       "  </head>\n",
       "  <body>\n",
       "    <div id=\"ankole-app\"></div>\n",
@@ -245,6 +260,9 @@ defmodule AnkoleWeb.SpaController do
 
   defp current_return_to(%Plug.Conn{query_string: query_string} = conn),
     do: conn.request_path <> "?" <> query_string
+
+  defp request_origin(conn),
+    do: URI.to_string(%URI{scheme: to_string(conn.scheme), host: conn.host, port: conn.port})
 
   # The authentication and administration shells belong to the site, including
   # logout errors without a verified client or tenant. Read their locale explicitly

@@ -2,11 +2,13 @@
 
 Drive references and grants belong to the Agent's tenant. Content-addressed blob
 bytes and their storage configuration belong to the site. Tenant deletion removes
-its references; the garbage collector deletes only bytes without drive or
-uncompleted Delivery references.
+its references; the garbage collector deletes only bytes without drive,
+Message attachment, or uncompleted Delivery references.
 A blob still referenced by another tenant remains.
 
-Each Agent has a drive in the control plane. The drive holds received
+Each Agent has a drive in the control plane. A tenant also has one Pod drive
+for page content. Both use the same file owner, blob store, and collector.
+The Agent drive holds received
 attachments, generated images, reply attachments, installed Skills, Automation
 scripts, and files that the Agent publishes. It is available without a running
 Worker. The drive is the formal store for sensitive user files and deliverables.
@@ -23,39 +25,66 @@ content. An object store keeps the bytes.
 | Table | Columns | Meaning |
 | --- | --- | --- |
 | `files` | `sha256` (primary key), `size`, `deleting`, `created_at`, `last_referenced_at` | One distinct byte content |
-| `agent_files` | `tenant_id`, `agent_uid`, `path`, `sha256`, `mode`, `content_type`, `source`, `conversation_id`, `message_id`, timestamps; primary key `(tenant_id, agent_uid, path)` | One file in one Agent's drive |
+| `drive_files` | `tenant_id`, nullable `agent_uid`, `path`, `sha256`, `mode`, `content_type`, `source`, `conversation_id`, `message_id`, timestamps; unique `(tenant_id, agent_uid, path) NULLS NOT DISTINCT` | One file in an Agent drive or the tenant's Pod drive |
 
 - A path identifies a file. A folder is only a path prefix; there are no folder
   rows. A path is relative, uses `/`, has at most 1024 bytes, and has no empty,
   `.`, or `..` segment. A segment has at most 255 bytes. A file cannot also be
   the parent of another file: `a` and `a/b` cannot exist together.
 - One content is stored once. Two Agents that receive the same file, or one
-  Agent that saves the same bytes at two paths, add only `agent_files` rows.
-- `source` is `inbound`, `generated`, `sent`, `agent`, or `console`.
+  Agent that saves the same bytes at two paths, add only `drive_files` rows.
+- `source` is `inbound`, `generated`, `sent`, `agent`, `console`, or `pod`.
 - `conversation_id` and `message_id` retain the public origin of a projected
   attachment. The Console listing and Files RPC return them; moves preserve
   them. Files with no Message origin have null values in the Console API.
 - `content_type` is the declared type: the provider MIME type, the
   `reply_attachment` type, the generated image type, or the type for the file
   extension. The file service does not inspect bytes.
-- `agent_files` rows cascade with the Agent principal. Deleting an Agent
+- `drive_files` rows cascade with the Agent principal. Deleting an Agent
   deletes its drive in the same transaction.
 - An Agent reads and writes only its own drive.
+
+The Pod drive uses a null `agent_uid` and stores files under `pages/<page-id>/`.
+`Ankole.Pod.Files` checks page access before every read or write. The Agent's
+`files.get` RPC can select this drive, but still checks that Agent's page access.
+Page files never require granting a Human access to an Agent's whole drive.
+
+A file-page replacement advances its revision with the file reference in one
+transaction. Document assets and Database attachments use their full SHA-256 in
+their paths. An Applet publication replaces `src/`, `dist/`, and optional
+`server/main.js` atomically under the page revision. The backend is inspected
+before commit. A publication without a backend removes the previous `server/`
+references. The browser host loads only `dist/`; the control plane reads the
+backend from the same authorized revision and manifest. Viewers can read source
+and backend files through the ordinary page file interface. Digest reads reject
+a changed manifest, so the host can restart loading after a publication race.
+Page purge and tenant deletion remove `server/` with the other page paths;
+unreferenced content follows the existing collector rules.
+
+Saving a visible Conversation attachment to Pod adds a reference to its original
+message digest. It does not copy bytes, and a later move or replacement in the
+Agent drive cannot change the attachment. Removing a document image reference
+or trashing a page leaves its bytes referenced until page purge removes the Pod
+paths. The existing collector then applies the same live-reference and grace
+rules. See [Pod Content Model](PodContentModel.md).
 
 Some prefixes have a fixed meaning:
 
 | Prefix | Writer |
 | --- | --- |
 | `chats/<channel>/inbox/<digest>/<file name>` | Adapter ingress for a received attachment |
+| `chats/<channel>/inbox/<message ID>/<digest>/<file name>` | A native Human Message attachment |
 | `chats/<channel>/generated/<digest>/<file name>` | AIGateway image generation in a channel conversation |
 | `generated/<digest>/<file name>` | AIGateway image generation without a source channel |
 | `skills/<name>/…` | Console upload or `ankole-files put` |
 | `automation/<folder>-<suffix>/…` | Automation Job registration |
 
 `<digest>` is the first 16 hexadecimal characters of the content SHA-256. The
-same content with the same file name gets the same path within one channel,
-and a repeated write is idempotent. Two channels keep separate paths and
-provenance for the same bytes.
+same content with the same file name gets the same path within one adapter
+channel or native Message. A repeated write is idempotent. A new native Message
+has a separate path so it receives the uploaded bytes even if the Agent edited
+an earlier input file. Two channels keep separate paths and provenance for the
+same bytes.
 
 ## Conversation Files and Delivery
 

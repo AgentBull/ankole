@@ -58,6 +58,10 @@ defmodule Ankole.Brain.ClaimsTest do
     Repo.with_tenant(other.id, fn ->
       Repo.delete!(author)
       Repo.delete_all(Ankole.Brain.Schemas.Object)
+      # Tenant creation also initializes Space grants and its all-humans group.
+      # Remove those fixture rows before testing attribution without its tenant.
+      Repo.delete_all(Ankole.AuthZ.Grant)
+      Repo.delete_all(Ankole.AuthZ.Group)
     end)
 
     Repo.delete!(other)

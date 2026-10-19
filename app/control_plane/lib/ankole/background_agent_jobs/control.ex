@@ -198,6 +198,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
              job,
              %{
                "request_id" => "ambient-handoff:#{source_event.id}",
+               "source_signal_id" => source_event.id,
                "text" => message
              },
              now
@@ -344,7 +345,11 @@ defmodule Ankole.BackgroundAgentJobs.Control do
         provider_thread_id: Map.get(reply_route, "provider_thread_id"),
         provider_message_id: nil
       },
-      data: %{"command" => command_data}
+      data:
+        Attrs.reject_nil_values(%{
+          "command" => command_data,
+          "source_signal_id" => Attrs.text(attrs, "source_signal_id")
+        })
     })
   end
 

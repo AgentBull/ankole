@@ -6,7 +6,6 @@ defmodule Ankole.Sessions.Scheduled do
   import Ecto.Query
   import Ankole.Sessions.Common, only: [reject_nil_values: 1]
 
-  alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.Repo
   alias Ankole.Schedule.Schemas.ScheduledEvent
   alias Ankole.Signals.Signal
@@ -41,18 +40,6 @@ defmodule Ankole.Sessions.Scheduled do
   end
 
   def produced_signal?(_event), do: false
-
-  def tools(run, tools, hosted) do
-    {tools, hosted} = super(run, tools, hosted)
-    {:ok, targets} = Ankole.Sessions.Presentation.targets_in_tx(Repo, run.event)
-
-    if Enum.any?(targets, &(not StatementTarget.accepts_attachments?(&1))) do
-      {Enum.reject(tools, &(&1["name"] == "reply_attachment")),
-       Enum.reject(hosted, &(&1["type"] == "image_generation"))}
-    else
-      {tools, hosted}
-    end
-  end
 
   def plan(event, opts), do: {:ok, %{kind: :scheduled, opts: __MODULE__.opts(event, opts)}}
   def nudge?, do: false

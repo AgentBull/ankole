@@ -34,6 +34,7 @@ defmodule Ankole.AppConfigure.Declarations do
       WorkflowWorkerConfig.definitions() ++
       AgentWorkerSettings.definitions() ++
       Ankole.Brain.Config.definitions() ++
+      Ankole.Pod.Config.definitions() ++
       Ankole.I18n.Config.definitions() ++
       Ankole.Observability.definitions() ++
       AgentPluginConfig.definitions() ++

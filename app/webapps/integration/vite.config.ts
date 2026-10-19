@@ -17,11 +17,14 @@ export default defineConfig(async env => {
           server.middlewares.use(async (request, response, next) => {
             if (
               !request.headers.accept?.includes('text/html') ||
-              (!request.url?.startsWith('/pod') &&
+              (!/^\/(\?|$|pages\/|conversations\/|content\/)/.test(request.url ?? '') &&
                 !request.url?.startsWith('/providers') &&
                 !request.url?.startsWith('/brain') &&
-                !/^\/(settings|tenants|webhooks|files|schedules|library|worker-env)(\/|\?|$)/.test(request.url ?? '') &&
-                !request.url?.startsWith('/console-home'))
+                !/^\/(settings|tenants|webhooks|files|schedules|library|worker-env|worker-providers)(\/|\?|$)/.test(
+                  request.url ?? ''
+                ) &&
+                !request.url?.startsWith('/console-home') &&
+                !/^\/(setup-repair|login-repair)(\/|\?|$)/.test(request.url ?? ''))
             ) {
               return next()
             }

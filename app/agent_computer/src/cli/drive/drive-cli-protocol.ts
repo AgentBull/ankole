@@ -16,6 +16,7 @@ const ListDriveCommand = z.object({
 const GetDriveCommand = z.object({
   operation: z.literal('get'),
   path: DrivePath,
+  pod: z.boolean().optional(),
   output: LocalPath.optional(),
   cwd: LocalPath
 })

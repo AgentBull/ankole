@@ -10,7 +10,7 @@ export const sampleMarkdown = `# 把想法，变成可以工作的文档
 
 页面里只写数据库的引用，字段、记录和视图属于数据库本身。
 
-<database ref="product-roadmap" />
+<embed ref="product-roadmap" />
 
 ## 文档也有自己的节奏
 

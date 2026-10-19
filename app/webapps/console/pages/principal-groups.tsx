@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom'
 import {
   Avatar,
   AvatarFallback,
@@ -193,18 +194,25 @@ export function PrincipalGroupEditorPage() {
 
   const createGroup = useMutation({
     ...ankoleWebAuthZGroupControllerCreateMutation(),
-    onSuccess: response => {
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, _variables, confirm) => {
+      let accepted = false
+      flushSync(() => {
+        accepted = confirm?.(formFromGroup(response.principal_group)) ?? false
+      })
+      if (!accepted) return
       toast.success(t('console.principal_groups.saved', { id: response.principal_group.name }))
 
       // Land on the new group's editor so members and grants can be managed next.
-      navigate(`/access/groups/${encodeURIComponent(response.principal_group.name)}`)
+      if (!model.dirty.value) navigate(`/access/groups/${encodeURIComponent(response.principal_group.name)}`)
     }
   })
   const updateGroup = useMutation({
     ...ankoleWebAuthZGroupControllerUpdateMutation(),
-    onSuccess: response => {
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, _variables, confirm) => {
+      if (!confirm?.(formFromGroup(response.principal_group))) return
       toast.success(t('console.principal_groups.saved', { id: response.principal_group.name }))
-      model.markSaved(formFromGroup(response.principal_group))
     }
   })
 
@@ -236,6 +244,7 @@ export function PrincipalGroupEditorPage() {
       description={t('console.principal_groups.editor_description')}
       backTo="/access/groups"
       dirty={model.dirty.value}
+      supplementaryDirty={model.dirty.value}
       validationError={model.validationError.value}
       error={createGroup.error ?? updateGroup.error ?? (mode === 'edit' ? group.error : null)}
       submitting={createGroup.isPending || updateGroup.isPending}
@@ -251,71 +260,75 @@ export function PrincipalGroupEditorPage() {
         ) : null
       }
       onSubmit={submit}>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <LabeledField
-          label={t('console.principal_groups.name')}
-          description={mode === 'new' ? t('console.principal_groups.name_hint') : undefined}
-          required={mode === 'new'}>
-          {mode === 'edit' ? (
-            <ReadOnlyValue mono>{model.name.value}</ReadOnlyValue>
-          ) : (
+      <fieldset className="contents" disabled={createGroup.isPending}>
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <LabeledField
+            label={t('console.principal_groups.name')}
+            description={mode === 'new' ? t('console.principal_groups.name_hint') : undefined}
+            required={mode === 'new'}>
+            {mode === 'edit' ? (
+              <ReadOnlyValue mono>{model.name.value}</ReadOnlyValue>
+            ) : (
+              <Input
+                required
+                placeholder="research-ops"
+                value={model.name.value}
+                onChange={event => (model.name.value = event.target.value)}
+              />
+            )}
+          </LabeledField>
+          <LabeledField label={t('console.principal_groups.display_name')} required>
             <Input
               required
-              placeholder="research-ops"
-              value={model.name.value}
-              onChange={event => (model.name.value = event.target.value)}
+              value={model.displayName.value}
+              onChange={event => (model.displayName.value = event.target.value)}
             />
-          )}
+          </LabeledField>
+        </div>
+        <LabeledField label={t('console.principal_groups.description_label')}>
+          <Input value={model.description.value} onChange={event => (model.description.value = event.target.value)} />
         </LabeledField>
-        <LabeledField label={t('console.principal_groups.display_name')} required>
-          <Input
-            required
-            value={model.displayName.value}
-            onChange={event => (model.displayName.value = event.target.value)}
-          />
-        </LabeledField>
-      </div>
-      <LabeledField label={t('console.principal_groups.description_label')}>
-        <Input value={model.description.value} onChange={event => (model.description.value = event.target.value)} />
-      </LabeledField>
-      <LabeledField
-        label={t('console.principal_groups.kind')}
-        description={mode === 'new' ? t('console.principal_groups.kind_hint') : undefined}>
-        {mode === 'edit' ? (
-          <ReadOnlyValue>{t(`console.principal_groups.kind_${kind}`)}</ReadOnlyValue>
-        ) : (
-          <Select value={kind} onValueChange={value => (model.kind.value = (value as PrincipalGroupKind) || 'static')}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="static">{t('console.principal_groups.kind_static')}</SelectItem>
-              <SelectItem value="computed">{t('console.principal_groups.kind_computed')}</SelectItem>
-            </SelectContent>
-          </Select>
-        )}
-      </LabeledField>
-      {kind === 'computed' ? (
         <LabeledField
-          label={t('console.principal_groups.condition')}
-          description={t('console.principal_groups.condition_hint')}
-          required={!conditionReadOnly}>
-          {conditionReadOnly ? (
-            <ReadOnlyValue mono>{model.computedCondition.value}</ReadOnlyValue>
+          label={t('console.principal_groups.kind')}
+          description={mode === 'new' ? t('console.principal_groups.kind_hint') : undefined}>
+          {mode === 'edit' ? (
+            <ReadOnlyValue>{t(`console.principal_groups.kind_${kind}`)}</ReadOnlyValue>
           ) : (
-            <Textarea
-              required
-              className="min-h-8 font-mono text-xs"
-              spellCheck={false}
-              value={model.computedCondition.value}
-              onChange={event => (model.computedCondition.value = event.target.value)}
-            />
+            <Select
+              value={kind}
+              onValueChange={value => (model.kind.value = (value as PrincipalGroupKind) || 'static')}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="static">{t('console.principal_groups.kind_static')}</SelectItem>
+                <SelectItem value="computed">{t('console.principal_groups.kind_computed')}</SelectItem>
+              </SelectContent>
+            </Select>
           )}
         </LabeledField>
-      ) : null}
-      {kind === 'computed' && !conditionReadOnly ? (
-        <ComputedMembershipPreview condition={model.computedCondition.value} />
-      ) : null}
+        {kind === 'computed' ? (
+          <LabeledField
+            label={t('console.principal_groups.condition')}
+            description={t('console.principal_groups.condition_hint')}
+            required={!conditionReadOnly}>
+            {conditionReadOnly ? (
+              <ReadOnlyValue mono>{model.computedCondition.value}</ReadOnlyValue>
+            ) : (
+              <Textarea
+                required
+                className="min-h-8 font-mono text-xs"
+                spellCheck={false}
+                value={model.computedCondition.value}
+                onChange={event => (model.computedCondition.value = event.target.value)}
+              />
+            )}
+          </LabeledField>
+        ) : null}
+        {kind === 'computed' && !conditionReadOnly ? (
+          <ComputedMembershipPreview condition={model.computedCondition.value} />
+        ) : null}
+      </fieldset>
     </ResourceEditorPage>
   )
 }

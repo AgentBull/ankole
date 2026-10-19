@@ -79,6 +79,24 @@ defmodule Ankole.WorkAccessTest do
     assert event.human_access_version == disabled.access_version
   end
 
+  test "a failed admitted input checks Human authorization before its next attempt" do
+    %{principal: agent} = agent_fixture()
+    %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()
+    source = source_event(agent.uid, human.uid)
+    key = %{agent_uid: agent.uid, session_id: source.session_id}
+    assert {:ok, admitted} = Admission.admit(key, source)
+
+    assert {:ok, retry} =
+             Ankole.Sessions.Run.defer_retry(admitted, %{"code" => "worker_lost"})
+
+    assert {:ok, disabled} = HumanAccess.disable(human.uid, "Offboarding", nil, "disable")
+    assert {:ok, _} = WorkCleanup.cleanup(human.uid, disabled.access_version)
+
+    assert {:ok, %{status: :access_revoked}} = Admission.admit(key, retry)
+    assert Repo.reload!(source).input_state == "dead_letter"
+    assert Repo.reload!(source).attempt_count == admitted.event.attempt_count
+  end
+
   test "cleanup stops future domain work, preserves independent service work, and survives restoration" do
     %{principal: agent} = agent_fixture()
     %{principal: human} = Ankole.PrincipalsFixtures.human_fixture()

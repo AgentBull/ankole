@@ -12,7 +12,7 @@ import { ALIAS_TSCONFIGS, CYCLE_SCAN_ROOTS, CYCLE_SOURCE_EXTENSIONS } from './co
 import { collectSourceFiles, collectStronglyConnectedComponents, formatCycle } from './lib/import-cycle-graph'
 import type { CheckOptions, CheckResult } from './types'
 
-const testSourcePattern = /(?:\.test|\.e2e\.test)\.[cm]?[tj]sx?$/
+const testSourcePattern = /(?:\.test|\.spec|\.e2e\.test)\.[cm]?[tj]sx?$/
 const generatedSourcePattern = /\.(?:generated|bundle)\.[tj]s$/
 const declarationSourcePattern = /\.d\.[cm]?ts$/
 const ignoredPathPartPattern = /(^|\/)(node_modules|dist|build|coverage|\.artifacts|\.turbo|\.git|assets)(\/|$)/
@@ -61,10 +61,39 @@ function loadAliasTable(): AliasEntry[] {
   return entries
 }
 
+interface WorkspacePackage {
+  root: string
+  name: string
+  exports: unknown
+}
+
+function runtimeExport(value: unknown): string | null {
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) return value.map(runtimeExport).find(Boolean) ?? null
+  if (!value || typeof value !== 'object') return null
+  const conditions = value as Record<string, unknown>
+  for (const key of ['bun', 'browser', 'import', 'node', 'default']) {
+    const target = runtimeExport(conditions[key])
+    if (target) return target
+  }
+  return null
+}
+
+function loadWorkspacePackages(): WorkspacePackage[] {
+  return [...new Set(CYCLE_SCAN_ROOTS.map(root => root.split('/').slice(0, 2).join('/')))].map(root => {
+    const pkg = JSON.parse(readFileSync(path.join(repoRootPath, root, 'package.json'), 'utf8'))
+    return { root, name: pkg.name, exports: pkg.exports }
+  })
+}
+
 type SourceResolver = (importerRepoPath: string, specifier: string) => string | null
 
 /** Builds a resolver for relative imports and package-local TS path aliases. */
-function createSourceResolver(files: readonly string[], aliasTable: readonly AliasEntry[]): SourceResolver {
+export function createSourceResolver(
+  files: readonly string[],
+  aliasTable: readonly AliasEntry[],
+  packages: readonly WorkspacePackage[] = loadWorkspacePackages()
+): SourceResolver {
   const fileSet = new Set(files)
   const pathMap = new Map<string, string>()
   for (const file of files) {
@@ -108,6 +137,34 @@ function createSourceResolver(files: readonly string[], aliasTable: readonly Ali
       const base = path.posix.normalize(path.posix.join(path.posix.dirname(importerRepoPath), specifier))
       return probe(base)
     }
+    for (const pkg of packages) {
+      if (specifier !== pkg.name && !specifier.startsWith(`${pkg.name}/`)) continue
+      const subpath = specifier === pkg.name ? '.' : `.${specifier.slice(pkg.name.length)}`
+      const exports = pkg.exports
+      let target: string | null = null
+      if (typeof exports === 'string') target = subpath === '.' ? exports : null
+      else if (exports && typeof exports === 'object') {
+        const entries = exports as Record<string, unknown>
+        target = runtimeExport(
+          entries[subpath] ??
+            (subpath === '.' && !Object.keys(entries).some(key => key.startsWith('.')) ? entries : undefined)
+        )
+        if (!target && !Object.hasOwn(entries, subpath)) {
+          for (const key of Object.keys(entries)
+            .filter(key => key.includes('*'))
+            .sort((a, b) => b.length - a.length)) {
+            const [prefix, suffix] = key.split('*') as [string, string]
+            if (!subpath.startsWith(prefix) || !subpath.endsWith(suffix)) continue
+            const pattern = runtimeExport(entries[key])
+            if (pattern) {
+              target = pattern.replace('*', subpath.slice(prefix.length, subpath.length - suffix.length))
+              break
+            }
+          }
+        }
+      }
+      return target ? probe(path.posix.join(pkg.root, target)) : null
+    }
     // Alias: scope to the importer's owning package (so app's `@/` and sdk's
     // `@/` never cross). Longest packageRoot prefix wins.
     const owning = aliasTable
@@ -128,8 +185,7 @@ function createSourceResolver(files: readonly string[], aliasTable: readonly Ali
         }
       }
     }
-    // Bare workspace/npm/node specifier — a legitimate package boundary, not an
-    // intra-repo edge. Excluded from the cycle graph (same as upstream).
+    // External packages and runtime builtins have no source in this graph.
     return null
   }
 }
@@ -137,7 +193,7 @@ function createSourceResolver(files: readonly string[], aliasTable: readonly Ali
 /** Returns static runtime import and re-export specifiers in source order. */
 export function collectRuntimeStaticSpecifiers(source: string, loader: RuntimeImportLoader = 'ts'): string[] {
   return runtimeImportScanners[loader]
-    .scanImports(source)
+    .scanImports(source.replace(/^#![^\n]*(?:\n|$)/, ''))
     .filter(item => item.kind === 'import-statement')
     .map(item => item.path)
 }
@@ -182,7 +238,8 @@ export function runCycles(options: CyclesOptions = {}): CheckResult {
     ignoredPathPartPattern.test(repoPath) ||
     generatedSourcePattern.test(repoPath) ||
     declarationSourcePattern.test(repoPath) ||
-    (!options.includeTests && testSourcePattern.test(repoPath))
+    (!options.includeTests &&
+      (testSourcePattern.test(repoPath) || /(^|\/)(integration|test|__tests__|output)(\/|$)/.test(repoPath)))
 
   const files = CYCLE_SCAN_ROOTS.flatMap(root =>
     collectSourceFiles(path.join(repoRootPath, root), {

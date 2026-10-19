@@ -10,6 +10,7 @@
 //! `text(...)` / `image(...)` output, and deterministic `Math.random` /
 //! `Date.now` shims so replays reproduce the recorded call sequence.
 
+use crate::isolate_control::*;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
@@ -64,19 +65,6 @@ const MAX_RUN_REQUEST_BYTES: usize = 16 * 1024 * 1024;
 const MAX_RUN_ID_BYTES: usize = 128;
 /// Bounds the number of output values even when each value is small.
 const MAX_OUTPUT_PARTS: usize = 256;
-/// Marks an isolate that can still accept one termination reason.
-const EXECUTION_RUNNING: u8 = 0;
-/// Records that the watchdog ended the run.
-const TERMINATION_TIMEOUT: u8 = 1;
-/// Records that the V8 heap limit ended the run.
-const TERMINATION_HEAP: u8 = 2;
-/// Records that the caller ended the run.
-const TERMINATION_CANCELLED: u8 = 3;
-/// Prevents termination while the host reads the final state.
-const EXECUTION_FINISHING: u8 = 4;
-/// Marks a run whose final state is no longer mutable.
-const EXECUTION_DONE: u8 = 5;
-
 #[cfg(not(test))]
 /// Bounds simultaneous V8 heap reservations inside one Worker.
 const MAX_CONCURRENT_RUNS: usize = 4;
@@ -88,63 +76,6 @@ const MAX_CONCURRENT_RUNS: usize = 64;
 static ACTIVE_RUNS: AtomicUsize = AtomicUsize::new(0);
 /// Lets cancellation find only the isolate that owns the current run ID.
 static RUN_REGISTRY: OnceLock<Mutex<HashMap<String, Arc<RunControl>>>> = OnceLock::new();
-
-/// One cancellation authority for the V8 isolate that is currently running.
-/// Watchdog, heap pressure, and caller cancellation all race through the same
-/// execution phase, so V8 is terminated at most once and never after the host
-/// starts finishing.
-struct RunControl {
-    execution_phase: AtomicU8,
-    isolate: Mutex<Option<deno_core::v8::IsolateHandle>>,
-}
-
-impl RunControl {
-    fn new() -> Self {
-        Self {
-            execution_phase: AtomicU8::new(EXECUTION_RUNNING),
-            isolate: Mutex::new(None),
-        }
-    }
-
-    fn install_isolate(&self, handle: deno_core::v8::IsolateHandle) {
-        let mut isolate = self
-            .isolate
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        *isolate = Some(handle.clone());
-
-        if self.execution_phase.load(Ordering::SeqCst) == TERMINATION_CANCELLED {
-            handle.terminate_execution();
-        }
-    }
-
-    fn clear_isolate(&self) {
-        self.isolate
-            .lock()
-            .unwrap_or_else(|error| error.into_inner())
-            .take();
-    }
-
-    fn terminate(&self, reason: u8) {
-        if self
-            .execution_phase
-            .compare_exchange(
-                EXECUTION_RUNNING,
-                reason,
-                Ordering::SeqCst,
-                Ordering::SeqCst,
-            )
-            .is_ok()
-            && let Some(handle) = self
-                .isolate
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .as_ref()
-        {
-            handle.terminate_execution();
-        }
-    }
-}
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

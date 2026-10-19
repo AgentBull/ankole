@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
 
 test('read-only content stays readable and selectable', async ({ page }) => {
   await page.getByLabel('Source target', { exact: true }).selectOption('first')
-  await page.getByLabel('Host source', { exact: true }).fill('# Readable title\n\n<database ref="tasks" />\n\nAfter')
+  await page.getByLabel('Host source', { exact: true }).fill('# Readable title\n\n<embed ref="tasks" />\n\nAfter')
   await page.getByRole('button', { name: 'Apply source without moving focus', exact: true }).click()
   await expect(page.getByLabel('Source write result', { exact: true })).toHaveText('Applied')
   await page.getByRole('button', { name: 'Toggle read only', exact: true }).click()
@@ -22,7 +22,7 @@ test('read-only content stays readable and selectable', async ({ page }) => {
     return selection.toString()
   })
   expect(text).toBe('Readable title')
-  await expect(panel.locator('.database-reference code')).toHaveText('tasks')
+  await expect(panel.locator('.embed code')).toHaveText('tasks')
   await page.getByRole('button', { name: 'Toggle read only', exact: true }).click()
   await expect(panel.locator('.editor-content')).toHaveAttribute('contenteditable', 'true')
 })
@@ -163,4 +163,51 @@ test('menus, selection overlays and cleanup belong to the active instance', asyn
   await page.getByRole('button', { name: 'Toggle first editor', exact: true }).click()
   await expect(first).toContainText('Alpha text')
   await expect(second).toContainText('Beta text still works')
+})
+
+test('public host and collaboration APIs keep image metadata, embeds and undo', async ({ page }) => {
+  await page.getByLabel('Host source', { exact: true }).fill('<embed ref="tasks" />\n\nBefore')
+  await page.getByRole('button', { name: 'Apply source without moving focus', exact: true }).click()
+  const panel = page.getByTestId('second-editor')
+  await expect(panel.locator('.embed[data-host="mounted"] code')).toHaveText('tasks')
+  await caret(panel.locator('p'))
+  await page.getByRole('button', { name: 'Insert image', exact: true }).click()
+  const image = panel.locator('img')
+  await expect(image).toHaveAttribute('src', /^data:image/)
+  await expect(image).toHaveAttribute('alt', 'Image description')
+  await expect(image).toHaveAttribute('title', 'Image title')
+  await expect
+    .poll(async () => JSON.parse((await page.getByLabel('Host collaboration', { exact: true }).textContent())!).pending)
+    .toBe(false)
+  await expect(page.getByLabel('Second Markdown', { exact: true })).toContainText('ankole:asset/image')
+  await page.getByRole('button', { name: 'Undo second', exact: true }).click()
+  await expect(image).toHaveCount(0)
+  await expect(panel.locator('.embed[data-host="mounted"] code')).toHaveText('tasks')
+})
+
+test('an oversized edit is rejected before state changes and later edits still save', async ({ page }) => {
+  await page.getByLabel('Host source', { exact: true }).fill('Before')
+  await page.getByRole('button', { name: 'Apply source without moving focus', exact: true }).click()
+  const editor = page.getByRole('textbox', { name: 'Second document', exact: true })
+  await expect
+    .poll(async () => JSON.parse((await page.getByLabel('Host collaboration', { exact: true }).textContent())!).pending)
+    .toBe(false)
+  const before = await page.getByLabel('Host collaboration', { exact: true }).textContent()
+  await caret(editor.locator('p'))
+  await page.getByRole('button', { name: 'Insert oversized image', exact: true }).click()
+  await expect(page.getByTestId('second-editor').getByRole('alert')).toContainText('UTF-16')
+  await expect(editor.locator('img')).toHaveCount(0)
+  await expect(editor.locator('p')).toHaveText('Before')
+  await expect(page.getByLabel('Host collaboration', { exact: true })).toHaveText(before!)
+  await caret(editor.locator('p'))
+  await editor.pressSequentially(' after')
+  await expect(page.getByLabel('Second Markdown', { exact: true })).toHaveText('Before after')
+  await expect(page.getByTestId('second-editor').getByRole('alert')).toHaveCount(0)
+  await expect
+    .poll(
+      async () => JSON.parse((await page.getByLabel('Host collaboration', { exact: true }).textContent())!).revision
+    )
+    .toBeGreaterThan(JSON.parse(before!).revision)
+  await page.getByRole('button', { name: 'Undo second', exact: true }).click()
+  await expect(editor.locator('p')).toHaveText('Before')
 })

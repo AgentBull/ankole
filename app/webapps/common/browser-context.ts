@@ -1,3 +1,5 @@
+import { uuidExpand, uuidShorten } from './uuid-url'
+
 /** Identity belongs to this document. Changing the browser default cannot change it. */
 export function authenticationRef(): string | undefined {
   return meta('ankole-authentication')
@@ -16,9 +18,26 @@ export function identityHeaders(): Record<string, string> {
   }
 }
 
-export function podLocation(path: string): { pathname: string; search: string } {
-  const tenant = podID()
-  return { pathname: path, search: tenant ? `?${new URLSearchParams({ tenant_id: tenant })}` : '' }
+export function podRouteID(value: string | undefined): string | undefined {
+  return value ? (uuidExpand(value) ?? (uuidShorten(value) ? value : undefined)) : undefined
+}
+
+export function podLocation(
+  path: string,
+  query: Record<string, string | null | undefined> = {}
+): { pathname: string; search: string } {
+  const pathname = path.replace(/^\/(pages|conversations)\/([^/]+)$/, (_match, kind, value) => {
+    const id = podRouteID(value)
+    if (!id) throw new Error('Invalid Pod route ID')
+    return `/${kind}/${uuidShorten(id)}`
+  })
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value == null || key === 'tenant_id') continue
+    const id = key === 'chat' ? podRouteID(value) : undefined
+    params.set(key, id ? uuidShorten(id)! : value)
+  }
+  return { pathname, search: params.size ? `?${params}` : '' }
 }
 
 function meta(name: string): string | undefined {

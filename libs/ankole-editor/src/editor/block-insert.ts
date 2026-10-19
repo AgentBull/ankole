@@ -1,6 +1,6 @@
 /*
  * Block structure and block insertion at the caret (SPEC §7.5 block type table: quote, callout,
- * divider and database).
+ * divider and embed).
  *
  * A container holds blocks that are edited one by one: the page, a quote, a callout and a table
  * cell. A list item also holds blocks, but it belongs to its list. Block definitions import this

@@ -10,6 +10,7 @@ defmodule Ankole.Conversations.Conversation do
     field :kind, Ecto.Enum, values: [:native, :external], default: :native
     field :title, :string
     field :created_by, Ankole.Ecto.PrincipalKey
+    field :page_id, Ankole.Ecto.UUIDv7
     field :last_activity_at, :utc_datetime_usec
     field :sequence_high_water, :integer, default: 0
     field :provider_conversation_id, :string
@@ -37,6 +38,7 @@ defmodule Ankole.Conversations.Conversation do
       :kind,
       :title,
       :created_by,
+      :page_id,
       :last_activity_at,
       :sequence_high_water,
       :provider_conversation_id,
@@ -59,11 +61,13 @@ defmodule Ankole.Conversations.Conversation do
     |> Ankole.Ecto.JSONPayload.validate_map(:raw_payload, allow_datetime: true)
     |> unique_constraint([:tenant_id, :id], name: :conversations_pkey)
     |> foreign_key_constraint(:created_by)
+    |> foreign_key_constraint(:page_id, name: :conversations_page_fkey)
     |> foreign_key_constraint(:principal_group_id)
     |> unique_constraint([:tenant_id, :provider_conversation_id],
       name: :conversations_external_identity_index
     )
     |> check_constraint(:kind, name: :conversations_kind_check)
+    |> check_constraint(:page_id, name: :conversations_page_origin_check)
     |> check_constraint(:title, name: :conversations_title_present)
     |> check_constraint(:provider_conversation_id, name: :conversations_origin_check)
   end

@@ -3,7 +3,8 @@
 // scanner, and Tarjan strongly-connected-component detector.
 
 import { describe, expect, test } from 'bun:test'
-import { collectRuntimeStaticSpecifiers } from './cycles'
+import { scanBoundarySource } from './smells'
+import { createSourceResolver, collectRuntimeStaticSpecifiers } from './cycles'
 import { collectStronglyConnectedComponents } from './lib/import-cycle-graph'
 import { parseKnipIssues } from './unused'
 
@@ -75,4 +76,40 @@ describe('collectRuntimeStaticSpecifiers', () => {
       './side-effect'
     ])
   })
+})
+
+test('shared library boundaries reject application imports and allow declared UI peers', () => {
+  for (const file of ['libs/ankole-editor/src/editor.ts', 'libs/applet-sdk/src/index.tsx']) {
+    expect(scanBoundarySource(file, "import { x } from '../../../app/webapps/pod/app'")).toHaveLength(1)
+    expect(scanBoundarySource(file, "import { x } from '@ankole/agent-computer/runtime'")).toHaveLength(1)
+    expect(scanBoundarySource(file, "import { Button } from '@ankole/uikit'\nimport React from 'react'")).toEqual([])
+  }
+})
+
+test('workspace exports and subpaths participate in runtime cycles without type-only targets', () => {
+  const a = 'libs/a/src/index.ts',
+    b = 'libs/b/src/component.tsx'
+  const resolve = createSourceResolver(
+    [a, b],
+    [],
+    [
+      { root: 'libs/a', name: '@test/a', exports: { '.': { types: './src/type.ts', import: './src/index.ts' } } },
+      {
+        root: 'libs/b',
+        name: '@test/b',
+        exports: { './*': { import: './src/*.tsx' }, './types': { types: './src/type.ts' } }
+      }
+    ]
+  )
+  expect(resolve(a, '@test/b/component')).toBe(b)
+  expect(resolve(b, '@test/a')).toBe(a)
+  expect(resolve(a, '@test/b/types')).toBe(null)
+  expect(
+    collectStronglyConnectedComponents(
+      new Map([
+        [a, [resolve(a, '@test/b/component')!]],
+        [b, [resolve(b, '@test/a')!]]
+      ])
+    )
+  ).toEqual([[a, b]])
 })

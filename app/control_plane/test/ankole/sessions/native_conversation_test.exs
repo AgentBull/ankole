@@ -202,12 +202,15 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
     followup = Repo.one!(from(e in Signal, where: e.id != ^context.event.id))
     assert Commands.injectable?(followup)
+    assert Ankole.Conversations.Route.current_input_signal_id(run) == context.event.id
 
     assert {:ok, [injected], run} =
              Run.inject_pending(%{run | pending_event_ids: [followup.id]}, fn _ -> true end)
 
     assert injected.id == followup.id
     assert run.steer_event_ids == [followup.id]
+    assert run.signal_id == context.event.id
+    assert Ankole.Conversations.Route.current_input_signal_id(run) == followup.id
     assert List.last(run.input)["content"] |> Enum.any?(&(&1["text"] == text))
     run = respond(run, "The queue is durable.")
 
@@ -294,19 +297,240 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert_no_adapter_rows()
   end
 
-  test "native turns do not advertise attachment delivery or image generation", context do
+  test "native turns advertise attachment delivery and image generation", context do
     run = prepare(context)
-    refute Enum.any?(run.tools, &(&1.name == "reply_attachment"))
+    assert Enum.any?(run.tools, &(&1.name == "reply_attachment"))
 
-    assert {[], [%{"type" => "brain", "inject" => true}]} =
+    assert {[%{"name" => "reply_attachment"}],
+            [%{"type" => "image_generation"}, %{"type" => "brain", "inject" => true}]} =
              Ankole.Sessions.Main.tools(
                run,
                [%{"name" => "reply_attachment"}],
                [%{"type" => "image_generation"}, %{"type" => "brain"}]
              )
 
-    refute Ankole.Sessions.Main.instructions(run) =~
+    assert Ankole.Sessions.Main.instructions(run) =~
              "deliver it with reply_attachment using drive_path"
+  end
+
+  test "attachment-only completion commits a native message through the real run owner",
+       context do
+    attachment =
+      Ankole.FilesFixtures.sent_attachment_fixture(
+        context.agent.uid,
+        "report.pdf",
+        "PDF result",
+        "application/pdf"
+      )
+
+    run = prepare(context)
+
+    assert {:ok, response} =
+             start_response_run(%{
+               subject_uid: run.agent_uid,
+               conversation_id: run.conversation.id,
+               round_state: run,
+               metadata: %{"request_metadata" => Run.metadata(run)}
+             })
+
+    assert {:ok, response} =
+             ResponseCommit.commit_complete(response, [
+               %{
+                 "type" => "function_call",
+                 "name" => "reply_attachment",
+                 "call_id" => "call-file",
+                 "arguments" => "{}"
+               },
+               %{
+                 "type" => "function_call_output",
+                 "call_id" => "call-file",
+                 "output" =>
+                   Torque.encode!(%{"tool" => "reply_attachment", "attachments" => [attachment]})
+               }
+             ])
+
+    assert {:ok, result} = Run.finalize(%{run | model_response: response, anchor: response.id})
+    assert [%Message{text: nil, attachments: [^attachment]}] = result.posted.messages
+
+    {:ok, target} = Ankole.Conversations.Target.for_reply(Repo, context.event)
+
+    statement = %Ankole.Conversations.Statement{
+      signal: context.event,
+      completion: %{final_text: " \n", clarify_prompt: nil, attachments: [attachment]}
+    }
+
+    assert {:ok, %{messages: [%Message{text: nil, attachments: [^attachment]}]}} =
+             Repo.transact(fn repo -> Conversations.post_in_tx(repo, target, statement) end)
+
+    assert Repo.aggregate(Message, :count) == 2
+    assert_no_adapter_rows()
+  end
+
+  test "a native reply records page links", context do
+    page_id = Ankole.Kernel.gen_uuid_v7()
+    run = context |> prepare() |> respond("Read [the report](ankole:page/#{page_id}).")
+    assert {:ok, result} = Run.finalize(run)
+    assert [%Message{links: [%{"kind" => "page", "id" => ^page_id}]}] = result.posted.messages
+    assert_no_adapter_rows()
+  end
+
+  test "native attachment ownership failure rolls back the message", context do
+    attachment = %{
+      "path" => "sent/missing.pdf",
+      "blob_ref" => String.duplicate("0", 64),
+      "name" => "missing.pdf",
+      "size" => 4,
+      "mime_type" => "application/pdf"
+    }
+
+    {:ok, target} = Ankole.Conversations.Target.for_reply(Repo, context.event)
+
+    statement = %Ankole.Conversations.Statement{
+      signal: context.event,
+      completion: %{final_text: nil, clarify_prompt: nil, attachments: [attachment]}
+    }
+
+    assert {:error, {:reply_attachment_not_in_drive, "sent/missing.pdf"}} =
+             Repo.transact(fn repo ->
+               Conversations.post_in_tx(repo, target, statement)
+             end)
+
+    assert Repo.aggregate(Message, :count) == 1
+    assert_no_adapter_rows()
+  end
+
+  test "deleting a native UUID retires its model identity and rejects another Human replay",
+       context do
+    run = context |> prepare() |> respond("Private history from the first Human")
+    assert {:ok, _} = Run.finalize(run)
+    old_id = run.conversation.id
+    assert {:ok, _} = Conversations.delete(context.human.uid, context.id)
+    assert %{ended_at: %DateTime{}} = Repo.get!(Ankole.AIGateway.Schemas.Conversation, old_id)
+
+    other = Ankole.PrincipalsFixtures.human_fixture().principal
+
+    attrs = %{
+      conversation_id: context.id,
+      agent_uid: context.agent.uid,
+      message_id: Ecto.UUID.generate(),
+      text: "Start a new conversation"
+    }
+
+    assert {:error, :conversation_conflict} =
+             Ankole.ConversationsFixtures.create(other.uid, attrs)
+
+    new_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Ankole.ConversationsFixtures.create(other.uid, %{attrs | conversation_id: new_id})
+
+    fresh =
+      Ankole.AIGateway.Conversations.list_active_conversations(Repo,
+        subject_uid: context.agent.uid,
+        conversation_key: Ankole.Sessions.Key.conversation(new_id)
+      )
+
+    assert [conversation] = fresh
+    assert conversation.id != old_id
+
+    assert Repo.aggregate(
+             from(m in Ankole.AIGateway.Schemas.Message,
+               where: m.conversation_id == ^conversation.id
+             ),
+             :count
+           ) == 0
+  end
+
+  test "a retained Job route cannot deliver into a recreated native identity", context do
+    parent = prepare(context)
+
+    assert {:ok, heavy} =
+             Ankole.AIAgent.ModelProfiles.get_model_profile(context.agent.uid, "heavy")
+
+    assert {:ok, _} =
+             Ankole.AIAgent.ModelProfiles.put_model_profile(context.agent.uid, "coding", %{
+               provider_id: heavy["provider_id"],
+               model: heavy["model"]
+             })
+
+    assert {:ok, %{job: job, dispatch_event: dispatch}} =
+             Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+               "agent_uid" => context.agent.uid,
+               "owner_session_id" => context.event.session_id,
+               "source_signal_id" => context.event.id,
+               "source_tool_call_id" => Ecto.UUID.generate(),
+               "title" => "Retained native result",
+               "task" => "Prepare a private report for the first Human.",
+               "reply_route" => Ankole.Conversations.Route.snapshot(parent)
+             })
+
+    assert {:ok, _} = Run.finalize(parent, :silent)
+    assert {:error, :conversation_busy} = Conversations.delete(context.human.uid, context.id)
+
+    assert {:ok, _} =
+             Ankole.BackgroundAgentJobs.request_stop(job.id, %{"agent_uid" => context.agent.uid})
+
+    assert Repo.reload!(dispatch).completed_at
+    assert Repo.reload!(job).reply_route["conversation_id"] == context.id
+    assert {:ok, _} = Conversations.delete(context.human.uid, context.id)
+    other = Ankole.PrincipalsFixtures.human_fixture().principal
+
+    assert {:error, :conversation_conflict} =
+             Ankole.ConversationsFixtures.create(other.uid, %{
+               conversation_id: context.id,
+               agent_uid: context.agent.uid,
+               message_id: Ecto.UUID.generate(),
+               text: "Receive the old report"
+             })
+
+    assert {:error, :background_agent_job_terminal} =
+             Ankole.BackgroundAgentJobs.request_complete(job.id, %{
+               "agent_uid" => context.agent.uid,
+               "result_summary" => "A private report that arrived late"
+             })
+
+    assert {:error, _} = Ankole.Conversations.Target.for_reply(Repo, dispatch)
+    assert Repo.aggregate(Message, :count) == 0
+  end
+
+  test "retired native identity remains protected by Signal facts before its first model turn",
+       context do
+    assert {:ok, _} =
+             Repo.transact(fn repo ->
+               Ankole.Sessions.Queue.mark_event_completed_in_tx(
+                 repo,
+                 context.event,
+                 DateTime.utc_now(:microsecond)
+               )
+             end)
+
+    assert {:ok, _} = Conversations.delete(context.human.uid, context.id)
+
+    [history] =
+      Repo.all(
+        from c in Ankole.AIGateway.Schemas.Conversation,
+          where:
+            c.subject_uid == ^context.agent.uid and
+              c.conversation_key == ^context.event.session_id
+      )
+
+    assert Repo.aggregate(
+             from(m in Ankole.AIGateway.Schemas.Message,
+               where: m.conversation_id == ^history.id
+             ),
+             :count
+           ) == 0
+
+    Repo.delete!(history)
+    other = Ankole.PrincipalsFixtures.human_fixture().principal
+
+    assert {:error, :conversation_conflict} =
+             Ankole.ConversationsFixtures.create(other.uid, %{
+               conversation_id: context.id,
+               agent_uid: context.agent.uid,
+               message_id: Ecto.UUID.generate(),
+               text: "Retry a retired identity"
+             })
   end
 
   defp prepare(context) do

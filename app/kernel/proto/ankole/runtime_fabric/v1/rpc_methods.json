@@ -98,6 +98,26 @@
     "response_type": "ankole.runtime_fabric.v1.ObservabilitySpansExportResponse"
   },
   {
+    "method": "pod.read",
+    "scope": "turn",
+    "effect": "read",
+    "request_type": "ankole.runtime_fabric.v1.PodRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "pod.sync",
+    "scope": "worker_agent",
+    "request_type": "ankole.runtime_fabric.v1.PodSyncRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
+    "method": "pod.write",
+    "scope": "turn",
+    "effect": "write",
+    "request_type": "ankole.runtime_fabric.v1.PodRequest",
+    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
+  },
+  {
     "method": "session_turn.abort",
     "scope": "turn",
     "effect": "complete",

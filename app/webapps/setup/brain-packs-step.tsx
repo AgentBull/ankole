@@ -3,10 +3,11 @@ import { Button } from '@ankole/uikit/components/button'
 import { Checkbox } from '@ankole/uikit/components/checkbox'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { setupBrainPacks, updateSetupBrainPacks } from '../common/api/generated/sdk.gen'
+import type { SetupBrainPacks } from '../common/api/generated/types.gen'
 import { ErrorBlock } from '../common/error-block'
 import { SetupPanel } from './layout'
 import { BrainPacksStepModel } from './state/brain-packs-step-model'
@@ -22,6 +23,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
   useSignals()
   const { t } = useTranslation()
   const model = useModel(BrainPacksStepModel)
+  const client = useQueryClient()
   const query = useQuery({
     queryKey: ['setup-brain-packs'],
     queryFn: () => setupBrainPacks()
@@ -35,7 +37,12 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
   const selected: ReadonlySet<string> = seeded ? model.selectedPacks.value : new Set(query.data?.selected ?? [])
   const mutation = useMutation({
     mutationFn: () => updateSetupBrainPacks({ body: model.submission() }),
-    onSuccess: onContinue
+    onSuccess: response => {
+      client.setQueryData<SetupBrainPacks>(['setup-brain-packs'], previous =>
+        previous ? { ...previous, selected: response.packs } : previous
+      )
+      onContinue()
+    }
   })
 
   return (
@@ -54,7 +61,7 @@ export function BrainPacksStep({ onContinue }: { onContinue: () => void }) {
               }`}>
               <Checkbox
                 checked={checked}
-                disabled={pack.required}
+                disabled={pack.required || mutation.isPending}
                 onCheckedChange={value => model.setPackSelected(pack.name, value === true)}
               />
               <span className="grid min-w-0 flex-1 gap-2">

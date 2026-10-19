@@ -153,6 +153,7 @@ defmodule Ankole.Sessions.Admission do
          true <- uid == key.agent_uid and session == key.session_id,
          {:ok, :not_committed} <- finalize_workflow_input_in_tx(repo, event, plan),
          true <- is_nil(event.completed_at) and event.input_state == "open",
+         :ok <- current_queue_head(repo, event),
          :ok <- authorize_attempt_in_tx(repo, event),
          :ok <- agent_active(repo, uid),
          {:ok, kind_context} <- Run.type(event).admit_in_tx(repo, event, plan),
@@ -165,7 +166,16 @@ defmodule Ankole.Sessions.Admission do
            event
            |> Signal.changeset(%{
              attempt_count: event.attempt_count + 1,
-             last_attempt_at: now
+             last_attempt_at: now,
+             data:
+               if(plan.kind == :main,
+                 do:
+                   Ankole.Conversations.ModelPreferences.freeze_admission(
+                     event,
+                     Keyword.get(plan.opts, :profile, "primary")
+                   ),
+                 else: event.data
+               )
            })
            |> repo.update() do
       run = %Run{
@@ -199,6 +209,25 @@ defmodule Ankole.Sessions.Admission do
       _closed -> {:error, :input_unavailable}
     end
   end
+
+  # The Driver may have read the queue before a Human reordered pending follow-ups.
+  defp current_queue_head(
+         _repo,
+         %Signal{
+           producer: :kernel,
+           source: "conversation:" <> id,
+           conversation_id: id,
+           type: "conversation.message.addressed",
+           last_attempt_at: nil
+         } = event
+       ) do
+    case Queue.next_ready_event(event.agent_uid, event.session_id) do
+      %Signal{id: id} when id == event.id -> :ok
+      _ -> {:error, :input_unavailable}
+    end
+  end
+
+  defp current_queue_head(_repo, _event), do: :ok
 
   defp finalize_workflow_input_in_tx(repo, event, %{kind: :workflow_task} = plan),
     do: Ankole.Sessions.WorkflowTask.finalize_input_in_tx(repo, event, plan)
@@ -246,9 +275,11 @@ defmodule Ankole.Sessions.Admission do
     end
   end
 
-  # The durable attempt marker admits recovery after suspension. New input
-  # still checks the tenant and its retained human authorization here.
-  defp authorize_attempt_in_tx(_repo, %Signal{last_attempt_at: %DateTime{}}), do: :ok
+  # Tenant suspension permits recovery of accepted input. Each new admission
+  # still checks the Human authorization; the current attempt keeps its rights.
+  defp authorize_attempt_in_tx(repo, %Signal{last_attempt_at: %DateTime{}} = event),
+    do: WorkAccess.check_in_tx(repo, event)
+
   defp authorize_attempt_in_tx(repo, event), do: authorize_new_in_tx(repo, event)
 
   defp authorize_new_in_tx(repo, %Signal{producer: :kernel, type: "command.stop"} = event),

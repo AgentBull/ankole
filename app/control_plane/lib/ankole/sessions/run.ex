@@ -443,7 +443,14 @@ defmodule Ankole.Sessions.Run do
     events =
       Queue.due(run)
       |> Enum.filter(&(&1.id in run.pending_event_ids and include?.(&1)))
-      |> Enum.take_while(&Ankole.Sessions.Commands.injectable?/1)
+      |> Enum.reject(&Ankole.Sessions.Commands.queued_followup?/1)
+      |> Enum.take_while(
+        &(Ankole.Sessions.Commands.injectable?(&1) and
+            Ankole.Conversations.ModelPreferences.compatible?(
+              &1,
+              run.spec.model_ref["profile"] || "primary"
+            ))
+      )
 
     with {:ok, injected} <- inject(run, events) do
       ids = Enum.map(injected, & &1.id)
@@ -469,9 +476,13 @@ defmodule Ankole.Sessions.Run do
   end
 
   def inject_in_tx(repo, run, events, now) do
-    with :ok <- Fence.check_in_tx(repo, run) do
-      events
-      |> Enum.sort_by(& &1.queue_sequence)
+    with :ok <- Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id),
+         :ok <- Fence.check_in_tx(repo, run) do
+      ids = Enum.map(events, & &1.id)
+
+      repo.all(
+        from input in Signal, where: input.id in ^ids, order_by: [asc: input.queue_sequence]
+      )
       |> Enum.reduce_while({:ok, {[], []}}, fn event, {:ok, {injected, completed}} ->
         case inject_event_in_tx(repo, run, event, now) do
           {:ok, nil} -> {:cont, {:ok, {injected, completed}}}
@@ -492,6 +503,12 @@ defmodule Ankole.Sessions.Run do
            current <-
            Ankole.Signals.lock_signal_in_tx(repo, event.id),
          true <- uid == run.agent_uid and session == run.session_id,
+         false <- Ankole.Sessions.Commands.queued_followup?(current),
+         true <-
+           Ankole.Conversations.ModelPreferences.compatible?(
+             current,
+             run.spec.model_ref["profile"] || "primary"
+           ),
          {:ok, %Signal{input_state: "open", completed_at: nil} = authorized} <-
            Ankole.Sessions.Admission.authorize_event_in_tx(repo, current) do
       authorized |> Signal.changeset(%{last_attempt_at: now}) |> repo.update()

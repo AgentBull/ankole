@@ -1,6 +1,8 @@
 import { authenticationRef, podID } from '../common/browser-context'
 import { InternalAPIError } from '../common/internal-api-client'
 import { requestErrorCode } from '../common/request-errors'
+import { mergeMessageWindow } from './state/message-history'
+import { replaceEqualDeep, type QueryClient } from '@tanstack/react-query'
 
 export type {
   PodAgent,
@@ -9,19 +11,35 @@ export type {
   ConversationMessage,
   ConversationStatus,
   ConversationDetail,
-  ConversationCreateRequest as MessageSubmission
+  ConversationPendingInput,
+  ConversationQueueRequest
 } from '../common/api/generated/types.gen'
 import type {
   ConversationDetail,
-  ConversationCreateRequest as MessageSubmission
+  ConversationQueueRequest,
+  ConversationCreateRequest,
+  ConversationAttachmentReceipt
 } from '../common/api/generated/types.gen'
 import {
   podAgents,
   podConversations,
   conversationDetail,
   createConversation,
-  postConversationMessage
+  postConversationMessage,
+  updateConversationQueue,
+  uploadConversationAttachment
 } from '../common/api/generated/sdk.gen'
+
+/** Local attachment IDs identify the captured draft; the API receives only signed receipts. */
+export type MessageSubmission = ConversationCreateRequest & { attachmentIDs?: string[] }
+
+export function uploadAttachment(
+  file: File,
+  fileID: string,
+  signal: AbortSignal
+): Promise<ConversationAttachmentReceipt> {
+  return uploadConversationAttachment({ body: { file, fileID }, signal })
+}
 
 export const podKeys = {
   get agents() {
@@ -30,6 +48,7 @@ export const podKeys = {
   get conversations() {
     return [...contextKey(), 'conversations'] as const
   },
+  pageConversations: (pageID: string) => [...podKeys.conversations, 'page', pageID] as const,
   detail: (id: string) => [...contextKey(), 'conversation', id] as const
 }
 export const agentsQuery = {
@@ -40,25 +59,44 @@ export const conversationsQuery = {
   queryKey: podKeys.conversations,
   queryFn: () => podConversations()
 }
+export const pageConversationsQuery = (pageID: string) => ({
+  queryKey: podKeys.pageConversations(pageID),
+  queryFn: () => podConversations({ query: { pageID } })
+})
 export function conversationQuery(id: string) {
   return {
     queryKey: podKeys.detail(id),
-    queryFn: () => conversationDetail({ path: { id } }),
+    queryFn: ({ client, signal }: { client: QueryClient; signal: AbortSignal }) =>
+      conversationDetail({
+        path: { id },
+        signal,
+        query: { loadedFirstSeq: client.getQueryData<ConversationDetail>(podKeys.detail(id))?.messageRange.firstSeq }
+      }),
+    structuralSharing: (current: unknown, incoming: unknown) =>
+      replaceEqualDeep(
+        current,
+        mergeMessageWindow(current as ConversationDetail | undefined, incoming as ConversationDetail)
+      ),
     retry: (failureCount: number, error: unknown) => !conversationNotFound(error) && failureCount < 1
   }
 }
 export function postMessage(submission: MessageSubmission, create: boolean): Promise<ConversationDetail> {
-  const { conversationID, messageID, agentUID, text } = submission
+  const { conversationID, messageID, agentUID, text, pageID, deliveryMode, attachments, modelProfile } = submission
+  const content = { text, deliveryMode, ...(attachments?.length ? { attachments } : {}) }
   return create
-    ? createConversation({ body: { conversationID, messageID, agentUID, text } })
-    : postConversationMessage({ path: { id: conversationID }, body: { messageID, text } })
+    ? createConversation({
+        body: { conversationID, messageID, agentUID, modelProfile, ...content, ...(pageID ? { pageID } : {}) }
+      })
+    : postConversationMessage({ path: { id: conversationID }, body: { messageID, ...content } })
+}
+
+export function updateQueue(conversationID: string, body: ConversationQueueRequest): Promise<ConversationDetail> {
+  return updateConversationQueue({ path: { id: conversationID }, body })
 }
 export function conversationEventsURL(id: string): string {
   const query = new URLSearchParams()
   const authentication = authenticationRef()
-  const tenant = podID()
   if (authentication) query.set('authentication_ref', authentication)
-  if (tenant) query.set('tenant_id', tenant)
   const suffix = query.size ? `?${query}` : ''
   return `/.internal-apis/pod/conversations/${encodeURIComponent(id)}/events${suffix}`
 }

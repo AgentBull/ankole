@@ -65,6 +65,17 @@ test.each([
   }
 )
 
+test('structured API failures render their message while preserving the error code and response', async () => {
+  const payload = { error: { code: 'creation_unavailable', message: 'Creation unavailable' } }
+  globalThis.fetch = (async (_request: Request) => Response.json(payload, { status: 503 })) as typeof fetch
+  const error = await conversationDetail({ path: { id: 'unavailable' } }).catch(error => error)
+  expect(error).toBeInstanceOf(InternalAPIError)
+  expect(error.message).toBe('Creation unavailable')
+  expect(error.status).toBe(503)
+  expect(error.payload).toEqual(payload)
+  expect(conversationNotFound(error)).toBe(false)
+})
+
 test.each([
   ['', {}],
   ['upstream unavailable', 'upstream unavailable']

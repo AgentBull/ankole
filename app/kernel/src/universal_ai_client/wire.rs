@@ -12,6 +12,8 @@ pub struct SSEParser {
     max_event_bytes: usize,
     // Start the next scan at a byte that can begin a split boundary.
     scan_from: usize,
+    stream_start: bool,
+    pending_lf: bool,
 }
 
 impl SSEParser {
@@ -20,11 +22,29 @@ impl SSEParser {
             buffer: Vec::new(),
             max_event_bytes: max_event_bytes.max(1),
             scan_from: 0,
+            stream_start: true,
+            pending_lf: false,
         }
     }
 
     pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<SSEEvent>, StreamError> {
+        let bytes = if self.pending_lf && !bytes.is_empty() {
+            self.pending_lf = false;
+            bytes.strip_prefix(b"\n").unwrap_or(bytes)
+        } else {
+            bytes
+        };
         self.buffer.extend_from_slice(bytes);
+        if self.stream_start {
+            const BOM: &[u8] = b"\xef\xbb\xbf";
+            if self.buffer.len() < BOM.len() && BOM.starts_with(&self.buffer) {
+                return Ok(Vec::new());
+            }
+            if self.buffer.starts_with(BOM) {
+                self.buffer.drain(..BOM.len());
+            }
+            self.stream_start = false;
+        }
         let mut events = Vec::new();
 
         while let Some((index, boundary_len)) = find_sse_boundary(&self.buffer, self.scan_from) {
@@ -36,6 +56,10 @@ impl SSEParser {
                 ));
             }
 
+            // A trailing CR ends the event immediately; its optional LF may
+            // arrive in the next network chunk and belongs to this boundary.
+            self.pending_lf =
+                self.buffer.len() == index + boundary_len && self.buffer.last() == Some(&b'\r');
             let mut raw = self.buffer.drain(..index).collect::<Vec<_>>();
             self.buffer.drain(..boundary_len);
             self.scan_from = 0;
@@ -49,7 +73,16 @@ impl SSEParser {
             }
         }
 
-        if self.buffer.len() > self.max_event_bytes {
+        // The final line ending may be the first half of an event boundary.
+        // Count the same event content whether that boundary is split or whole.
+        let suffix = if self.buffer.ends_with(b"\r\n") {
+            2
+        } else if self.buffer.ends_with(b"\r") || self.buffer.ends_with(b"\n") {
+            1
+        } else {
+            0
+        };
+        if self.buffer.len() - suffix > self.max_event_bytes {
             return Err(StreamError::new(
                 "sse_event_too_large",
                 "wire",
@@ -81,15 +114,26 @@ impl SSEParser {
 
 fn find_sse_boundary(buffer: &[u8], start: usize) -> Option<(usize, usize)> {
     (start.min(buffer.len())..buffer.len()).find_map(|index| {
-        let remaining = &buffer[index..];
-        if remaining.starts_with(b"\r\n\r\n") {
-            Some((index, b"\r\n\r\n".len()))
-        } else if remaining.starts_with(b"\n\n") {
-            Some((index, b"\n\n".len()))
-        } else {
-            None
+        if buffer[index] == b'\n' && index > 0 && buffer[index - 1] == b'\r' {
+            return None;
         }
+        let first = line_ending_len(&buffer[index..]);
+        if first == 0 {
+            return None;
+        }
+        let second = line_ending_len(&buffer[index + first..]);
+        (second > 0).then_some((index, first + second))
     })
+}
+
+fn line_ending_len(bytes: &[u8]) -> usize {
+    if bytes.starts_with(b"\r\n") {
+        2
+    } else if bytes.starts_with(b"\r") || bytes.starts_with(b"\n") {
+        1
+    } else {
+        0
+    }
 }
 
 fn parse_sse_event(raw: &[u8]) -> Option<SSEEvent> {
@@ -97,23 +141,21 @@ fn parse_sse_event(raw: &[u8]) -> Option<SSEEvent> {
     let mut event = None;
     let mut data_lines = Vec::new();
 
-    for line in text.lines() {
-        let line = line.trim_end_matches('\r');
+    for line in text.split(['\r', '\n']) {
         if line.is_empty() || line.starts_with(':') {
             continue;
         }
-
-        if let Some(rest) = line.strip_prefix("event:") {
-            event = Some(rest.trim_start().to_string());
-        } else if let Some(rest) = line.strip_prefix("data:") {
-            data_lines.push(rest.trim_start().to_string());
+        let (field, value) = line.split_once(':').unwrap_or((line, ""));
+        let value = value.strip_prefix(' ').unwrap_or(value);
+        match field {
+            "event" => event = Some(value.to_string()),
+            "data" => data_lines.push(value.to_string()),
+            _ => {}
         }
     }
-
     if event.is_none() && data_lines.is_empty() {
         return None;
     }
-
     Some(SSEEvent {
         event,
         data: data_lines.join("\n"),
@@ -330,6 +372,31 @@ pub(crate) mod tests {
     use super::*;
 
     #[test]
+    fn sse_boundaries_bom_and_limit_are_independent_of_network_chunks() {
+        for ending in ["\n", "\r", "\r\n"] {
+            let input = format!("\u{feff}data:  x{ending}{ending}data:{ending}{ending}");
+            for split in 0..=input.len() {
+                let mut parser = SSEParser::new(8);
+                let mut events = parser.push(&input.as_bytes()[..split]).unwrap();
+                events.extend(parser.push(&input.as_bytes()[split..]).unwrap());
+                assert_eq!(
+                    events.iter().map(|e| e.data.as_str()).collect::<Vec<_>>(),
+                    [" x", ""]
+                );
+                parser.finish().unwrap();
+            }
+            let input = format!("data: 12{ending}{ending}");
+            for split in 0..=input.len() {
+                let mut parser = SSEParser::new(8);
+                let mut events = parser.push(&input.as_bytes()[..split]).unwrap();
+                events.extend(parser.push(&input.as_bytes()[split..]).unwrap());
+                assert_eq!(events.len(), 1);
+                parser.finish().unwrap();
+            }
+        }
+    }
+
+    #[test]
     fn sse_parser_handles_split_events() {
         let mut parser = SSEParser::new(1024);
 
@@ -376,8 +443,8 @@ pub(crate) mod tests {
         let mut parser = SSEParser::new(1024);
 
         assert!(parser.push(b"data: split\r\n").unwrap().is_empty());
-        assert!(parser.push(b"\r").unwrap().is_empty());
-        let events = parser.push(b"\n").unwrap();
+        let events = parser.push(b"\r").unwrap();
+        assert!(parser.push(b"\n").unwrap().is_empty());
 
         assert_eq!(
             events,

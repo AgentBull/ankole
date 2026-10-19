@@ -57,7 +57,11 @@ async function readPayload(response: Response): Promise<unknown> {
 function errorText(payload: unknown): string | undefined {
   if (payload && typeof payload === 'object' && 'error' in payload) {
     const value = (payload as { error?: unknown }).error
-    return typeof value === 'string' ? value : JSON.stringify(value)
+    if (typeof value === 'string') return value
+    if (value && typeof value === 'object' && 'message' in value && typeof value.message === 'string') {
+      return value.message
+    }
+    return JSON.stringify(value)
   }
 
   return typeof payload === 'string' ? payload : undefined

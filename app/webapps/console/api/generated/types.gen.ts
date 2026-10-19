@@ -892,7 +892,7 @@ export type AgentFileEntry = {
   message_id: string | null
   path: string
   size: number
-  source: 'inbound' | 'generated' | 'sent' | 'agent' | 'console'
+  source: 'inbound' | 'generated' | 'sent' | 'agent' | 'console' | 'pod'
   updated_at: string
 }
 

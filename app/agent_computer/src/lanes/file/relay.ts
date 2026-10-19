@@ -36,7 +36,12 @@ export type RelayTransferResult = { size: number }
  * only through an atomic rename, so a failed or oversize pull never leaves a
  * partial file where the Agent can read it.
  */
-export async function pullFile(config: AgentHomeConfig, request: RelayTransferRequest): Promise<RelayTransferResult> {
+export async function pullFile(
+  config: AgentHomeConfig,
+  request: RelayTransferRequest,
+  signal?: AbortSignal
+): Promise<RelayTransferResult> {
+  signal?.throwIfAborted()
   const transferID = safeTransferID(request.transferId)
   const maxBytes = boundedByteCount(request.maxBytes)
   const targetPath = assertCreatableHomePath(
@@ -52,12 +57,14 @@ export async function pullFile(config: AgentHomeConfig, request: RelayTransferRe
   mkdirSync(tempDir, { recursive: true })
 
   try {
-    await downloadToFile(request.url, decodedPath, maxBytes)
+    await downloadToFile(request.url, decodedPath, maxBytes, signal)
+    signal?.throwIfAborted()
 
     mkdirAgentSync(dirname(targetPath))
     rmSync(finalTempPath, { force: true })
     await moveToTargetFilesystem(decodedPath, finalTempPath)
     await chownAgentPath(finalTempPath)
+    signal?.throwIfAborted()
     await rename(finalTempPath, targetPath)
 
     return { size: statSync(targetPath).size }
@@ -77,7 +84,12 @@ export async function pullFile(config: AgentHomeConfig, request: RelayTransferRe
  * can reproduce the size and mtime but not the inode, and the control plane
  * must not treat bytes from a replaced file as a successful read.
  */
-export async function pushFile(config: AgentHomeConfig, request: RelayTransferRequest): Promise<RelayTransferResult> {
+export async function pushFile(
+  config: AgentHomeConfig,
+  request: RelayTransferRequest,
+  signal?: AbortSignal
+): Promise<RelayTransferResult> {
+  signal?.throwIfAborted()
   safeTransferID(request.transferId)
   const name = request.homeRelativePath
   const maxBytes = boundedByteCount(request.maxBytes)
@@ -87,7 +99,7 @@ export async function pushFile(config: AgentHomeConfig, request: RelayTransferRe
     throw new FileTransferError('file_too_large', `file exceeds ${maxBytes} bytes: ${name}`)
   }
 
-  await uploadFromFile(request.url, filePath, stat.size)
+  await uploadFromFile(request.url, filePath, stat.size, signal)
 
   if (!sourceStillStable(filePath, stat)) {
     throw new FileTransferError('file_changed', `file changed during read: ${name}`)
@@ -108,8 +120,10 @@ export async function pushFile(config: AgentHomeConfig, request: RelayTransferRe
  */
 export async function pushBundle(
   config: AgentHomeConfig,
-  request: RelayTransferRequest & { bundlePaths: string[] }
+  request: RelayTransferRequest & { bundlePaths: string[] },
+  signal?: AbortSignal
 ): Promise<RelayTransferResult> {
+  signal?.throwIfAborted()
   const transferID = safeTransferID(request.transferId)
   const base = request.homeRelativePath
   const maxBytes = boundedByteCount(request.maxBytes)
@@ -133,6 +147,7 @@ export async function pushBundle(
     const bundle = await open(bundlePath, 'w')
     try {
       for (const source of sources) {
+        signal?.throwIfAborted()
         const name = Buffer.from(source.path, 'utf8')
         const header = Buffer.alloc(bundleHeaderBytes + name.byteLength)
         header.writeUInt32BE(name.byteLength, 0)
@@ -143,6 +158,7 @@ export async function pushBundle(
         // changes size fails the transfer instead of shifting later entries.
         let written = 0
         for await (const chunk of Bun.file(source.filePath).stream()) {
+          signal?.throwIfAborted()
           written += chunk.byteLength
           if (written > source.stat.size) break
           await bundle.write(chunk)
@@ -154,7 +170,7 @@ export async function pushBundle(
     } finally {
       await bundle.close()
     }
-    await uploadFromFile(request.url, bundlePath, total)
+    await uploadFromFile(request.url, bundlePath, total, signal)
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -207,10 +223,10 @@ function openPushSource(config: AgentHomeConfig, homeRelativePath: string): { fi
   }
 }
 
-async function downloadToFile(url: string, path: string, maxBytes: number): Promise<void> {
+async function downloadToFile(url: string, path: string, maxBytes: number, signal?: AbortSignal): Promise<void> {
   let response: Response
   try {
-    response = await fetch(url)
+    response = await fetch(url, { signal })
   } catch (error) {
     throw new FileTransferError('relay_failed', `relay request failed: ${errorMessage(error)}`)
   }
@@ -248,10 +264,11 @@ async function downloadToFile(url: string, path: string, maxBytes: number): Prom
   }
 }
 
-async function uploadFromFile(url: string, path: string, size: number): Promise<void> {
+async function uploadFromFile(url: string, path: string, size: number, signal?: AbortSignal): Promise<void> {
   let response: Response
   try {
     response = await fetch(url, {
+      signal,
       method: 'PUT',
       body: Bun.file(path),
       headers: {

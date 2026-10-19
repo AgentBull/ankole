@@ -179,9 +179,9 @@ test('duplicates copy blocks with their attributes and move the caret into the c
   )
   const two = open('- a\n- b\n- c', 'a', 0, ['b', 1])
   expect(markdown(apply(two, duplication(two)))).toBe('- a\n- b\n- a\n- b\n- c')
-  const reference = openAt('a\n\n<database ref="tasks" />', 0)
+  const reference = openAt('a\n\n<embed ref="tasks" />', 0)
   const copy = apply(reference, duplication(reference, 3))
-  expect(markdown(copy)).toBe('a\n\n<database ref="tasks" />\n\n<database ref="tasks" />')
+  expect(markdown(copy)).toBe('a\n\n<embed ref="tasks" />\n\n<embed ref="tasks" />')
   expect(copy.selection).toBeInstanceOf(GardSelection.Node)
   expect(copy.selection.from).toBe(4)
 })
@@ -237,7 +237,7 @@ function editorFor(state: GardState) {
 
 const undoOnce = (state: GardState) => state.update(undo({ state }, null) as Transaction.Spec).state
 
-test.each(['h2', 'quote', 'divider', 'callout', 'database'] as const)(
+test.each(['h2', 'quote', 'divider', 'callout', 'embed'] as const)(
   'a slash query deletion and %p are one undo step',
   type => {
     const editor = editorFor(open('Start\n\nx/q', 'x/q', 3))
@@ -248,7 +248,7 @@ test.each(['h2', 'quote', 'divider', 'callout', 'database'] as const)(
   }
 )
 
-test.each(['h2', 'bullet', 'quote', 'divider', 'callout', 'database'] as const)(
+test.each(['h2', 'bullet', 'quote', 'divider', 'callout', 'embed'] as const)(
   'inserting %p after a block is one undo step',
   type => {
     const editor = editorFor(open('First\n\nSecond', 'Second', 'end'))

@@ -1,5 +1,5 @@
 @import './blocks/callout/callout.css';
-@import './blocks/database/database.css';
+@import './blocks/embed/embed.css';
 @source '.';
 
 .ankole-editor,
@@ -10,44 +10,99 @@
   -webkit-font-smoothing: antialiased;
 }
 
-:where(.ankole-editor, .ankole-editor-overlay) button,
-:where(.ankole-editor, .ankole-editor-overlay) select {
+/* Embedded objects own their content styles. A read-only editor root still owns its document text. */
+:where(.ankole-editor, .ankole-editor-overlay)
+  button:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ),
+:where(.ankole-editor, .ankole-editor-overlay)
+  select:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   cursor: pointer;
 }
-:where(.ankole-editor, .ankole-editor-overlay) button:disabled {
+:where(.ankole-editor, .ankole-editor-overlay)
+  button:disabled:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   cursor: default;
 }
-:where(.ankole-editor, .ankole-editor-overlay) button:not([data-slot]):focus-visible,
-:where(.ankole-editor, .ankole-editor-overlay) input:focus-visible,
-:where(.ankole-editor, .ankole-editor-overlay) select:focus-visible,
-:where(.ankole-editor, .ankole-editor-overlay) textarea:focus-visible {
+:where(.ankole-editor, .ankole-editor-overlay)
+  button:not([data-slot]):focus-visible:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ),
+:where(.ankole-editor, .ankole-editor-overlay)
+  input:focus-visible:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ),
+:where(.ankole-editor, .ankole-editor-overlay)
+  select:focus-visible:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ),
+:where(.ankole-editor, .ankole-editor-overlay)
+  textarea:focus-visible:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) button,
-:where(.ankole-editor, .ankole-editor-overlay) input,
-:where(.ankole-editor, .ankole-editor-overlay) textarea,
-:where(.ankole-editor, .ankole-editor-overlay) select {
+:where(.ankole-editor, .ankole-editor-overlay)
+  button:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ),
+:where(.ankole-editor, .ankole-editor-overlay)
+  input:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ),
+:where(.ankole-editor, .ankole-editor-overlay)
+  textarea:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ),
+:where(.ankole-editor, .ankole-editor-overlay)
+  select:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font: inherit;
 }
-:where(.ankole-editor, .ankole-editor-overlay) button:not([data-slot]) {
+:where(.ankole-editor, .ankole-editor-overlay)
+  button:not([data-slot]):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   border: 0;
 }
-:where(.ankole-editor, .ankole-editor-overlay) input,
-:where(.ankole-editor, .ankole-editor-overlay) textarea,
-:where(.ankole-editor, .ankole-editor-overlay) select {
+:where(.ankole-editor, .ankole-editor-overlay)
+  input:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ),
+:where(.ankole-editor, .ankole-editor-overlay)
+  textarea:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ),
+:where(.ankole-editor, .ankole-editor-overlay)
+  select:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   color: inherit;
 }
 /* The UI kit draws selected text in the colour for dark backgrounds; this background is light. */
-:where(.ankole-editor, .ankole-editor-overlay) ::selection {
+:where(.ankole-editor, .ankole-editor-overlay)
+  :not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::selection {
   background: var(--color-brand-20);
   color: var(--foreground);
 }
-:where(.ankole-editor, .ankole-editor-overlay) ::-webkit-scrollbar {
+:where(.ankole-editor, .ankole-editor-overlay)
+  :not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::-webkit-scrollbar {
   width: 7px;
   height: 7px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) ::-webkit-scrollbar-thumb {
+:where(.ankole-editor, .ankole-editor-overlay)
+  :not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::-webkit-scrollbar-thumb {
   background: var(--color-gray-30);
   border-radius: 7px;
 }
@@ -135,7 +190,11 @@
 
 /* Blocks */
 
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content h1 {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h1:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font-size: clamp(25px, 2.55vw, 37px);
   font-weight: 600;
   line-height: 1.45;
@@ -143,7 +202,11 @@
   color: #282521;
   margin: 0 0 16px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content h2 {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h2:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font-size: 20px;
   font-weight: 600;
   line-height: 1.55;
@@ -151,41 +214,85 @@
   color: #3b352f;
   letter-spacing: -0.25px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content h3 {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h3:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font-size: 16px;
   font-weight: 600;
   margin: 22px 0 7px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(h4, h5, h6) {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(h4, h5, h6):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font-weight: 600;
   line-height: 1.55;
   margin: 18px 0 6px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content h4 {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h4:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font-size: 15px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content h5 {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h5:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font-size: 14px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content h6 {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  h6:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font-size: 13px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content p {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  p:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   margin: 9px 0;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content [data-align='left'] {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  [data-align='left']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   text-align: left;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content [data-align='center'] {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  [data-align='center']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   text-align: center;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content [data-align='right'] {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  [data-align='right']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   text-align: right;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content [data-align='justify'] {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  [data-align='justify']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   text-align: justify;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content pre {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  pre:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   display: block;
   font: 12px/1.8 var(--font-family-mono);
   white-space: pre-wrap;
@@ -195,40 +302,78 @@
   margin: 15px 0;
   border-radius: 4px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content blockquote {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  blockquote:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   margin: 22px 0;
   padding: 2px 20px;
   border-left: 3px solid #d5c1ab;
   color: #8b7a69;
   font-size: 13px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(ul, ol) {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(ul, ol):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   margin: 12px 0;
   padding-left: 25px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content ul {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  ul:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   list-style: disc;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content ol {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  ol:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   list-style: decimal;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content li {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   margin: 4px 0;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content li > :is(ul, ol) {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li
+  > :is(ul, ol):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   margin: 4px 0;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content li > p {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li
+  > p:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   margin: 0;
 }
 /* A task item shows a check box in its left padding. Read-only task items show the same box. */
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task] {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task]:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   position: relative;
   list-style: none;
   padding-left: 24px;
   margin-left: -23px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task]::before {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task]:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::before {
   content: '';
   position: absolute;
   left: 0;
@@ -238,18 +383,34 @@
   border: 1px solid #c3b8ad;
   border-radius: 3px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[role='checkbox']::before {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[role='checkbox']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::before {
   cursor: pointer;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task='done'] {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task='done']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   color: #9e9286;
   text-decoration: line-through;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task='done']::before {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task='done']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::before {
   background: #b19b84;
   border-color: #b19b84;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content li[data-task='done']::after {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  li[data-task='done']:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  )::after {
   content: '';
   position: absolute;
   left: 4px;
@@ -260,35 +421,64 @@
   border-bottom: 1.5px solid white;
   transform: rotate(45deg);
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content hr {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  hr:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   border: 0;
   border-top: 1px solid #e7e1da;
   margin: 28px 0;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content table {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  table:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   border-collapse: collapse;
   width: 100%;
   margin: 20px 0;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(td, th) {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(td, th):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   border: 1px solid #e4dfd9;
   padding: 7px 12px;
   min-width: 80px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content th {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  th:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   background: #f7f5f2;
   font-weight: 600;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(td, th) > p {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(td, th)
+  > p:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   margin: 0;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content img {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  img:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   max-width: 100%;
   max-height: 440px;
   object-fit: contain;
   border-radius: 4px;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content .block-menu-target {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  .block-menu-target:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   outline: 2px solid #d3c4b3;
   outline-offset: 3px;
   border-radius: 3px;
@@ -296,32 +486,60 @@
 
 /* Text formats */
 
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content strong {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  strong:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font-weight: 600;
   color: #5c5146;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content em {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  em:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font-style: italic;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content s {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  s:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   text-decoration: line-through;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content u {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  u:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   text-decoration: underline;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content mark {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  mark:not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   background: #fff1b8;
   color: inherit;
 }
-/* Inline code. Low specificity, so that blocks such as the database card can style their own code. */
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content :where(code) {
+/* Inline code. Low specificity, so that blocks such as the embed card can style their own code. */
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :where(code):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   font: 12px var(--font-family-mono);
   padding: 3px 5px;
   background: #f3efeb;
   border-radius: 3px;
   color: #8f6857;
 }
-:where(.ankole-editor, .ankole-editor-overlay) .editor-content :is(a, .read-only-link) {
+:where(.ankole-editor, .ankole-editor-overlay)
+  .editor-content
+  :is(a, .read-only-link):not(
+    :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+  ) {
   color: var(--primary);
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -402,10 +620,6 @@
   position: fixed;
   padding: 6px;
   width: 270px;
-  border: 1px solid #e9e2db;
-  border-radius: 6px;
-  background: white;
-  box-shadow: 0 8px 30px #35271a1c;
   z-index: 30;
   max-height: min(360px, 55vh);
   overflow-y: auto;
@@ -418,18 +632,18 @@
   padding: 9px;
   width: 100%;
   text-align: left;
-  border-radius: 3px;
-  color: #554b41;
+  border-radius: var(--radius-control);
+  color: var(--foreground);
   font-size: 13px;
 }
 :where(.ankole-editor-overlay).slash-menu button:hover,
 :where(.ankole-editor-overlay).slash-menu button.selected {
-  background: #f6f2ed;
+  background: var(--accent);
 }
 :where(.ankole-editor-overlay).slash-menu small {
   display: block;
   font-size: 10px;
-  color: #a1968b;
+  color: var(--fg-tertiary);
   margin-top: 2px;
 }
 
@@ -438,39 +652,28 @@
 :where(.ankole-editor-overlay) .menu-icon {
   width: 31px;
   height: 31px;
-  border: 1px solid #e9e1d8;
-  border-radius: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
   display: grid;
   place-items: center;
   font-size: 18px;
   flex-shrink: 0;
 }
 :where(.ankole-editor-overlay) .menu-label {
-  font-size: 10px;
-  letter-spacing: 1px;
-  color: #ab9e90;
+  font-size: 12px;
+  color: var(--fg-tertiary);
   padding: 8px;
 }
 :where(.ankole-editor-overlay).block-menu {
   transition: none;
   width: 260px;
-  border: 1px solid #e9e2db;
-  border-radius: 6px;
-  background: white;
   padding: 5px;
   max-height: min(400px, 70vh, var(--available-height));
-}
-:where(.ankole-editor-overlay).block-menu
-  :is([data-slot='dropdown-menu-item'], [data-slot='dropdown-menu-sub-trigger']) {
-  font-size: 12px;
-  padding: 7px 10px;
-  border-radius: 3px;
-  min-height: 34px;
 }
 :where(.ankole-editor-overlay).block-menu small {
   display: block;
   font-size: 10px;
-  color: #a1968b;
+  color: var(--fg-tertiary);
 }
 :where(.ankole-editor-overlay).block-actions small {
   margin-left: auto;
@@ -484,22 +687,8 @@
   align-items: center;
   gap: 2px;
   padding: 5px;
-  border: 1px solid #e6e1db;
-  border-radius: 6px;
-  background: white;
-  box-shadow: 0 4px 18px #35271a24;
   z-index: 40;
   max-width: calc(100vw - 16px);
-}
-:where(.ankole-editor-overlay).selection-toolbar [data-slot='button'] {
-  border-radius: 3px;
-  color: #655b51;
-  letter-spacing: 0;
-  font-weight: 450;
-}
-:where(.ankole-editor-overlay).selection-toolbar [aria-pressed='true'] {
-  background: #e9f0f8;
-  color: #326898;
 }
 :where(.ankole-editor-overlay) .link-form {
   width: 370px;
@@ -542,7 +731,11 @@
   :where(.ankole-editor, .ankole-editor-overlay) .document-scroll {
     padding: 30px 24px 25px;
   }
-  :where(.ankole-editor, .ankole-editor-overlay) .editor-content h1 {
+  :where(.ankole-editor, .ankole-editor-overlay)
+    .editor-content
+    h1:not(
+      :where(.embed, .embed *, .editor-content [contenteditable='false'], .editor-content [contenteditable='false'] *)
+    ) {
     font-size: 26px;
   }
   :where(.ankole-editor, .ankole-editor-overlay) .drag-handle {

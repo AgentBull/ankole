@@ -19,6 +19,91 @@ defmodule Ankole.AppConfigureTest do
     {:ok, prefix: "__test.app_configure.#{System.unique_integer([:positive])}"}
   end
 
+  @tag timeout: 15_000
+  test "committed writes without invalidation converge within the cache age bound", %{
+    prefix: prefix
+  } do
+    definitions =
+      for suffix <- ["changed", "deleted", "created"] do
+        AppConfigure.define(
+          key: key(prefix, suffix),
+          encrypted: false,
+          scope: :global,
+          schema: Schema.object()
+        )
+      end
+
+    [changed, deleted, created] = definitions
+    :ok = AppConfigure.register_definitions(definitions)
+    on_exit(fn -> Enum.each(definitions, &delete_unboxed_global_row(&1.key)) end)
+
+    Sandbox.unboxed_run(Repo, fn ->
+      {:ok, _} = AppConfigure.put_global(changed, %{"value" => "before"})
+      {:ok, _} = AppConfigure.put_global(deleted, %{"value" => "before"})
+    end)
+
+    assert {:ok, %{"value" => "before"}} = AppConfigure.get(changed)
+    assert {:ok, %{"value" => "before"}} = AppConfigure.get(deleted)
+    assert :error = AppConfigure.get(created)
+    # Commit at PostgreSQL without running the caller's after-commit refresh.
+    Sandbox.unboxed_run(Repo, fn ->
+      Repo.update_all(from(c in Ankole.AppConfigure.SiteConfig, where: c.key == ^changed.key),
+        set: [value: %{"type" => "plaintext", "value" => %{"value" => "after"}}]
+      )
+
+      Repo.delete_all(from(c in Ankole.AppConfigure.SiteConfig, where: c.key == ^deleted.key))
+
+      Repo.insert!(
+        Ankole.AppConfigure.SiteConfig.changeset(%Ankole.AppConfigure.SiteConfig{}, %{
+          scope: "global",
+          key: created.key,
+          value: %{"type" => "plaintext", "value" => %{"value" => "created"}}
+        })
+      )
+    end)
+
+    assert {:ok, %{"value" => "before"}} = AppConfigure.get(changed)
+    assert :error = AppConfigure.get(created)
+    Process.sleep(5_050)
+    assert {:ok, %{"value" => "after"}} = AppConfigure.get(changed)
+    assert :error = AppConfigure.get(deleted)
+    assert {:ok, %{"value" => "created"}} = AppConfigure.get(created)
+  end
+
+  test "concurrent generated global initialization returns one persisted winner", %{
+    prefix: prefix
+  } do
+    counter = :atomics.new(1, [])
+
+    definition =
+      AppConfigure.define(
+        key: key(prefix, "generated-once"),
+        encrypted: false,
+        scope: :global,
+        schema: Schema.non_empty_string(),
+        generator: fn ->
+          :atomics.add_get(counter, 1, 1)
+          Ankole.Ecto.UUIDv7.autogenerate()
+        end
+      )
+
+    :ok = AppConfigure.register_definitions([definition])
+    on_exit(fn -> delete_unboxed_global_row(definition.key) end)
+
+    results =
+      1..8
+      |> Enum.map(fn _ ->
+        Task.async(fn ->
+          Sandbox.unboxed_run(Repo, fn -> AppConfigure.ensure_generated_global(definition) end)
+        end)
+      end)
+      |> Enum.map(&Task.await(&1, 5_000))
+
+    assert [{:ok, winner}] = Enum.uniq(results)
+    assert :atomics.get(counter, 1) == 1
+    assert {:ok, ^winner} = AppConfigure.get(definition)
+  end
+
   test "rejects duplicate exact keys and duplicate pattern ids", %{prefix: prefix} do
     definition =
       AppConfigure.define(

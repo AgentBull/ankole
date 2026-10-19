@@ -35,7 +35,7 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
 
   # Both phases use the same all-tenant definition of a live reference.
   @unreferenced """
-  AND NOT EXISTS (SELECT 1 FROM agent_files WHERE agent_files.sha256 = files.sha256)
+  AND NOT EXISTS (SELECT 1 FROM drive_files WHERE drive_files.sha256 = files.sha256)
   AND NOT EXISTS (
     SELECT 1 FROM deliveries AS intent
     WHERE intent.status IN ('pending', 'failed', 'unknown')

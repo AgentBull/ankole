@@ -12,6 +12,7 @@ export function renderCodexJobAgents(input: {
   jobGuidance?: string
   skillsPrompt?: string
   driveDirectory?: string
+  podInstructions?: string
   lazySkillRouting?: boolean
   timezone?: string | null
   now?: Date
@@ -24,6 +25,7 @@ export function renderCodexJobAgents(input: {
       jobGuidance: input.jobGuidance,
       skillsPrompt: input.skillsPrompt,
       driveDirectory: input.driveDirectory,
+      podInstructions: input.podInstructions,
       lazySkillRouting: input.lazySkillRouting,
       timezone: input.timezone,
       now: input.now ?? new Date()
@@ -99,6 +101,7 @@ function renderTaskAgents(input: {
   jobGuidance?: string
   skillsPrompt?: string
   driveDirectory?: string
+  podInstructions?: string
   lazySkillRouting?: boolean
   background?: string
   notes?: string
@@ -113,6 +116,7 @@ function renderTaskAgents(input: {
     `Job workspace (the process cwd): ${input.jobRoot}.`,
     'All absolute paths shown to you are the real paths inside this Worker. Relative paths resolve from the Job workspace.',
     codexJobDriveContext(input.driveDirectory),
+    input.podInstructions,
     'Your final message is the Job result and the caller accepts it as the verification record: verify the work against what the task says the deliverable must satisfy, and state the outcome with evidence, relevant paths, and remaining risks.',
     'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes.',
     'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead.',

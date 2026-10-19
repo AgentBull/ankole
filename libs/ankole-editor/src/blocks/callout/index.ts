@@ -50,7 +50,8 @@ export const callout: BlockDefinition = {
   },
   insert: {
     title: '提示块',
-    detail: '可嵌套的内容 · callout',
+    detail: '可嵌套的内容',
+    keywords: 'callout',
     glyph: '◈',
     turnInto: true,
     insert: wg => insertBlock(wg, Callout.create([]))

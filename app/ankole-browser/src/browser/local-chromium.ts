@@ -73,7 +73,7 @@ export async function connectLocalChromium(material: BrowserMaterial, session: s
     return handle(browser, endpoint, pid, livePath, child)
   } catch (error) {
     await browser?.close().catch(() => undefined)
-    if (child.pid) await terminateProcessGroup(child.pid)
+    await stopChild(child)
     await rm(livePath, { force: true })
     throw error
   }
@@ -83,13 +83,8 @@ export async function purgeDetachedLocalChromium(material: BrowserMaterial, sess
   if (material.backend.kind !== 'local_chromium') return
   const sessionRoot = join(material.data_root, 'sessions', session)
   const livePath = join(sessionRoot, 'live.json')
-  try {
-    const metadata = JSON.parse(await readFile(livePath, 'utf8')) as Partial<LiveMetadata>
-    if (Number.isInteger(metadata.pid) && metadata.pid! > 0) await terminateProcessGroup(metadata.pid!)
-  } catch {
-    // Missing or malformed metadata has no process identity that can be reclaimed safely.
-  }
-  await rm(livePath, { force: true })
+  const recovered = await recoverLiveBrowser(livePath, 2_000)
+  if (recovered) await recovered.stop()
 }
 
 async function recoverLiveBrowser(livePath: string, timeout: number): Promise<LocalChromiumHandle | undefined> {
@@ -108,10 +103,12 @@ async function recoverLiveBrowser(livePath: string, timeout: number): Promise<Lo
     await dismissOrphanDialogsBeforeAttach(metadata.endpoint)
     const browser = await chromium.connectOverCDP(metadata.endpoint, { timeout })
     return handle(browser, metadata.endpoint, metadata.pid, livePath)
-  } catch {
-    await terminateProcessGroup(metadata.pid)
-    await rm(livePath, { force: true })
-    return undefined
+  } catch (cause) {
+    throw new BrowserDataError(
+      'backend_unavailable',
+      'Saved Chromium is unreachable. Profile and live metadata were retained; restore CDP or stop that browser before retrying',
+      { cause }
+    )
   }
 }
 
@@ -128,8 +125,21 @@ function handle(
     pid,
     endpoint,
     stop: async () => {
+      try {
+        const session = await browser.newBrowserCDPSession()
+        await session.send('Browser.close')
+      } catch (cause) {
+        if (!child) {
+          throw new BrowserDataError(
+            'backend_unavailable',
+            'Chromium could not be closed through its saved CDP connection; profile and live metadata were retained',
+            { cause }
+          )
+        }
+      }
+      if (child) await stopChild(child)
+      await browser.close().catch(() => undefined)
       await rm(livePath, { force: true })
-      await terminateProcessGroup(pid)
     }
   }
 }
@@ -185,28 +195,26 @@ async function waitForDevToolsEndpoint(child: ChildProcess, timeoutMs: number): 
   })
 }
 
-async function terminateProcessGroup(pid: number): Promise<void> {
-  if (!processAlive(pid)) return
+// Only the live ChildProcess handle may receive OS signals. Persisted PIDs
+// are observation hints and never termination authority.
+async function stopChild(child: ChildProcess): Promise<void> {
+  if (!child.pid || child.exitCode !== null || child.signalCode !== null) return
+  child.kill('SIGTERM')
+  const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    process.kill(-pid, 'SIGTERM')
-  } catch {
-    try {
-      process.kill(pid, 'SIGTERM')
-    } catch {
-      return
+    await Promise.race([
+      exited,
+      new Promise<void>(resolve => {
+        timer = setTimeout(resolve, 2_000)
+      })
+    ])
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL')
+      await exited
     }
-  }
-  const deadline = Date.now() + 2_000
-  while (Date.now() < deadline && processAlive(pid)) await new Promise(resolve => setTimeout(resolve, 50))
-  if (!processAlive(pid)) return
-  try {
-    process.kill(-pid, 'SIGKILL')
-  } catch {
-    try {
-      process.kill(pid, 'SIGKILL')
-    } catch {
-      // Process already exited.
-    }
+  } finally {
+    if (timer) clearTimeout(timer)
   }
 }
 

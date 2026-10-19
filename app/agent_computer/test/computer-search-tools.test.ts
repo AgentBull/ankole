@@ -65,11 +65,11 @@ function makeHome(): { agentHome: string; workspaceRoot: string } {
 
 describe('search query building', () => {
   it('clips a long line without leaving half a Unicode character', () => {
-    const line = 'x'.repeat(499) + '😀tail'
+    const line = `${'x'.repeat(499)}😀tail`
     const clipped = clipSearchLine(line)
     expect(clipped.wasClipped).toBe(true)
     expect(Buffer.from(clipped.text).toString()).toBe(clipped.text)
-    expect(clipped.text).toBe('x'.repeat(499) + '...')
+    expect(clipped.text).toBe(`${'x'.repeat(499)}...`)
     expect(clipSearchLine('😀')).toEqual({ text: '😀', wasClipped: false })
   })
   it('normalizes constraints into parser shapes', () => {

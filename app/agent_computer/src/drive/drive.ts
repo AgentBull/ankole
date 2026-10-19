@@ -95,10 +95,14 @@ export class Drive {
     return { files: response.files.map(driveFileFromWire), nextAfter: response.nextAfter, revision: response.revision }
   }
 
-  async get(path: string, localPath: string): Promise<DriveFile> {
+  async get(path: string, localPath: string, opts: { pod?: boolean } = {}): Promise<DriveFile> {
     const response = await this.opts.rpc(
       'files.get',
-      { path: assertDrivePath(path), homeRelativePath: await this.homeRelativePath(localPath, { create: true }) },
+      {
+        path: assertDrivePath(path),
+        homeRelativePath: await this.homeRelativePath(localPath, { create: true }),
+        podDrive: opts.pod ?? false
+      },
       undefined,
       { timeoutMs: transferTimeoutMs, retryOnDisconnect: true }
     )

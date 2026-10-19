@@ -1,0 +1,54 @@
+/**
+ * The Pod styles of the host page in the Garfish check. The applet must see these styles and these
+ * design variables, and its own rules must not reach them.
+ */
+@import '@ankole/uikit/styles.css';
+
+/* The Pod reads these two values from its own document, so the hosting page sets them too. */
+body {
+  background: var(--color-gray-10);
+}
+
+/* A reference box for the design variables. The applet reuses its names and its margins. */
+.pod-page {
+  display: grid;
+  gap: 16px;
+  margin: 2px 0 2px 11px;
+  padding: 32px;
+  border: 1px solid var(--color-gray-30);
+  background: var(--color-paper);
+  font-family: var(--font-family-sans, system-ui, sans-serif);
+}
+
+.pod-title {
+  margin: 0;
+  font-size: 28px;
+  color: var(--color-brand-70);
+}
+
+.pod-lead {
+  margin: 0;
+  color: var(--color-gray-60);
+}
+
+.pod-row {
+  display: flex;
+  gap: 8px;
+}
+
+.pod-note {
+  margin: 0;
+  color: var(--color-gray-50);
+  font-size: 12px;
+}
+
+.pod-applets {
+  display: grid;
+  gap: 16px;
+}
+
+.applet-slot {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}

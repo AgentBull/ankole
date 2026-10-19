@@ -1,4 +1,8 @@
 import { readFileSync } from 'node:fs'
+import { writeFile, rm } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { resolve } from 'node:path'
+import { requestSocketLineBridge } from '../core/socket-line-client'
 
 const contextFileEnv = 'ANKOLE_RUNTIME_AUTOMATION_JOB_CONTEXT_FILE'
 const emitSocketEnv = 'ANKOLE_RUNTIME_AUTOMATION_JOB_EMIT_SOCKET'
@@ -12,6 +16,7 @@ export type AutomationJobContext = {
 }
 
 const contextValue = readContext()
+const runDirectory = process.cwd()
 
 /**
  * Returns the immutable facts for the current automation job run.
@@ -26,52 +31,36 @@ export function context(): AutomationJobContext {
 export async function emitEvent(payload: unknown): Promise<void> {
   const encoded = JSON.stringify({ payload })
   if (encoded === undefined) throw new Error('emitEvent payload must be JSON-serializable')
+  await requestBridge(encoded)
+}
 
+/** Upserts an external batch through this binding's current job attempt. */
+export async function syncRecords(
+  bindingID: string,
+  records: { external_id: string; data: Record<string, unknown> }[],
+  cursor?: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const path = resolve(runDirectory, `.pod-sync-${randomUUID()}.json`)
+  try {
+    await writeFile(path, JSON.stringify(records), { flag: 'wx' })
+    return await requestBridge(
+      JSON.stringify({
+        operation: 'pod.sync',
+        binding_id: bindingID,
+        records_path: path,
+        ...(cursor === undefined ? {} : { cursor })
+      })
+    )
+  } finally {
+    await rm(path, { force: true })
+  }
+}
+
+async function requestBridge(encoded: string): Promise<Record<string, unknown>> {
   const socketPath = process.env[emitSocketEnv]
-  if (!socketPath) throw new Error('emitEvent is available only inside an automation job run')
+  if (!socketPath) throw new Error('Automation SDK is available only inside an automation job run')
 
-  await new Promise<void>((resolve, reject) => {
-    let response = ''
-    let settled = false
-
-    void Bun.connect({
-      unix: socketPath,
-      socket: {
-        open(socket) {
-          socket.write(`${encoded}\n`)
-        },
-        data(_socket, data) {
-          response += Buffer.from(data).toString('utf8')
-        },
-        close() {
-          if (settled) return
-          settled = true
-
-          try {
-            const result = JSON.parse(response.trim()) as { ok: boolean; error?: string }
-            if (result.ok) resolve()
-            else reject(new Error(result.error || 'emitEvent was rejected'))
-          } catch {
-            reject(new Error('emitEvent bridge returned an invalid response'))
-          }
-        },
-        connectError(_socket, error) {
-          if (settled) return
-          settled = true
-          reject(error)
-        },
-        error(_socket, error) {
-          if (settled) return
-          settled = true
-          reject(error)
-        }
-      }
-    }).catch(error => {
-      if (settled) return
-      settled = true
-      reject(error)
-    })
-  })
+  return requestSocketLineBridge(socketPath, encoded, 'Automation job bridge returned an invalid response')
 }
 
 function readContext(): AutomationJobContext {
@@ -91,7 +80,9 @@ function readContext(): AutomationJobContext {
 declare global {
   var context: () => AutomationJobContext
   var emitEvent: (payload: unknown) => Promise<void>
+  var syncRecords: typeof import('./sdk').syncRecords
 }
 
 globalThis.context = context
 globalThis.emitEvent = emitEvent
+globalThis.syncRecords = syncRecords

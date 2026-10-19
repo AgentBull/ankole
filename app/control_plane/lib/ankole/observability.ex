@@ -76,14 +76,16 @@ defmodule Ankole.Observability do
   @spec provider() :: Provider.implementation() | nil
   def provider, do: :persistent_term.get(@runtime_key, nil)
 
-  @doc false
-  @spec put_provider_for_test(Provider.implementation() | nil) :: :ok
-  def put_provider_for_test(provider) when is_atom(provider) or is_nil(provider),
-    do: set_provider(provider)
+  if Mix.env() == :test do
+    @doc false
+    @spec put_provider_for_test(Provider.implementation() | nil) :: :ok
+    def put_provider_for_test(provider) when is_atom(provider) or is_nil(provider),
+      do: set_provider(provider)
 
-  @doc false
-  @spec put_runtime_config_for_test(runtime_config() | nil) :: :ok
-  def put_runtime_config_for_test(config), do: set_runtime_config(config)
+    @doc false
+    @spec put_runtime_config_for_test(runtime_config() | nil) :: :ok
+    def put_runtime_config_for_test(config), do: set_runtime_config(config)
+  end
 
   @doc """
   Starts one attempt's root span. The caller owns the returned handle.

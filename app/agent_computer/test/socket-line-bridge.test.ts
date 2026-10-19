@@ -24,6 +24,25 @@ it('sends a complete multibyte CLI response after the socket write buffer fills'
   }
 })
 
+it('sends a complete large multibyte request after the socket write buffer fills', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ank-bridge-'))
+  const expected = '完整 request 🐂\n'.repeat(500_000)
+  const bridge = startSocketLineBridge({
+    socketPath: join(root, 'cli.sock'),
+    maxRequestBytes: 32 * 1024 * 1024,
+    oversizeError: 'request too large',
+    handleLine: async line => ({ ok: true, result: { equal: JSON.parse(line).text === expected } })
+  })
+  try {
+    expect(
+      await requestSocketLineBridge(bridge.socketPath, JSON.stringify({ text: expected }), 'invalid response')
+    ).toEqual({ equal: true })
+  } finally {
+    bridge.close()
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 it('rejects oversized requests before dispatch without consuming admission slots', async () => {
   const root = mkdtempSync(join(tmpdir(), 'ank-bridge-'))
   let handled = 0

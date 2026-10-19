@@ -2,7 +2,7 @@ import type { Node as CommonmarkNode } from 'commonmark'
 import type { Node as EditorNode, Leaf, Plot } from '../src/core/doc'
 import * as T from '../src/core/types'
 import { Callout } from '../src/blocks/callout'
-import { Database } from '../src/blocks/database'
+import { Embed } from '../src/blocks/embed'
 import { textOf, type Node } from '../src/document/tree'
 import { markValue } from '../src/editor/attributes'
 import { thaw } from '../src/editor/convert'
@@ -101,7 +101,7 @@ const is = (node: EditorNode, type: { type: unknown } | unknown) =>
 function editorBlock(node: EditorNode): Content[] {
   if (is(node, S.UnknownBlock)) return elementContent(thaw((node as Leaf).param as S.Frozen))
   if (is(node, T.HorizontalRule)) return [{ tag: 'hr', children: [] }]
-  if (is(node, Database)) return [{ tag: 'database', children: [] }]
+  if (is(node, Embed)) return [{ tag: 'embed', children: [] }]
   if (node.isLeaf) throw new Error(`No content adapter for editor leaf ${node.name}`)
   if (is(node, T.Paragraph)) return [{ tag: 'p', children: editorInline(node.content) }]
   if (is(node, T.Heading)) return [{ tag: `h${node.tag.param}`, children: editorInline(node.content) }]
@@ -195,7 +195,7 @@ export function elementContent(node: Node, format = 0): Content[] {
     case 'th':
     case 'td':
     case 'callout':
-    case 'database':
+    case 'embed':
       return [{ tag: node.name, children }]
     default:
       return [{ tag: 'unknown', attrs: { name: node.name }, children }]

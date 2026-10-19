@@ -2,6 +2,7 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
   @moduledoc false
 
   alias Ankole.AIGateway.CompactionPrompt
+  alias Ankole.AIGateway.CompactionHistory
   alias Ankole.AIGateway.CompactionRender
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ResponsesPreparation
@@ -16,6 +17,15 @@ defmodule Ankole.AIGateway.CompactionSummarizer do
 
   def profile, do: @summarizer_profile
   def max_output_tokens, do: @summarizer_retry_max_output_tokens
+
+  def summarize_candidate(subject_uid, candidate, identity \\ []) do
+    summarize(
+      subject_uid,
+      CompactionHistory.messages_to_items(candidate.prefix),
+      candidate.previous_chat_history,
+      [recent_items: candidate.recent_items] ++ identity
+    )
+  end
 
   def summarize(subject_uid, items, previous_chat_history, opts \\ []) do
     with {:ok, runtime} <- resolve_summarizer_runtime(subject_uid, identity(opts)) do

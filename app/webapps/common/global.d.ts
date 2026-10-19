@@ -34,3 +34,8 @@ declare module '@ankole/locales/*.json' {
   const catalog: Record<string, unknown>
   export default catalog
 }
+
+declare module '@ankole/locales/*.json?pod' {
+  const catalog: Record<string, unknown>
+  export default catalog
+}

@@ -31,24 +31,39 @@ export const coreBlockTypes = [
 export type CoreBlockType = (typeof coreBlockTypes)[number]
 export type BlockType = CoreBlockType | (typeof blocks)[number]['name']
 
-export type BlockOption = { type: BlockType; title: string; detail: string; glyph: string; turnInto: boolean }
+export type BlockOption = {
+  type: BlockType
+  title: string
+  detail: string
+  keywords?: string
+  glyph: string
+  turnInto: boolean
+}
 
 /** Menu entries in SPEC §7.6 order: the core block types, then the installed blocks. */
 export const blockOptions: readonly BlockOption[] = [
-  { type: 'paragraph', title: '正文', detail: '普通段落 · text paragraph', glyph: 'T', turnInto: true },
-  { type: 'h1', title: '一级标题', detail: '大标题 · heading h1', glyph: 'H₁', turnInto: true },
-  { type: 'h2', title: '二级标题', detail: '中标题 · heading h2', glyph: 'H₂', turnInto: true },
-  { type: 'h3', title: '三级标题', detail: '小标题 · heading h3', glyph: 'H₃', turnInto: true },
-  { type: 'bullet', title: '项目列表', detail: '组织要点 · bullet list', glyph: '≡', turnInto: true },
-  { type: 'number', title: '编号列表', detail: '有序步骤 · numbered list', glyph: '1.', turnInto: true },
-  { type: 'check', title: '待办列表', detail: '可以勾选的事项 · todo checklist', glyph: '☑', turnInto: true },
-  { type: 'quote', title: '引用', detail: '突出一段话 · quote', glyph: '❞', turnInto: true },
-  { type: 'code', title: '代码块', detail: '保留空格和换行 · code', glyph: '<>', turnInto: true },
-  { type: 'divider', title: '分割线', detail: '分隔内容 · divider', glyph: '—', turnInto: false },
+  { type: 'paragraph', title: '正文', detail: '普通段落', keywords: 'text paragraph', glyph: 'T', turnInto: true },
+  { type: 'h1', title: '一级标题', detail: '大标题', keywords: 'heading h1', glyph: 'H₁', turnInto: true },
+  { type: 'h2', title: '二级标题', detail: '中标题', keywords: 'heading h2', glyph: 'H₂', turnInto: true },
+  { type: 'h3', title: '三级标题', detail: '小标题', keywords: 'heading h3', glyph: 'H₃', turnInto: true },
+  { type: 'bullet', title: '项目列表', detail: '组织要点', keywords: 'bullet list', glyph: '≡', turnInto: true },
+  { type: 'number', title: '编号列表', detail: '有序步骤', keywords: 'numbered list', glyph: '1.', turnInto: true },
+  {
+    type: 'check',
+    title: '待办列表',
+    detail: '可以勾选的事项',
+    keywords: 'todo checklist',
+    glyph: '☑',
+    turnInto: true
+  },
+  { type: 'quote', title: '引用', detail: '突出一段话', keywords: 'quote', glyph: '❞', turnInto: true },
+  { type: 'code', title: '代码块', detail: '保留空格和换行', keywords: 'code', glyph: '<>', turnInto: true },
+  { type: 'divider', title: '分割线', detail: '分隔内容', keywords: 'divider', glyph: '—', turnInto: false },
   ...blocks.map(block => ({
     type: block.name,
     title: block.insert.title,
     detail: block.insert.detail,
+    keywords: block.insert.keywords,
     glyph: block.insert.glyph,
     turnInto: block.insert.turnInto
   }))

@@ -1,0 +1,404 @@
+{
+  "fields": [
+    {
+      "id": "files",
+      "name": "Files",
+      "type": "attachment",
+      "config": {},
+      "version": 1,
+      "is_primary": false
+    },
+    {
+      "id": "name",
+      "name": "Name",
+      "type": "text",
+      "config": {},
+      "version": 1,
+      "is_primary": true
+    },
+    {
+      "id": "amount",
+      "name": "Amount",
+      "type": "number",
+      "config": {},
+      "version": 1,
+      "is_primary": false
+    },
+    {
+      "id": "tags",
+      "name": "Tags",
+      "type": "select",
+      "config": {
+        "multiple": true
+      },
+      "version": 1,
+      "is_primary": false
+    },
+    {
+      "id": "total",
+      "name": "Total",
+      "type": "formula",
+      "config": {
+        "result_type": "number"
+      },
+      "version": 1,
+      "is_primary": false
+    },
+    {
+      "id": "empty_text",
+      "name": "Empty text",
+      "type": "formula",
+      "config": {
+        "result_type": "text"
+      },
+      "version": 1,
+      "is_primary": false
+    }
+  ],
+  "records": [
+    {
+      "id": "a",
+      "data": {
+        "name": "Alpha",
+        "amount": 2,
+        "tags": ["red", "blue"],
+        "total": 4,
+        "files": [
+          {
+            "path": "pages/example/attachments/hash/report.pdf",
+            "name": "report.pdf",
+            "mime": "application/pdf",
+            "size": 12
+          }
+        ],
+        "empty_text": null
+      },
+      "versions": {
+        "name": 1,
+        "amount": 1
+      },
+      "created_at": "2026-10-18T00:00:00Z",
+      "updated_at": "2026-10-18T00:00:00Z",
+      "created_by": "person",
+      "updated_by": "person"
+    },
+    {
+      "id": "b",
+      "data": {
+        "name": "beta",
+        "amount": 2,
+        "tags": ["red"],
+        "total": null,
+        "empty_text": "x"
+      },
+      "versions": {
+        "name": 1,
+        "amount": 1
+      },
+      "created_at": "2026-10-18T00:00:00Z",
+      "updated_at": "2026-10-18T00:00:00Z",
+      "created_by": "person",
+      "updated_by": "person"
+    },
+    {
+      "id": "c",
+      "data": {
+        "name": "Gamma",
+        "amount": 5,
+        "tags": [],
+        "empty_text": "x"
+      },
+      "versions": {
+        "name": 1,
+        "amount": 1
+      },
+      "created_at": "2026-10-18T00:00:00Z",
+      "updated_at": "2026-10-18T00:00:00Z",
+      "created_by": "person",
+      "updated_by": "person"
+    },
+    {
+      "id": "d",
+      "data": {
+        "name": "100%_literal",
+        "empty_text": "x"
+      },
+      "versions": {
+        "name": 1
+      },
+      "created_at": "2026-10-18T00:00:00Z",
+      "updated_at": "2026-10-18T00:00:00Z",
+      "created_by": "person",
+      "updated_by": "person"
+    }
+  ],
+  "queries": [
+    {
+      "name": "array equality excludes a strict superset",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "tags",
+              "operator": "is",
+              "value": ["red"]
+            }
+          ]
+        }
+      },
+      "ids": ["b"]
+    },
+    {
+      "name": "array equality preserves order",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "tags",
+              "operator": "is",
+              "value": ["blue", "red"]
+            }
+          ]
+        }
+      },
+      "ids": []
+    },
+    {
+      "name": "attachment contains accepts an object subset",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "files",
+              "operator": "contains",
+              "value": {
+                "name": "report.pdf"
+              }
+            }
+          ]
+        }
+      },
+      "ids": ["a"]
+    },
+    {
+      "name": "mixed directions and nulls last",
+      "query": {
+        "sort": [
+          {
+            "field_id": "amount",
+            "direction": "asc"
+          },
+          {
+            "field_id": "name",
+            "direction": "desc"
+          }
+        ]
+      },
+      "ids": ["b", "a", "c", "d"]
+    },
+    {
+      "name": "descending keeps null last",
+      "query": {
+        "sort": [
+          {
+            "field_id": "amount",
+            "direction": "desc"
+          }
+        ]
+      },
+      "ids": ["c", "a", "b", "d"]
+    },
+    {
+      "name": "multi values contain",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "tags",
+              "operator": "contains",
+              "value": "blue"
+            }
+          ]
+        }
+      },
+      "ids": ["a"]
+    },
+    {
+      "name": "missing and null formulas are empty",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "total",
+              "operator": "is_empty"
+            }
+          ]
+        }
+      },
+      "ids": ["b", "c", "d"]
+    },
+    {
+      "name": "calculated formulas filter like stored values",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "total",
+              "operator": "is",
+              "value": 4
+            }
+          ]
+        }
+      },
+      "ids": ["a"]
+    },
+    {
+      "name": "literal percent underscore",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "name",
+              "operator": "text_contains",
+              "value": "%_"
+            }
+          ]
+        }
+      },
+      "ids": ["d"]
+    },
+    {
+      "name": "empty arrays normalize to null",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "tags",
+              "operator": "is_empty"
+            }
+          ]
+        }
+      },
+      "ids": ["c", "d"]
+    },
+    {
+      "name": "or predicates",
+      "query": {
+        "filter": {
+          "conjunction": "or",
+          "conditions": [
+            {
+              "field_id": "amount",
+              "operator": "gt",
+              "value": 2
+            },
+            {
+              "field_id": "name",
+              "operator": "text_contains",
+              "value": "ALPHA"
+            }
+          ]
+        }
+      },
+      "ids": ["a", "c"]
+    },
+    {
+      "name": "empty text formulas normalize to null",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "empty_text",
+              "operator": "is_empty"
+            }
+          ]
+        }
+      },
+      "ids": ["a"]
+    }
+  ],
+  "aggregates": [
+    {
+      "name": "field count excludes null while row count keeps every record",
+      "query": {
+        "metrics": [
+          {
+            "operation": "count",
+            "field_id": "amount",
+            "alias": "values"
+          },
+          {
+            "operation": "count",
+            "alias": "rows"
+          }
+        ]
+      },
+      "groups": [
+        {
+          "values": [],
+          "metrics": {
+            "values": 3,
+            "rows": 4
+          }
+        }
+      ]
+    },
+    {
+      "name": "empty text formula is excluded from field count",
+      "query": {
+        "metrics": [
+          {
+            "operation": "count",
+            "field_id": "empty_text",
+            "alias": "values"
+          }
+        ]
+      },
+      "groups": [
+        {
+          "values": [],
+          "metrics": {
+            "values": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "empty text formula filter and count share null semantics",
+      "query": {
+        "filter": {
+          "conjunction": "and",
+          "conditions": [
+            {
+              "field_id": "empty_text",
+              "operator": "is_empty"
+            }
+          ]
+        },
+        "metrics": [
+          {
+            "operation": "count",
+            "alias": "rows"
+          }
+        ]
+      },
+      "groups": [
+        {
+          "values": [],
+          "metrics": {
+            "rows": 1
+          }
+        }
+      ]
+    }
+  ]
+}

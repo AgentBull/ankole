@@ -134,21 +134,13 @@ defmodule Ankole.IdentityProviders.DirectorySync do
   @doc false
   @spec reconcile_saved_provider(map(), map(), boolean(), keyword()) ::
           {:ok, term()} | {:error, term()}
-  def reconcile_saved_provider(_adapter, _config, false, _opts), do: {:ok, :disabled}
-
-  def reconcile_saved_provider(adapter, config, true, opts) do
+  def reconcile_saved_provider(adapter, _config, _enabled, opts) do
     cond do
       not realtime_reconcile_on_save?(opts) ->
         {:ok, :disabled}
 
       not realtime_sync_supported?(adapter) ->
         {:ok, :sync_unsupported}
-
-      not sync_config_enabled?(config) ->
-        {:ok, :sync_disabled}
-
-      not websocket_sync_config_enabled?(config) ->
-        {:ok, :websocket_disabled}
 
       true ->
         reconcile_realtime_directory(adapter)
@@ -216,10 +208,6 @@ defmodule Ankole.IdentityProviders.DirectorySync do
 
   defp sync_config_enabled?(config) when is_map(config) do
     get_in(config, ["sync", "contacts"]) != false
-  end
-
-  defp websocket_sync_config_enabled?(config) when is_map(config) do
-    get_in(config, ["sync", "websocket"]) != false
   end
 
   defp maybe_enqueue_directory_sync(

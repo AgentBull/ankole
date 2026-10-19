@@ -1,6 +1,14 @@
 import { BlockEditor, useEditor } from '@ankole/block-editor'
-import { PageSession, toggleFormat, undo, type Editor } from '@ankole/block-editor/editor'
-import { StrictMode, useEffect, useRef, useState } from 'react'
+import {
+  PageSession,
+  PageCollaboration,
+  insertImage,
+  toggleFormat,
+  undo,
+  type Editor,
+  type EditorHost
+} from '@ankole/block-editor/editor'
+import { StrictMode, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './embedded.css'
 
@@ -12,6 +20,18 @@ function HostToolbar() {
         Host bold
       </button>
       <button onClick={() => undo(editor)}>Undo second</button>
+      <button
+        onMouseDown={event => event.preventDefault()}
+        onClick={() =>
+          insertImage(editor, { src: 'ankole:asset/image', alt: 'Image description', title: 'Image title' })
+        }>
+        Insert image
+      </button>
+      <button
+        onMouseDown={event => event.preventDefault()}
+        onClick={() => insertImage(editor, { src: `ankole:asset/${'a'.repeat(8 * 1024 * 1024)}`, alt: 'Too large' })}>
+        Insert oversized image
+      </button>
     </div>
   )
 }
@@ -28,6 +48,22 @@ function EmbeddedHost() {
   const [target, setTarget] = useState<'first' | 'second'>('second')
   const [writeResult, setWriteResult] = useState('')
   const [toolbarVisible, setToolbarVisible] = useState(true)
+  const [collaboration, setCollaboration] = useState({ revision: 0, pending: false })
+  const host = useMemo<EditorHost>(
+    () => ({
+      resolveAsset: () => 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+      mountEmbed(attributes, container) {
+        const code = document.createElement('code')
+        code.textContent = attributes.ref ?? ''
+        container.append(code)
+        container.dataset.host = 'mounted'
+        return () => {
+          code.remove()
+        }
+      }
+    }),
+    []
+  )
   const pages = useRef<Partial<Record<'first' | 'second', PageSession>>>({})
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -40,9 +76,25 @@ function EmbeddedHost() {
   }, [revision])
   function ready(name: 'first' | 'second', editor: Editor) {
     const page = new PageSession(editor)
+    const collaboration = new PageCollaboration(editor, 0, {
+      clientID: name,
+      // This package fixture acknowledges its own batches; Pod tests use the real server.
+      async send(request) {
+        return {
+          revision: request.base_revision + 1,
+          changes: [{ ...request, revision: request.base_revision + 1, kind: 'change' }]
+        }
+      },
+      changed(state) {
+        if (name === 'second') setCollaboration({ revision: state.revision, pending: state.pending })
+      },
+      reset() {},
+      sync() {}
+    })
     pages.current[name] = page
     setLifecycle(value => ({ ...value, ready: value.ready + 1 }))
     return () => {
+      collaboration.dispose()
       page.dispose()
       if (pages.current[name] === page) delete pages.current[name]
       setLifecycle(value => ({ ...value, disposed: value.disposed + 1 }))
@@ -91,6 +143,7 @@ function EmbeddedHost() {
         </button>
       </div>
       <output aria-label="Source write result">{writeResult}</output>
+      <output aria-label="Host collaboration">{JSON.stringify(collaboration)}</output>
       <output aria-label="Lifecycle">{JSON.stringify(lifecycle)}</output>
       <output aria-label="Observed host render">{observedRender}</output>
       <section className="embedding-grid">
@@ -111,6 +164,7 @@ function EmbeddedHost() {
         <div data-testid="second-editor" className="embedding-panel">
           <BlockEditor
             ariaLabel="Second document"
+            host={host}
             initial={'# Second\n\nBeta text'}
             onReady={editor => ready('second', editor)}
             onChange={() => setRevision(value => value + 1)}

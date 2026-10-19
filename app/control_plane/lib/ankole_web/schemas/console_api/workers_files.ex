@@ -233,7 +233,7 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.AgentFileEntry do
         content_type: %Schema{type: :string},
         source: %Schema{
           type: :string,
-          enum: Ankole.Files.Schemas.AgentFile.sources()
+          enum: Ankole.Files.Schemas.DriveFile.sources()
         },
         conversation_id: %Schema{type: :string, nullable: true},
         message_id: %Schema{type: :string, format: :uuid, nullable: true},

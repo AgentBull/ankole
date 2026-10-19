@@ -12,7 +12,7 @@ defmodule Ankole.Conversations.Delivery.Attachment do
 
   alias Ankole.Ecto.JSONPayload
   alias Ankole.Files
-  alias Ankole.Files.Schemas.AgentFile
+  alias Ankole.Files.Schemas.DriveFile
   alias Ankole.Conversations.Delivery.ToolOutput
 
   @tool_name "reply_attachment"
@@ -65,7 +65,7 @@ defmodule Ankole.Conversations.Delivery.Attachment do
 
       exists? =
         Ankole.Repo.exists?(
-          from(file in AgentFile,
+          from(file in DriveFile,
             where: file.agent_uid == ^agent_uid and file.path == ^path and file.sha256 == ^digest
           )
         )

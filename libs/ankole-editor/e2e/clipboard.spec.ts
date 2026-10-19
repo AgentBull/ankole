@@ -11,12 +11,12 @@ import {
 } from './helpers'
 
 const blocks =
-  'Before\n\n<database ref="tasks" />\n\n<callout tone="warning">\n  Keep **this**\n</callout>\n\n<future version="99">\n  Unrecognized content\n</future>\n\nAfter'
+  'Before\n\n<embed ref="tasks" />\n\n<callout tone="warning">\n  Keep **this**\n</callout>\n\n<future version="99">\n  Unrecognized content\n</future>\n\nAfter'
 
-test('cut, undo and paste retain a database reference, a callout and an unknown element', async ({ page }) => {
+test('cut, undo and paste retain an embed, a callout and an unknown element', async ({ page }) => {
   await openDocument(page, blocks)
   const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
-  const reference = page.locator('.editor-content .database-reference code')
+  const reference = page.locator('.editor-content .embed code')
   await selectDocument(page)
   const data = await clipboard(editor, 'cut')
   // The HTML for other editors holds the reference and the unknown element.

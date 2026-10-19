@@ -163,7 +163,8 @@ defmodule AnkoleWeb.AuthController do
   end
 
   def select_identity(conn, %{"flow" => flow, "authenticationRef" => encoded}) do
-    with {:ok, reference} <- BrowserSessions.decode_reference(encoded),
+    with {:ok, _transaction} <- WebSession.login_transaction(conn, flow),
+         {:ok, reference} <- BrowserSessions.decode_reference(encoded),
          true <- WebSession.authentication_proven?(conn, reference),
          {:ok, transaction} <-
            BrowserSessions.select_authorization(
@@ -191,7 +192,8 @@ defmodule AnkoleWeb.AuthController do
         identity: current_identity(conn),
         identities: identity_choices(conn, transaction),
         selectAccount:
-          transaction != nil and LoginPolicy.selection_required?(transaction.request),
+          transaction != nil and
+            (transaction.purpose == :pod or LoginPolicy.selection_required?(transaction.request)),
         providers:
           Enum.map(providers, fn provider ->
             %{
@@ -209,14 +211,10 @@ defmodule AnkoleWeb.AuthController do
     end
   end
 
-  defp identity_choices(conn, %{purpose: :oauth} = transaction) do
+  defp identity_choices(conn, %{purpose: purpose} = transaction) when purpose in [:oauth, :pod] do
     Enum.flat_map(WebSession.authentication_references(conn), fn reference ->
       with %{} = authentication <- BrowserSessions.identity(reference, transaction.tenant_id),
-           :ok <-
-             LoginPolicy.authorize_source(
-               transaction.request["client_id"],
-               authentication["provider_id"]
-             ),
+           :ok <- selection_source(transaction, authentication),
            {:ok, principal} <- Ankole.Principals.get_principal(authentication["principal_uid"]) do
         [
           %{
@@ -233,6 +231,15 @@ defmodule AnkoleWeb.AuthController do
   end
 
   defp identity_choices(_, _), do: []
+
+  defp selection_source(%{purpose: :pod}, _authentication), do: :ok
+
+  defp selection_source(transaction, authentication),
+    do:
+      LoginPolicy.authorize_source(
+        transaction.request["client_id"],
+        authentication["provider_id"]
+      )
 
   defp current_identity(conn) do
     with %{"principal_uid" => uid, "provider_id" => provider} <-

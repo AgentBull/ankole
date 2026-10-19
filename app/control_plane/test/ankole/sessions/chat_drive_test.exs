@@ -192,6 +192,9 @@ defmodule Ankole.Sessions.ChatDriveTest do
 
     assert TurnEnvelope.agent_context(context).conversation.drive_directory ==
              "chats/#{input.conversation_id}"
+
+    assert TurnEnvelope.agent_context(context).conversation.pod_instructions == ""
+    assert TurnEnvelope.agent_context(context).conversation.page_id == ""
   end
 
   defp input!(agent_uid, channel_id, opts \\ []) do

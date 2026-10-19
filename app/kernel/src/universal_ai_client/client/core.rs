@@ -139,30 +139,53 @@ async fn report_stream_panic(stream: impl Future<Output = ()>, sink: EventSink) 
 
 pub type RequestResultSink = Box<dyn FnOnce(Result<Value, StreamError>) + Send + 'static>;
 
+/// Keeps one non-streaming request bound to its host owner's lifetime.
+pub struct RequestHandle(AbortHandle);
+
+impl RequestHandle {
+    pub fn cancel(&self) {
+        self.0.abort();
+    }
+}
+
+impl Drop for RequestHandle {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
 pub fn start_model_request(
     encoded_spec: &str,
     deliver: RequestResultSink,
-) -> Result<(), StreamError> {
+) -> Result<RequestHandle, StreamError> {
     let spec = ModelRequestSpec::from_json(encoded_spec)
         .map_err(|reason| StreamError::new("invalid_spec", "spec", reason.to_string()))?;
     let runtime = io_runtime::runtime()
         .map_err(|reason| StreamError::new("runtime_unavailable", "runtime", reason.to_string()))?;
 
-    runtime.spawn(deliver_request_result(run_model_request(spec), deliver));
-    Ok(())
+    let (handle, registration) = AbortHandle::new_pair();
+    runtime.spawn(Abortable::new(
+        deliver_request_result(run_model_request(spec), deliver),
+        registration,
+    ));
+    Ok(RequestHandle(handle))
 }
 
 pub fn start_raw_request(
     encoded_spec: &str,
     deliver: RequestResultSink,
-) -> Result<(), StreamError> {
+) -> Result<RequestHandle, StreamError> {
     let spec = RawRequestSpec::from_json(encoded_spec)
         .map_err(|reason| StreamError::new("invalid_spec", "spec", reason.to_string()))?;
     let runtime = io_runtime::runtime()
         .map_err(|reason| StreamError::new("runtime_unavailable", "runtime", reason.to_string()))?;
 
-    runtime.spawn(deliver_request_result(run_raw_request(spec), deliver));
-    Ok(())
+    let (handle, registration) = AbortHandle::new_pair();
+    runtime.spawn(Abortable::new(
+        deliver_request_result(run_raw_request(spec), deliver),
+        registration,
+    ));
+    Ok(RequestHandle(handle))
 }
 
 // A panic inside the request future becomes an error result, so the owner that

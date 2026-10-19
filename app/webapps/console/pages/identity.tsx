@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom'
 import { DirectoryAccessSection } from './directory-access'
 import {
   Button,
@@ -167,13 +168,19 @@ export function IdentityProviderEditorPage() {
 
   const saveProvider = useMutation({
     ...ankoleWebIdentityProviderControllerPutProviderMutation(),
-    onSuccess: response => {
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, _variables, confirm) => {
+      let accepted = false
+      flushSync(() => {
+        accepted = confirm?.(formFromProvider(response.identity_provider)) ?? false
+      })
+      if (!accepted) return
       toast.success(t('console.identity.saved', { id: response.identity_provider.provider_id }))
       // Stay on the editor so the operator can continue to change the
       // configuration after each save.
-      model.markSaved(formFromProvider(response.identity_provider))
-
-      if (mode === 'new') navigate(`/identity/${encodeURIComponent(response.identity_provider.provider_id)}`)
+      if (mode === 'new' && !model.dirty.value) {
+        navigate(`/identity/${encodeURIComponent(response.identity_provider.provider_id)}`)
+      }
     }
   })
   const runSync = useMutation({
@@ -228,6 +235,7 @@ export function IdentityProviderEditorPage() {
       description={t('console.identity.editor_description')}
       backTo="/identity"
       dirty={model.dirty.value}
+      supplementaryDirty={model.dirty.value}
       validationError={model.validationError.value ?? writeFieldError}
       error={
         (writeFieldError ? undefined : saveProvider.error) ??
@@ -258,65 +266,70 @@ export function IdentityProviderEditorPage() {
           </Button>
         ) : null
       }>
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <LabeledField label={t('console.identity.adapter')} required={mode === 'new'}>
-          {mode === 'edit' ? (
-            <ReadOnlyValue>
-              {activeAdapter
-                ? (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
-                : model.adapterID.value}
-            </ReadOnlyValue>
-          ) : (
-            <Select
-              value={model.adapterID.value || activeAdapter?.adapter_id || ''}
-              onValueChange={value => changeAdapter(String(value))}>
-              <SelectTrigger className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent emptyLabel={t('common.select_empty')}>
-                {identityAdapters.map(adapter => (
-                  <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
-                    {localizedText(adapter.display_name, locale) ?? adapter.adapter_id}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </LabeledField>
-        <LabeledField
-          label={t('console.identity.provider_id')}
-          description={t('console.identity.provider_id_hint')}
-          required={mode === 'new'}>
-          {mode === 'edit' ? (
-            <ReadOnlyValue mono>{model.providerID.value}</ReadOnlyValue>
-          ) : (
-            <Input
-              required
-              value={model.providerID.value}
-              onChange={event => (model.providerID.value = event.target.value)}
-            />
-          )}
-        </LabeledField>
-      </div>
+      <fieldset className="contents" disabled={mode === 'new' && saveProvider.isPending}>
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+          <LabeledField label={t('console.identity.adapter')} required={mode === 'new'}>
+            {mode === 'edit' ? (
+              <ReadOnlyValue>
+                {activeAdapter
+                  ? (localizedText(activeAdapter.display_name, locale) ?? activeAdapter.adapter_id)
+                  : model.adapterID.value}
+              </ReadOnlyValue>
+            ) : (
+              <Select
+                value={model.adapterID.value || activeAdapter?.adapter_id || ''}
+                onValueChange={value => changeAdapter(String(value))}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent emptyLabel={t('common.select_empty')}>
+                  {identityAdapters.map(adapter => (
+                    <SelectItem key={adapter.adapter_id} value={adapter.adapter_id}>
+                      {localizedText(adapter.display_name, locale) ?? adapter.adapter_id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </LabeledField>
+          <LabeledField
+            label={t('console.identity.provider_id')}
+            description={t('console.identity.provider_id_hint')}
+            required={mode === 'new'}>
+            {mode === 'edit' ? (
+              <ReadOnlyValue mono>{model.providerID.value}</ReadOnlyValue>
+            ) : (
+              <Input
+                required
+                value={model.providerID.value}
+                onChange={event => (model.providerID.value = event.target.value)}
+              />
+            )}
+          </LabeledField>
+        </div>
 
-      <label className="flex items-center justify-between gap-4 border border-border bg-muted/30 p-4">
-        <span className="grid gap-1">
-          <span className="text-sm font-medium">{t('console.identity.enabled')}</span>
-          <span className="text-xs text-muted-foreground">{t('console.identity.enabled_hint')}</span>
-        </span>
-        <Checkbox checked={model.enabled.value} onCheckedChange={checked => (model.enabled.value = checked === true)} />
-      </label>
+        <label className="flex items-center justify-between gap-4 border border-border bg-muted/30 p-4">
+          <span className="grid gap-1">
+            <span className="text-sm font-medium">{t('console.identity.enabled')}</span>
+            <span className="text-xs text-muted-foreground">{t('console.identity.enabled_hint')}</span>
+          </span>
+          <Checkbox
+            checked={model.enabled.value}
+            onCheckedChange={checked => (model.enabled.value = checked === true)}
+          />
+        </label>
 
-      {activeAdapter ? (
-        <ConfigFields
-          config={model.config.value}
-          fields={activeFields}
-          locale={locale}
-          onChange={(path, value) => (model.config.value = setPath(model.config.value, path, value))}
-          preservedSecretPaths={selected?.stored_secret_paths}
-          preservedSecretPlaceholder={t('common.secret_saved_placeholder')}
-        />
-      ) : null}
+        {activeAdapter ? (
+          <ConfigFields
+            config={model.config.value}
+            fields={activeFields}
+            locale={locale}
+            onChange={(path, value) => (model.config.value = setPath(model.config.value, path, value))}
+            preservedSecretPaths={selected?.stored_secret_paths}
+            preservedSecretPlaceholder={t('common.secret_saved_placeholder')}
+          />
+        ) : null}
+      </fieldset>
     </ResourceEditorPage>
   )
 }

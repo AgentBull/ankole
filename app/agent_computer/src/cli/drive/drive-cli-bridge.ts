@@ -56,7 +56,7 @@ async function executeLine(
     const target = command.output
       ? resolve(command.cwd, command.output)
       : join(opts.workspaceRoot, 'drive', ...command.path.split('/'))
-    const file = await drive.get(command.path, target)
+    const file = await drive.get(command.path, target, { pod: command.pod })
     return { ok: true, result: { ...listedFile(file), local_path: target } }
   }
 

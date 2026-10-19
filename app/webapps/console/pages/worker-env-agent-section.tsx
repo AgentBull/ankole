@@ -13,7 +13,7 @@ import {
 } from '@ankole/uikit'
 import { RiEyeLine, RiEyeOffLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type SetStateAction } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   ankoleWebWorkerEnvControllerDecryptForAgentMutation,
@@ -50,7 +50,18 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const { t } = useTranslation()
   const list = useQuery(ankoleWebWorkerEnvControllerIndexForAgentOptions({ path: { agent_uid: agentUID } }))
   const items = list.data?.worker_envs ?? []
-  const [draft, setDraft] = useState<OverrideDraft>(emptyDraft)
+  const [draft, setDraftState] = useState<OverrideDraft>(emptyDraft)
+  const editGeneration = useRef(0)
+  const setDraft = (next: SetStateAction<OverrideDraft>) => {
+    editGeneration.current++
+    setDraftState(next)
+  }
+  useEffect(
+    () => () => {
+      editGeneration.current++
+    },
+    []
+  )
   const [editing, setEditing] = useState<string>()
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const revealTimers = useRef<Record<string, number>>({})
@@ -61,7 +72,9 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
 
   const save = useMutation({
     ...ankoleWebWorkerEnvControllerUpdateForAgentMutation(),
-    onSuccess: (_data, variables) => {
+    onMutate: () => editGeneration.current,
+    onSuccess: (_data, variables, generation) => {
+      if (generation !== editGeneration.current) return
       hideRevealed(variables.path.name)
       toast.success(t('console.worker_envs.saved', { name: variables.path.name }))
       setDraft(emptyDraft)
@@ -69,7 +82,9 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
       setDraftError(undefined)
       setPlaintextConfirmOpen(false)
     },
-    onError: error => setDraftError(requestErrorMessage(error))
+    onError: (error, _variables, generation) => {
+      if (generation === editGeneration.current) setDraftError(requestErrorMessage(error))
+    }
   })
   const clear = useMutation({
     ...ankoleWebWorkerEnvControllerDeleteForAgentMutation(),
@@ -83,7 +98,9 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     meta: { invalidates: false },
     ...ankoleWebWorkerEnvControllerDecryptForAgentMutation(),
     gcTime: 0,
-    onSuccess: response => {
+    onMutate: () => editGeneration.current,
+    onSuccess: (response, _variables, generation) => {
+      if (generation !== editGeneration.current) return
       const { name, value } = response.decrypted_value
       setRevealed(current => ({
         ...current,
@@ -98,7 +115,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
         })
         delete revealTimers.current[name]
       }, 30_000)
-      setDraft(current => (current.name === name ? { ...current, value } : current))
+      setDraftState(current => (current.name === name ? { ...current, value } : current))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })

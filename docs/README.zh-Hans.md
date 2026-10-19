@@ -253,6 +253,7 @@ tools/e2e/run --real-llm
 | [浏览器会话](design-docs/BrowserSessions.md) | 浏览器身份、认证新鲜度、并发登录与退出 |
 | [OIDC 服务端](design-docs/OIDCServer.md) | OIDC 协议归属、客户端策略、令牌与注销 |
 | [AuthZ](design-docs/AuthZ.md) | 权限组、授权规则和 CEL 条件 |
+| [Pod 内容模型](design-docs/PodContentModel.md) | Pod 页面与 Database 的表结构，以及编辑器的 embed 元素 |
 | [AppConfiguration](design-docs/AppConfiguration.md) | 启动配置和运行时设置 |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugin 与 Agent Plugin |
 | [MCP-backed Skills](design-docs/MCPBackedSkills.md) | Skill 怎样连接 MCP 服务以及怎样保护凭据 |

@@ -1,3 +1,4 @@
+import { checkSource } from '../document/tree'
 import { Wordgard } from '../core/editor'
 import { history } from '../core/history'
 import { GardState } from '../core/state'
@@ -5,7 +6,8 @@ import { parseMarkdown, printMarkdown } from '../document/markdown'
 import type { SourceFormat } from '../document/tree'
 import { unknownNames } from '../document/vocabulary'
 import { parseXml, printXml } from '../document/xml'
-import { readTree, replaceTree } from './convert'
+import { replaceTree } from './convert'
+import { validatedPageSource } from './page-update'
 
 export type PageWrite = { format: SourceFormat; source: string; revision: number }
 export type PageSnapshot = { revision: number; markdown: string; xml: string }
@@ -22,7 +24,14 @@ const countChanges = Wordgard.transactionListener.of((transactions, editor) => {
 })
 
 /** The extension that page sessions need. `editorExtension` includes it. */
-export const pageSessions: GardState.Extension = countChanges
+export const pageSessions: GardState.Extension = [
+  Wordgard.transactionGuard.of(transactions => {
+    if (!transactions.some(transaction => transaction.docChanged)) return
+    const document = transactions.at(-1)!.newDoc
+    validatedPageSource(document)
+  }),
+  countChanges
+]
 
 /** The local commit boundary for the source panel and for page writes by a model. */
 export class PageSession {
@@ -40,9 +49,13 @@ export class PageSession {
   dispose() {
     if (sessions.get(this.editor) === this) sessions.delete(this.editor)
   }
+  /** Read XML without also formatting Markdown. Accepted edits reuse their validated source. */
+  readXml(): Pick<PageSnapshot, 'revision' | 'xml'> {
+    return { revision: this.version, xml: validatedPageSource(this.editor.state.doc).xml }
+  }
   read(): PageSnapshot {
-    const tree = readTree(this.editor.state.doc)
-    return { revision: this.version, markdown: printMarkdown(tree), xml: printXml(tree) }
+    const tree = validatedPageSource(this.editor.state.doc).tree
+    return { ...this.readXml(), markdown: printMarkdown(tree) }
   }
   /** Replace the page in one undoable step. Only the active session can write. */
   apply(write: PageWrite): PageApplied {
@@ -54,6 +67,7 @@ export class PageSession {
     const tree = write.format === 'xml' ? parseXml(write.source) : parseMarkdown(write.source)
     // A page that cannot be printed must not replace the current page.
     printMarkdown(tree)
+    checkSource(printXml(tree), 'xml')
     this.editor.dispatch({
       ...replaceTree(this.editor.state, tree),
       annotations: history.isolate.of(true),

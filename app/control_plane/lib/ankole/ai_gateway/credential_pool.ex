@@ -163,8 +163,10 @@ defmodule Ankole.AIGateway.CredentialPool do
     GenServer.call(__MODULE__, {:statuses, provider_row_id, entries})
   end
 
-  @doc false
-  def reset_for_test, do: GenServer.call(__MODULE__, :reset)
+  if Mix.env() == :test do
+    @doc false
+    def reset_for_test, do: GenServer.call(__MODULE__, :reset)
+  end
 
   @impl true
   def init(_opts), do: {:ok, %{}}
@@ -253,7 +255,9 @@ defmodule Ankole.AIGateway.CredentialPool do
     {:reply, statuses, Map.put(state, provider_row_id, provider_state)}
   end
 
-  def handle_call(:reset, _from, _state), do: {:reply, :ok, %{}}
+  if Mix.env() == :test do
+    def handle_call(:reset, _from, _state), do: {:reply, :ok, %{}}
+  end
 
   defp choose([], _provider_state, _strategy, _affinity_key), do: :error
 

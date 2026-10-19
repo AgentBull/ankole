@@ -644,6 +644,21 @@ defmodule Ankole.KernelTest do
              ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
   end
 
+  test "short UUIDs cross the NIF boundary with the shared canonical URL vectors" do
+    vectors = Path.expand("../vectors/uuid_url.json", __DIR__) |> File.read!() |> Torque.decode!()
+
+    for %{"uuid" => uuid, "short" => short} <- vectors["valid"] do
+      assert NativeKernel.uuid_shorten(uuid) == short
+      assert NativeKernel.uuid_expand(short) == uuid
+    end
+
+    for value <- vectors["invalid_short"],
+        do: assert({:error, _} = NativeKernel.uuid_expand(value))
+
+    for value <- vectors["invalid_uuid"],
+        do: assert({:error, _} = NativeKernel.uuid_shorten(value))
+  end
+
   test "universal AI client sends raw HTTP requests" do
     {:ok, url} = start_http_json_server(%{"ok" => true, "value" => 42})
 

@@ -248,6 +248,14 @@ The preview coalesces CardKit changes and starts at most one provider sync for a
 turn each second. The Feishu client handles explicit provider rate-limit
 responses without placing unrelated replies in one shared queue.
 
+Remote Markdown image downloads check the URL and all resolved IPv4 and IPv6
+addresses before each request, including redirects. The connection uses a
+checked IP while HTTP Host, TLS SNI, and certificate verification keep the
+original hostname. Cloud metadata addresses are always rejected; private
+addresses follow `security.ssrf_filter`, whose default permits intranet access.
+A DNS failure or blocked target leaves a text link. Downloads retain the
+20 MiB streaming limit and do not retry transport failures.
+
 The Signal checkpoint is the durable CardKit ledger. It records card IDs,
 message IDs, source pages, the active page, stream state, the last confirmed
 presentation, and the sequence high-water mark. A restarted process renders

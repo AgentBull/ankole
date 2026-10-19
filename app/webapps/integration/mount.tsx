@@ -4,6 +4,9 @@ import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, Link, Outlet, RouterProvider, useParams } from 'react-router'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
+import { SetupApp } from '../setup/app'
+import { LocalPasswordForm } from '../auth/local-password-form'
+import { LoginModel } from '../auth/state/login-model'
 import { AppProviders, createQueryClient } from '../common/providers'
 import { loadLocale } from '../common/i18n'
 import { configureConsoleAPIClient } from '../console/api/client'
@@ -13,6 +16,7 @@ import { HomePage } from '../console/pages/home'
 import { BrainObjectEditorPage } from '../console/pages/brain/object-editor'
 import { BrainObjectDrawer, BrainObjectsPage } from '../console/pages/brain/objects'
 import { SettingsPage, SettingEditorDrawer, SettingGroupDrawer } from '../console/pages/settings'
+import { WorkerProviderEditorPage } from '../console/pages/worker-providers'
 import { TenantEditorPage } from '../console/pages/tenants'
 import { WebhooksPage } from '../console/pages/webhooks'
 import { AgentFilesPage } from '../console/pages/agent-files'
@@ -22,6 +26,8 @@ import { AgentLibraryEditorModel } from '../console/state/agent-library-editor-m
 import { WorkerEnvAgentSection } from '../console/pages/worker-env-agent-section'
 
 await loadLocale('en-US')
+const setupSurface = window.location.pathname.startsWith('/setup-repair')
+const loginSurface = window.location.pathname.startsWith('/login-repair')
 const provider = window.location.pathname.startsWith('/providers')
 const home = window.location.pathname.startsWith('/console-home')
 const brain = window.location.pathname.startsWith('/brain')
@@ -29,7 +35,9 @@ const consoleSurface =
   provider ||
   home ||
   brain ||
-  /^\/(settings|tenants|webhooks|files|schedules|library|worker-env)(\/|$)/.test(window.location.pathname)
+  /^\/(settings|tenants|webhooks|files|schedules|library|worker-env|worker-providers)(\/|$)/.test(
+    window.location.pathname
+  )
 const client = createQueryClient(consoleSurface ? createConsoleMutationCache() : undefined)
 Object.assign(window, {
   testMutationStatuses: () =>
@@ -38,8 +46,12 @@ Object.assign(window, {
       .getAll()
       .map(row => row.state.status)
 })
-const PodApp = consoleSurface ? undefined : (await import('../pod/app')).PodApp
-const app = consoleSurface ? (
+const PodApp = consoleSurface || setupSurface || loginSurface ? undefined : (await import('../pod/app')).PodApp
+const app = setupSurface ? (
+  <SetupApp />
+) : loginSurface ? (
+  <LoginTestPage />
+) : consoleSurface ? (
   (() => {
     configureConsoleAPIClient()
     return (
@@ -57,6 +69,8 @@ const app = consoleSurface ? (
                 ]
               },
               { path: '/tenants/new', element: <TenantEditorPage /> },
+              { path: '/tenants/:tenantID', element: <TenantEditorPage /> },
+              { path: '/worker-providers/:providerID', element: <WorkerProviderEditorPage /> },
               { path: '/webhooks', element: <WebhooksPage /> },
               { path: '/files/:uid', element: <AgentFilesPage /> },
               { path: '/schedules', element: <SchedulesListPage /> },
@@ -122,4 +136,9 @@ function BrainTestNavigation() {
       <Outlet />
     </>
   )
+}
+
+function LoginTestPage() {
+  const model = useModel(LoginModel)
+  return <LocalPasswordForm model={model} />
 }

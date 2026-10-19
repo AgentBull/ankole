@@ -8,6 +8,8 @@ export type WorkerEnvDraft = {
 }
 
 export const WorkerEnvEditorModel = createModel(() => {
+  let generation = Symbol()
+  let valueRevision = 0
   const sourceKey = signal<string>()
   const name = signal('')
   const value = signal('')
@@ -36,6 +38,8 @@ export const WorkerEnvEditorModel = createModel(() => {
     validationError,
     initialize(nextSourceKey: string, draft: WorkerEnvDraft) {
       if (sourceKey.value === nextSourceKey) return
+      generation = Symbol()
+      valueRevision++
       batch(() => {
         sourceKey.value = nextSourceKey
         name.value = draft.name
@@ -47,7 +51,50 @@ export const WorkerEnvEditorModel = createModel(() => {
       })
     },
     resetSource() {
+      generation = Symbol()
+      valueRevision++
       sourceKey.value = undefined
+    },
+    captureReveal() {
+      const requestedGeneration = generation
+      const requestedValue = value.value
+      const requestedRevision = valueRevision
+      return (revealed: string) => {
+        if (
+          generation !== requestedGeneration ||
+          valueRevision !== requestedRevision ||
+          value.value !== requestedValue
+        ) {
+          return false
+        }
+        batch(() => {
+          value.value = revealed
+          if (initialDraft.value?.value === requestedValue) {
+            initialDraft.value = { ...initialDraft.value, value: revealed }
+          }
+        })
+        return true
+      }
+    },
+    setValue(next: string) {
+      valueRevision++
+      value.value = next
+    },
+    captureSave() {
+      const requestedGeneration = generation
+      const submitted = { name: name.value, value: value.value, secret: secret.value, description: description.value }
+      return (accepted: WorkerEnvDraft) => {
+        if (generation !== requestedGeneration) return false
+        valueRevision++
+        batch(() => {
+          if (name.value === submitted.name) name.value = accepted.name
+          if (value.value === submitted.value) value.value = accepted.value
+          if (secret.value === submitted.secret) secret.value = accepted.secret
+          if (description.value === submitted.description) description.value = accepted.description
+          initialDraft.value = { ...accepted }
+        })
+        return true
+      }
     },
     clearValidation() {
       validationError.value = undefined

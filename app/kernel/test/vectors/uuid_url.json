@@ -1,0 +1,10 @@
+{
+  "valid": [
+    { "uuid": "00000000-0000-0000-0000-000000000000", "short": "AAAAAAAAAAAAAAAAAAAAAA" },
+    { "uuid": "ffffffff-ffff-ffff-ffff-ffffffffffff", "short": "_____________________w" },
+    { "uuid": "00112233-4455-6677-8899-aabbccddeeff", "short": "ABEiM0RVZneImaq7zN3u_w" },
+    { "uuid": "01a15007-9b83-70f3-8830-060ec9b8419f", "short": "AaFQB5uDcPOIMAYOybhBnw" }
+  ],
+  "invalid_short": ["", "A", "AAAAAAAAAAAAAAAAAAAAAA==", "AAAAAAAAAAAAAAAAAAAAAB", "_____________________x", "ABEiM0RVZneImaq7zN3u/w", "AAAAAAAAAAAAAAAAAAAAA "],
+  "invalid_uuid": ["", "00112233445566778899aabbccddeeff", "00112233-4455-6677-8899-AABBCCDDEEFF", "urn:uuid:00112233-4455-6677-8899-aabbccddeeff", "not-a-uuid"]
+}

@@ -89,7 +89,7 @@ defmodule Ankole.E2E.Harness do
   def secondary_app_id, do: @secondary_app_id
 
   @doc """
-  Cleans up committed fixtures for a serial test tagged `sandbox: false`.
+  Cleans up committed fixtures for a serial test.
 
   Timed lifecycle tests need real transaction boundaries: PostgreSQL `now()`
   stays fixed inside a sandbox transaction. Container cleanup runs before this
@@ -114,7 +114,7 @@ defmodule Ankole.E2E.Harness do
       Repo.bind_tenant(fn ->
         Ankole.SessionsCase.stop_new_drivers(drivers)
 
-        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        committed_checkout(fn ->
           created = Repo.all(from(p in Principals.Principal, where: p.uid not in ^principals))
           uids = Enum.map(created, & &1.uid)
 
@@ -447,7 +447,7 @@ defmodule Ankole.E2E.Harness do
     # Probe from a new process so an existing allowance cannot reuse that owner.
     committed? =
       Repo.bind_tenant(fn ->
-        Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fn ->
+        committed_checkout(fn ->
           Enum.all?(started, fn {agent_uid, _identity} ->
             not is_nil(worker_identity(agent_uid))
           end)
@@ -474,10 +474,18 @@ defmodule Ankole.E2E.Harness do
         end
 
         if committed?,
-          do: Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, check),
+          do: committed_checkout(check),
           else: check.()
       end)
     )
+  end
+
+  defp committed_checkout(fun) do
+    %{opts: opts} = Ecto.Adapter.lookup_meta(Repo)
+
+    if opts[:pool] == DBConnection.Ownership,
+      do: Ecto.Adapters.SQL.Sandbox.unboxed_run(Repo, fun),
+      else: fun.()
   end
 
   defp worker_identity(agent_uid) do

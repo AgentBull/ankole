@@ -95,6 +95,66 @@ defmodule Ankole.Conversations.NativeDriverTest do
     {:ok, human: human, agent: agent, script: script}
   end
 
+  test "native activity stays responsive while the terminal transaction waits", %{
+    human: human,
+    agent: agent
+  } do
+    message_id = Ecto.UUID.generate()
+
+    assert {:ok, detail} =
+             Conversations.create(human.uid, %{
+               conversation_id: Ecto.UUID.generate(),
+               agent_uid: agent.uid,
+               message_id: message_id,
+               text: "Complete this native reply."
+             })
+
+    _ = await_request()
+    assert_receive {:native_model_waiting, provider}, 5_000
+    key = %{agent_uid: agent.uid, session_id: detail.session_id}
+    owner = self()
+    handler = "responsive-finalizing-#{message_id}"
+
+    :telemetry.attach(
+      handler,
+      [:ankole, :repo, :query],
+      fn _, _, metadata, parent ->
+        if String.starts_with?(metadata.query, "UPDATE \"signals\" SET") and
+             String.contains?(metadata.query, "\"completed_at\"") do
+          send(parent, {:terminal_waiting, self()})
+
+          receive do
+            :release_terminal -> :ok
+          after
+            10_000 -> raise "terminal transaction was not released"
+          end
+        end
+      end,
+      owner
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    send(provider, :release_model)
+    assert_receive {:terminal_waiting, finalizer}, 5_000
+
+    try do
+      driver = Ankole.Sessions.driver_pid(key)
+      assert {%{state: "active", agentUID: uid}, ^driver} = Ankole.Sessions.Activity.current(key)
+      assert uid == agent.uid
+      assert {:finalizing, _} = :sys.get_state(driver)
+      signal_id = event_for(message_id).id
+      send(driver, {:inbox, signal_id})
+      send(driver, {:recover_preview, signal_id})
+      assert {%{state: "active", agentUID: ^uid}, ^driver} = Ankole.Sessions.Activity.current(key)
+    after
+      :telemetry.detach(handler)
+      send(finalizer, :release_terminal)
+    end
+
+    assert wait_for_completion(event_for(message_id).id).completed_at
+  end
+
   test "native messages stream through AIGateway and continue the same model conversation",
        context do
     %{human: human, agent: agent, script: script} = context
@@ -164,7 +224,98 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert first_reply.session_id == Ankole.Sessions.Key.conversation(id)
     assert ResponseChain.latest_visible_leaf(model_id)
     assert gateway_row_counts() == baseline
+
+    assert {:ok, replayed_first} =
+             Conversations.create(human.uid, %{
+               conversation_id: id,
+               agent_uid: agent.uid,
+               message_id: first_id,
+               text: "What is six times seven?"
+             })
+
+    assert {:ok, replayed_second} =
+             Conversations.post(human.uid, id, %{message_id: second_id, text: "And twice that?"})
+
+    assert replayed_first.messages == final.messages
+    assert replayed_second.messages == final.messages
+    assert Agent.get(script, & &1.requests) == 2
+    assert event_for(first_id).id == first_event.id
+    assert event_for(second_id).attempt_count == 1
     refute_receive {:native_model_request, _}, 100
+  end
+
+  test "a detail read cannot combine an old transcript with a completed status", context do
+    %{human: human, agent: agent} = context
+    id = Ecto.UUID.generate()
+    message_id = Ecto.UUID.generate()
+
+    assert {:ok, _} =
+             Conversations.create(human.uid, %{
+               conversation_id: id,
+               agent_uid: agent.uid,
+               message_id: message_id,
+               text: "Read this reply consistently."
+             })
+
+    _ = await_request()
+    assert_receive {:native_model_waiting, provider}, 5_000
+    signal = event_for(message_id)
+    owner = self()
+    handler = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ankole, :repo, :query],
+        fn _event, _measurements, metadata, _config ->
+          if metadata.source == "conversation_messages" and Process.get(handler) == :armed do
+            Process.put(handler, :waiting)
+            send(owner, {:detail_messages_read, self()})
+
+            receive do
+              :release_detail -> :ok
+            after
+              5_000 -> raise "the test did not release its detail read"
+            end
+          end
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    reader =
+      Task.async(
+        Repo.bind_tenant(fn ->
+          Repo.checkout(fn ->
+            [[backend]] = Repo.query!("SELECT pg_backend_pid()").rows
+            send(owner, {:detail_backend, backend})
+            Process.put(handler, :armed)
+            detail_response(human.uid, id)
+          end)
+        end)
+      )
+
+    assert_receive {:detail_backend, backend}, 5_000
+    assert_receive {:detail_messages_read, reader_pid}, 5_000
+    send(provider, :release_model)
+
+    try do
+      await_detail_completion_boundary(signal.id, backend)
+    after
+      send(reader_pid, :release_detail)
+    end
+
+    detail = Task.await(reader, 5_000)
+    assert detail["status"]["state"] == "running"
+    assert [%{"id" => ^message_id}] = detail["messages"]
+
+    _ = wait_for_completion(signal.id)
+    completed = detail_response(human.uid, id)
+    assert completed["status"]["state"] == "idle"
+
+    assert [_, %{"authorType" => "agent", "text" => "A committed native answer."}] =
+             completed["messages"]
   end
 
   test "a follow-up while generating joins the active turn exactly once", context do
@@ -736,6 +887,38 @@ defmodule Ankole.Conversations.NativeDriverTest do
              )
 
     schedule
+  end
+
+  defp detail_response(human_uid, id) do
+    conn =
+      Plug.Test.conn(:get, "/.internal-apis/pod/conversations/#{id}")
+      |> Plug.Conn.assign(:current_principal_uid, human_uid)
+      |> AnkoleWeb.PodController.show(%{"id" => id})
+
+    assert conn.status == 200
+    Ankole.JSON.decode!(conn.resp_body)
+  end
+
+  defp await_detail_completion_boundary(id, backend, attempts \\ 200)
+
+  defp await_detail_completion_boundary(_id, _backend, 0),
+    do: flunk("completion neither committed nor waited for the detail read")
+
+  defp await_detail_completion_boundary(id, backend, attempts) do
+    waiting =
+      Repo.query!(
+        """
+        SELECT pid FROM pg_stat_activity
+        WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))
+        LIMIT 1
+        """,
+        [backend]
+      ).rows
+
+    unless waiting != [] or Repo.get!(Signal, id).completed_at do
+      Process.sleep(25)
+      await_detail_completion_boundary(id, backend, attempts - 1)
+    end
   end
 
   defp event_for(message_id), do: Repo.get_by!(Signal, source_event_id: message_id)

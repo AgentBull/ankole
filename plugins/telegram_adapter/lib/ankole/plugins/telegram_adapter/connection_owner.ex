@@ -62,16 +62,25 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
     config = Keyword.fetch!(opts, :config)
     consumer = Keyword.fetch!(opts, :consumer)
     Ankole.Repo.put_tenant_id(Map.fetch!(consumer, :tenant_id))
 
-    {:ok,
-     %__MODULE__{
-       key: Keyword.fetch!(opts, :key),
-       client: Config.client(config),
-       consumer: consumer
-     }, {:continue, :preflight}}
+    # The provider permits one getUpdates consumer for one bot. Local
+    # registries still let each node reconcile and take over after owner exit.
+    case :global.register_name({__MODULE__, Config.secret_fingerprint(config)}, self()) do
+      :no ->
+        {:stop, :poller_already_owned}
+
+      :yes ->
+        {:ok,
+         %__MODULE__{
+           key: Keyword.fetch!(opts, :key),
+           client: Config.client(config),
+           consumer: consumer
+         }, {:continue, :preflight}}
+    end
   end
 
   @impl true
@@ -118,7 +127,7 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
 
   defp start_preflight(state) do
     task =
-      Task.Supervisor.async_nolink(
+      Task.Supervisor.async(
         @task_supervisor,
         Ankole.Repo.bind_tenant(fn ->
           with {:ok, %{"id" => bot_id, "is_bot" => true} = bot} <-
@@ -147,7 +156,7 @@ defmodule Ankole.Plugins.TelegramAdapter.ConnectionOwner do
     offset = state.offset
 
     task =
-      Task.Supervisor.async_nolink(
+      Task.Supervisor.async(
         @task_supervisor,
         Ankole.Repo.bind_tenant(fn ->
           with {:ok, updates} <- Client.get_updates(client, offset, @poll_timeout_seconds) do

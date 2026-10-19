@@ -83,7 +83,11 @@ defmodule Ankole.Conversations.Message do
 
   defp validate_native_statement(changeset) do
     if get_field(changeset, :origin) == :native do
-      validate_required(changeset, [:author_uid, :text])
+      changeset = validate_required(changeset, [:author_uid])
+
+      if get_field(changeset, :attachments, []) == [],
+        do: validate_required(changeset, [:text]),
+        else: changeset
     else
       changeset
     end

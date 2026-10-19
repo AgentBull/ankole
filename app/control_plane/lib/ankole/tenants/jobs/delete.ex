@@ -14,9 +14,11 @@ defmodule Ankole.Tenants.Jobs.Delete do
   # Child rows precede their parents. This order comes from the migration's
   # PostgreSQL foreign keys; Agent and Worker rows use their lifecycle owner.
   @tables ~w(
+    db_records db_sync_bindings db_views db_fields db_tables
+    page_user_states page_changes page_contents pages
     external_message_refs conversation_messages conversation_participants
     cron_schedules session_ambient_judgments scheduled_events
-    sessions agent_computer_worker_envs agent_files
+    sessions agent_computer_worker_envs drive_files
     agent_library_container_entries agent_plugin_overrides agent_skill_lessons agent_skills
     ai_gateway_artifacts ai_gateway_compaction_artifacts ai_gateway_usage_records
     app_configurations automation_job_runs signal_webhook_endpoints
@@ -129,13 +131,47 @@ defmodule Ankole.Tenants.Jobs.Delete do
     if System.monotonic_time(:millisecond) >= deadline do
       true
     else
-      sql =
-        "DELETE FROM #{table} WHERE tenant_id = $1::text::uuid AND ctid IN " <>
-          "(SELECT ctid FROM #{table} WHERE tenant_id = $1::text::uuid LIMIT 200)"
-
-      %{num_rows: count} = Ecto.Adapters.SQL.query!(Repo, sql, [tenant_id])
+      %{num_rows: count} = delete_batch(tenant_id, table)
       delete_batches(tenant_id, if(count > 0, do: tables, else: remaining), deadline)
     end
+  end
+
+  # Delete leaves first so one parent cannot cascade through an unbounded subtree.
+  defp delete_batch(tenant_id, "pages") do
+    Ecto.Adapters.SQL.query!(
+      Repo,
+      """
+      DELETE FROM pages WHERE tenant_id = $1::text::uuid AND ctid IN (
+        SELECT page.ctid FROM pages AS page
+        WHERE page.tenant_id = $1::text::uuid AND NOT EXISTS (
+          SELECT 1 FROM pages AS child
+          WHERE child.tenant_id = page.tenant_id AND child.parent_id = page.id
+        ) LIMIT 200
+      )
+      """,
+      [tenant_id]
+    )
+  end
+
+  defp delete_batch(tenant_id, table) when table in ["permission_grants", "principal_groups"] do
+    {:ok, result} =
+      Repo.transact(fn _repo ->
+        Ankole.Pod.Pages.lock_tree()
+        {:ok, delete_rows(tenant_id, table)}
+      end)
+
+    result
+  end
+
+  defp delete_batch(tenant_id, table), do: delete_rows(tenant_id, table)
+
+  defp delete_rows(tenant_id, table) do
+    Ecto.Adapters.SQL.query!(
+      Repo,
+      "DELETE FROM #{table} WHERE tenant_id = $1::text::uuid AND ctid IN " <>
+        "(SELECT ctid FROM #{table} WHERE tenant_id = $1::text::uuid LIMIT 200)",
+      [tenant_id]
+    )
   end
 
   defp finish(tenant) do
@@ -147,6 +183,8 @@ defmodule Ankole.Tenants.Jobs.Delete do
   end
 
   defp finish_in_tx(repo, tenant) do
+    Ankole.Pod.Pages.lock_tree()
+
     case repo.one(from t in Tenants.Tenant, where: t.id == ^tenant.id, lock: "FOR UPDATE") do
       nil ->
         {:ok, :finished}

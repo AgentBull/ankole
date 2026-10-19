@@ -236,7 +236,7 @@ describe('@ankole/agent-computer Codex notification projection', () => {
           item: { type: 'agentMessage', id: 'message-1', text: 'done' }
         }
       })
-    ).toEqual({ type: 'agent_completed', threadID: 'thread-1', text: 'done' })
+    ).toEqual({ type: 'agent_completed', threadID: 'thread-1', text: 'done', phase: null })
 
     expect(
       projectCodexNotification({
@@ -251,6 +251,21 @@ describe('@ankole/agent-computer Codex notification projection', () => {
       terminalStatus: 'succeeded',
       error: {}
     })
+  })
+
+  it('preserves assistant phases without treating intermediate or unknown phases as legacy', () => {
+    for (const phase of ['commentary', 'partial_answer', 'final_answer', 'future_phase', '', null]) {
+      expect(
+        projectCodexNotification({
+          method: 'item/completed',
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-3',
+            item: { type: 'agentMessage', id: 'message-1', text: 'public assistant text', phase }
+          }
+        })
+      ).toEqual({ type: 'agent_completed', threadID: 'thread-1', text: 'public assistant text', phase })
+    }
   })
 
   it('projects a failed MCP server startup with a bounded diagnostic and ignores other statuses', () => {

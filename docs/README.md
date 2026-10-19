@@ -271,6 +271,7 @@ credentials.
 | [Browser Sessions](design-docs/BrowserSessions.md) | Browser identity, authentication freshness, concurrent login, and logout |
 | [OIDC Server](design-docs/OIDCServer.md) | OIDC protocol ownership, Client policy, tokens, and logout |
 | [AuthZ](design-docs/AuthZ.md) | Groups, grants, and CEL decisions |
+| [Pod Content Model](design-docs/PodContentModel.md) | Pod page and Database tables, and the editor embed element |
 | [AppConfiguration](design-docs/AppConfiguration.md) | Startup settings and settings that can change while Ankole runs |
 | [Plugins](design-docs/Plugins.md) | Control Plane Plugins and Agent Plugins |
 | [MCP-backed Skills](design-docs/MCPBackedSkills.md) | MCP Skill execution and secrets |

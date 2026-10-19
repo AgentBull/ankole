@@ -40,7 +40,7 @@ defmodule Ankole.Conversations.TargetTest do
                conversation_id: context.native.id
              })
 
-    refute StatementTarget.accepts_attachments?(target)
+    assert target.kind == :native
 
     for field <- [:binding_name, :provider_thread_id] do
       assert {:error, :cron_delivery_route_required} =
@@ -98,7 +98,6 @@ defmodule Ankole.Conversations.TargetTest do
     assert target.kind == :external
     assert target.provider_thread_id == "thread"
     refute target.primary
-    assert StatementTarget.accepts_attachments?(target)
 
     assert {:error, :conversation_not_found} =
              StatementTarget.for_delivery_in_tx(

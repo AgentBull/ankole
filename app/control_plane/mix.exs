@@ -230,6 +230,7 @@ defmodule Ankole.MixProject do
       {:archdo, ">= 0.0.0", github: "BadBeta/archdo", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
+      {:stream_data, "~> 1.4", only: :test, runtime: false},
       {:phoenix, "~> 1.8.15"},
       {:phoenix_pubsub, "~> 2.4"},
       {:phoenix_ecto, "~> 4.7"},
@@ -243,6 +244,7 @@ defmodule Ankole.MixProject do
       {:opentelemetry, "~> 1.7"},
       {:opentelemetry_exporter, "~> 1.11"},
       {:req, "~> 0.7"},
+      {:finch, "~> 0.24"},
       {:aws_signature, "~> 0.4.3"},
       {:aws_credentials, "~> 1.1.1", runtime: false},
       {:kubereq, "~> 0.4.5"},
@@ -334,7 +336,8 @@ defmodule Ankole.MixProject do
         "ecto.migrate --quiet",
         "test ../../tools/e2e/suites/lark_real_llm_e2e_test.exs " <>
           "../../tools/e2e/suites/lark_workflow_real_llm_e2e_test.exs " <>
-          "../../tools/e2e/suites/conversations_cli_real_llm_e2e_test.exs --trace"
+          "../../tools/e2e/suites/conversations_cli_real_llm_e2e_test.exs " <>
+          "../../tools/e2e/suites/pod_content_real_llm_e2e_test.exs --trace"
       ],
       "e2e.ai_gateway_real_provider": [
         "ecto.create --quiet",

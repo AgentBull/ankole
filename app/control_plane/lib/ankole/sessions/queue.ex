@@ -227,11 +227,37 @@ defmodule Ankole.Sessions.Queue do
     |> repo.one()
   end
 
+  @doc "Returns runnable or admitted work for the public Session status."
+  def status_event(repo, uid, session, now) do
+    open_query(uid, session)
+    |> exclude(:order_by)
+    |> order_by([event],
+      asc:
+        fragment(
+          "CASE WHEN ? > ? THEN 2 WHEN ? IS NULL THEN 1 ELSE 0 END",
+          event.available_at,
+          ^now,
+          event.last_attempt_at
+        ),
+      asc: event.available_at,
+      asc: event.queue_sequence
+    )
+    |> limit(1)
+    |> repo.one()
+  end
+
   defp open_query(uid, session) do
     from(e in Signal,
+      left_join: conversation in Ankole.Conversations.Conversation,
+      on: conversation.id == e.conversation_id and conversation.kind == :native,
       where:
         e.agent_uid == ^uid and e.session_id == ^session and
           e.input_state == "open" and is_nil(e.completed_at),
+      where:
+        not is_nil(e.last_attempt_at) or e.type != "conversation.message.addressed" or
+          fragment("COALESCE(?->>'delivery_mode', 'steer')", e.data) != "queue" or
+          is_nil(conversation.id) or
+          fragment("COALESCE(?->>'queue_paused', 'false')", conversation.metadata) != "true",
       order_by: [asc: e.queue_sequence]
     )
   end

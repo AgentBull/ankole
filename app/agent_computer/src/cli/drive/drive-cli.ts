@@ -6,7 +6,7 @@ import { requestSocketLineBridge } from '../../core/socket-line-bridge'
 
 const usage = `Usage:
   ankole-files list [<folder>] [--limit <1-1000>] [--after <cursor>]
-  ankole-files get <drive-path> [--output <local-path>]
+  ankole-files get <drive-path> [--output <local-path>] [--pod]
   ankole-files put <local-path> <drive-path>
   ankole-files rm <drive-path>`
 
@@ -31,9 +31,10 @@ Commands
   ankole-files list [<folder>] [--limit <1-1000>] [--after <cursor>]
     Lists files under a folder, or the whole drive, in path order.
     If the result has next_after, pass it as --after to read the next page.
-  ankole-files get <drive-path> [--output <local-path>]
+  ankole-files get <drive-path> [--output <local-path>] [--pod]
     Writes the file to drive/<drive-path> in the current workspace, or to
-    --output. The local path must be inside your Agent Home.
+    --output. The local path must be inside your Agent Home. With --pod,
+    reads pages/<page-id>/... from the Pod drive with your page permissions.
   ankole-files put <local-path> <drive-path>
     Copies a file, or every regular file under a directory, to the drive.
     A file that already exists at the same drive path is replaced. One file
@@ -82,13 +83,14 @@ export function commandFromArgs(args: string[], cwd = process.cwd()): Command {
   }
 
   if (operation === 'get') {
-    assertOnlyOptions(options, ['--output'])
+    assertOnlyOptions(options, ['--output', '--pod'])
     assertPositionalCount(positional, 1, 1, 'get takes one drive path')
     const output = options.get('--output')
     return DriveCLICommand.parse({
       operation,
       path: positional[0],
       cwd,
+      ...(options.has('--pod') ? { pod: true } : {}),
       ...(output === undefined ? {} : { output: requiredValue(output, '--output') })
     })
   }
@@ -113,6 +115,10 @@ function parseArgs(args: string[]): { positional: string[]; options: Map<string,
   const options = new Map<string, string | true>()
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
+    if (arg === '--pod') {
+      options.set(arg, true)
+      continue
+    }
     if (!arg.startsWith('--')) {
       positional.push(arg)
       continue

@@ -501,6 +501,54 @@ describe('@ankole/agent-computer runtime', () => {
     }
   })
 
+  it('cancels a slow relay body before atomic publication and removes its scratch bytes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-cancel-'))
+    const config = workerConfigForRoot(root)
+    let stream!: ReadableStreamDefaultController<Uint8Array>
+    const relay = Bun.serve({
+      port: 0,
+      fetch: () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              stream = controller
+              controller.enqueue(new TextEncoder().encode('partial bytes'))
+            }
+          })
+        )
+    })
+    const target = join(agentHomePaths(config.agentHomeRoot).home, 'kept.txt')
+    mkdirSync(agentHomePaths(config.agentHomeRoot).home, { recursive: true })
+    writeFileSync(target, 'original complete file')
+    try {
+      const signal = AbortSignal.timeout(50)
+      await expect(
+        pullFile(
+          config,
+          {
+            transferId: 'cancelled-transfer',
+            url: `http://127.0.0.1:${relay.port}/slow`,
+            homeRelativePath: 'kept.txt',
+            maxBytes: 1024n
+          },
+          signal
+        )
+      ).rejects.toBeInstanceOf(Error)
+      expect(signal.aborted).toBe(true)
+      expect(readFileSync(target, 'utf8')).toBe('original complete file')
+      expect(existsSync('/tmp/ankole-file-transfer/cancelled-transfer')).toBe(false)
+      try {
+        stream.enqueue(new TextEncoder().encode('late remainder'))
+        stream.close()
+      } catch {}
+      await Bun.sleep(10)
+      expect(readFileSync(target, 'utf8')).toBe('original complete file')
+    } finally {
+      relay.stop(true)
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('rejects an oversize or failed relay pull without leaving a partial file', async () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-file-relay-pull-bounds-'))
     const config = workerConfigForRoot(root)

@@ -47,8 +47,9 @@ Site authentication also records `console_authenticated`. Only a successful
 account center cannot grant Console access. Console requests also check the
 current privileged tenant, Human access proof, and siteadmin membership.
 
-FOSS provides one work identity by default. A new Pod login replaces the old
-Pod authentication. Console and OAuth retain their identity replacement rule:
+Pod login retains the browser's existing work identities. Its account chooser
+selects a proven identity for the fixed target tenant without signing out.
+Console and OAuth retain their identity replacement rule:
 a new identity ends a conflicting Console or OAuth context. Contexts for the
 same Principal can remain, with their original provider and authentication time.
 A native Pod login does not grant Console access, including for an administrator.
@@ -66,8 +67,9 @@ missing authentication proof.
 
 The sealed aggregate cookie carries a browser group reference and isolated setup
 state. The group reference grants no authenticated access and cannot list or
-exchange other accounts' proofs. HTTPS builds use `__Host-ankole` for this cookie;
-HTTP development uses `_ankole_key`.
+exchange other accounts' proofs. HTTPS builds use `__Secure-ankole` for this
+cookie; HTTP development uses `_ankole_key`. Both use the site's configured
+parent domain.
 
 Browser-wide logout retains this unprivileged group reference. A later login
 uses the same group. Successful login renews the cookie's expiry so that the
@@ -75,11 +77,18 @@ group cookie does not expire before the new authentication. A delayed login
 response still names the same group; it cannot displace the next account.
 
 Each authentication has its own sealed cookie, named
-`__Host-ankole-auth-<id>` in HTTPS builds and `_ankole-auth-<id>` in HTTP
+`__Secure-ankole-auth-<id>` in HTTPS builds and `_ankole-auth-<id>` in HTTP
 development. It carries the authentication ID and revision. Cookies use the
-existing `SessionCookieStore` AEAD format, HttpOnly, host-only scope, and
-`Path=/`; production also requires Secure. Login replaces only its own proof
+existing `SessionCookieStore` AEAD format, HttpOnly, the site's configured
+parent domain, and `Path=/`; production also requires Secure. Development uses
+`ankole.localhost` to permit sharing across Pod subdomains. Login replaces only its own proof
 cookie. No response serializes a snapshot of all logged-in accounts.
+
+On a host that still holds older `__Host-ankole` and `__Host-ankole-auth-*`
+cookies, the transport verifies their existing group and authentication records
+and copies valid proofs into the shared cookies. This does not mint an identity
+or change the browser's active account. Revoked proofs cannot migrate. The old
+host cookies expire after this request.
 
 `authentication_ref` encodes an ID and revision. It selects a proof; it is not
 a credential. The web boundary requires the matching valid cookie and server
@@ -90,11 +99,14 @@ Only an identity chooser reads all authentication cookies. Stream frames keep
 the selected proof and check its current server state each time.
 
 The shell emits `ankole-authentication` and `ankole-pod` metadata. Browser API
-requests send `x-ankole-authentication` and `x-ankole-pod`. EventSource cannot
-send these headers, so the Pod event URL carries the same references in its
-query. This exception applies only to the Pod events endpoint. Navigation and
-OIDC authorization URLs cannot select another logged-in account by adding an
-identity parameter. Shareable links contain only the tenant and resource.
+requests send `x-ankole-authentication` and `x-ankole-pod`. EventSource and file
+subresources cannot send these headers, so Pod conversation event URLs and
+`GET /.internal-apis/pod/pages/:id/files/content` carry the same references in
+their query. These requests still require the selected proof cookie and browser
+group, so an open document keeps its identity when another account becomes
+active. Other API, navigation and OIDC authorization URLs cannot select another
+logged-in account by adding an identity parameter. Shareable links contain only
+the tenant and resource.
 
 Pod API gates check the selected tenant, authentication, current Human access,
 and binding. Conversation operations retain their participant checks. A Console

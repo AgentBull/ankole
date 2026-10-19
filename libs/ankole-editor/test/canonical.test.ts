@@ -89,7 +89,7 @@ describe('natural pages print as written', () => {
         '| -- | --: |',
         '| 收入 | 17% |',
         '',
-        '<database ref="weekly-metrics" />'
+        '<embed ref="weekly-metrics" />'
       ].join('\n')
     ],
     [

@@ -156,6 +156,38 @@ test('Block menu duplicates, moves and deletes the hovered block with undo', asy
   await expect(paragraphs).toHaveText(['First', 'Second', 'First', 'Third'])
 })
 
+test.describe('touch block handles', () => {
+  test.use({ hasTouch: true, isMobile: true, viewport: { width: 820, height: 1180 } })
+  test.skip(({ browserName }) => browserName === 'firefox', 'Playwright Firefox does not support touch emulation')
+
+  test('a touch tap exposes the tapped Block menu without moving its native caret', async ({ page }) => {
+    await openDocument(page, 'First\n\nSecond\n\nThird')
+    const paragraphs = page.locator('.editor-content > p')
+    await caret(paragraphs.last())
+    await paragraphs.first().tap({ position: { x: 12, y: 10 } })
+    const selection = () =>
+      page.evaluate(() => {
+        const selection = window.getSelection()!
+        return {
+          anchor: selection.anchorNode?.textContent,
+          anchorOffset: selection.anchorOffset,
+          focus: selection.focusNode?.textContent,
+          focusOffset: selection.focusOffset
+        }
+      })
+    const tappedCaret = await selection()
+    expect(tappedCaret.anchor).toBe('First')
+    const handle = page.getByRole('button', { name: 'Block 菜单', exact: true })
+    await expect(handle).toBeVisible()
+    expect(await selection()).toEqual(tappedCaret)
+    await handle.tap()
+    await page.getByRole('menuitem', { name: /创建副本/ }).tap()
+    await expect(paragraphs).toHaveText(['First', 'First', 'Second', 'Third'])
+    await page.keyboard.press('ControlOrMeta+z')
+    await expect(paragraphs).toHaveText(['First', 'Second', 'Third'])
+  })
+})
+
 test('turn into preserves marked text; converting to a callout keeps the cursor inside it', async ({ page }) => {
   await openDocument(page, 'Before **marked** after')
   await caret(page.locator('.editor-content p'))
@@ -188,9 +220,9 @@ test('a Block menu copy keeps nested callout blocks and unknown elements', async
   await expect(widgets).toHaveText(['Payload', 'Payload'])
 })
 
-test('a database reference can be duplicated and deleted with undo, but not turned into text', async ({ page }) => {
-  await openDocument(page, 'Before\n\n<database ref="tasks" />\n\nAfter')
-  const cards = page.locator('.editor-content .database-reference')
+test('an embed can be duplicated and deleted with undo, but not turned into text', async ({ page }) => {
+  await openDocument(page, 'Before\n\n<embed ref="tasks" />\n\nAfter')
+  const cards = page.locator('.editor-content .embed')
   await cards.hover()
   await page.getByRole('button', { name: 'Block 菜单', exact: true }).click()
   await expect(page.getByRole('menuitem', { name: '转换为', exact: true })).toHaveAttribute('aria-disabled', 'true')
@@ -246,6 +278,21 @@ test('slash in a code block is text and opens no menu', async ({ page }) => {
   await page.keyboard.press('Enter')
   await expect(page.locator('.editor-content h3')).toHaveCount(0)
   await expect(page.locator('.editor-content pre')).toContainText('const a = 1 /h3')
+})
+
+test('a saved slash query remounts without opening a menu until the editor receives focus', async ({ page }) => {
+  await openDocument(page, '/h3')
+  await reopen(page)
+  const editor = page.getByRole('textbox', { name: '文档编辑器', exact: true })
+  const menu = page.getByRole('listbox', { name: '插入 Block', exact: true })
+  await expect(editor).toHaveText('/h3')
+  await expect(menu).toBeHidden()
+  await caret(editor.locator('p'))
+  await expect(menu).toBeVisible()
+  await expect(page.getByRole('option')).toHaveCount(1)
+  await showSource(page)
+  await expect(menu).toBeHidden()
+  await expect(editor).toHaveText('/h3')
 })
 
 test('insert menu supports keyboard cancellation without changing text or the caret', async ({ page }) => {

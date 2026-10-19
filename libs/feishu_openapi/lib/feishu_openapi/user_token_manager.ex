@@ -57,8 +57,7 @@ defmodule FeishuOpenAPI.UserTokenManager do
   @spec put(Client.t(), String.t(), Auth.user_token_resp()) :: :ok
   def put(%Client{} = client, user_key, token_resp)
       when is_binary(user_key) and is_map(token_resp) do
-    :ets.insert(@table, {cache_key(client, user_key), build_entry(token_resp)})
-    :ok
+    GenServer.call(__MODULE__, {:put, cache_key(client, user_key), build_entry(token_resp)})
   end
 
   @doc """
@@ -85,8 +84,7 @@ defmodule FeishuOpenAPI.UserTokenManager do
 
   @spec invalidate(Client.t(), String.t()) :: :ok
   def invalidate(%Client{} = client, user_key) when is_binary(user_key) do
-    :ets.delete(@table, cache_key(client, user_key))
-    :ok
+    GenServer.call(__MODULE__, {:invalidate, cache_key(client, user_key)})
   end
 
   @doc """
@@ -95,23 +93,39 @@ defmodule FeishuOpenAPI.UserTokenManager do
   """
   @spec expire_access_token(Client.t(), String.t()) :: :ok
   def expire_access_token(%Client{} = client, user_key) when is_binary(user_key) do
-    key = cache_key(client, user_key)
+    GenServer.call(__MODULE__, {:expire, cache_key(client, user_key)})
+  end
 
+  @impl true
+  def init(_) do
+    :ets.new(@table, [:named_table, :protected, :set, read_concurrency: true])
+    {:ok, %{fetches: %{}, fetch_tasks: %{}}}
+  end
+
+  @impl true
+  def handle_call({:put, key, entry}, _from, state) do
+    :ets.insert(@table, {key, Map.put(entry, :revision, make_ref())})
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:invalidate, key}, _from, state) do
+    :ets.delete(@table, key)
+    {:reply, :ok, state}
+  end
+
+  def handle_call({:expire, key}, _from, state) do
     case lookup_entry(key) do
       {:ok, entry} ->
-        :ets.insert(@table, {key, %{entry | access_expires_at: expired_at()}})
+        :ets.insert(
+          @table,
+          {key, %{entry | access_expires_at: expired_at(), revision: make_ref()}}
+        )
 
       :miss ->
         :ok
     end
 
-    :ok
-  end
-
-  @impl true
-  def init(_) do
-    :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-    {:ok, %{fetches: %{}, fetch_tasks: %{}}}
+    {:reply, :ok, state}
   end
 
   @impl true
@@ -132,9 +146,9 @@ defmodule FeishuOpenAPI.UserTokenManager do
   end
 
   @impl true
-  def handle_info({:refresh_done, key, result}, state) do
+  def handle_info({:refresh_done, key, revision, result}, state) do
     state = drop_fetch_task_monitor(state, key)
-    {:noreply, finish_refresh(state, key, result)}
+    {:noreply, finish_refresh(state, key, revision, result)}
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
@@ -142,15 +156,41 @@ defmodule FeishuOpenAPI.UserTokenManager do
       {nil, _fetch_tasks} ->
         {:noreply, state}
 
-      {{key, user_key}, fetch_tasks} ->
+      {{key, user_key, revision}, fetch_tasks} ->
         result = {:error, crash_error(user_key, :exit, reason, [])}
-        {:noreply, finish_refresh(%{state | fetch_tasks: fetch_tasks}, key, result)}
+        {:noreply, finish_refresh(%{state | fetch_tasks: fetch_tasks}, key, revision, result)}
     end
   end
 
   def handle_info(_other, state), do: {:noreply, state}
 
-  defp finish_refresh(state, key, result) do
+  defp finish_refresh(state, key, revision, result) do
+    result =
+      case lookup_entry(key) do
+        {:ok, %{revision: ^revision}} ->
+          case result do
+            {:ok, candidate} ->
+              :ets.insert(@table, {key, Map.put(candidate, :revision, make_ref())})
+              {:ok, candidate.access_token}
+
+            error ->
+              error
+          end
+
+        _ ->
+          case lookup(key) do
+            {:ok, token} ->
+              {:ok, token}
+
+            _ ->
+              {:error,
+               %Error{
+                 code: :user_token_changed,
+                 msg: "managed user token changed during refresh; retry with the current entry"
+               }}
+          end
+      end
+
     {waiters, fetches} = Map.pop(state.fetches, key, [])
     Enum.each(waiters, &GenServer.reply(&1, result))
     %{state | fetches: fetches}
@@ -170,35 +210,42 @@ defmodule FeishuOpenAPI.UserTokenManager do
     parent = self()
     fetches = Map.put(state.fetches, key, waiters)
 
-    case start_refresh_task(parent, key, client, user_key) do
+    {:ok, existing} = lookup_entry(key)
+    revision = existing.revision
+
+    case start_refresh_task(parent, key, client, user_key, existing) do
       {:ok, pid} ->
         ref = Process.monitor(pid)
 
         %{
           state
           | fetches: fetches,
-            fetch_tasks: Map.put(state.fetch_tasks, ref, {key, user_key})
+            fetch_tasks: Map.put(state.fetch_tasks, ref, {key, user_key, revision})
         }
 
       {:error, reason} ->
-        send(parent, {:refresh_done, key, {:error, refresh_start_failed_error(user_key, reason)}})
+        send(
+          parent,
+          {:refresh_done, key, revision, {:error, refresh_start_failed_error(user_key, reason)}}
+        )
+
         %{state | fetches: fetches}
     end
   end
 
-  defp start_refresh_task(parent, key, client, user_key) do
+  defp start_refresh_task(parent, key, client, user_key, existing) do
     try do
       case Task.Supervisor.start_child(task_supervisor(), fn ->
              result =
                try do
-                 refresh_entry(client, user_key)
+                 refresh_entry(client, user_key, existing)
                rescue
                  exception -> {:error, crash_error(user_key, :error, exception, __STACKTRACE__)}
                catch
                  kind, reason -> {:error, crash_error(user_key, kind, reason, __STACKTRACE__)}
                end
 
-             send(parent, {:refresh_done, key, result})
+             send(parent, {:refresh_done, key, existing.revision, result})
            end) do
         {:ok, pid} -> {:ok, pid}
         {:error, reason} -> {:error, reason}
@@ -209,11 +256,13 @@ defmodule FeishuOpenAPI.UserTokenManager do
   end
 
   defp drop_fetch_task_monitor(state, key) do
-    case Enum.find(state.fetch_tasks, fn {_ref, {task_key, _user_key}} -> task_key == key end) do
+    case Enum.find(state.fetch_tasks, fn {_ref, {task_key, _user_key, _revision}} ->
+           task_key == key
+         end) do
       nil ->
         state
 
-      {ref, {^key, _user_key}} ->
+      {ref, {^key, _user_key, _revision}} ->
         Process.demonitor(ref, [:flush])
         %{state | fetch_tasks: Map.delete(state.fetch_tasks, ref)}
     end
@@ -238,15 +287,12 @@ defmodule FeishuOpenAPI.UserTokenManager do
     }
   end
 
-  defp refresh_entry(client, user_key) do
-    with {:ok, existing} <- lookup_entry(cache_key(client, user_key)),
-         {:ok, refresh_token} <- require_refresh_token(user_key, existing),
+  defp refresh_entry(client, user_key, existing) do
+    with {:ok, refresh_token} <- require_refresh_token(user_key, existing),
          {:ok, token_resp} <- Auth.refresh_user_access_token(client, refresh_token) do
       merged = merge_refresh(existing, token_resp)
-      :ets.insert(@table, {cache_key(client, user_key), merged})
-      {:ok, merged.access_token}
+      {:ok, merged}
     else
-      :miss -> missing_error(user_key)
       {:error, _} = err -> err
     end
   end

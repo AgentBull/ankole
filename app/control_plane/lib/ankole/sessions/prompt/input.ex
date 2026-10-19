@@ -62,6 +62,23 @@ defmodule Ankole.Sessions.Prompt.Input do
 
     environment = if lines == [], do: [], else: [text_part(environment_block(lines))]
 
+    original_request =
+      if event.producer == :kernel and
+           event.type in [
+             "background_agent_job.completed",
+             "background_agent_job.failed",
+             "background_agent_job.waiting"
+           ],
+         do:
+           Ankole.Sessions.Prompt.original_human_request(%{
+             agent_uid: run.agent_uid,
+             signal_id: event.id
+           }),
+         else: ""
+
+    environment =
+      environment ++ if(original_request == "", do: [], else: [text_part(original_request)])
+
     standing_orders_messages(event, facts) ++
       [
         %{

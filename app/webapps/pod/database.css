@@ -1,0 +1,162 @@
+.pod-database {
+  width: 100%;
+}
+
+.pod-database-sources {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  margin-bottom: 8px;
+  overflow-x: auto;
+}
+
+.pod-database-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 16px;
+  min-height: 40px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pod-database-view-navigation,
+.pod-database-views,
+.pod-database-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.pod-database-view-navigation {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.pod-database-views {
+  flex-shrink: 0;
+}
+
+.pod-database-view {
+  margin-block: 4px;
+}
+
+.pod-database-new {
+  margin-inline: 4px;
+}
+
+.pod-database-content {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.pod-database-grid {
+  max-width: 100%;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.pod-database-grid table {
+  min-width: 640px;
+}
+
+.pod-database-grid [data-slot='table-head'] {
+  height: 32px;
+  padding: 0 8px;
+}
+
+.pod-database-property {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.pod-database-property > svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.pod-database-property [data-slot='button'] {
+  flex: 1;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.pod-database-grid [data-slot='table-cell'] {
+  height: 32px;
+  padding: 1px 4px;
+  border-inline-end: 1px solid var(--border);
+}
+
+.pod-database-grid :is([data-slot='input'], [data-slot='select-trigger'], [data-slot='combobox-trigger']) {
+  height: 28px;
+}
+
+.pod-database-grid .pod-database-primary {
+  min-width: 220px;
+  font-weight: 500;
+}
+
+/* Idle cells edit inline. Hover, focus, disabled and invalid states use the
+   uikit slot recipe. This does not apply to filters or record forms. */
+.pod-database-grid
+  :is([data-slot='input'], [data-slot='select-trigger']):not(:hover):not(:focus):not(:disabled):not(
+    [aria-invalid='true']
+  ):not(:user-invalid) {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.pod-database-grid .pod-database-row-actions {
+  width: 72px;
+  min-width: 72px;
+  border-inline-end: 0;
+}
+
+.pod-database-status,
+.pod-database-summary,
+.pod-database-pagination {
+  margin-top: 12px;
+}
+
+.pod-database-draft {
+  margin-block: 8px;
+  border-block: 1px solid var(--border);
+  background: var(--muted);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .pod-database-grid .pod-database-delete {
+    opacity: 0;
+  }
+
+  .pod-database-row:hover .pod-database-delete,
+  .pod-database-row:focus-within .pod-database-delete,
+  .pod-database-grid .pod-database-delete[data-cell-retained='true'] {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 639px) {
+  .pod-database-grid [data-slot='table-cell'] {
+    height: 40px;
+  }
+
+  .pod-database-grid :is([data-slot='input'], [data-slot='select-trigger'], [data-slot='combobox-trigger']) {
+    height: 32px;
+  }
+
+  .pod-database-tools {
+    width: 100%;
+    padding-block: 4px;
+  }
+
+  .pod-database-new {
+    margin-left: auto;
+  }
+}

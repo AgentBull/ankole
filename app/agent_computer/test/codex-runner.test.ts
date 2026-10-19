@@ -60,6 +60,7 @@ type FakeCodexBehavior = {
   dynamicToolCall?: boolean | { tool: string; arguments: Record<string, unknown> }
   dynamicToolCompletionDelayMs?: number
   successfulSteer?: boolean
+  loseThreadAfterSteer?: boolean
   steerCompletionRace?: boolean
   interruptCompletionRace?: boolean
   mcpStartupFailure?: { name: string; error: string }
@@ -95,7 +96,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
     tracedTurnStart.request_context = {
       ...tracedTurnStart.request_context,
       traceparent,
-      observability_user_id: observabilityUserID
+      observability_user_id: observabilityUserID,
+      original_human_request: 'Original Human request: do not execute the step reserved for me.'
     }
 
     try {
@@ -139,6 +141,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       const threadStart = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8'))
       expect(threadStart.config.developer_instructions).toContain('chats/mock:dm:alice/')
       expect(threadStart.developerInstructions).toBe(threadStart.config.developer_instructions)
+      expect(threadStart.developerInstructions).toContain(tracedTurnStart.request_context!.original_human_request)
       expect(readFileSync(join(jobProjectFor(fixture.root), 'AGENTS.md'), 'utf8')).toContain('chats/mock:dm:alice/')
       expect(threadStart.config.model_providers.ankole_aigateway.http_headers).toMatchObject({
         traceparent,
@@ -656,6 +659,10 @@ describe('@ankole/agent-computer Codex job runner', () => {
       runtimeThreadId: 'thread-1'
     })
     const continuation = messageTurnStart()
+    continuation.request_context = {
+      ...continuation.request_context,
+      original_human_request: 'Original new Human request: use the operator audience; my reserved step remains mine.'
+    }
 
     try {
       await runCodexJob(
@@ -674,6 +681,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
       const resumed = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-resume.json'), 'utf8'))
       expect(resumed.config.developer_instructions).toContain('chats/mock:dm:alice/')
+      expect(resumed.config.developer_instructions).toContain(continuation.request_context!.original_human_request)
       const injected = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'inject-items.json'), 'utf8'))
       expect(injected.items).toEqual([
         {
@@ -803,9 +811,14 @@ describe('@ankole/agent-computer Codex job runner', () => {
       resultOutputText: `SOURCE_DONE: created context-marker.txt${'界'.repeat(20000)}`
     })
 
+    const currentTurn = turnStart()
+    currentTurn.request_context = {
+      ...currentTurn.request_context,
+      original_human_request: 'Original Human request survives lost threads and continuation summaries.'
+    }
     try {
       await runCodexJob(
-        turnStart(),
+        currentTurn,
         options(fixture.root, statusUpdates, [], () => currentJob)
       )
 
@@ -819,6 +832,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
         runtime_checkpoint_recreated: true,
         runtime_checkpoint_recovery: 'new_thread_from_bounded_history'
       })
+      const replacement = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8'))
+      expect(replacement.config.developer_instructions).toContain(currentTurn.request_context!.original_human_request)
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
     } finally {
       fixture.cleanup()
@@ -880,16 +895,28 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
     const opts = options(fixture.root, statusUpdates, turnUpserts)
+    const update = steerUpdate()
+    const originalRequest =
+      '<original_human_request>\n' +
+      JSON.stringify({
+        message_id: 'new-human-message',
+        text: 'Keep my action reserved for me.\nUse the new language.'
+      }) +
+      '\n</original_human_request>'
+    Object.assign(update.signal.payload_json, { original_human_request: originalRequest })
     let polled = false
     opts.pollSteering = () => {
       if (polled) return []
       polled = true
-      return [steerUpdate()]
+      return [update]
     }
 
     try {
       await runCodexJob(turnStart(), opts)
 
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'steer-input.txt'), 'utf8')).toBe(
+        originalRequest + '\n\nDelegated message:\nUse the latest operator guidance.'
+      )
       const eventID = steerUpdate().signal!.signal_id
       expect(
         turnUpserts.some(
@@ -899,6 +926,35 @@ describe('@ankole/agent-computer Codex job runner', () => {
       ).toBe(true)
       expect(statusUpdates.at(-1)?.appliedSignalIds).toContain(eventID)
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('keeps an acknowledged Human steer in the first replacement-thread instructions', async () => {
+    const fixture = prepareFixture('done after steered thread loss', {
+      successfulSteer: true,
+      loseThreadAfterSteer: true
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+    const turnUpserts: RecordedTurnUpsert[] = []
+    const opts = options(fixture.root, statusUpdates, turnUpserts)
+    const current = turnStart()
+    current.request_context = { ...current.request_context, original_human_request: 'Original request A.' }
+    const update = steerUpdate()
+    Object.assign(update.signal.payload_json, {
+      original_human_request: 'Original request B: preserve my reserved action.'
+    })
+    let polled = false
+    opts.pollSteering = () => (polled ? [] : ((polled = true), [update]))
+    try {
+      await runCodexJob(current, opts)
+      const replacement = JSON.parse(readFileSync(join(codexHomeFor(fixture.root), 'thread-start.json'), 'utf8'))
+      expect(replacement.developerInstructions).toContain('Original request B: preserve my reserved action.')
+      expect(replacement.developerInstructions).not.toContain('Original request A.')
+      expect(replacement.developerInstructions).toContain('chats/mock:dm:alice/')
+      expect(Number(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8'))).toBe(2)
+      expect(statusUpdates.at(-1)?.status).toBe('succeeded')
     } finally {
       fixture.cleanup()
     }
@@ -1413,6 +1469,7 @@ const initializeDelayMs = ${JSON.stringify(behavior.initializeDelayMs)}
 const dynamicToolCall = ${JSON.stringify(behavior.dynamicToolCall)}
 const dynamicToolCompletionDelayMs = ${JSON.stringify(behavior.dynamicToolCompletionDelayMs ?? 0)}
 const successfulSteer = ${JSON.stringify(behavior.successfulSteer)}
+const loseThreadAfterSteer = ${JSON.stringify(behavior.loseThreadAfterSteer)}
 const steerCompletionRace = ${JSON.stringify(behavior.steerCompletionRace)}
 const interruptCompletionRace = ${JSON.stringify(behavior.interruptCompletionRace)}
 const mcpStartupFailure = ${JSON.stringify(behavior.mcpStartupFailure)}
@@ -1516,7 +1573,7 @@ function handle(message) {
       write({ id: 101, method: 'item/tool/call', params: { tool: call.tool, callId: 'call-101', threadId: 'thread-1', turnId: turnID, arguments: call.arguments } })
       return
     }
-    if (successfulSteer || steerCompletionRace) return
+    if (steerCompletionRace || (successfulSteer && (!loseThreadAfterSteer || turnCount === 1))) return
     if (interruptCompletionRace) return
     if (multiAgentChildDelayMs !== undefined) {
       write({ method: 'turn/started', params: { threadId: 'thread-1', turn: { id: turnID, status: 'inProgress', items: [] } } })
@@ -1594,6 +1651,9 @@ function handle(message) {
     writeFileSync(process.env.CODEX_HOME + '/steer-input.txt', input || '')
     write({ id: message.id, result: { turn: { id: 'turn-1', status: 'in_progress' } } })
     setTimeout(() => {
+      if (loseThreadAfterSteer) {
+        return write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'failed', error: { message: 'No rollout found for thread' } } } })
+      }
       write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: 'turn-1', item: { type: 'agentMessage', id: 'message-steered', text: firstResponse } } })
       write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed' } } })
     }, 10)

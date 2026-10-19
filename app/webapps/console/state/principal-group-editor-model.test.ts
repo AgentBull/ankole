@@ -41,7 +41,7 @@ describe('PrincipalGroupEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('markSaved converges fields and baseline on the server-normalized form', () => {
+  test('a captured save converges fields and baseline on the server-normalized form', () => {
     const model = new PrincipalGroupEditorModel()
 
     model.initialize('group:admins', {
@@ -55,7 +55,7 @@ describe('PrincipalGroupEditorModel', () => {
     model.displayName.value = 'Renamed Admins '
     expect(model.dirty.value).toBe(true)
 
-    model.markSaved({
+    model.captureSave()({
       name: 'admins',
       displayName: 'Renamed Admins',
       description: '',

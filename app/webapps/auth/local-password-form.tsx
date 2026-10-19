@@ -70,6 +70,7 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
           name="email"
           required
           type="email"
+          disabled={login.isPending}
           value={email}
           onChange={event => editEmail(event.target.value)}
         />
@@ -82,6 +83,7 @@ export function LocalPasswordForm({ model }: { model: InstanceType<typeof LoginM
           name="password"
           required
           value={password}
+          disabled={login.isPending}
           onChange={event => editPassword(event.target.value)}
         />
       </Field>

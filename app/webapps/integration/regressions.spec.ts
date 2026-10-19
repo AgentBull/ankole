@@ -13,12 +13,13 @@ test('selecting either Agent in a compiled Pod enables sending and retains the s
         : { conversations: [] }
     })
   )
-  await page.goto('/pod')
+  await page.goto('/')
   await page.getByRole('textbox', { name: 'Message', exact: true }).fill('Draft only')
+  const recipient = page.getByRole('combobox', { name: 'Choose an Agent', exact: true })
   for (const name of ['Second Agent', 'First Agent']) {
-    await page.getByRole('combobox').click()
+    await recipient.click()
     await page.getByRole('option', { name, exact: true }).click()
-    await expect(page.getByRole('combobox')).toContainText(name)
+    await expect(recipient).toContainText(name)
     await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled()
   }
 })

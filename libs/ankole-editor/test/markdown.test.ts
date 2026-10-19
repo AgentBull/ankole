@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import type { Plot } from '../src/core/doc'
 import * as T from '../src/core/types'
 import { Callout } from '../src/blocks/callout'
-import { Database, DatabaseRef } from '../src/blocks/database'
+import { Embed, EmbedRef } from '../src/blocks/embed'
 import { parseMarkdown } from '../src/document/markdown'
 import { markValue } from '../src/editor/attributes'
 import * as S from '../src/editor/schema'
@@ -16,10 +16,10 @@ describe('pages through the editor', () => {
     const editor = open(sampleMarkdown)
     const blocks = editor.state.doc.content
     const callout = blocks.find(node => node.type === Callout.type) as Plot
-    const database = blocks.find(node => node.type === Database.type)!
+    const embed = blocks.find(node => node.type === Embed.type)!
     expect(callout.content).toHaveLength(1)
     expect(callout.textContent()).toContain('可编辑的提示块')
-    expect(markValue(database, DatabaseRef)).toBe('product-roadmap')
+    expect(markValue(embed, EmbedRef)).toBe('product-roadmap')
     expect(readTree(editor)).toEqual(parseMarkdown(sampleMarkdown))
     expect(exportMarkdown(editor)).toBe(sampleMarkdown.trimEnd())
   })
@@ -47,12 +47,31 @@ describe('pages through the editor', () => {
       '  ```',
       '</future>',
       '',
-      '<database ref="tasks" version="99" />'
+      '<embed ref="tasks" version="99" />'
     ].join('\n')
     const editor = open(source)
-    expect(editor.state.doc.content.map(node => node.type)).toEqual([S.UnknownBlock, Database.type])
+    expect(editor.state.doc.content.map(node => node.type)).toEqual([S.UnknownBlock, Embed.type])
     expect(editor.state.doc.textContent()).toContain('A title')
     expect(exportMarkdown(editor)).toBe(source)
+  })
+
+  test('an embed keeps its table and view through the editor', () => {
+    const source = '<embed ref="db_q3" table="tbl_sales" view="viw_march" />'
+    const editor = open(source)
+    expect(readTree(editor)).toEqual(parseMarkdown(source))
+    expect(exportMarkdown(editor)).toBe(source)
+    expectReopens(editor)
+  })
+
+  test('page links and asset images keep their ankole addresses', () => {
+    const source = [
+      '见 [季度目标](ankole:page/019a2b00-0000-7000-8000-000000000001)。',
+      '',
+      '![图](ankole:asset/3f786850e387550fdab836ed7e6dc881de23001b/chart.png)'
+    ].join('\n')
+    const editor = open(source)
+    expect(exportMarkdown(editor)).toBe(source)
+    expectReopens(editor)
   })
 
   test('CommonMark and GFM structures stay editable', () => {

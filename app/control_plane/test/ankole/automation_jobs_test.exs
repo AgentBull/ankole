@@ -152,6 +152,98 @@ defmodule Ankole.AutomationJobsTest do
              )
   end
 
+  test "a lost Worker connection after dispatch records unknown outcome without automatic replay" do
+    %{principal: agent} = agent_fixture()
+    route = "automation-loss-#{agent.uid}"
+    :ok = Ankole.AgentWorkers.WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> Ankole.AgentWorkers.WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
+
+    run =
+      agent.uid
+      |> source_event!()
+      |> job!()
+      |> enqueue!(trigger_event("disconnected-after-dispatch"))
+
+    pending = Task.async(Repo.bind_tenant(fn -> execute(run, attempt: 1) end))
+    assert_receive {:actor_lane, %{body: {:rpc_request, %{method: "automation_job.run"}}}}, 2_000
+    :ok = Ankole.AgentWorkers.WorkerRoute.unregister_local_worker(route)
+    assert :ok = Task.await(pending)
+    assert %Run{status: "failed", attempts: 1, error: error} = Repo.get!(Run, run.id)
+    assert error =~ "execution outcome unknown"
+    assert :ok = execute(run, attempt: 2)
+    refute_receive {:actor_lane, %{body: {:rpc_request, _}}}
+  end
+
+  test "only a confirmed preparation failure makes another automatic attempt eligible" do
+    %{principal: agent} = agent_fixture()
+    route = "automation-prepare-#{agent.uid}"
+    :ok = Ankole.AgentWorkers.WorkerRoute.register_local_worker(route, self())
+    on_exit(fn -> Ankole.AgentWorkers.WorkerRoute.unregister_local_worker(route) end)
+    assert {:ok, _} = Ankole.SessionsCase.admit_worker(route, %{worker_id: agent.uid})
+    run = agent.uid |> source_event!() |> job!() |> enqueue!(trigger_event("prepare-retry"))
+    pending = Task.async(Repo.bind_tenant(fn -> execute(run, attempt: 1) end))
+    assert_receive {:actor_lane, %{body: {:rpc_request, request}}}, 2_000
+
+    :ok =
+      Ankole.AgentWorkers.WorkerRoute.local_inbound(route, %Ankole.RuntimeFabric.V1.Envelope{
+        body:
+          {:rpc_error,
+           %Ankole.RuntimeFabric.V1.RPCError{
+             request_id: request.request_id,
+             code: "automation_preparation_failed",
+             message: "Drive unavailable",
+             retryable: true,
+             details_json: Torque.encode!(%{"execution_started" => false})
+           }}
+      })
+
+    assert {:error, %{"code" => "automation_preparation_failed"}} = Task.await(pending)
+    assert %Run{status: "queued", attempts: 1, attempt_id: nil} = Repo.get!(Run, run.id)
+    retried = Task.async(Repo.bind_tenant(fn -> execute(run, attempt: 2) end))
+    assert_receive {:actor_lane, %{body: {:rpc_request, next}}}, 2_000
+
+    {bytes, _} =
+      Ankole.RuntimeFabric.V1.AutomationJobRunResponse.encode!(
+        %Ankole.RuntimeFabric.V1.AutomationJobRunResponse{status: "succeeded", exit_code: 0}
+      )
+
+    :ok =
+      Ankole.AgentWorkers.WorkerRoute.local_inbound(route, %Ankole.RuntimeFabric.V1.Envelope{
+        body:
+          {:rpc_response,
+           %Ankole.RuntimeFabric.V1.RPCResponse{
+             request_id: next.request_id,
+             payload: IO.iodata_to_binary(bytes)
+           }}
+      })
+
+    assert :ok = Task.await(retried)
+    assert %Run{status: "succeeded", attempts: 2} = Repo.get!(Run, run.id)
+  end
+
+  test "a replayed wake preserves an in-flight attempt and eventually reports unknown outcome" do
+    %{principal: agent} = agent_fixture()
+    source = source_event!(agent.uid)
+    job = job!(source)
+    run = enqueue!(job, trigger_event("wake-after-node-loss"))
+    assert {:ok, %{run: attempt}} = AutomationJobs.start_attempt(run.id)
+    assert {:error, :automation_job_attempt_in_progress} = AutomationJobs.start_attempt(run.id)
+    assert {:snooze, 10} = execute(run, attempt: 2)
+    assert %Run{status: "running", attempts: 1, attempt_id: id} = Repo.get!(Run, run.id)
+    assert id == attempt.attempt_id
+
+    Repo.update_all(where(Run, id: ^run.id),
+      set: [started_at: DateTime.add(DateTime.utc_now(), -611, :second)]
+    )
+
+    assert :ok = execute(run, attempt: 3)
+    assert %Run{status: "failed", attempts: 1, error: error} = Repo.get!(Run, run.id)
+    assert error =~ "execution outcome unknown"
+    assert error =~ "verify external effects"
+    assert :ok = execute(run, attempt: 4)
+  end
+
   test "creation requires main.ts in the drive folder" do
     %{principal: agent} = agent_fixture()
     source = source_event!(agent.uid)

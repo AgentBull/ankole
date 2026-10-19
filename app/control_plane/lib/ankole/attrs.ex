@@ -9,6 +9,12 @@ defmodule Ankole.Attrs do
   """
 
   @doc """
+  Reads an atom key or its string form. The atom key takes precedence.
+  """
+  def get(attrs, key, default \\ nil),
+    do: Map.get(attrs, key, Map.get(attrs, to_string(key), default))
+
+  @doc """
   Puts the value unless it is `nil`.
   """
   @spec maybe_put(map(), term(), term()) :: map()

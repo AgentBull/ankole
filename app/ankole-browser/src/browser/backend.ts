@@ -82,8 +82,8 @@ export class PhysicalBrowser {
     await this.unbind()
     // For a connectOverCDP browser Playwright maps close to closing this CDP
     // transport; the local process and provider lifecycle remain explicit below.
-    await settleWithin(this.browser.close(), 2_000)
-    await this.local?.stop()
+    if (this.local) await this.local.stop()
+    else await settleWithin(this.browser.close(), 2_000)
   }
 
   async purge(): Promise<void> {

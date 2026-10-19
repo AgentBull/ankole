@@ -1,0 +1,5554 @@
+{
+  "format": 2,
+  "seed": 20261005,
+  "limits": {
+    "source": 8388608,
+    "depth": 128,
+    "nodes": 100000
+  },
+  "xml": [
+    {
+      "name": "prose-and-formats",
+      "xml": "<page><h1>标题</h1><p>收入 <strong>17%</strong>，有 <em>强调</em> 和 <s>删除</s>。</p></page>",
+      "canonicalXml": "<page><h1>标题</h1><p>收入 <strong>17%</strong>，有 <em>强调</em> 和 <s>删除</s>。</p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Heading",
+            "content": [
+              {
+                "type": "Text",
+                "param": "标题"
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "收入 "
+              },
+              {
+                "type": "Text",
+                "param": "17%",
+                "marks": {
+                  "Strong": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": "，有 "
+              },
+              {
+                "type": "Text",
+                "param": "强调",
+                "marks": {
+                  "Emphasis": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": " 和 "
+              },
+              {
+                "type": "Text",
+                "param": "删除",
+                "marks": {
+                  "Strikethrough": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": "。"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "page-and-asset-addresses",
+      "xml": "<page><p><a href=\"ankole:page/019a2b00-0000-7000-8000-000000000001\">目标</a></p><p><img alt=\"图\" src=\"ankole:asset/3f786850e387550fdab836ed7e6dc881de23001b/chart.png\" /></p></page>",
+      "canonicalXml": "<page><p><a href=\"ankole:page/019a2b00-0000-7000-8000-000000000001\">目标</a></p><p><img alt=\"图\" src=\"ankole:asset/3f786850e387550fdab836ed7e6dc881de23001b/chart.png\" /></p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "目标",
+                "marks": {
+                  "Link": [
+                    [
+                      "href",
+                      "ankole:page/019a2b00-0000-7000-8000-000000000001"
+                    ]
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Image",
+                "param": "ankole:asset/3f786850e387550fdab836ed7e6dc881de23001b/chart.png",
+                "marks": {
+                  "ImageAlt": "图"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "table-and-task-list",
+      "xml": "<page><table><tr><th align=\"left\"><p>a</p></th><th align=\"right\"><p>b</p></th></tr><tr><td align=\"left\"><p>1</p></td><td align=\"right\"><p>2</p></td></tr></table><ul><li task=\"todo\"><p>核对</p></li><li><p>补充</p></li></ul></page>",
+      "canonicalXml": "<page><table><tr><th align=\"left\"><p>a</p></th><th align=\"right\"><p>b</p></th></tr><tr><td align=\"left\"><p>1</p></td><td align=\"right\"><p>2</p></td></tr></table><ul><li task=\"todo\"><p>核对</p></li><li><p>补充</p></li></ul></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Table",
+            "content": [
+              {
+                "type": "TableRow",
+                "content": [
+                  {
+                    "type": "HeaderCell",
+                    "param": null,
+                    "marks": {
+                      "Align": "left"
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "a"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "HeaderCell",
+                    "param": null,
+                    "marks": {
+                      "Align": "right"
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "b"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "TableRow",
+                "content": [
+                  {
+                    "type": "Cell",
+                    "param": null,
+                    "marks": {
+                      "Align": "left"
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "1"
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Cell",
+                    "param": null,
+                    "marks": {
+                      "Align": "right"
+                    },
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "2"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "BulletList",
+            "content": [
+              {
+                "type": "ListItem",
+                "param": null,
+                "marks": {
+                  "Task": "todo"
+                },
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "核对"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "ListItem",
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "补充"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "unknown-and-embed",
+      "xml": "<page><future layout=\"calendar\" source=\"import\"><p>kept</p></future><p align=\"center\" source=\"manual\">居中</p><embed ref=\"db_q3\" table=\"tbl_sales\" view=\"viw_march\" /></page>",
+      "canonicalXml": "<page><future layout=\"calendar\" source=\"import\"><p>kept</p></future><p align=\"center\" source=\"manual\">居中</p><embed ref=\"db_q3\" table=\"tbl_sales\" view=\"viw_march\" /></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "UnknownBlock",
+            "param": {
+              "name": "future",
+              "attrs": [
+                [
+                  "layout",
+                  "calendar"
+                ],
+                [
+                  "source",
+                  "import"
+                ]
+              ],
+              "children": [
+                {
+                  "name": "p",
+                  "attrs": [],
+                  "children": [
+                    "kept"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "type": "Paragraph",
+            "param": null,
+            "marks": {
+              "Align": "center",
+              "Attrs": [
+                [
+                  "source",
+                  "manual"
+                ]
+              ]
+            },
+            "content": [
+              {
+                "type": "Text",
+                "param": "居中"
+              }
+            ]
+          },
+          {
+            "type": "Embed",
+            "param": null,
+            "marks": {
+              "EmbedRef": "db_q3",
+              "EmbedTable": "tbl_sales",
+              "EmbedView": "viw_march"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "code-unicode-and-breaks",
+      "xml": "<page><pre lang=\"ts\" meta=\"title=x\">const x = 1\nconst y = 2</pre><p>🙂é👩‍💻中<br />ع</p></page>",
+      "canonicalXml": "<page><pre lang=\"ts\" meta=\"title=x\">const x = 1\nconst y = 2</pre><p>🙂é👩‍💻中<br />ع</p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "CodeBlock",
+            "param": null,
+            "marks": {
+              "CodeBlockLanguage": "ts",
+              "CodeMeta": "title=x"
+            },
+            "content": [
+              {
+                "type": "Text",
+                "param": "const x = 1"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "const y = 2"
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "🙂é👩‍💻中"
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "ع"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "callout",
+      "xml": "<page><callout tone=\"warning\"><p>本期包含新增产品。</p></callout></page>",
+      "canonicalXml": "<page><callout tone=\"warning\"><p>本期包含新增产品。</p></callout></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Callout",
+            "param": null,
+            "marks": {
+              "CalloutTone": "warning"
+            },
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "本期包含新增产品。"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "raw-inline-normalization",
+      "xml": "<page><p>中\n文 <strong> a <em>b</em> </strong><span style=\"color:red\"><span style=\"font-size:12px\">x</span></span><br />\nnext</p></page>",
+      "canonicalXml": "<page><p>中文  <strong>a <em>b</em></strong> <span style=\"color:red; font-size:12px\">x</span><br />next</p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "中文  "
+              },
+              {
+                "type": "Text",
+                "param": "a ",
+                "marks": {
+                  "Strong": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": "b",
+                "marks": {
+                  "Emphasis": null,
+                  "Strong": null
+                }
+              },
+              {
+                "type": "Text",
+                "param": " "
+              },
+              {
+                "type": "Text",
+                "param": "x",
+                "marks": {
+                  "TextStyle": "color:red; font-size:12px"
+                }
+              },
+              {
+                "type": "LineBreak"
+              },
+              {
+                "type": "Text",
+                "param": "next"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "raw-list-and-attributes",
+      "xml": "<page><ol start=\"1\"><li><p z=\"2\" a=\"1\">a</p></li></ol><ol start=\"5\"><li><p>b</p></li></ol><p><img src=\"image\" alt=\"\" /></p></page>",
+      "canonicalXml": "<page><ol><li><p a=\"1\" z=\"2\">a</p></li><li><p>b</p></li></ol><p><img src=\"image\" /></p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "OrderedList",
+            "content": [
+              {
+                "type": "ListItem",
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "param": null,
+                    "marks": {
+                      "Attrs": [
+                        [
+                          "a",
+                          "1"
+                        ],
+                        [
+                          "z",
+                          "2"
+                        ]
+                      ]
+                    },
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "a"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "ListItem",
+                "content": [
+                  {
+                    "type": "Paragraph",
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "b"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Image",
+                "param": "image"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "xml-entities-and-cdata",
+      "xml": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><page><p a=\"x&#9;y\">&amp;&lt;<![CDATA[汉字]]>&#x1F642;</p></page>",
+      "canonicalXml": "<page><p a=\"x&#9;y\">&amp;&lt;汉字🙂</p></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "param": null,
+            "marks": {
+              "Attrs": [
+                [
+                  "a",
+                  "x\ty"
+                ]
+              ]
+            },
+            "content": [
+              {
+                "type": "Text",
+                "param": "&<汉字🙂"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-0",
+      "xml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip></page>",
+      "canonicalXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Embed",
+            "param": null,
+            "marks": {
+              "EmbedView": "中文"
+            }
+          },
+          {
+            "type": "UnknownBlock",
+            "param": {
+              "name": "chip",
+              "attrs": [],
+              "children": [
+                {
+                  "name": "my-block",
+                  "attrs": [
+                    [
+                      "constructor",
+                      ""
+                    ]
+                  ],
+                  "children": [
+                    "文&~|é!中🙂 |-🙂';>",
+                    {
+                      "name": "br",
+                      "attrs": [],
+                      "children": []
+                    },
+                    {
+                      "name": "br",
+                      "attrs": [],
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "name": "ul",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "name": "li",
+                      "attrs": [
+                        [
+                          "task",
+                          "todo"
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "hr",
+                          "attrs": [],
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-1",
+      "xml": "<page><h2 align=\"center\" /><my-block 字段=\"\" /><ol><li task=\"todo\" /><li task=\"done\" /></ol></page>",
+      "canonicalXml": "<page><h2 align=\"center\" /><my-block 字段=\"\" /><ol><li task=\"todo\" /><li task=\"done\" /></ol></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Heading",
+            "param": 2,
+            "marks": {
+              "Align": "center"
+            },
+            "content": []
+          },
+          {
+            "type": "UnknownBlock",
+            "param": {
+              "name": "my-block",
+              "attrs": [
+                [
+                  "字段",
+                  ""
+                ]
+              ],
+              "children": []
+            }
+          },
+          {
+            "type": "OrderedList",
+            "content": [
+              {
+                "type": "ListItem",
+                "param": null,
+                "marks": {
+                  "Task": "todo"
+                },
+                "content": []
+              },
+              {
+                "type": "ListItem",
+                "param": null,
+                "marks": {
+                  "Task": "done"
+                },
+                "content": []
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-2",
+      "xml": "<page><embed /></page>",
+      "canonicalXml": "<page><embed /></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Embed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-3",
+      "xml": "<page><embed view=\"q&amp;a\" /></page>",
+      "canonicalXml": "<page><embed view=\"q&amp;a\" /></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Embed",
+            "param": null,
+            "marks": {
+              "EmbedView": "q&a"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-4",
+      "xml": "<page><Foo note=\"a*b\" /></page>",
+      "canonicalXml": "<page><Foo note=\"a*b\" /></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "UnknownBlock",
+            "param": {
+              "name": "Foo",
+              "attrs": [
+                [
+                  "note",
+                  "a*b"
+                ]
+              ],
+              "children": []
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-5",
+      "xml": "<page />",
+      "canonicalXml": "<page />",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "param": null,
+            "marks": {
+              "PagePlaceholder": null
+            },
+            "content": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-6",
+      "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https://example.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
+      "canonicalXml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https://example.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Callout",
+            "param": null,
+            "marks": {
+              "CalloutTone": "warning"
+            },
+            "content": [
+              {
+                "type": "HorizontalRule",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "__proto__",
+                      ""
+                    ]
+                  ]
+                }
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "__proto__",
+                      ""
+                    ],
+                    [
+                      "source",
+                      ""
+                    ]
+                  ],
+                  "CodeBlockLanguage": "json",
+                  "CodeMeta": " x"
+                },
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "10:30</>"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "CodeBlock",
+            "param": null,
+            "marks": {
+              "Attrs": [
+                [
+                  "data-x",
+                  "https://example.com"
+                ]
+              ],
+              "CodeBlockLanguage": "ts",
+              "CodeMeta": " x"
+            },
+            "content": [
+              {
+                "type": "Text",
+                "param": ">-;~<b+https://example.com/a+!"
+              }
+            ]
+          },
+          {
+            "type": "CodeBlock",
+            "param": null,
+            "marks": {
+              "Attrs": [
+                [
+                  "constructor",
+                  " www.example.com[ ] 1.  }10:30"
+                ],
+                [
+                  "字段",
+                  ""
+                ]
+              ],
+              "CodeMeta": "title=x"
+            },
+            "content": []
+          },
+          {
+            "type": "HorizontalRule"
+          }
+        ]
+      }
+    },
+    {
+      "name": "generated-7",
+      "xml": "<page><embed view=\"&lt;tag&gt;\" /></page>",
+      "canonicalXml": "<page><embed view=\"&lt;tag&gt;\" /></page>",
+      "document": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Embed",
+            "param": null,
+            "marks": {
+              "EmbedView": "<tag>"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "wrong-root",
+      "xml": "<doc><p>a</p></doc>",
+      "error": "XML 第 1 行第 1 列：根元素必须是 page。请用 <page> 包住整页内容。"
+    },
+    {
+      "name": "unclosed-element",
+      "xml": "<page><p>a</page>",
+      "error": "XML 第 1 行第 17 列：unexpected close tag.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "stray-close",
+      "xml": "<page><p>a</p></p></page>",
+      "error": "XML 第 1 行第 18 列：unexpected close tag.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "missing-attribute-value",
+      "xml": "<page><p align>a</p></page>",
+      "error": "XML 第 1 行第 15 列：attribute without value.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "duplicate-attribute",
+      "xml": "<page><p align=\"left\" align=\"right\">a</p></page>",
+      "error": "XML 第 1 行第 36 列：duplicate attribute: align.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "invalid-child",
+      "xml": "<page><p><td>a</td></p></page>",
+      "error": "XML 第 1 行第 10 列：<td> 是块元素，不能放在行内内容里。请把它移到段落之外；在 Markdown 中让它单独成行，并用空行与文字隔开。"
+    },
+    {
+      "name": "invalid-tone",
+      "xml": "<page><callout tone=\"danger\"><p>a</p></callout></page>",
+      "error": "XML 第 1 行第 7 列：<callout> 的 tone=\"danger\" 不合法。tone 的值应为 info 或 warning。"
+    },
+    {
+      "name": "missing-href",
+      "xml": "<page><p><a>a</a></p></page>",
+      "error": "XML 第 1 行第 10 列：<a> 缺少 href 属性。请为 <a> 写上 href。"
+    },
+    {
+      "name": "missing-src",
+      "xml": "<page><p><img alt=\"a\" /></p></page>",
+      "error": "XML 第 1 行第 10 列：<img> 缺少 src 属性。请为 <img> 写上 src。"
+    },
+    {
+      "name": "embed-content",
+      "xml": "<page><embed>a</embed></page>",
+      "error": "XML 第 1 行第 15 列：<embed> 是空元素。请把 <embed> 写成 <embed />。"
+    },
+    {
+      "name": "root-text",
+      "xml": "<page>text</page>",
+      "error": "XML 第 1 行第 8 列：<page> 中的文字必须放在块元素里。请用 <p> 包住这段文字。"
+    },
+    {
+      "name": "doctype",
+      "xml": "<!DOCTYPE page><page><p>a</p></page>",
+      "error": "XML 第 1 行第 15 列：页面不支持 DOCTYPE。请删除 DOCTYPE。"
+    },
+    {
+      "name": "comment",
+      "xml": "<!-- note --><page><p>a</p></page>",
+      "error": "XML 第 1 行第 12 列：页面没有注释节点。请删除这段注释。"
+    },
+    {
+      "name": "xml-version",
+      "xml": "<?xml version=\"1.1\"?><page />",
+      "error": "XML 第 1 行第 21 列：只支持 XML 1.0。请写 <?xml version=\"1.0\"?> 或删除声明。"
+    },
+    {
+      "name": "xml-encoding",
+      "xml": "<?xml version=\"1.0\" encoding=\"UTF-16\"?><page />",
+      "error": "XML 第 1 行第 39 列：源码编码必须是 UTF-8。请删除 encoding 或写 UTF-8。"
+    },
+    {
+      "name": "late-declaration",
+      "xml": " <?xml version=\"1.0\"?><page />",
+      "error": "XML 第 1 行第 7 列：an XML declaration must be at the start of the document.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "processing-instruction",
+      "xml": "<?task x?><page />",
+      "error": "XML 第 1 行第 10 列：页面不支持处理指令。请删除这段指令。"
+    },
+    {
+      "name": "unknown-entity",
+      "xml": "<page><p>&unknown;</p></page>",
+      "error": "XML 第 1 行第 18 列：undefined entity.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "invalid-character-reference",
+      "xml": "<page><p>&#0;</p></page>",
+      "error": "XML 第 1 行第 13 列：malformed character entity.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "multiple-roots",
+      "xml": "<page /><page />",
+      "error": "XML 第 1 行第 14 列：documents may contain only one root.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "xml-invalid-element-name",
+      "xml": "<page><p² /></page>",
+      "error": "XML 第 1 行第 9 列：disallowed character in tag name.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "xml-invalid-attribute-name",
+      "xml": "<page><future a²=\"1\" /></page>",
+      "error": "XML 第 1 行第 16 列：disallowed character in attribute name.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "namespaced-name",
+      "xml": "<page><x:y /></page>",
+      "error": "XML 第 1 行第 7 列：元素名 \"x:y\" 不合法。元素名以字母开头，只能包含字母、数字、- 和 _。"
+    },
+    {
+      "name": "unescaped-attribute-less-than",
+      "xml": "<page><p data=\"<\" /></page>",
+      "error": "XML 第 1 行第 16 列：disallowed character.。请修正这处 XML 语法。"
+    },
+    {
+      "name": "cdata-terminator-in-text",
+      "xml": "<page><p>]]></p></page>",
+      "error": "XML 第 1 行第 12 列：the string \"]]>\" is disallowed in char data.。请修正这处 XML 语法。"
+    }
+  ],
+  "boundaries": [
+    {
+      "name": "source-at",
+      "parts": [
+        {
+          "text": "<page><pre>",
+          "count": 1
+        },
+        {
+          "text": "a",
+          "count": 8388584
+        },
+        {
+          "text": "</pre></page>",
+          "count": 1
+        }
+      ],
+      "error": null
+    },
+    {
+      "name": "source-unicode-at",
+      "parts": [
+        {
+          "text": "<page><pre>",
+          "count": 1
+        },
+        {
+          "text": "🙂",
+          "count": 4194292
+        },
+        {
+          "text": "a",
+          "count": 0
+        },
+        {
+          "text": "</pre></page>",
+          "count": 1
+        }
+      ],
+      "error": null
+    },
+    {
+      "name": "nodes-at",
+      "parts": [
+        {
+          "text": "<page>",
+          "count": 1
+        },
+        {
+          "text": "<p />",
+          "count": 99999
+        },
+        {
+          "text": "</page>",
+          "count": 1
+        }
+      ],
+      "error": null
+    },
+    {
+      "name": "depth-at",
+      "parts": [
+        {
+          "text": "<page>",
+          "count": 1
+        },
+        {
+          "text": "<blockquote>",
+          "count": 126
+        },
+        {
+          "text": "<p>a</p>",
+          "count": 1
+        },
+        {
+          "text": "</blockquote>",
+          "count": 126
+        },
+        {
+          "text": "</page>",
+          "count": 1
+        }
+      ],
+      "error": null
+    },
+    {
+      "name": "source-over",
+      "parts": [
+        {
+          "text": "<page><pre>",
+          "count": 1
+        },
+        {
+          "text": "a",
+          "count": 8388585
+        },
+        {
+          "text": "</pre></page>",
+          "count": 1
+        }
+      ],
+      "error": "XML 第 1 行第 1 列：源码超过 8388608 个 UTF-16 单元。请把页面拆小后再写入。"
+    },
+    {
+      "name": "source-unicode-over",
+      "parts": [
+        {
+          "text": "<page><pre>",
+          "count": 1
+        },
+        {
+          "text": "🙂",
+          "count": 4194292
+        },
+        {
+          "text": "a",
+          "count": 1
+        },
+        {
+          "text": "</pre></page>",
+          "count": 1
+        }
+      ],
+      "error": "XML 第 1 行第 1 列：源码超过 8388608 个 UTF-16 单元。请把页面拆小后再写入。"
+    },
+    {
+      "name": "nodes-over",
+      "parts": [
+        {
+          "text": "<page>",
+          "count": 1
+        },
+        {
+          "text": "<p />",
+          "count": 100000
+        },
+        {
+          "text": "</page>",
+          "count": 1
+        }
+      ],
+      "error": "XML 第 1 行第 500006 列：页面超过 100000 个节点或 128 层嵌套。请把页面拆小。"
+    },
+    {
+      "name": "depth-over",
+      "parts": [
+        {
+          "text": "<page>",
+          "count": 1
+        },
+        {
+          "text": "<blockquote>",
+          "count": 127
+        },
+        {
+          "text": "<p>a</p>",
+          "count": 1
+        },
+        {
+          "text": "</blockquote>",
+          "count": 127
+        },
+        {
+          "text": "</page>",
+          "count": 1
+        }
+      ],
+      "error": "XML 第 1 行第 1535 列：页面超过 100000 个节点或 128 层嵌套。请把页面拆小。"
+    }
+  ],
+  "edits": [
+    {
+      "name": "text-and-marks",
+      "initialXml": "<page><p>plain text</p><p>other</p></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "plain text"
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "other"
+              }
+            ]
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            1,
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "中",
+                  "marks": {
+                    "Strong": null
+                  }
+                }
+              ]
+            ],
+            17
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            1,
+            [
+              1,
+              [
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "🙂"
+                }
+              ]
+            ],
+            17
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            15,
+            [
+              1,
+              []
+            ],
+            5,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            14,
+            [
+              6,
+              []
+            ],
+            2,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            5
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><p><strong>p中</strong>lain text</p><p>other</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "p中",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "lain text"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "other"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>p🙂lain text</p><p>other</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "p🙂lain text"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "other"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>p🙂lain text</p><p>ther</p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "p🙂lain text"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ther"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>p🙂lain text</p><p>aعdded</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "p🙂lain text"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "aعdded"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "table-cells",
+      "initialXml": "<page><table><tr><th><p>header</p></th></tr><tr><td><p>123</p></td></tr></table></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Table",
+            "content": [
+              {
+                "type": "TableRow",
+                "content": [
+                  {
+                    "type": "HeaderCell",
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "header"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "TableRow",
+                "content": [
+                  {
+                    "type": "Cell",
+                    "content": [
+                      {
+                        "type": "Paragraph",
+                        "content": [
+                          {
+                            "type": "Text",
+                            "param": "123"
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            4,
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "中",
+                  "marks": {
+                    "Strong": null
+                  }
+                }
+              ]
+            ],
+            18
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            4,
+            [
+              1,
+              [
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "🙂"
+                }
+              ]
+            ],
+            18
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            18,
+            [
+              1,
+              []
+            ],
+            6,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            24,
+            [
+              7,
+              []
+            ]
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><table><tr><th><p><strong>h中</strong>eader</p></th></tr><tr><td><p>123</p></td></tr></table></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Table",
+                "content": [
+                  {
+                    "type": "TableRow",
+                    "content": [
+                      {
+                        "type": "HeaderCell",
+                        "content": [
+                          {
+                            "type": "Paragraph",
+                            "content": [
+                              {
+                                "type": "Text",
+                                "param": "h中",
+                                "marks": {
+                                  "Strong": null
+                                }
+                              },
+                              {
+                                "type": "Text",
+                                "param": "eader"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TableRow",
+                    "content": [
+                      {
+                        "type": "Cell",
+                        "content": [
+                          {
+                            "type": "Paragraph",
+                            "content": [
+                              {
+                                "type": "Text",
+                                "param": "123"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><table><tr><th><p>h🙂eader</p></th></tr><tr><td><p>123</p></td></tr></table></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Table",
+                "content": [
+                  {
+                    "type": "TableRow",
+                    "content": [
+                      {
+                        "type": "HeaderCell",
+                        "content": [
+                          {
+                            "type": "Paragraph",
+                            "content": [
+                              {
+                                "type": "Text",
+                                "param": "h🙂eader"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TableRow",
+                    "content": [
+                      {
+                        "type": "Cell",
+                        "content": [
+                          {
+                            "type": "Paragraph",
+                            "content": [
+                              {
+                                "type": "Text",
+                                "param": "123"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><table><tr><th><p>h🙂eader</p></th></tr><tr><td><p>23</p></td></tr></table><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Table",
+                "content": [
+                  {
+                    "type": "TableRow",
+                    "content": [
+                      {
+                        "type": "HeaderCell",
+                        "content": [
+                          {
+                            "type": "Paragraph",
+                            "content": [
+                              {
+                                "type": "Text",
+                                "param": "h🙂eader"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TableRow",
+                    "content": [
+                      {
+                        "type": "Cell",
+                        "content": [
+                          {
+                            "type": "Paragraph",
+                            "content": [
+                              {
+                                "type": "Text",
+                                "param": "23"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><table><tr><th><p>h🙂eader</p></th></tr><tr><td><p>23</p></td></tr></table></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Table",
+                "content": [
+                  {
+                    "type": "TableRow",
+                    "content": [
+                      {
+                        "type": "HeaderCell",
+                        "content": [
+                          {
+                            "type": "Paragraph",
+                            "content": [
+                              {
+                                "type": "Text",
+                                "param": "h🙂eader"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "TableRow",
+                    "content": [
+                      {
+                        "type": "Cell",
+                        "content": [
+                          {
+                            "type": "Paragraph",
+                            "content": [
+                              {
+                                "type": "Text",
+                                "param": "23"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "unicode",
+      "initialXml": "<page><p>🙂é👩‍💻中</p><p>ع</p></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "🙂é👩‍💻中"
+              }
+            ]
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "ع"
+              }
+            ]
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            1,
+            [
+              2,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "中",
+                  "marks": {
+                    "Strong": null
+                  }
+                }
+              ]
+            ],
+            11
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            1,
+            [
+              2,
+              [
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "🙂"
+                }
+              ]
+            ],
+            11
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            14,
+            [
+              1,
+              []
+            ],
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            13,
+            [
+              2,
+              []
+            ],
+            2,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            5
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><p><strong>🙂中</strong>é👩‍💻中</p><p>ع</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "🙂中",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "é👩‍💻中"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ع"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>🙂🙂é👩‍💻中</p><p>ع</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "🙂🙂é👩‍💻中"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ع"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>🙂🙂é👩‍💻中</p><p /><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "🙂🙂é👩‍💻中"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": []
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>🙂🙂é👩‍💻中</p><p>aعdded</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "🙂🙂é👩‍💻中"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "aعdded"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "unknown-and-embed",
+      "initialXml": "<page><future x=\"1\">kept</future><p>before</p><embed ref=\"r\" table=\"t\" view=\"v\" /><p>after</p></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "UnknownBlock",
+            "param": {
+              "name": "future",
+              "attrs": [
+                [
+                  "x",
+                  "1"
+                ]
+              ],
+              "children": [
+                "kept"
+              ]
+            }
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "before"
+              }
+            ]
+          },
+          {
+            "type": "Embed",
+            "param": null,
+            "marks": {
+              "EmbedRef": "r",
+              "EmbedTable": "t",
+              "EmbedView": "v"
+            }
+          },
+          {
+            "type": "Paragraph",
+            "content": [
+              {
+                "type": "Text",
+                "param": "after"
+              }
+            ]
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            2,
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "中",
+                  "marks": {
+                    "Strong": null
+                  }
+                }
+              ]
+            ],
+            14
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            2,
+            [
+              1,
+              [
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "🙂"
+                }
+              ]
+            ],
+            14
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            13,
+            [
+              1,
+              []
+            ],
+            5,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            1,
+            [
+              10,
+              []
+            ],
+            9,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            5
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><future x=\"1\">kept</future><p><strong>b中</strong>efore</p><embed ref=\"r\" table=\"t\" view=\"v\" /><p>after</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "future",
+                  "attrs": [
+                    [
+                      "x",
+                      "1"
+                    ]
+                  ],
+                  "children": [
+                    "kept"
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "b中",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "efore"
+                  }
+                ]
+              },
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedRef": "r",
+                  "EmbedTable": "t",
+                  "EmbedView": "v"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "after"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><future x=\"1\">kept</future><p>b🙂efore</p><embed ref=\"r\" table=\"t\" view=\"v\" /><p>after</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "future",
+                  "attrs": [
+                    [
+                      "x",
+                      "1"
+                    ]
+                  ],
+                  "children": [
+                    "kept"
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "b🙂efore"
+                  }
+                ]
+              },
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedRef": "r",
+                  "EmbedTable": "t",
+                  "EmbedView": "v"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "after"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><future x=\"1\">kept</future><p>b🙂efore</p><embed ref=\"r\" table=\"t\" view=\"v\" /><p>fter</p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "future",
+                  "attrs": [
+                    [
+                      "x",
+                      "1"
+                    ]
+                  ],
+                  "children": [
+                    "kept"
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "b🙂efore"
+                  }
+                ]
+              },
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedRef": "r",
+                  "EmbedTable": "t",
+                  "EmbedView": "v"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "fter"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><future x=\"1\">kept</future><embed ref=\"r\" table=\"t\" view=\"v\" /><p>fter</p><p>aعdded</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "future",
+                  "attrs": [
+                    [
+                      "x",
+                      "1"
+                    ]
+                  ],
+                  "children": [
+                    "kept"
+                  ]
+                }
+              },
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedRef": "r",
+                  "EmbedTable": "t",
+                  "EmbedView": "v"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "fter"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "aعdded"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "generated-0-seed-20261005",
+      "initialXml": "<page><embed view=\"中文\" /><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Embed",
+            "param": null,
+            "marks": {
+              "EmbedView": "中文"
+            }
+          },
+          {
+            "type": "UnknownBlock",
+            "param": {
+              "name": "chip",
+              "attrs": [],
+              "children": [
+                {
+                  "name": "my-block",
+                  "attrs": [
+                    [
+                      "constructor",
+                      ""
+                    ]
+                  ],
+                  "children": [
+                    "文&~|é!中🙂 |-🙂';>",
+                    {
+                      "name": "br",
+                      "attrs": [],
+                      "children": []
+                    },
+                    {
+                      "name": "br",
+                      "attrs": [],
+                      "children": []
+                    }
+                  ]
+                },
+                {
+                  "name": "ul",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "name": "li",
+                      "attrs": [
+                        [
+                          "task",
+                          "todo"
+                        ]
+                      ],
+                      "children": [
+                        {
+                          "name": "hr",
+                          "attrs": [],
+                          "children": []
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            [
+              1,
+              []
+            ],
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            8
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            4,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "&<>"
+                }
+              ]
+            ],
+            4
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            [
+              1,
+              []
+            ],
+            4,
+            [
+              2,
+              []
+            ],
+            4
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "chip",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "name": "my-block",
+                      "attrs": [
+                        [
+                          "constructor",
+                          ""
+                        ]
+                      ],
+                      "children": [
+                        "文&~|é!中🙂 |-🙂';>",
+                        {
+                          "name": "br",
+                          "attrs": [],
+                          "children": []
+                        },
+                        {
+                          "name": "br",
+                          "attrs": [],
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "ul",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "name": "li",
+                          "attrs": [
+                            [
+                              "task",
+                              "todo"
+                            ]
+                          ],
+                          "children": [
+                            {
+                              "name": "hr",
+                              "attrs": [],
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "chip",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "name": "my-block",
+                      "attrs": [
+                        [
+                          "constructor",
+                          ""
+                        ]
+                      ],
+                      "children": [
+                        "文&~|é!中🙂 |-🙂';>",
+                        {
+                          "name": "br",
+                          "attrs": [],
+                          "children": []
+                        },
+                        {
+                          "name": "br",
+                          "attrs": [],
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "ul",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "name": "li",
+                          "attrs": [
+                            [
+                              "task",
+                              "todo"
+                            ]
+                          ],
+                          "children": [
+                            {
+                              "name": "hr",
+                              "attrs": [],
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><chip><my-block constructor=\"\">文&amp;~|é!中🙂 |-🙂';&gt;<br /><br /></my-block><ul><li task=\"todo\"><hr /></li></ul></chip><p>ad&amp;&lt;&gt;ded</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "chip",
+                  "attrs": [],
+                  "children": [
+                    {
+                      "name": "my-block",
+                      "attrs": [
+                        [
+                          "constructor",
+                          ""
+                        ]
+                      ],
+                      "children": [
+                        "文&~|é!中🙂 |-🙂';>",
+                        {
+                          "name": "br",
+                          "attrs": [],
+                          "children": []
+                        },
+                        {
+                          "name": "br",
+                          "attrs": [],
+                          "children": []
+                        }
+                      ]
+                    },
+                    {
+                      "name": "ul",
+                      "attrs": [],
+                      "children": [
+                        {
+                          "name": "li",
+                          "attrs": [
+                            [
+                              "task",
+                              "todo"
+                            ]
+                          ],
+                          "children": [
+                            {
+                              "name": "hr",
+                              "attrs": [],
+                              "children": []
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad&<>ded"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>ad&amp;ded</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad&ded"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "generated-1-seed-20261005",
+      "initialXml": "<page><h2 align=\"center\" /><my-block 字段=\"\" /><ol><li task=\"todo\" /><li task=\"done\" /></ol></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Heading",
+            "param": 2,
+            "marks": {
+              "Align": "center"
+            },
+            "content": []
+          },
+          {
+            "type": "UnknownBlock",
+            "param": {
+              "name": "my-block",
+              "attrs": [
+                [
+                  "字段",
+                  ""
+                ]
+              ],
+              "children": []
+            }
+          },
+          {
+            "type": "OrderedList",
+            "content": [
+              {
+                "type": "ListItem",
+                "param": null,
+                "marks": {
+                  "Task": "todo"
+                },
+                "content": []
+              },
+              {
+                "type": "ListItem",
+                "param": null,
+                "marks": {
+                  "Task": "done"
+                },
+                "content": []
+              }
+            ]
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            [
+              9,
+              []
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            3,
+            [
+              2,
+              []
+            ],
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": " "
+                }
+              ]
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            3,
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                },
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            4,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "&<>"
+                }
+              ]
+            ],
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 5,
+          "changes": [
+            8,
+            [
+              7,
+              []
+            ]
+          ]
+        },
+        {
+          "clientSeq": 6,
+          "changes": [
+            1,
+            [
+              6,
+              []
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "é"
+                }
+              ]
+            ],
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>ad </p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad "
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>ad </p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad "
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>ad &amp;&lt;&gt;</p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad &<>"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>ad &amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad &<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>é</p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "é"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "generated-2-seed-20261005",
+      "initialXml": "<page><embed /></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Embed"
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            3,
+            [
+              3,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "&<>"
+                }
+              ]
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            3,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "&<>"
+                }
+              ]
+            ],
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": " ",
+                  "marks": {
+                    "Strong": null
+                  }
+                }
+              ]
+            ],
+            6
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            9,
+            [
+              1,
+              []
+            ],
+            4
+          ]
+        },
+        {
+          "clientSeq": 5,
+          "changes": [
+            6,
+            [
+              2,
+              [
+                {
+                  "type": "Text",
+                  "param": "中文"
+                }
+              ]
+            ],
+            [
+              1,
+              []
+            ],
+            [
+              2,
+              [
+                {
+                  "type": "Text",
+                  "param": " "
+                }
+              ]
+            ],
+            2
+          ]
+        },
+        {
+          "clientSeq": 6,
+          "changes": [
+            9,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "👩‍💻"
+                }
+              ]
+            ],
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 7,
+          "changes": [
+            18,
+            [
+              4,
+              []
+            ],
+            1
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><embed /><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed"
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed /><p>a<strong>dde</strong>&amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed"
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "dde",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "&<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed /><p>a&amp;&lt;&gt;<strong>d de</strong>&amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed"
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a&<>"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d de",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "&<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed /><p>a&amp;&lt;&gt;<strong>d d</strong>&amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed"
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a&<>"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d d",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "&<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed /><p>a&amp;&lt;&gt;中文 &gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed"
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a&<>中文 >"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed /><p>a&amp;&lt;&gt;中文 👩‍💻<strong>&gt;</strong></p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed"
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a&<>中文 👩‍💻"
+                  },
+                  {
+                    "type": "Text",
+                    "param": ">",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed /><p>a&amp;&lt;&gt;中文 👩‍💻<strong>&gt;</strong></p><p>a</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed"
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a&<>中文 👩‍💻"
+                  },
+                  {
+                    "type": "Text",
+                    "param": ">",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "generated-3-seed-20261005",
+      "initialXml": "<page><embed view=\"q&amp;a\" /></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Embed",
+            "param": null,
+            "marks": {
+              "EmbedView": "q&a"
+            }
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph"
+                },
+                {
+                  "type": "Text",
+                  "param": "a"
+                },
+                {
+                  "type": "Text",
+                  "param": "dded",
+                  "marks": {
+                    "Strong": null
+                  }
+                },
+                "."
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            8
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            2,
+            [
+              1,
+              []
+            ],
+            [
+              1,
+              [
+                {
+                  "type": "Text",
+                  "param": "中文"
+                }
+              ]
+            ],
+            [
+              3,
+              [
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            3,
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            2,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "é"
+                }
+              ]
+            ],
+            2,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 5,
+          "changes": [
+            15,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "&<>"
+                }
+              ]
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 6,
+          "changes": [
+            [
+              1,
+              []
+            ],
+            4,
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            [
+              1,
+              []
+            ],
+            12
+          ]
+        },
+        {
+          "clientSeq": 7,
+          "changes": [
+            [
+              7,
+              []
+            ],
+            7,
+            [
+              2,
+              []
+            ],
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 8,
+          "changes": [
+            6,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "é"
+                }
+              ]
+            ],
+            9,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><embed view=\"q&amp;a\" /><p>a<strong>dded</strong></p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "q&a"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "dded",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"q&amp;a\" /><p>a<strong>dded</strong></p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "q&a"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "dded",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"q&amp;a\" /><p>中文ded</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "q&a"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "中文ded"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"q&amp;a\" /><p>中<strong>文</strong>deéd</p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "q&a"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "中"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "文",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "deéd"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"q&amp;a\" /><p>中<strong>文</strong>deéd</p><p>added&amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "q&a"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "中"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "文",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "deéd"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added&<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>中<strong>文</strong>d<strong>e</strong>d</p><p>added&amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "中"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "文",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "e",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added&<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>added&amp;</p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added&"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>addedé&amp;</p><p>added</p><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "addedé&"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "generated-4-seed-20261005",
+      "initialXml": "<page><Foo note=\"a*b\" /></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "UnknownBlock",
+            "param": {
+              "name": "Foo",
+              "attrs": [
+                [
+                  "note",
+                  "a*b"
+                ]
+              ],
+              "children": []
+            }
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            4,
+            [
+              3,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph"
+                },
+                {
+                  "type": "Text",
+                  "param": "added🙂&<>"
+                },
+                "."
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            6,
+            [
+              1,
+              [
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            13
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            [
+              8,
+              []
+            ],
+            5,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "x"
+                }
+              ]
+            ],
+            7
+          ]
+        },
+        {
+          "clientSeq": 5,
+          "changes": [
+            1,
+            [
+              4,
+              []
+            ],
+            8
+          ]
+        },
+        {
+          "clientSeq": 6,
+          "changes": [
+            6,
+            [
+              2,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 7,
+          "changes": [
+            5,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "🙂"
+                }
+              ]
+            ],
+            3
+          ]
+        },
+        {
+          "clientSeq": 8,
+          "changes": [
+            9,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "x"
+                }
+              ]
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 9,
+          "changes": [
+            2,
+            [
+              3,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            3,
+            [
+              2,
+              []
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 10,
+          "changes": [
+            9
+          ]
+        },
+        {
+          "clientSeq": 11,
+          "changes": [
+            9,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph"
+                },
+                {
+                  "type": "Text",
+                  "param": "aded"
+                },
+                "."
+              ]
+            ]
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><Foo note=\"a*b\" /><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "Foo",
+                  "attrs": [
+                    [
+                      "note",
+                      "a*b"
+                    ]
+                  ],
+                  "children": []
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><Foo note=\"a*b\" /><p>ad<strong>ded</strong></p><p>added🙂&amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "Foo",
+                  "attrs": [
+                    [
+                      "note",
+                      "a*b"
+                    ]
+                  ],
+                  "children": []
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "ded",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added🙂&<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><Foo note=\"a*b\" /><p>ad<strong>de</strong>d</p><p>added🙂&amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "UnknownBlock",
+                "param": {
+                  "name": "Foo",
+                  "attrs": [
+                    [
+                      "note",
+                      "a*b"
+                    ]
+                  ],
+                  "children": []
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "de",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added🙂&<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>addexd🙂&amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "addexd🙂&<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>xd🙂&amp;&lt;&gt;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "xd🙂&<>"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>xd🙂&amp;ع</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "xd🙂&ع"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>xd🙂🙂&amp;ع</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "xd🙂🙂&ع"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>xd🙂🙂&amp;عx</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "xd🙂🙂&عx"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>x<strong>d🙂</strong>🙂&amp;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "x"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d🙂",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "🙂&"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>x<strong>d🙂</strong>🙂&amp;</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "x"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d🙂",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "🙂&"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>x<strong>d🙂</strong>🙂&amp;</p><p>aded</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "x"
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d🙂",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "🙂&"
+                  }
+                ]
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "aded"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "generated-5-seed-20261005",
+      "initialXml": "<page />",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Paragraph",
+            "param": null,
+            "marks": {
+              "PagePlaceholder": null
+            },
+            "content": []
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            [
+              2,
+              []
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            5,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع "
+                }
+              ]
+            ],
+            [
+              1,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            1,
+            [
+              4,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            4
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            2,
+            [
+              2,
+              [
+                {
+                  "type": "Text",
+                  "param": "&<>"
+                }
+              ]
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": " "
+                }
+              ]
+            ],
+            2,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "é"
+                }
+              ]
+            ],
+            3
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p>addeع <strong>d</strong></p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "addeع "
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p><strong>adde</strong>ع <strong>d</strong></p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "adde",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "ع "
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><p><strong>a</strong>&amp;&lt;&gt; <strong>e</strong>عé <strong>d</strong></p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "a",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "&<> "
+                  },
+                  {
+                    "type": "Text",
+                    "param": "e",
+                    "marks": {
+                      "Strong": null
+                    }
+                  },
+                  {
+                    "type": "Text",
+                    "param": "عé "
+                  },
+                  {
+                    "type": "Text",
+                    "param": "d",
+                    "marks": {
+                      "Strong": null
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "generated-6-seed-20261005",
+      "initialXml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https://example.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Callout",
+            "param": null,
+            "marks": {
+              "CalloutTone": "warning"
+            },
+            "content": [
+              {
+                "type": "HorizontalRule",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "__proto__",
+                      ""
+                    ]
+                  ]
+                }
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "__proto__",
+                      ""
+                    ],
+                    [
+                      "source",
+                      ""
+                    ]
+                  ],
+                  "CodeBlockLanguage": "json",
+                  "CodeMeta": " x"
+                },
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "10:30</>"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "CodeBlock",
+            "param": null,
+            "marks": {
+              "Attrs": [
+                [
+                  "data-x",
+                  "https://example.com"
+                ]
+              ],
+              "CodeBlockLanguage": "ts",
+              "CodeMeta": " x"
+            },
+            "content": [
+              {
+                "type": "Text",
+                "param": ">-;~<b+https://example.com/a+!"
+              }
+            ]
+          },
+          {
+            "type": "CodeBlock",
+            "param": null,
+            "marks": {
+              "Attrs": [
+                [
+                  "constructor",
+                  " www.example.com[ ] 1.  }10:30"
+                ],
+                [
+                  "字段",
+                  ""
+                ]
+              ],
+              "CodeMeta": "title=x"
+            },
+            "content": []
+          },
+          {
+            "type": "HorizontalRule"
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            8,
+            [
+              3,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                },
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            23,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": " "
+                }
+              ]
+            ],
+            14
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            10,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "👩‍💻"
+                }
+              ]
+            ],
+            6,
+            [
+              6,
+              [
+                {
+                  "add": "Strong",
+                  "value": null
+                },
+                {
+                  "remove": "Strong",
+                  "value": null
+                }
+              ]
+            ],
+            7,
+            [
+              6,
+              [
+                {
+                  "type": "Text",
+                  "param": " "
+                }
+              ]
+            ],
+            12,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "中文"
+                }
+              ]
+            ],
+            2
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            3,
+            [
+              13,
+              [
+                {
+                  "type": "Text",
+                  "param": "10:\r"
+                },
+                {
+                  "type": "LineBreak"
+                },
+                {
+                  "type": "Text",
+                  "param": "30</👩‍💻>"
+                }
+              ]
+            ],
+            3,
+            [
+              6,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            26
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            48,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https://examp le.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\" /><hr /></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Callout",
+                "param": null,
+                "marks": {
+                  "CalloutTone": "warning"
+                },
+                "content": [
+                  {
+                    "type": "HorizontalRule",
+                    "param": null,
+                    "marks": {
+                      "Attrs": [
+                        [
+                          "__proto__",
+                          ""
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "type": "CodeBlock",
+                    "param": null,
+                    "marks": {
+                      "Attrs": [
+                        [
+                          "__proto__",
+                          ""
+                        ],
+                        [
+                          "source",
+                          ""
+                        ]
+                      ],
+                      "CodeBlockLanguage": "json",
+                      "CodeMeta": " x"
+                    },
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "10:30</>"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "data-x",
+                      "https://example.com"
+                    ]
+                  ],
+                  "CodeBlockLanguage": "ts",
+                  "CodeMeta": " x"
+                },
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": ">-;~<b+https://examp le.com/a+!"
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "constructor",
+                      " www.example.com[ ] 1.  }10:30"
+                    ],
+                    [
+                      "字段",
+                      ""
+                    ]
+                  ],
+                  "CodeMeta": "title=x"
+                },
+                "content": []
+              },
+              {
+                "type": "HorizontalRule"
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:30&lt;/👩‍💻&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">&gt;-;~&lt;b+https:// le.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\">中文</pre><hr /></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Callout",
+                "param": null,
+                "marks": {
+                  "CalloutTone": "warning"
+                },
+                "content": [
+                  {
+                    "type": "HorizontalRule",
+                    "param": null,
+                    "marks": {
+                      "Attrs": [
+                        [
+                          "__proto__",
+                          ""
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "type": "CodeBlock",
+                    "param": null,
+                    "marks": {
+                      "Attrs": [
+                        [
+                          "__proto__",
+                          ""
+                        ],
+                        [
+                          "source",
+                          ""
+                        ]
+                      ],
+                      "CodeBlockLanguage": "json",
+                      "CodeMeta": " x"
+                    },
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "10:30</👩‍💻>"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "data-x",
+                      "https://example.com"
+                    ]
+                  ],
+                  "CodeBlockLanguage": "ts",
+                  "CodeMeta": " x"
+                },
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": ">-;~<b+https:// le.com/a+!"
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "constructor",
+                      " www.example.com[ ] 1.  }10:30"
+                    ],
+                    [
+                      "字段",
+                      ""
+                    ]
+                  ],
+                  "CodeMeta": "title=x"
+                },
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "中文"
+                  }
+                ]
+              },
+              {
+                "type": "HorizontalRule"
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:&#13;\n30&lt;/👩‍💻&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">ع+https:// le.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\">中文</pre><hr /></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Callout",
+                "param": null,
+                "marks": {
+                  "CalloutTone": "warning"
+                },
+                "content": [
+                  {
+                    "type": "HorizontalRule",
+                    "param": null,
+                    "marks": {
+                      "Attrs": [
+                        [
+                          "__proto__",
+                          ""
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "type": "CodeBlock",
+                    "param": null,
+                    "marks": {
+                      "Attrs": [
+                        [
+                          "__proto__",
+                          ""
+                        ],
+                        [
+                          "source",
+                          ""
+                        ]
+                      ],
+                      "CodeBlockLanguage": "json",
+                      "CodeMeta": " x"
+                    },
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "10:\r"
+                      },
+                      {
+                        "type": "LineBreak"
+                      },
+                      {
+                        "type": "Text",
+                        "param": "30</👩‍💻>"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "data-x",
+                      "https://example.com"
+                    ]
+                  ],
+                  "CodeBlockLanguage": "ts",
+                  "CodeMeta": " x"
+                },
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ع+https:// le.com/a+!"
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "constructor",
+                      " www.example.com[ ] 1.  }10:30"
+                    ],
+                    [
+                      "字段",
+                      ""
+                    ]
+                  ],
+                  "CodeMeta": "title=x"
+                },
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "中文"
+                  }
+                ]
+              },
+              {
+                "type": "HorizontalRule"
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><callout tone=\"warning\"><hr __proto__=\"\" /><pre __proto__=\"\" lang=\"json\" meta=\" x\" source=\"\">10:&#13;\n30&lt;/👩‍💻&gt;</pre></callout><pre data-x=\"https://example.com\" lang=\"ts\" meta=\" x\">ع+https:// le.com/a+!</pre><pre constructor=\" www.example.com[ ] 1.  }10:30\" meta=\"title=x\" 字段=\"\">中文</pre><hr /><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Callout",
+                "param": null,
+                "marks": {
+                  "CalloutTone": "warning"
+                },
+                "content": [
+                  {
+                    "type": "HorizontalRule",
+                    "param": null,
+                    "marks": {
+                      "Attrs": [
+                        [
+                          "__proto__",
+                          ""
+                        ]
+                      ]
+                    }
+                  },
+                  {
+                    "type": "CodeBlock",
+                    "param": null,
+                    "marks": {
+                      "Attrs": [
+                        [
+                          "__proto__",
+                          ""
+                        ],
+                        [
+                          "source",
+                          ""
+                        ]
+                      ],
+                      "CodeBlockLanguage": "json",
+                      "CodeMeta": " x"
+                    },
+                    "content": [
+                      {
+                        "type": "Text",
+                        "param": "10:\r"
+                      },
+                      {
+                        "type": "LineBreak"
+                      },
+                      {
+                        "type": "Text",
+                        "param": "30</👩‍💻>"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "data-x",
+                      "https://example.com"
+                    ]
+                  ],
+                  "CodeBlockLanguage": "ts",
+                  "CodeMeta": " x"
+                },
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ع+https:// le.com/a+!"
+                  }
+                ]
+              },
+              {
+                "type": "CodeBlock",
+                "param": null,
+                "marks": {
+                  "Attrs": [
+                    [
+                      "constructor",
+                      " www.example.com[ ] 1.  }10:30"
+                    ],
+                    [
+                      "字段",
+                      ""
+                    ]
+                  ],
+                  "CodeMeta": "title=x"
+                },
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "中文"
+                  }
+                ]
+              },
+              {
+                "type": "HorizontalRule"
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "generated-7-seed-20261005",
+      "initialXml": "<page><embed view=\"&lt;tag&gt;\" /></page>",
+      "initialDocument": {
+        "type": "Doc",
+        "content": [
+          {
+            "type": "Embed",
+            "param": null,
+            "marks": {
+              "EmbedView": "<tag>"
+            }
+          }
+        ]
+      },
+      "batches": [
+        {
+          "clientSeq": 1,
+          "changes": [
+            1,
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph",
+                  "content": [
+                    {
+                      "type": "Text",
+                      "param": "added"
+                    }
+                  ]
+                }
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 2,
+          "changes": [
+            5,
+            [
+              2,
+              [
+                {
+                  "type": "Text",
+                  "param": "ع"
+                }
+              ]
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 3,
+          "changes": [
+            5,
+            [
+              1,
+              []
+            ],
+            1
+          ]
+        },
+        {
+          "clientSeq": 4,
+          "changes": [
+            1,
+            [
+              5,
+              []
+            ],
+            [
+              0,
+              [
+                {
+                  "type": "Paragraph"
+                },
+                {
+                  "type": "Text",
+                  "param": "ad ded"
+                },
+                "."
+              ]
+            ]
+          ]
+        },
+        {
+          "clientSeq": 5,
+          "changes": [
+            3,
+            [
+              0,
+              [
+                {
+                  "type": "Text",
+                  "param": "x"
+                }
+              ]
+            ],
+            3,
+            [
+              2,
+              []
+            ],
+            1
+          ]
+        }
+      ],
+      "steps": [
+        {
+          "xml": "<page><embed view=\"&lt;tag&gt;\" /><p>added</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "<tag>"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "added"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"&lt;tag&gt;\" /><p>addع</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "<tag>"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "addع"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"&lt;tag&gt;\" /><p>add</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "<tag>"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "add"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"&lt;tag&gt;\" /><p>ad ded</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "<tag>"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "ad ded"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "xml": "<page><embed view=\"&lt;tag&gt;\" /><p>axd d</p></page>",
+          "document": {
+            "type": "Doc",
+            "content": [
+              {
+                "type": "Embed",
+                "param": null,
+                "marks": {
+                  "EmbedView": "<tag>"
+                }
+              },
+              {
+                "type": "Paragraph",
+                "content": [
+                  {
+                    "type": "Text",
+                    "param": "axd d"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

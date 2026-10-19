@@ -14,7 +14,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler do
 
   alias Ankole.{IdentityProviders, Logging, Repo}
   alias Ankole.Tenants.Tenant
-  alias Ankole.Plugins.Microsoft365Adapter.Config
   alias Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions
 
   @default_interval_ms :timer.hours(6)
@@ -44,7 +43,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler do
   end
 
   defp reconcile_tenant(opts) do
-    case IdentityProviders.list_active_provider_refs("entra-id") do
+    case IdentityProviders.list_provider_refs("entra-id") do
       {:ok, providers} ->
         providers
         |> Enum.map(&reconcile_provider(&1, opts))
@@ -99,27 +98,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.SubscriptionReconciler do
   end
 
   defp reconcile_provider(%{"provider_id" => provider_id, "config_key" => config_key}, opts) do
-    with {:ok, config} <- Config.load_identity_config_key(config_key) do
-      if realtime_enabled?(config) do
-        case GraphSubscriptions.ensure(provider_id, config, opts) do
-          {:ok, _result} -> {:ensured, provider_id}
-          {:error, reason} -> {:error, %{provider_id: provider_id, reason: reason}}
-        end
-      else
-        case GraphSubscriptions.delete_all(provider_id, config) do
-          {:ok, %{deleted: 0}} -> {:skipped, provider_id}
-          {:ok, _result} -> {:removed, provider_id}
-          {:error, reason} -> {:error, %{provider_id: provider_id, reason: reason}}
-        end
-      end
-    else
-      {:error, reason} -> {:error, %{provider_id: provider_id, reason: reason}}
-    end
-  end
-
-  defp realtime_enabled?(config) do
-    get_in(config, ["sync", "contacts"]) != false and
-      get_in(config, ["sync", "realtime"]) == true
+    GraphSubscriptions.reconcile_current(provider_id, config_key, opts)
   end
 
   defp merge_result({:ensured, _provider_id}, acc), do: %{acc | ensured: acc.ensured + 1}

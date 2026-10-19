@@ -65,6 +65,7 @@ defmodule Ankole.ConversationsTest do
              "message_id" => attrs.message_id,
              "message_ids" => [attrs.message_id],
              "author_uid" => human.uid,
+             "model_profile" => "primary",
              "text" => attrs.text
            }
 
@@ -399,6 +400,9 @@ defmodule Ankole.ConversationsTest do
           from j in Oban.Job, where: fragment("?->>'tenant_id' = ?", j.args, ^tenant.id)
         )
 
+        # Space initialization owns rows beyond this test's Agent fixture.
+        Repo.delete_all(Ankole.AuthZ.Grant)
+        Repo.delete_all(Ankole.AuthZ.Group)
         Repo.delete!(tenant)
       end)
     end)
@@ -618,6 +622,113 @@ defmodule Ankole.ConversationsTest do
     assert_receive {:conversation_event, ^id, :status}
     assert {:ok, _} = Ankole.Conversations.create(human.uid, request)
     refute_received {:conversation_event, _, _}
+  end
+
+  test "page conversations retain their identity, discoverability, and Agent context", %{
+    human: human
+  } do
+    agent =
+      Ankole.AIGatewayCase.background_agent_fixture(%{owner_principal_uid: human.uid}).principal
+
+    {:ok, page} = Ankole.Pod.Pages.create(human.uid, %{title: "Team report"})
+    request = Map.put(attrs(agent), :page_id, page.id)
+    assert {:ok, first} = in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, request) end)
+    assert first.conversation.page_id == page.id
+    assert {:ok, [%{conversation: %{id: id}}]} = Conversations.list_for_page(human.uid, page.id)
+    assert id == first.conversation.id
+    assert {:ok, reopened} = Conversations.get(human.uid, id)
+    assert reopened.messages == first.messages
+
+    assert {:ok, context} = Ankole.Sessions.Context.resolve(agent.uid, first.session_id)
+    assert context.conversation.page_id == page.id
+    wire = Ankole.Sessions.TurnEnvelope.agent_context(context)
+    assert wire.conversation.page_id == page.id
+    assert wire.conversation.pod_instructions =~ "Current Page ID: #{page.id}"
+
+    assert wire.conversation.pod_instructions =~
+             "research reports are saved as editable Pod Pages by default"
+
+    assert wire.conversation.pod_instructions =~ "explicitly requests a file format"
+
+    input = Repo.get_by!(Signal, message_id: request.message_id)
+
+    assert {:ok, %{job: job}} =
+             Repo.transact(fn _repo ->
+               Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+                 "source_signal_id" => input.id,
+                 "agent_uid" => agent.uid,
+                 "owner_session_id" => first.session_id,
+                 "source_tool_call_id" => "page-chat-report",
+                 "title" => "Update report",
+                 "task" => "Update the current report Page.",
+                 "reply_route" => %{"conversation_id" => id}
+               })
+             end)
+
+    assert {:ok, job_context} =
+             Ankole.Sessions.Context.resolve(
+               agent.uid,
+               Ankole.BackgroundAgentJobs.job_session_id(job.id)
+             )
+
+    job_wire = Ankole.Sessions.TurnEnvelope.agent_context(job_context)
+    assert job_wire.conversation.page_id == page.id
+    assert job_wire.conversation.pod_instructions == wire.conversation.pod_instructions
+
+    assert {:error, :conversation_conflict} =
+             in_tx(fn ->
+               Ankole.ConversationsFixtures.create(human.uid, Map.delete(request, :page_id))
+             end)
+
+    {:ok, other_page} = Ankole.Pod.Pages.create(human.uid, %{title: "Other report"})
+    assert {:ok, []} = Conversations.list_for_page(human.uid, other_page.id)
+
+    assert {:error, :conversation_conflict} =
+             in_tx(fn ->
+               Ankole.ConversationsFixtures.create(human.uid, %{request | page_id: other_page.id})
+             end)
+
+    {:ok, _} = Repo.delete(page)
+    assert {:ok, %{conversation: %{page_id: nil}}} = Conversations.get(human.uid, id)
+    assert {:error, :page_unavailable} = Conversations.list_for_page(human.uid, page.id)
+  end
+
+  test "page chat creation and later input require the Human's current page access", %{
+    human: human,
+    agent: agent
+  } do
+    %{principal: owner} = human_fixture()
+
+    {:ok, private} =
+      Ankole.Pod.Pages.create(owner.uid, %{title: "Private report", private_owner_uid: owner.uid})
+
+    request = Map.put(attrs(agent), :page_id, private.id)
+
+    assert {:error, :page_unavailable} =
+             in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, request) end)
+
+    assert {:error, :page_unavailable} = Conversations.list_for_page(human.uid, private.id)
+    assert Repo.aggregate(Conversation, :count) == 0
+
+    {:ok, _} =
+      Ankole.Pod.PagesFixtures.set_sharing(owner.uid, private.id, %{
+        grants: [%{principal_uid: human.uid, role: "view"}]
+      })
+
+    assert {:ok, detail} =
+             in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, request) end)
+
+    {:ok, _} = Ankole.Pod.PagesFixtures.set_sharing(owner.uid, private.id, %{grants: []})
+
+    assert {:error, :page_unavailable} =
+             in_tx(fn ->
+               Ankole.ConversationsFixtures.post(human.uid, detail.conversation.id, %{
+                 message_id: Ecto.UUID.generate(),
+                 text: "Change this report"
+               })
+             end)
+
+    assert Repo.aggregate(Message, :count) == 1
   end
 
   defp attrs(agent) do

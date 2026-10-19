@@ -5,18 +5,13 @@
  * JSON response, so the shell never holds the worker auth key or fabric
  * endpoint.
  *
- * `src/automation-jobs/sdk.ts` keeps its own copy of the client half on
- * purpose — that file runs in the Automation script process as a
- * self-contained module and does not import Worker code.
+ * The client module is also loaded by automation subprocesses.
  */
 
 import { chmodSync, existsSync, unlinkSync } from 'node:fs'
 import type { z } from 'zod'
 import { errorMessage } from '../common/errors'
 import { chownAgentPathSync } from '../common/agent-user'
-
-/** Response envelope the CLI bridges write for every request. */
-export type SocketLineBridgeResponse = { ok: true; result: Record<string, unknown> } | { ok: false; error: string }
 
 /** Request limit of the CLI bridges. A CLI command is a small JSON object. */
 export const CLI_REQUEST_MAX_BYTES = 16 * 1024
@@ -47,6 +42,7 @@ export function startSocketLineBridge(opts: {
   socketPath: string
   maxRequestBytes: number
   oversizeError: string
+  readTimeoutMs?: number
   handleLine: (line: string) => Promise<unknown>
 }): SocketLineBridge {
   let closed = false
@@ -73,7 +69,7 @@ export function startSocketLineBridge(opts: {
         activeRequests += 1
         socket.data.readTimer = setTimeout(() => {
           rejectRequest(socket, 'CLI bridge request read timed out; request was not accepted')
-        }, REQUEST_READ_TIMEOUT_MS)
+        }, opts.readTimeoutMs ?? REQUEST_READ_TIMEOUT_MS)
         socket.data.readTimer.unref()
       },
       data(socket, data) {
@@ -199,51 +195,4 @@ export function parseCLIRequest<Schema extends z.ZodType>(
   return parsed.data
 }
 
-export async function requestSocketLineBridge(
-  socketPath: string,
-  line: string,
-  invalidResponseError: string
-): Promise<Record<string, unknown>> {
-  const decoded = await new Promise<SocketLineBridgeResponse>((resolve, reject) => {
-    const response: Buffer[] = []
-    let settled = false
-
-    void Bun.connect({
-      unix: socketPath,
-      socket: {
-        open(socket) {
-          socket.write(`${line}\n`)
-        },
-        data(_socket, data) {
-          response.push(Buffer.from(data))
-        },
-        close() {
-          if (settled) return
-          settled = true
-
-          try {
-            resolve(JSON.parse(Buffer.concat(response).toString('utf8').trim()) as SocketLineBridgeResponse)
-          } catch {
-            reject(new Error(invalidResponseError))
-          }
-        },
-        connectError(_socket, error) {
-          if (settled) return
-          settled = true
-          reject(error)
-        },
-        error(_socket, error) {
-          if (settled) return
-          settled = true
-          reject(error)
-        }
-      }
-    }).catch(error => {
-      if (settled) return
-      settled = true
-      reject(error)
-    })
-  })
-  if (decoded.ok) return decoded.result
-  throw new Error(decoded.error)
-}
+export { requestSocketLineBridge, type SocketLineBridgeResponse } from './socket-line-client'

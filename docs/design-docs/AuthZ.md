@@ -233,6 +233,25 @@ provider path from changing another kind of group.
 For an existing natural key, an upsert changes only the description, metadata,
 and `updated_at`.
 
+### Page Actions
+
+The Pod page domain reserves three actions: `page_view`, `page_edit`, and
+`page_manage`. Action matching stays exact, and the grant table keeps no column
+or constraint for the reservation.
+
+The reservation belongs to the grant interfaces:
+
+- The Console grant API (`/api/v1/permission-grants`) rejects a create that names
+  a reserved action, for a Principal owner or a group owner, with `422
+  validation_failed` and an `action` detail path.
+- The same API rejects an update to a page grant. Its action, resource pattern,
+  and condition are fixed, so an update changes only the description.
+- Ordinary grants keep partial updates. The action need not be included when
+  the resource pattern or condition changes.
+
+The Pod writes and deletes page grants through the `Ankole.AuthZ` functions. A
+page grant uses condition `true` and one of four resource patterns.
+
 ## Create the First Administrator
 
 Every tenant receives the computed `all_humans` group. The privileged tenant

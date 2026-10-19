@@ -25,6 +25,62 @@ defmodule FeishuOpenAPI.UserTokenManagerTest do
     {:ok, client: client, user_key: "user_#{unique}"}
   end
 
+  test "a late refresh cannot undo put, invalidate, or expire", %{
+    client: client,
+    user_key: user_key
+  } do
+    parent = self()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      send(parent, {:refresh_waiting, self()})
+
+      receive do
+        :finish -> :ok
+      end
+
+      Req.Test.json(conn, %{
+        "code" => 0,
+        "data" => %{"access_token" => "old-refresh", "expires_in" => 7200}
+      })
+    end)
+
+    Req.Test.allow(__MODULE__, self(), Process.whereis(UserTokenManager))
+
+    for action <- [:put, :invalidate, :expire] do
+      UserTokenManager.put(client, user_key, %{
+        access_token: "old",
+        refresh_token: "refresh",
+        expires_in: 1
+      })
+
+      request = Task.async(fn -> UserTokenManager.get(client, user_key) end)
+      assert_receive {:refresh_waiting, task}, 2_000
+
+      case action do
+        :put ->
+          UserTokenManager.put(client, user_key, %{access_token: "replacement", expires_in: 7200})
+
+        :invalidate ->
+          UserTokenManager.invalidate(client, user_key)
+
+        :expire ->
+          UserTokenManager.expire_access_token(client, user_key)
+      end
+
+      send(task, :finish)
+      result = Task.await(request)
+
+      if action == :put do
+        assert {:ok, "replacement"} = result
+        assert {:ok, "replacement"} = UserTokenManager.get(client, user_key)
+      else
+        assert {:error, %FeishuOpenAPI.Error{code: :user_token_changed}} = result
+      end
+    end
+
+    assert UserTokenManager.invalidate(client, user_key) == :ok
+  end
+
   test "missing managed user token returns a structured error", %{
     client: client,
     user_key: user_key

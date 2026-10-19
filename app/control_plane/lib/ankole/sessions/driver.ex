@@ -223,6 +223,9 @@ defmodule Ankole.Sessions.Driver do
       when state in [:admitting, :preparing],
       do: {:keep_state_and_data, [:postpone]}
 
+  def handle_event(:info, {:recover_preview, _id}, :finalizing, _data),
+    do: :keep_state_and_data
+
   def handle_event(:info, {:recover_preview, id}, _state, %{
         run: %Run{signal_id: id} = run
       }) do
@@ -848,7 +851,10 @@ defmodule Ankole.Sessions.Driver do
   defp finalize(data, outcome, reason \\ nil) do
     run = %{data.run | outcome: outcome}
 
-    task_result(:finalize, Run.finalize(run, outcome, reason), :finalizing, %{data | run: run})
+    {:next_state, :finalizing,
+     Ankole.Sessions.Driver.Tasks.task(%{data | run: run}, :finalize, fn ->
+       Run.finalize(run, outcome, reason)
+     end)}
   end
 
   defp close_and_rebuild(%{run: nil} = data), do: rebuild(data)
@@ -969,7 +975,7 @@ defmodule Ankole.Sessions.Driver do
           {:stop, {:defer_retry_failed, reason}, data}
       end
     else
-      task_result(:finalize, Run.finalize(data.run, :dead_letter, error), :finalizing, data)
+      finalize(data, :dead_letter, error)
     end
   end
 

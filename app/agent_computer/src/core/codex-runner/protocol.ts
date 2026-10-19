@@ -13,7 +13,7 @@ export type CodexNotificationProjection = { threadID?: string } & (
   | { type: 'stderr' }
   | { type: 'turn_started'; turnID?: string }
   | { type: 'item_started'; item: JSONObject; turnID?: string }
-  | { type: 'agent_completed'; text: string }
+  | { type: 'agent_completed'; text: string; phase: string | null }
   | { type: 'compaction_completed'; turnID?: string }
   | { type: 'mcp_server_startup_failed'; server: string; failureReason?: string; error: string }
   | { type: 'credential_pool_exhausted'; exhaustion: CodexCredentialPoolExhaustion }
@@ -48,7 +48,12 @@ export function projectCodexNotification(message: JSONRPCMessage): CodexNotifica
   if (method === 'item/completed') {
     const item = jsonObject(params.item)
     if (item.type === 'agentMessage' && typeof item.text === 'string') {
-      return { type: 'agent_completed', threadID, text: item.text }
+      return {
+        type: 'agent_completed',
+        threadID,
+        text: item.text,
+        phase: typeof item.phase === 'string' ? item.phase : null
+      }
     }
     if (item.type === 'contextCompaction') {
       return { type: 'compaction_completed', threadID, turnID: stringValue(params.turnId) }

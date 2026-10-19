@@ -1,6 +1,7 @@
 import {
   AUTOMATION_JOB_CLI_SOCKET_ENV,
   DRIVE_CLI_SOCKET_ENV,
+  POD_CLI_SOCKET_ENV,
   WEBHOOK_CLI_SOCKET_ENV
 } from '../core/execution/turn_runtime_env'
 import type { SocketLineBridge } from '../core/socket-line-bridge'
@@ -12,9 +13,10 @@ import { type RPCRequester } from '../lanes/rpc_lane'
 import { startAutomationJobCLIBridge } from './automation-jobs/automation-job-cli-bridge'
 import { startDriveCLIBridge } from './drive/drive-cli-bridge'
 import { startWebhookCLIBridge } from './webhooks/webhook-cli-bridge'
+import { startPodCLIBridge } from './pod/pod-cli-bridge'
 
 /**
- * Starts the drive, webhook, and Automation Job CLI bridges of one run. `env`
+ * Starts the drive, Pod, webhook, and Automation Job CLI bridges of one run. `env`
  * holds the socket variable of each bridge. If a bridge cannot start, this
  * function closes the bridges that started, so that no listener stays open in
  * the long-running Worker.
@@ -43,6 +45,9 @@ export function startRunCLIBridges({
     return {
       env: {
         [DRIVE_CLI_SOCKET_ENV]: socketOf(startDriveCLIBridge({ drive, workspaceRoot })),
+        [POD_CLI_SOCKET_ENV]: socketOf(
+          startPodCLIBridge({ drive, rpc, frame: 'job_id' in turn ? { jobTurn: turn } : { run: turn } })
+        ),
         [WEBHOOK_CLI_SOCKET_ENV]: socketOf(
           startWebhookCLIBridge({ requestWebhookRPC: webhookRPCRequester(rpc, turn) })
         ),

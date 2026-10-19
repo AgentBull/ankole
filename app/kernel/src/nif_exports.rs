@@ -5,6 +5,7 @@ use rustler::types::atom as rustler_atom;
 use rustler::types::binary::{Binary, OwnedBinary};
 use rustler::{Encoder, Env, Error, LocalPid, Monitor, NifResult as NIFResult, ResourceArc, Term};
 use serde_json::Value as JSONValue;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::authz;
@@ -29,6 +30,8 @@ mod atoms {
         metadata,
         private,
         public,
+        applet_runtime,
+        call,
     }
 }
 
@@ -50,6 +53,59 @@ impl rustler::Resource for UniversalAIClientStreamResource {
 }
 
 pub struct ObjectStoreResource(pub object_store::Store);
+
+/// Retained by the completion sink until the native request ends. The monitor
+/// cancels its I/O if the BEAM owner exits while waiting for a provider.
+pub struct UniversalAIClientRequestResource {
+    handle: Mutex<Option<universal_ai_client::RequestHandle>>,
+    cancelled: AtomicBool,
+}
+
+impl UniversalAIClientRequestResource {
+    fn new() -> Self {
+        Self {
+            handle: Mutex::new(None),
+            cancelled: AtomicBool::new(false),
+        }
+    }
+
+    fn install(&self, handle: universal_ai_client::RequestHandle) {
+        let mut current = self
+            .handle
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if self.cancelled.load(Ordering::SeqCst) {
+            handle.cancel();
+        }
+        *current = Some(handle);
+    }
+
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::SeqCst);
+        if let Some(handle) = self
+            .handle
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .as_ref()
+        {
+            handle.cancel();
+        }
+    }
+}
+
+#[rustler::resource_impl]
+impl rustler::Resource for UniversalAIClientRequestResource {
+    const IMPLEMENTS_DESTRUCTOR: bool = true;
+    const IMPLEMENTS_DOWN: bool = true;
+
+    fn destructor(self, _env: Env<'_>) {
+        self.cancel();
+    }
+
+    fn down<'a>(&'a self, _env: Env<'a>, _pid: LocalPid, _monitor: Monitor) {
+        self.cancel();
+    }
+}
 
 #[rustler::resource_impl]
 impl rustler::Resource for ObjectStoreResource {}
@@ -112,6 +168,26 @@ pub fn brain_markdoc_analyze_nif(body: Term<'_>) -> NIFResult<String> {
     crate::brain_markdoc::analyze_json(&body).map_err(error_message)
 }
 
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_validate_nif(source: Term<'_>) -> NIFResult<(String, String)> {
+    let source = decode_string(source, "source")?;
+    // Page normalization is recursive up to the editor's declared depth limit.
+    let page = stacker::grow(8 * 1024 * 1024, || crate::page_document::validate(&source))
+        .map_err(error_message)?;
+    Ok((page.xml, page.plain_text))
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn page_apply_nif(source: Term<'_>, changes: Term<'_>) -> NIFResult<(String, String)> {
+    let source = decode_string(source, "source")?;
+    let changes = decode_string(changes, "changes")?;
+    let page = stacker::grow(8 * 1024 * 1024, || {
+        crate::page_document::apply(&source, &changes)
+    })
+    .map_err(error_message)?;
+    Ok((page.xml, page.plain_text))
+}
+
 #[cfg(feature = "markdown")]
 #[rustler::nif(schedule = "DirtyCpu")]
 pub fn markdown_code_ranges_nif(source: Term<'_>) -> NIFResult<Vec<(usize, usize)>> {
@@ -140,6 +216,109 @@ pub fn program_run_nif(run_id: Term<'_>, request: Term<'_>) -> NIFResult<String>
 pub fn program_cancel_nif(run_id: Term<'_>) -> NIFResult<bool> {
     let run_id = decode_string(run_id, "run_id")?;
     crate::program_runner::cancel(&run_id).map_err(error_message)
+}
+
+pub struct AppletRuntimeResource(pub crate::applet_runtime::Handle);
+
+#[rustler::resource_impl]
+impl rustler::Resource for AppletRuntimeResource {
+    const IMPLEMENTS_DESTRUCTOR: bool = true;
+    const IMPLEMENTS_DOWN: bool = true;
+
+    fn destructor(self, _env: Env<'_>) {
+        self.0.cancel();
+    }
+
+    fn down<'a>(&'a self, _env: Env<'a>, _pid: LocalPid, _monitor: Monitor) {
+        self.0.cancel();
+    }
+}
+
+/// Retains transport binaries without copying their bytes on the scheduler.
+struct AppletJSON {
+    env: OwnedEnv,
+    term: SavedTerm,
+}
+
+impl AppletJSON {
+    fn new(term: Term<'_>) -> Self {
+        let env = OwnedEnv::new();
+        Self {
+            term: env.save(term),
+            env,
+        }
+    }
+
+    fn decode<T: serde::de::DeserializeOwned>(self) -> Result<T, String> {
+        self.env.run(|env| {
+            let binary: Binary<'_> = self
+                .term
+                .load(env)
+                .decode()
+                .map_err(|_| "Expected JSON binary".to_string())?;
+            serde_json::from_slice(binary.as_slice()).map_err(|error| error.to_string())
+        })
+    }
+}
+
+/// Only retains the BEAM binary and starts the invocation thread. JSON decode,
+/// isolate execution, and capability waits do not occupy any scheduler.
+#[rustler::nif]
+pub fn applet_start_nif<'a>(
+    env: Env<'a>,
+    run_id: String,
+    request_json: Binary<'a>,
+) -> NIFResult<Term<'a>> {
+    let request = AppletJSON::new(request_json.encode(env));
+    let owner = env.pid();
+    let sink = Arc::new(move |event| {
+        let mut owned_env = OwnedEnv::new();
+        let _ = owned_env.send_and_clear(&owner, |env| match event {
+            crate::applet_runtime::Event::Call {
+                id,
+                operation,
+                arguments,
+            } => (
+                atoms::applet_runtime(),
+                &run_id,
+                atoms::call(),
+                id,
+                operation,
+                arguments.to_string(),
+            )
+                .encode(env),
+            crate::applet_runtime::Event::Done(outcome) => (
+                atoms::applet_runtime(),
+                &run_id,
+                atoms::done(),
+                outcome.to_string(),
+            )
+                .encode(env),
+        });
+    });
+    let handle =
+        crate::applet_runtime::start_with(move || request.decode(), sink).map_err(error_message)?;
+    let resource = ResourceArc::new(AppletRuntimeResource(handle));
+    let _ = resource.monitor(Some(env), &owner);
+    Ok(resource.encode(env))
+}
+
+/// Sends a retained binary to the same live invocation thread for decoding.
+#[rustler::nif]
+pub fn applet_reply_nif(
+    resource: ResourceArc<AppletRuntimeResource>,
+    call_id: u64,
+    reply: Term<'_>,
+) -> NIFResult<bool> {
+    let _ = decode_binary(reply, "reply")?;
+    let reply = AppletJSON::new(reply);
+    Ok(resource.0.reply_with(call_id, move || reply.decode()))
+}
+
+#[rustler::nif]
+pub fn applet_cancel_nif(resource: ResourceArc<AppletRuntimeResource>) -> bool {
+    resource.0.cancel();
+    true
 }
 
 // CEL's recursive parser needs more stack than BEAM's default dirty CPU stack.
@@ -267,10 +446,19 @@ pub fn universal_ai_client_model_request_nif<'a>(
     request_ref: Term<'a>,
 ) -> NIFResult<Term<'a>> {
     let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
-    let deliver = universal_ai_client_request_sink(owner_pid, BeamStreamRef::new(request_ref));
+    let resource = ResourceArc::new(UniversalAIClientRequestResource::new());
+    let monitored = resource.monitor(Some(env), &owner_pid).is_some();
+    let deliver =
+        monitored_request_sink(owner_pid, BeamStreamRef::new(request_ref), resource.clone());
 
     match universal_ai_client::start_model_request(&encoded_spec, deliver) {
-        Ok(()) => Ok(atoms::ok().encode(env)),
+        Ok(handle) => {
+            if !monitored {
+                resource.cancel();
+            }
+            resource.install(handle);
+            Ok(atoms::ok().encode(env))
+        }
         Err(reason) => Ok((atoms::error(), encode_json_value(env, &reason.to_json())).encode(env)),
     }
 }
@@ -284,12 +472,35 @@ pub fn universal_ai_client_raw_request_nif<'a>(
     request_ref: Term<'a>,
 ) -> NIFResult<Term<'a>> {
     let encoded_spec = decode_string(encoded_spec, "encoded_spec")?;
-    let deliver = universal_ai_client_request_sink(owner_pid, BeamStreamRef::new(request_ref));
+    let resource = ResourceArc::new(UniversalAIClientRequestResource::new());
+    let monitored = resource.monitor(Some(env), &owner_pid).is_some();
+    let deliver =
+        monitored_request_sink(owner_pid, BeamStreamRef::new(request_ref), resource.clone());
 
     match universal_ai_client::start_raw_request(&encoded_spec, deliver) {
-        Ok(()) => Ok(atoms::ok().encode(env)),
+        Ok(handle) => {
+            if !monitored {
+                resource.cancel();
+            }
+            resource.install(handle);
+            Ok(atoms::ok().encode(env))
+        }
         Err(reason) => Ok((atoms::error(), encode_json_value(env, &reason.to_json())).encode(env)),
     }
+}
+
+fn monitored_request_sink(
+    owner_pid: LocalPid,
+    request_ref: BeamStreamRef,
+    resource: ResourceArc<UniversalAIClientRequestResource>,
+) -> universal_ai_client::RequestResultSink {
+    let deliver = universal_ai_client_request_sink(owner_pid, request_ref);
+    Box::new(move |result| {
+        deliver(result);
+        // Drop the owner resource only after delivery. A fast provider result
+        // must not race resource registration in the starting NIF call.
+        drop(resource);
+    })
 }
 
 fn universal_ai_client_request_sink(
@@ -641,6 +852,16 @@ pub fn gen_uuid() -> String {
 #[rustler::nif]
 pub fn gen_uuid_v7() -> String {
     common::gen_uuid_v7()
+}
+
+#[rustler::nif]
+pub fn uuid_shorten(value: Term<'_>) -> NIFResult<String> {
+    common::uuid_shorten(&decode_string(value, "uuid")?).map_err(error)
+}
+
+#[rustler::nif]
+pub fn uuid_expand(value: Term<'_>) -> NIFResult<String> {
+    common::uuid_expand(&decode_string(value, "short_uuid")?).map_err(error)
 }
 
 /// Copies Rust-owned bytes into an Elixir-owned binary.

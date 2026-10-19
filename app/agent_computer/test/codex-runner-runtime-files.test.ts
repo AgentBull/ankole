@@ -63,6 +63,17 @@ describe('@ankole/agent-computer Codex Job runtime files', () => {
     expect(content).toContain('Guidance body.')
   })
 
+  it('keeps control-plane Page and delivery instructions in the real Job context', () => {
+    const instructions = 'Current Page ID: page-123. Save the research report as an editable Pod Page.'
+    const content = renderCodexJobAgents({
+      jobRoot: '/agents/agent-1/jobs/job-1',
+      soul: 'SOUL',
+      mission: 'MISSION',
+      podInstructions: instructions
+    }).content
+    expect(content).toContain(instructions)
+  })
+
   it('reads the bundled AGENT_JOB.md template through the builtin library root', () => {
     const root = mkdtempSync(join(tmpdir(), 'ankole-job-guidance-'))
     try {

@@ -220,6 +220,14 @@ defmodule AnkoleWeb.WorkerChannelTest do
       assert_reply ref, :error, %{"reason" => "invalid_envelope"}
     end
 
+    test "rejects an oversized assembled Worker message before decoding", ctx do
+      {socket, _route} = join!(ctx)
+      ref = push(socket, "control", {:binary, :binary.copy(<<0>>, 16 * 1024 * 1024 + 1)})
+      assert_reply ref, :error, %{"reason" => "message_too_large"}
+      ref = push(socket, "control", {:binary, "not-an-envelope"})
+      assert_reply ref, :error, %{"reason" => "invalid_envelope"}
+    end
+
     test "rejects invalid bytes", ctx do
       {socket, _route} = join!(ctx)
       ref = push(socket, "control", {:binary, "not-an-envelope"})

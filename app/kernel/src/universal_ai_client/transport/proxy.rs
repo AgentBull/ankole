@@ -145,7 +145,7 @@ async fn open_http_proxy_tunnel(
 
     let response = read_proxy_response_header(&mut stream).await?;
     let status = proxy_response_status(&response)?;
-    if status != 200 {
+    if !(200..300).contains(&status) {
         let message = if status == 407 {
             "upstream WebSocket proxy requires authentication"
         } else {
@@ -352,6 +352,39 @@ mod tests {
     use super::super::{open_http_stream_for_upstream, open_websocket};
     use super::*;
     use std::time::{Duration, Instant};
+    #[tokio::test]
+    async fn connect_accepts_all_success_statuses_without_consuming_tunnel_bytes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        for status in [200, 201, 204, 299, 407, 500] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = tokio::spawn(async move {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = [0; 4096];
+                stream.read(&mut request).await.unwrap();
+                stream
+                    .write_all(format!("HTTP/1.1 {status} Fixture\r\n\r\ntunnel").as_bytes())
+                    .await
+                    .unwrap();
+            });
+            let result = open_http_proxy_tunnel(
+                &URL::parse(&format!("http://{address}")).unwrap(),
+                "fixture",
+                443,
+            )
+            .await;
+            if status < 300 {
+                let mut stream = result.unwrap();
+                let mut bytes = [0; 6];
+                stream.read_exact(&mut bytes).await.unwrap();
+                assert_eq!(&bytes, b"tunnel");
+            } else {
+                assert_eq!(result.err().unwrap().code, "websocket_proxy_rejected");
+            }
+            server.await.unwrap();
+        }
+    }
+
     #[test]
     fn proxy_resolution_prefers_explicit_then_scheme_specific_then_all() {
         let environment = ProxyEnvironment {

@@ -562,6 +562,21 @@ points where it records credential usage.
 [Agent Token Quota](AgentTokenQuota.md) owns the counting rules, the
 configuration, the notice, and the Console contract.
 
+Applet backend `AnkoleRuntime.ai.generateText` is an in-process caller. It uses
+the enabled Agent in tenant setting `pod.applet.ai_agent_uid` as `subject_uid`
+and resolves the requested LLM profile through that Agent. It does not accept
+a raw provider/model identifier. Missing `light` follows the primary-profile
+fallback. The adapter validates reasoning effort against the selected model.
+It returns text, stop/length finish reason, and input/output token counts.
+The internal call disables quota admission while retaining Agent usage
+attribution. This option is not accepted from an HTTP request or handler input.
+The Applet invocation owns cancellation and its total time budget. Provider
+failures become `ai_unavailable`; credentials never enter the Applet isolate.
+Native non-streaming requests, like streams, monitor their BEAM owner. When
+that owner exits, their cancellation handle drops the active provider I/O. A
+cancelled Applet must not leave a model request running after its capability
+process has ended.
+
 ## Create a Response without Storing It
 
 HTTP Responses calls are stateless.
@@ -1072,6 +1087,14 @@ Retrying the same record operation returns the existing row.
 
 Unmatched results enter an error row and never reach provider history.
 
+Provider replay repairs deterministic JSON punctuation damage in function-call
+arguments without changing the stored history. If the arguments cannot be
+recovered, a call with a recorded result replays with `{}` and a note on that
+result. The note identifies the original call and requires a state check before
+repeating a side effect; it does not claim that the tool ran with `{}`. The
+note preserves existing media parts. An unpaired malformed call is omitted
+without a synthetic result.
+
 Implicit continuation can detect an interrupted client tool call that has no
 stored result. It adds an interrupted output of the matching type before it
 replays the current input.
@@ -1360,6 +1383,9 @@ Response cannot produce a compaction artifact.
 
 Internal history traversal supports 10,000 rows.
 The public chain API returns at most 500 rows.
+The traversal limit does not bound bytes. Replay recovery can read the raw
+predecessor chain across checkpoints before applying the compaction token
+budget; it has no separate byte limit on that database read.
 
 ### Automatic Overflow
 

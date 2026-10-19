@@ -24,7 +24,7 @@ Conversations uses these tenant-scoped tables:
 
 | Table | Stored facts |
 | --- | --- |
-| `conversations` | Public UUID, native/external kind, title, activity, sequence high water, external platform identity, and standing orders |
+| `conversations` | Public UUID, native/external kind, optional current Page, title, activity, sequence high water, external platform identity, and standing orders |
 | `conversation_participants` | Conversation, Principal, and role; native creation admits one Human owner and one Agent, external rooms can have multiple Agents |
 | `conversation_messages` | Public UUID, conversation, sequence, author, kind, exact text, attachments, public reply reference, and execution provenance |
 | `external_message_refs` | Platform message/thread/reply IDs, raw author, metadata, reactions, content hash, and observation times for an external Message |
@@ -98,7 +98,9 @@ admission checks those facts again when execution starts.
 
 The browser generates the conversation and message UUIDs. A retry with the
 same IDs and facts reuses the stored message and signal. Reusing an ID for
-different facts returns `conversation_conflict`. Text must be valid UTF-8,
+different facts returns `conversation_conflict`. A deleted native Conversation
+UUID cannot be reused: the existing execution/history facts retire that identity.
+Text must be valid UTF-8,
 contain no NUL character, and be nonempty after whitespace is removed from both
 ends. Storage and retry comparison retain the original text. The title uses
 the first nonempty line, up to 80 characters.
@@ -137,7 +139,7 @@ history remains model state rather than the visible transcript.
 
 The internal API is mounted at `/.internal-apis/pod`. It uses the same
 access gate as the Pod shell: setup must be complete, and the browser
-must have an active site administrator session. Unsafe requests require CSRF
+must have an active Human session. Unsafe requests require CSRF
 proof. These routes are excluded from the public Console OpenAPI contract.
 `InternalAPISpec` selects the private router operations for build-time client
 generation. Controllers and domain functions retain runtime validation;
@@ -152,15 +154,36 @@ check that the current Human participates in the conversation.
 | Method and path | Contract |
 | --- | --- |
 | `GET /agents` | `{agents: [{uid, displayName}]}` for active Agents |
-| `GET /conversations` | `{conversations: [...]}` with the latest 100 participating conversations, ordered by recent activity |
-| `POST /conversations` | Accepts `conversationID`, `agentUID`, `messageID`, and `text`; returns the committed conversation detail |
+| `GET /conversations` | `{conversations: [...]}` with the latest 100 participating conversations, ordered by recent activity; optional `pageID` filters to an accessible Page |
+| `POST /conversations` | Accepts `conversationID`, `agentUID`, `messageID`, `text`, and optional `pageID`; returns the committed conversation detail |
 | `GET /conversations/:id` | Returns conversation detail, the latest 500 messages in sequence order, and execution status |
 | `POST /conversations/:id/messages` | Accepts `messageID` and `text`; returns the committed conversation detail |
 | `GET /conversations/:id/events` | SSE for committed changes, current activity, and subsequent live model text |
 
 Both POST operations return HTTP 200 on success. Conversation summaries contain
-`id`, `title`, `agent` (`uid`, `displayName`, `active`), and `lastActivityAt`.
+`id`, `title`, nullable `pageID`, `agent` (`uid`, `displayName`, `active`), and `lastActivityAt`.
 Detail responses contain `conversation`, `messages`, and `status`.
+
+A native Conversation can belong to one Page. Conversations owns this stable
+association in `page_id`; an idempotent create cannot change it. The Human must
+still have `page_view` permission when creating, listing by Page, or posting a
+new message. A missing, deleted, or inaccessible Page returns `page_unavailable`.
+The Agent retains its own Pod permissions. Main and Background Agent Job
+contexts identify the Page and require a fresh read before a change. Page chat
+and the separate Chat view use the same Conversation and committed messages.
+Purging a Page clears the association and keeps the Conversation history.
+
+In Pod conversations, documents and research reports default to editable Pages.
+An explicit file-format request keeps its requested format. Other channels keep
+their existing file delivery rules.
+
+The current Pod document owns unsent Chat drafts and pending request IDs.
+Closing a panel, switching conversations, or navigating between Pages keeps
+that local work. A successful acknowledgement binds a new draft to its saved
+Conversation. Retrying an unconfirmed request with the same text and Agent
+keeps its original IDs. Reloading or leaving the document prompts when local
+work remains. If Page access is lost, the Page error view exposes only locally
+authored draft text for copying; it does not expose saved content or history.
 
 Each message contains `id`, `seq`, `authorType`, `authorUID`, `kind`, `text`,
 `createdAt`, `signalID`, and `replyToMessageID`. `authorType` is `human` or
@@ -172,12 +195,24 @@ Status contains `state`, `retryAt`, and `activity`. State is `idle`, `queued`, `
 Sessions derives this status from its durable inbox.
 Ready admitted input takes priority over queued input, which takes priority
 over future retries. An earlier retry must not hide later work that can run.
+Paused, unadmitted queue inputs are not eligible work. A conversation with only
+those inputs is idle; releasing one input can make it queued or running while
+the remaining queue stays paused.
+
+`Conversations.get/3` reads the message range, pending inputs, queue version,
+retry capability, and durable Session status in one transaction under the
+existing Session advisory lock. Input acceptance, admission, and terminal
+reply commits use the same lock. A detail read cannot combine messages from
+before a native reply commit with an idle status from after that commit.
+Controllers serialize the returned status without a second query. Activity
+remains a separate temporary observation and can be newer than this detail.
 
 Domain errors use the `{error: {code, message, details}}` envelope:
 
 | HTTP status | Codes |
 | --- | --- |
 | 422 | `invalid_request`, `invalid_id`, `invalid_text` |
+| 403 | `page_unavailable` |
 | 404 | `conversation_not_found` |
 | 409 | `agent_unavailable`, `conversation_conflict` |
 
@@ -240,6 +275,32 @@ them when those IDs appear in committed history. It clears live text when the
 matching reply commits, or when a fresh execution status settles that same
 Response without a visible reply.
 
+Native Chat detail also returns pending inputs, durable queue pause state, a
+queue comparison token, and the latest message that the existing retry owner
+can retry. Queue edits and reordering check that token under the Session lock.
+A lost response to an already committed retry can replay the same command ID;
+it does not create another input or recapture its model selection.
+
+Stop cancels the current reply and pauses unadmitted inputs, including pending
+steer messages. Refresh retains the pause. Continue resumes the queue; Send now
+releases only its selected input. A stale edit retains the local draft. An
+explicit refresh can adopt the new comparison token only while the saved text
+still matches the original; a changed saved message requires an explicit choice.
+
+Last-turn editing and regeneration reuse Commands and ModelHistory. The latest
+eligible failed reply exposes Retry through the same capability predicate;
+Stop and preflight notices do not become retryable merely because they are
+notices. A new Human retry captures the current Chat model preference. Completed
+Page, Database, and applet changes remain. Native edits, regeneration, and logical
+queue removal call the existing message-change lifecycle in their transaction,
+invalidating affected Brain facts and rewinding its learning cursor. Removed
+messages retain stable idempotency identities while a shared visibility query
+excludes them from history, Main context, and Brain learning.
+
+History reads return at most 500 visible statements and an earlier-message
+cursor. The covered sequence interval lets the browser merge older windows into
+its existing cache without discarding loaded history or restoring removed text.
+
 ## Agent Lifecycle and Scope
 
 Disabling an Agent preserves its native conversations and history. Reads stay
@@ -251,13 +312,45 @@ messages before it deletes the Principal and its signals. This order satisfies
 the message's source signal foreign key. Existing pages refresh on the status
 event, remove cached detail on `conversation_not_found`, and close SSE.
 
-Native conversations currently support text only. Their model tool contract
-omits `reply_attachment` and hosted `image_generation`. Cron reports and notices
+Human chat uploads store bytes through `Conversations.Attachments` and `Files`.
+A signed upload receipt binds the tenant, Human, client file ID, digest, name,
+size, and content type. A Message accepts verified receipts and retains its
+attachment references in the same transaction. Unsent receipts expire after one
+day; an exact retry of an accepted Message remains valid. Unreferenced upload
+bytes use the existing file collection grace. An upload does not create a Page.
+The Human can use the explicit Save action to create a file Page later.
+
+The existing input owner links accepted attachments into the Agent's drive
+before they enter the model input. An input that waits in the queue does not
+expose its files in that drive. Image inputs use the existing native image
+normalization. Attachment downloads read the Message's frozen bytes through
+current Conversation membership, so an Agent's later file edits do not change
+the download. The local Chat draft owns selected Files and upload retries when
+the Human closes its panel. A refresh warning protects unsent work; a browser
+refresh restores accepted Message attachments, not unsent File objects.
+
+Native conversations accept Agent attachments from `reply_attachment` and
+hosted `image_generation`. The native message commit uses the same attachment
+validation and Agent drive references as external delivery. A message retains
+its content digest for file collection, so a saved Pod file can refer to the
+same content without copying bytes. An attachment-only reply is a visible
+message. Page links in native text, such as `ankole:page/<page ID>`, are stored
+as `{kind: "page", id}` message links. Reading the referenced page still
+requires the reader's page permission.
+
+The Human owner can delete an idle native conversation. The delete operation
+locks its execution target and conversation. Pending and running Signals cause
+`conversation_busy`; the owner can retry after the work finishes. The operation
+ends the target's active model history, removes messages and participation,
+and leaves saved Pages in place. A saved
+Page reports a deleted source only when its source message no longer exists.
+
+Cron reports and notices
 can target a native conversation through its UUID. Its own execution Session
 reads those committed statements on the next request; the cron rule keeps a
-separate model history. Native multi-person and multi-Agent creation, native
-attachments, and conversation rename, deletion, search, stop, and regenerate
-controls remain outside the current Pod interface.
+separate model history. Native multi-person and multi-Agent creation,
+conversation rename, and conversation search remain outside the current Pod
+interface.
 
 ## Observe an External Conversation
 
@@ -329,7 +422,8 @@ shared cursor column on the conversation.
 and primary flag. `Target.for_reply/2` resolves a reply route;
 `for_delivery_in_tx/3` validates a cron destination and Agent participation.
 Native destinations accept no Binding or thread. External destinations require
-a Binding. The same target declares whether attachment tools are available.
+a Binding. Native and external replies use the same attachment tools; the
+receiving adapter owns delivery of the committed attachment facts.
 
 A `Conversations.Statement` carries reply completion/outcome or notice facts.
 The operation returns a `Conversations.PostResult` with `messages` and `intents`.

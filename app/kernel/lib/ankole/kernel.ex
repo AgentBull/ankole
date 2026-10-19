@@ -85,6 +85,25 @@ defmodule Ankole.Kernel do
   @spec brain_markdoc_analyze_nif(binary()) :: result(String.t())
   defp brain_markdoc_analyze_nif(_body), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc "Validates page XML and derives its canonical source and search text."
+  @spec page_validate(String.t()) :: {:ok, map()} | {:error, String.t()}
+  def page_validate(source) when is_binary(source) do
+    source |> page_validate_nif() |> decode_page_result()
+  end
+
+  @doc "Applies one prepared Wordgard ChangeSet through the page XML conversion chain."
+  @spec page_apply(String.t(), list()) :: {:ok, map()} | {:error, String.t()}
+  def page_apply(source, changes) when is_binary(source) and is_list(changes) do
+    source |> page_apply_nif(Torque.encode!(changes)) |> decode_page_result()
+  end
+
+  defp page_validate_nif(_source), do: :erlang.nif_error(:nif_not_loaded)
+  defp page_apply_nif(_source, _changes), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp decode_page_result({:error, _reason} = error), do: error
+
+  defp decode_page_result({xml, plain_text}), do: {:ok, %{xml: xml, plain_text: plain_text}}
+
   @doc "Returns zero-based byte offsets and lengths for original CommonMark code, with delimiters."
   @spec markdown_code_ranges(String.t()) :: [{non_neg_integer(), non_neg_integer()}]
   def markdown_code_ranges(source) when is_binary(source) do
@@ -398,6 +417,15 @@ defmodule Ankole.Kernel do
   @spec program_cancel_nif(String.t()) :: result(boolean())
   def program_cancel_nif(_run_id), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc false
+  def applet_start_nif(_run_id, _request_json), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  def applet_reply_nif(_handle, _call_id, _reply_json), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  def applet_cancel_nif(_handle), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc """
   Generates a standard hyphenated UUIDv4 string.
   """
@@ -409,6 +437,14 @@ defmodule Ankole.Kernel do
   """
   @spec gen_uuid_v7() :: String.t()
   def gen_uuid_v7, do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Encodes a canonical UUID as 22 padding-free base64url characters."
+  @spec uuid_shorten(String.t()) :: result(String.t())
+  def uuid_shorten(_uuid), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc "Expands a canonical 22-character base64url UUID; rejects aliases."
+  @spec uuid_expand(String.t()) :: result(String.t())
+  def uuid_expand(_short_uuid), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Parses a web URL with WHATWG semantics and classifies its host.

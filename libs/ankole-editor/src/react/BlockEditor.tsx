@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useEffectEvent, useState, type ReactNode } from 'react'
 import { Wordgard } from '../core/editor'
 import { GardState } from '../core/state'
 import type { Element } from '../document/tree'
@@ -6,6 +6,7 @@ import { emptyPageHint } from '../editor/empty-page'
 import { editorExtension, initialState } from '../editor/extension'
 import { BlockHandles, blockMenus, KeyboardBlockMenu } from './BlockMenus'
 import { EditorContext, type EditorHandle } from './context'
+import { attachHost, hostExtension, type EditorHost } from '../editor/host'
 import { EditorToolbar } from './EditorToolbar'
 import { SelectionToolbar } from './SelectionToolbar'
 import { SlashMenu, slashMenu } from './SlashMenu'
@@ -16,6 +17,8 @@ export type BlockEditorProps = {
   onReady?: (editor: Wordgard) => void | (() => void)
   /** Content changed. Read a snapshot through PageSession when the host needs it. */
   onChange?: () => void
+  /** A rejected edit keeps the previous document, selection and undo history. */
+  onError?: (error: unknown) => void
   readOnly?: boolean
   ariaLabel?: string
   placeholder?: string
@@ -25,6 +28,8 @@ export type BlockEditorProps = {
   /** A custom toolbar runs inside the editor context. Set null to hide it. */
   toolbar?: ReactNode
   children?: ReactNode
+  /** Stable for this editor instance. A new host requires a new editor key. */
+  host?: EditorHost
 }
 
 type Options = { readOnly: boolean; ariaLabel: string; placeholder: string }
@@ -45,13 +50,21 @@ const indentStyles = Wordgard.styles({
   )
 })
 
-function createHandle(initial: string | Element, options: Options, changed: () => void): EditorHandle {
+function createHandle(
+  initial: string | Element,
+  options: Options,
+  changed: () => void,
+  failed: (error: unknown) => void,
+  host?: EditorHost
+): EditorHandle {
   const listeners = new Set<() => void>()
   let drawn: GardState
   const editor = Wordgard.create({
     state: initialState(initial, [
       // An open slash menu takes its keys before any editing key binding.
       slashMenu,
+      Wordgard.exceptionSink.of(failed),
+      host ? hostExtension(host) : [],
       editorExtension(),
       editable.of(editableExtension(options.readOnly)),
       Wordgard.editorAttributes.of({ class: 'editor-view' }),
@@ -89,6 +102,7 @@ export function BlockEditor({
   initial = '',
   onReady,
   onChange,
+  onError,
   readOnly = false,
   ariaLabel = '文档编辑器',
   placeholder = '输入 / 添加 Block，或直接开始写作…',
@@ -96,20 +110,45 @@ export function BlockEditor({
   header,
   footer,
   toolbar,
-  children
+  children,
+  host
 }: BlockEditorProps) {
-  const changed = useEffectEvent(() => onChange?.())
-  const [handle] = useState(() => createHandle(initial, { readOnly, ariaLabel, placeholder }, () => changed()))
+  const [failure, setFailure] = useState<unknown>()
+  const changed = useEffectEvent(() => {
+    setFailure(undefined)
+    onChange?.()
+  })
+  const failed = useEffectEvent((error: unknown) => {
+    if (onError) onError(error)
+    else setFailure(error)
+  })
+  const [handle] = useState(() =>
+    createHandle(
+      initial,
+      { readOnly, ariaLabel, placeholder },
+      () => changed(),
+      error => failed(error),
+      host
+    )
+  )
   const { editor } = handle
   const [anchor, setAnchor] = useState<HTMLDivElement | null>(null)
   const ready = useEffectEvent(() => onReady?.(editor))
 
-  useLayoutEffect(() => {
-    if (!anchor) return
-    anchor.appendChild(editor.dom)
-    return () => editor.dom.remove()
-  }, [editor, anchor])
+  const mountEditor = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (!node) return
+      node.appendChild(editor.dom)
+      setAnchor(node)
+      return () => {
+        editor.dom.remove()
+        setAnchor(null)
+      }
+    },
+    [editor]
+  )
   useEffect(() => ready(), [editor])
+  useEffect(() => attachHost(editor, host), [editor, host])
   useEffect(() => {
     editor.dispatch({ effects: editable.reconfigure(editableExtension(readOnly)) })
   }, [editor, readOnly])
@@ -117,12 +156,13 @@ export function BlockEditor({
   return (
     <EditorContext.Provider value={handle}>
       <div className={`ankole-editor ${className}`}>
+        {failure !== undefined && <p role="alert">{failure instanceof Error ? failure.message : String(failure)}</p>}
         <fieldset disabled={readOnly} style={{ display: 'contents' }}>
           {toolbar === undefined ? <EditorToolbar /> : toolbar}
         </fieldset>
         <div className="document-scroll">
           {header}
-          <div className="editor-anchor" ref={setAnchor}>
+          <div className="editor-anchor" ref={mountEditor}>
             {!readOnly && anchor && (
               <>
                 <SlashMenu />

@@ -9,9 +9,9 @@ import { collectModuleReferencesFromSource, resolveRelativeSpecifier } from './l
 import type { CheckOptions, CheckResult, Finding } from './types'
 
 const skipRepoPath = (repoPath: string): boolean =>
-  /(^|\/)node_modules(\/|$)/.test(repoPath) ||
+  /(^|\/)(node_modules|integration|test|__tests__|output)(\/|$)/.test(repoPath) ||
   /\.d\.[cm]?ts$/.test(repoPath) ||
-  /(?:\.test|\.e2e\.test)\.[cm]?[tj]sx?$/.test(repoPath)
+  /(?:\.test|\.spec|\.e2e\.test)\.[cm]?[tj]sx?$/.test(repoPath)
 
 function compareFindings(left: Finding, right: Finding): number {
   return (
@@ -24,7 +24,10 @@ function compareFindings(left: Finding, right: Finding): number {
 
 /** Scans one source file for configured boundary violations. */
 function scanFile(file: string): Finding[] {
-  const source = readFileSync(path.join(repoRootPath, file), 'utf8')
+  return scanBoundarySource(file, readFileSync(path.join(repoRootPath, file), 'utf8'))
+}
+
+export function scanBoundarySource(file: string, source: string): Finding[] {
   const references = collectModuleReferencesFromSource(source)
   const findings: Finding[] = []
 

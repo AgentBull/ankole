@@ -19,6 +19,7 @@ export type PrincipalGroupDraftError =
   | 'condition_required'
 
 export const PrincipalGroupEditorModel = createModel(() => {
+  let generation = Symbol()
   const sourceKey = signal<string>()
   const name = signal('')
   const displayName = signal('')
@@ -40,6 +41,10 @@ export const PrincipalGroupEditorModel = createModel(() => {
   })
 
   return {
+    resetSource() {
+      generation = Symbol()
+      sourceKey.value = undefined
+    },
     sourceKey,
     name,
     displayName,
@@ -50,6 +55,7 @@ export const PrincipalGroupEditorModel = createModel(() => {
     validationError,
     initialize(nextSourceKey: string, draft: PrincipalGroupEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
+      generation = Symbol()
       batch(() => {
         sourceKey.value = nextSourceKey
         name.value = draft.name
@@ -64,20 +70,36 @@ export const PrincipalGroupEditorModel = createModel(() => {
     clearValidation() {
       validationError.value = undefined
     },
-    /**
-     * Adopts the server-normalized form after a successful save. The fields and
-     * the dirty baseline converge on the same values, so trimming done by the
-     * server cannot leave `dirty` true right after saving.
-     */
-    markSaved(draft: PrincipalGroupEditorDraft) {
-      batch(() => {
-        name.value = draft.name
-        displayName.value = draft.displayName
-        description.value = draft.description
-        kind.value = draft.kind
-        computedCondition.value = draft.computedCondition
-        initialDraft.value = { ...draft }
-      })
+    /** Confirms the submitted fields and keeps edits made while saving. */
+    captureSave() {
+      const requestedGeneration = generation
+      const submittedValidation = validationError.value
+      const submitted = {
+        name: name.value,
+        displayName: displayName.value,
+        description: description.value,
+        kind: kind.value,
+        computedCondition: computedCondition.value
+      }
+      return (accepted: PrincipalGroupEditorDraft) => {
+        if (generation !== requestedGeneration) return false
+        batch(() => {
+          if (JSON.stringify(name.value) === JSON.stringify(submitted.name)) name.value = accepted.name
+          if (JSON.stringify(displayName.value) === JSON.stringify(submitted.displayName)) {
+            displayName.value = accepted.displayName
+          }
+          if (JSON.stringify(description.value) === JSON.stringify(submitted.description)) {
+            description.value = accepted.description
+          }
+          if (JSON.stringify(kind.value) === JSON.stringify(submitted.kind)) kind.value = accepted.kind
+          if (JSON.stringify(computedCondition.value) === JSON.stringify(submitted.computedCondition)) {
+            computedCondition.value = accepted.computedCondition
+          }
+          initialDraft.value = { ...accepted }
+          if (validationError.value === submittedValidation) validationError.value = undefined
+        })
+        return true
+      }
     },
     draftError(mode: 'new' | 'edit'): PrincipalGroupDraftError | undefined {
       if (mode === 'new') {

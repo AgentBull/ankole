@@ -99,10 +99,12 @@ defmodule Ankole.AIGateway.Providers do
   def validate_adapter_declaration(declaration),
     do: {:error, {:invalid_ai_gateway_provider_declaration, declaration}}
 
-  @doc false
-  def reset_for_test do
-    :persistent_term.erase(@cache_key)
-    :ok
+  if Mix.env() == :test do
+    @doc false
+    def reset_for_test do
+      :persistent_term.erase(@cache_key)
+      :ok
+    end
   end
 
   @doc """

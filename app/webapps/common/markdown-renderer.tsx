@@ -1,4 +1,7 @@
-import { cn } from '@ankole/uikit'
+import { Button, cn, toast } from '@ankole/uikit'
+import { RiFileCopyLine } from '@remixicon/react'
+import { useRef, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 
@@ -10,11 +13,41 @@ import remarkGfm from 'remark-gfm'
  * react-markdown escapes raw HTML by default, so message text cannot inject
  * markup. The shared renderer uses 14px body text and bounded code blocks.
  */
-export default function MarkdownRenderer({ text }: { text: string }) {
+export default function MarkdownRenderer({ text, copyCode = false }: { text: string; copyCode?: boolean }) {
   return (
-    <Markdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+    <Markdown remarkPlugins={[remarkGfm]} components={copyCode ? { ...COMPONENTS, pre: CodeBlock } : COMPONENTS}>
       {text}
     </Markdown>
+  )
+}
+
+function CodeBlock({ children }: { children?: ReactNode }) {
+  const { t } = useTranslation()
+  const code = useRef<HTMLPreElement>(null)
+  return (
+    <div className="my-2 overflow-hidden border border-border bg-card">
+      <div className="flex justify-end border-b border-border px-2 py-1">
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(code.current?.textContent ?? '')
+              toast.success(t('pod.chat.code_copied'))
+            } catch {
+              toast.error(t('pod.chat.copy_failed'))
+            }
+          }}>
+          <RiFileCopyLine aria-hidden />
+          {t('pod.chat.copy_code')}
+        </Button>
+      </div>
+      <pre
+        ref={code}
+        className="max-h-96 overflow-auto p-3 font-mono text-xs leading-5 [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-xs">
+        {children}
+      </pre>
+    </div>
   )
 }
 

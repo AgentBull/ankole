@@ -94,8 +94,8 @@ defmodule Ankole.Sessions.MixedScheduleDeliveryTest do
     {tools, hosted} =
       Scheduled.tools(run, [%{"name" => "reply_attachment"}], [%{"type" => "image_generation"}])
 
-    refute Enum.any?(tools, &(&1["name"] == "reply_attachment"))
-    refute Enum.any?(hosted, &(&1["type"] == "image_generation"))
+    assert Enum.any?(tools, &(&1["name"] == "reply_attachment"))
+    assert Enum.any?(hosted, &(&1["type"] == "image_generation"))
     assert :ok = Presentation.start(run, self())
     assert Preview.lookup(event.id) == []
     assert {:ok, {:preparing, run}} = Model.prepare(run)

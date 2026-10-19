@@ -20,6 +20,7 @@ defmodule Ankole.Conversations.ExternalTarget do
           required(:id) => String.t(),
           required(:kind) => String.t() | nil,
           required(:label) => String.t() | nil,
+          required(:page_id) => String.t() | nil,
           required(:signal_origin?) => boolean()
         }
 
@@ -53,6 +54,7 @@ defmodule Ankole.Conversations.ExternalTarget do
          adapter: if(channel, do: adapter_segment(channel.provider_conversation_id)),
          kind: kind,
          label: channel_label(kind, conversation, channel, peer_names),
+         page_id: if(channel, do: channel.page_id),
          signal_origin?: signal_origin?(conversation)
        }}
     end

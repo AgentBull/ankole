@@ -745,6 +745,28 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
 
       refute_receive {:timeout_preview_final_dispatched, _intent}, 100
 
+      :ok = :sys.suspend(preview_pid)
+
+      try do
+        assert {:error, :reply_preview_owner_unavailable} = Preview.lookup(event.id, 1)
+
+        started_at = System.monotonic_time(:millisecond)
+
+        assert {:snooze, 1} =
+                 Ankole.Conversations.Delivery.Jobs.Dispatch.run(%Oban.Job{
+                   args: %{
+                     "agent_uid" => intent.agent_uid,
+                     "binding_name" => intent.binding_name,
+                     "outbound_key" => intent.outbound_key
+                   }
+                 })
+
+        assert System.monotonic_time(:millisecond) - started_at < 1_000
+        refute_receive {:timeout_preview_final_dispatched, _intent}, 10
+      after
+        :sys.resume(preview_pid)
+      end
+
       assert %Intent{
                status: :pending,
                operation: :reply,

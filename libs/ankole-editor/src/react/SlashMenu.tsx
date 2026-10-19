@@ -40,7 +40,9 @@ function find(state: GardState, previous: Slash | null): Slash | null {
   const match = query.exec(head.inText ? run.param.slice(0, head.inText) : run.param)
   if (!match) return null
   const text = match[1]!.toLowerCase()
-  const options = blockOptions.filter(option => `${option.title} ${option.detail}`.toLowerCase().includes(text))
+  const options = blockOptions.filter(option =>
+    `${option.title} ${option.detail} ${option.keywords ?? ''}`.toLowerCase().includes(text)
+  )
   if (!options.length) return null
   const from = selection.head - match[1]!.length - 1
   const index = previous && previous.from === from && previous.query === match[1] ? previous.index : 0
@@ -100,7 +102,7 @@ export const slashMenu: GardState.Extension = [
   slashField,
   GardState.prec.highest(keys),
   Wordgard.contentAttributes.of(wg => {
-    const menu = wg.state.field(slashField, false)
+    const menu = wg.hasFocus ? wg.state.field(slashField, false) : null
     return {
       'aria-autocomplete': 'list',
       'aria-controls': menu ? `${wg.contentDOM.id}-slash` : null,
@@ -111,7 +113,7 @@ export const slashMenu: GardState.Extension = [
 
 export function SlashMenu() {
   const editor = useEditor()
-  const menu = useEditorState(state => state.field(slashField, false) ?? null)
+  const menu = useEditorState(state => (editor.hasFocus ? (state.field(slashField, false) ?? null) : null))
   const list = useRef<HTMLDivElement>(null)
   const [position, setPosition] = useState<{ left: number; top: number } | null>(null)
   const from = menu?.from
@@ -152,7 +154,7 @@ export function SlashMenu() {
     <div
       ref={list}
       id={`${editor.contentDOM.id}-slash`}
-      className="slash-menu ankole-editor-overlay"
+      className="slash-menu ankole-editor-overlay ceramic ceramic-primary"
       role="listbox"
       aria-label="插入 Block"
       style={position ?? { visibility: 'hidden' }}>

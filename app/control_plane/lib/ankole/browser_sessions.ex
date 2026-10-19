@@ -51,12 +51,12 @@ defmodule Ankole.BrowserSessions do
 
   def authentication(ref, :console) do
     case get_authentication(ref) do
-      {:ok, %Authentication{purpose: :console, tenant_id: tenant_id}} ->
-        identity(ref, tenant_id)
+      {:ok, %Authentication{purpose: :console, tenant_id: tenant_id} = authentication} ->
+        identity_for_authentication(authentication, tenant_id)
 
-      {:ok, %Authentication{purpose: :site, console_authenticated: true}} ->
+      {:ok, %Authentication{purpose: :site, console_authenticated: true} = authentication} ->
         with {:ok, tenant} <- Ankole.Tenants.privileged(),
-             do: identity(ref, tenant.id),
+             do: identity_for_authentication(authentication, tenant.id),
              else: (_ -> nil)
 
       _ ->
@@ -67,19 +67,22 @@ defmodule Ankole.BrowserSessions do
   def authentication(ref, purpose) when purpose in [:oauth, :pod] do
     with {:ok, authentication} <- get_authentication(ref),
          tenant_id when is_binary(tenant_id) <- Repo.tenant_id() || authentication.tenant_id,
-         do: identity(ref, tenant_id),
+         do: identity_for_authentication(authentication, tenant_id),
          else: (_ -> nil)
   end
 
   def identity(ref, tenant_id) when is_binary(tenant_id) do
     with {:ok, authentication} <- get_authentication(ref) do
-      Repo.with_tenant(tenant_id, fn -> identity_in_tenant(authentication) end)
+      identity_for_authentication(authentication, tenant_id)
     else
       _ -> nil
     end
   end
 
   def identity(_, _), do: nil
+
+  defp identity_for_authentication(authentication, tenant_id),
+    do: Repo.with_tenant(tenant_id, fn -> identity_in_tenant(authentication) end)
 
   defp identity_in_tenant(authentication) do
     with %PodAuthentication{} = proof <-
@@ -558,19 +561,19 @@ defmodule Ankole.BrowserSessions do
   def select_authorization(ref, id, authentication_ref) do
     Repo.transact(fn repo ->
       with {:ok, browser} <- fetch_browser(repo, ref, true),
-           {:ok, %LoginTransaction{purpose: :oauth} = transaction} <-
+           {:ok, %LoginTransaction{purpose: purpose} = transaction} when purpose in [:oauth, :pod] <-
              fetch_login(repo, browser, id),
            {:ok, authentication} <- fetch_authentication(repo, authentication_ref),
            true <- authentication.browser_id == browser.id,
            %{} = auth <- identity(authentication_ref, transaction.tenant_id),
            {:ok, request, action} <-
              Repo.with_tenant(transaction.tenant_id, fn ->
-               Ankole.OIDC.LoginPolicy.select_authentication(transaction, auth)
+               select_request(transaction, auth)
              end) do
         attrs =
           if action == :reuse,
             do: [
-              status: :authenticated,
+              status: if(purpose == :pod, do: :consumed, else: :authenticated),
               authentication_id: authentication.id,
               authentication_revision: authentication.revision
             ],
@@ -602,6 +605,12 @@ defmodule Ankole.BrowserSessions do
       end
     end)
   end
+
+  defp select_request(%LoginTransaction{purpose: :pod} = transaction, _auth),
+    do: {:ok, transaction.request, :reuse}
+
+  defp select_request(transaction, auth),
+    do: Ankole.OIDC.LoginPolicy.select_authentication(transaction, auth)
 
   def consume_authorization(ref, id, authentication_ref, issue) when is_function(issue, 2) do
     with {:ok, transaction} <- login(ref, id) do

@@ -147,21 +147,6 @@ defmodule Ankole.AIGateway.CompactionHistory do
 
   defp maybe_mark_missing_ref(map, _refs), do: map
 
-  def truncate_history_to_stable_tail(history, current_input) do
-    {checkpoint, tail} = split_last_compaction(history)
-    tail_count = length(tail)
-    minimum_count = min(Ankole.AIGateway.CompactionPolicy.tail_rows(), tail_count)
-    boundary_plan = Ankole.AIGateway.CompactionCandidate.boundary_plan(tail, current_input)
-
-    case Enum.find(Range.new(minimum_count, tail_count), fn retained_count ->
-           prefix_count = tail_count - retained_count
-           Ankole.AIGateway.CompactionCandidate.safe_boundary?(boundary_plan, prefix_count)
-         end) do
-      nil -> {:error, :no_safe_truncation_boundary}
-      retained_count -> {:ok, checkpoint ++ Enum.take(tail, -retained_count)}
-    end
-  end
-
   def history_usage_tokens(messages) do
     messages
     |> Enum.reverse()
@@ -326,7 +311,7 @@ defmodule Ankole.AIGateway.CompactionHistory do
 
   # The checkpoint side is a list so that a caller can prepend it without a
   # separate empty-history branch.
-  defp split_last_compaction(history) do
+  def split_last_compaction(history) do
     case history
          |> Enum.with_index()
          |> Enum.filter(fn {row, _index} -> row.type == "checkpoint" end) do

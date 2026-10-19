@@ -90,10 +90,8 @@ function caretBlock(page: Page) {
   })
 }
 
-test('w3c/editing#513 Up and Down arrows stop in every editable block and skip a database reference', async ({
-  page
-}) => {
-  const markdown = 'first\n\n<p />\n\n## heading\n\n<database ref="r" />\n\n- item\n\nlast'
+test('w3c/editing#513 Up and Down arrows stop in every editable block and skip an embed', async ({ page }) => {
+  const markdown = 'first\n\n<p />\n\n## heading\n\n<embed ref="r" />\n\n- item\n\nlast'
   await openDocument(page, markdown)
   await caret(page.locator('.editor-content > p').first(), 0)
   await expect.poll(() => caretBlock(page)).toBe('p:first')

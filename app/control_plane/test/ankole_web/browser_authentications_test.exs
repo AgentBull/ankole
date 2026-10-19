@@ -5,13 +5,13 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
   alias Ankole.Repo
   alias AnkoleWeb.Session, as: WebSession
 
-  setup %{tenant: tenant} do
+  setup %{tenant: tenant, conn: conn} do
     allow_cache_database_access()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
     {:ok, true} = Ankole.Setup.Config.put_completed(true)
     %{principal: a} = human_fixture()
     %{principal: b} = human_fixture()
-    {:ok, a: a, b: b}
+    {:ok, a: a, b: b, conn: %{conn | host: tenant.slug <> ".ankole.localhost"}}
   end
 
   test "a browser grouping reference and an identity hint are insufficient without the authentication cookie",
@@ -36,7 +36,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     b: b
   } do
     {conn, a_ref} = add_login(conn |> init_test_session(%{}), a)
-    a_page = get(conn, "/pod")
+    a_page = get(conn, "/")
     a_token = csrf(a_page)
 
     {conn, b_ref} =
@@ -44,7 +44,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
         a_page |> recycle() |> init_test_session(get_session(a_page)) |> add_login(b)
       end)
 
-    b_page = get(conn, "/pod")
+    b_page = get(conn, "/")
     b_token = csrf(b_page)
     assert a_token != b_token
 
@@ -82,14 +82,14 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     [name] = Map.keys(conn.resp_cookies)
     stale_ciphertext = conn.resp_cookies[name].value
     {conn, b_ref} = add_login(conn, b)
-    page = get(conn, "/pod")
+    page = get(conn, "/")
 
     {conn, current_a} =
       Repo.with_tenant(tenant.id, fn ->
         page |> recycle() |> init_test_session(get_session(page)) |> add_login(a)
       end)
 
-    renewed = get(conn, "/pod")
+    renewed = get(conn, "/")
     refute first_a == current_a
 
     stale =
@@ -108,7 +108,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     a: a
   } do
     {conn, _} = add_login(conn |> init_test_session(%{}), a)
-    page = get(conn, "/pod")
+    page = get(conn, "/")
 
     response =
       page
@@ -184,6 +184,98 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     assert WebSession.pod_session(pin(pinned_both, b_ref))["principal_uid"] == b.uid
   end
 
+  test "a file subresource retains its document identity when another account becomes active", %{
+    a: a,
+    b: b,
+    tenant: tenant
+  } do
+    {:ok, page} = Ankole.Pod.Pages.create(a.uid, %{type: "file", private_owner_uid: a.uid})
+
+    {:ok, uploaded} =
+      Ankole.Pod.Files.upload(
+        a.uid,
+        page.id,
+        "file",
+        0,
+        "report.pdf",
+        "account A report",
+        "application/pdf"
+      )
+
+    {a_login, a_ref} = add_login(browser_request(%{}), a)
+    cookies_a = apply_cookies(%{}, send_resp(a_login, 200, ""))
+    {b_login, b_ref} = add_login(browser_request(cookies_a), b)
+    cookies_both = apply_cookies(cookies_a, send_resp(b_login, 200, ""))
+    {:ok, _} = BrowserSessions.activate(WebSession.browser_reference(b_login), b_ref, tenant.id)
+    path = "/.internal-apis/pod/pages/#{page.id}/files/content"
+
+    params = %{
+      path: "report.pdf",
+      sha256: uploaded.file.sha256,
+      authentication_ref: BrowserSessions.encode_reference(a_ref)
+    }
+
+    response = cookies_both |> unpinned_request() |> get(path, params)
+    assert response(response, 200) == "account A report"
+    assert get_resp_header(response, "cache-control") == ["private, no-cache"]
+
+    denied =
+      cookies_both |> unpinned_request() |> get(path, Map.delete(params, :authentication_ref))
+
+    assert %{"error" => %{"code" => "forbidden"}} = json_response(denied, 403)
+
+    unrelated =
+      cookies_both
+      |> unpinned_request()
+      |> get("/.internal-apis/pod/pages/#{page.id}/files", %{
+        authentication_ref: params.authentication_ref
+      })
+
+    assert %{"error" => %{"code" => "unauthorized"}} = json_response(unrelated, 401)
+
+    {:ok, _} = BrowserSessions.revoke(WebSession.browser_reference(b_login), a_ref)
+    revoked = cookies_both |> unpinned_request() |> get(path, params)
+    assert %{"error" => %{"code" => "unauthorized"}} = json_response(revoked, 401)
+  end
+
+  test "a file URL reference requires its own proof cookie and the same browser group", %{
+    a: a,
+    b: b
+  } do
+    {:ok, page} = Ankole.Pod.Pages.create(a.uid, %{type: "file", private_owner_uid: a.uid})
+
+    {:ok, _} =
+      Ankole.Pod.Files.upload(
+        a.uid,
+        page.id,
+        "file",
+        0,
+        "report.pdf",
+        "private A",
+        "application/pdf"
+      )
+
+    {a_login, a_ref} = add_login(browser_request(%{}), a)
+    cookies_a = apply_cookies(%{}, send_resp(a_login, 200, ""))
+
+    {proof_name, proof} =
+      Enum.find(cookies_a, fn {name, _value} -> String.ends_with?(name, a_ref["id"]) end)
+
+    path = "/.internal-apis/pod/pages/#{page.id}/files/content"
+    params = %{path: "report.pdf", authentication_ref: BrowserSessions.encode_reference(a_ref)}
+
+    missing = cookies_a |> Map.delete(proof_name) |> unpinned_request() |> get(path, params)
+    assert %{"error" => %{"code" => "unauthorized"}} = json_response(missing, 401)
+
+    {b_login, _b_ref} = add_login(browser_request(%{}), b)
+
+    foreign_cookies =
+      %{} |> apply_cookies(send_resp(b_login, 200, "")) |> Map.put(proof_name, proof)
+
+    foreign = foreign_cookies |> unpinned_request() |> get(path, params)
+    assert %{"error" => %{"code" => "unauthorized"}} = json_response(foreign, 401)
+  end
+
   defp browser_request(cookies) do
     cookies
     |> Enum.reduce(build_conn(), fn {name, value}, conn ->
@@ -211,11 +303,15 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
 
   defp api_request(cookies, ref) do
     cookies
-    |> Enum.reduce(build_conn(), fn {name, value}, conn ->
-      Plug.Test.put_req_cookie(conn, name, value)
-    end)
+    |> unpinned_request()
     |> pin(ref)
   end
+
+  defp unpinned_request(cookies),
+    do:
+      Enum.reduce(cookies, build_conn(), fn {name, value}, conn ->
+        Plug.Test.put_req_cookie(conn, name, value)
+      end)
 
   defp authentication_reads(read) do
     handler = {__MODULE__, make_ref()}
@@ -287,7 +383,10 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
     |> recycle()
     |> pin(ref)
     |> put_private(:plug_skip_csrf_protection, false)
-    |> put_req_header("origin", "http://www.example.com")
+    |> put_req_header(
+      "origin",
+      URI.to_string(%URI{scheme: to_string(conn.scheme), host: conn.host, port: conn.port})
+    )
     |> put_req_header("x-csrf-token", token)
   end
 end

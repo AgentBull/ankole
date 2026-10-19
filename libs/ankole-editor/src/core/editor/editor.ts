@@ -152,6 +152,7 @@ export class Wordgard {
   connected = false
   private flushing = Flush.No
   private willFlush = false
+  private rejectedTransaction = false
   private flushFunc: () => void
   /** @internal */
   lastFlush = Date.now()
@@ -247,6 +248,14 @@ export class Wordgard {
     if (!(tr instanceof Transaction)) tr = this.state.update(tr)
     else if (tr.startState != this.state) throw new Error('Dispatching a transaction starting from the wrong state')
     const trs = Transaction.append(tr as Transaction)
+    try {
+      for (const guard of this.state.facet(Wordgard.transactionGuard)) guard(trs, this)
+    } catch (error) {
+      logException(this.state, error, 'transaction rejected')
+      this.rejectedTransaction = true
+      this.scheduleFlush()
+      return
+    }
     for (const t of trs) this.viewState.update(t)
     this.runTransactionListeners(trs)
     this.scheduleFlush()
@@ -362,21 +371,26 @@ export class Wordgard {
   }
 
   private runUpdate(update: Wordgard.Update, domChanges: readonly number[] | null) {
+    const rejected = this.rejectedTransaction
+    this.rejectedTransaction = false
+    if (rejected) this.inputState.abortComposition()
     const composition = this.composing ? this.inputState.getCompositionInfo(this) : null
     if (this.composing && !composition) this.inputState.abortComposition()
     const changes = domChanges ? addUpdated(update.changes.sections, domChanges) : update.changes.sections
     const prevDocTile = this.docTile
     if (!update.empty) {
       this.updatePlugins(update)
-      this.inputState.update(update)
       this.showAnnouncements(update.transactions)
       if (this.state.facet(Wordgard.styleModule) != this.styleModules) this.mountStyles()
       this.updateAttrs()
     }
+    // A rejected native input may already have changed the DOM. Reset its tracking when the
+    // accepted document is drawn again, even when no transaction was committed.
+    if (!update.empty || rejected) this.inputState.update(update)
     this.docTile = prevDocTile.update(update.state, changes, this, composition)
 
     if (
-      (composition?.wrapCursor || (!composition && (prevDocTile != this.docTile || update.selectionSet))) &&
+      (composition?.wrapCursor || (!composition && (prevDocTile != this.docTile || update.selectionSet || rejected))) &&
       this.hasFocus
     ) {
       setDOMSelection(this)
@@ -809,6 +823,9 @@ export class Wordgard {
    * debugging and logging. See {@link Wordgard.logException}.
    */
   static exceptionSink = exceptionSink
+
+  /** @internal Validate final transactions before the editor accepts their state or history. */
+  static transactionGuard = GardState.Facet.define<(trs: readonly Transaction[], wg: Wordgard) => void>()
 
   /**
    * Registers a listener function to be called whenever a set of

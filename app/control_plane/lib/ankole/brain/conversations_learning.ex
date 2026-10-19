@@ -79,6 +79,10 @@ defmodule Ankole.Brain.ConversationsLearning do
       left_join: ref in ExternalMessageRef,
       on: ref.message_id == message.id and ref.tenant_id == message.tenant_id,
       where: message.conversation_id == ^conversation_id,
+      where:
+        message.id not in subquery(
+          Ankole.Conversations.removed_message_ids_query(conversation_id)
+        ),
       select: %{message: message, external_ref: ref}
   end
 
@@ -137,6 +141,7 @@ defmodule Ankole.Brain.ConversationsLearning do
         where:
           message.conversation_id == parent_as(:conversation).id and
             message.seq > fragment("COALESCE(?, 0)", parent_as(:watermark).seq),
+        where: message.id not in subquery(Ankole.Conversations.removed_message_ids_query()),
         order_by: message.seq,
         limit: 1,
         select: %{created_at: message.created_at}

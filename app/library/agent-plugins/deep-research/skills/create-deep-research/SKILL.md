@@ -55,10 +55,12 @@ make, ask the human.
 
 If needed, you could use the `send_message_to_background_job` tool to send a steering message to the Job.
 
-When the Job completes, its result wakes you with the report's real paths. The
-Job has already verified the report against the task, so deliver from that
-result under the background job policy: attach the named files and report the
-outcome. If the result states a gap or limitation that defeats the confirmed
+When the Job completes, its result wakes you with the saved report. In a Pod
+conversation, deliver its clickable Page link by default. Attach the named
+files when the user requested a file format or the source channel is not Pod.
+The Job has already verified the report against the task, so deliver from that
+result under the background job policy and report the outcome. If the result
+states a gap or limitation that defeats the confirmed
 research purpose, tell the human, and continue the Job when you can supply what
 it lacked — new information you hold, or a decision from the human.
 

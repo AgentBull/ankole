@@ -219,20 +219,20 @@ defmodule Ankole.AutomationJobs do
   which the run waits for its next attempt.
   """
   @spec pending_run(pos_integer()) ::
-          {:ok, %{agent_uid: String.t(), waiting_since: DateTime.t()}}
+          {:ok, %{agent_uid: String.t(), waiting_since: DateTime.t(), run: Run.t()}}
           | {:error, :automation_job_run_finished | :automation_job_run_not_found}
   def pending_run(run_id) when is_integer(run_id) and run_id > 0 do
     Run
     |> join(:inner, [run], job in Job, on: job.id == run.automation_job_id)
     |> where([run], run.id == ^run_id)
-    |> select([run, job], {run.status, run.updated_at, job.agent_uid})
+    |> select([run, job], {run, job.agent_uid})
     |> Repo.one()
     |> case do
-      {status, _updated_at, _agent_uid} when status in @finished_run_statuses ->
+      {%Run{status: status}, _agent_uid} when status in @finished_run_statuses ->
         {:error, :automation_job_run_finished}
 
-      {_status, updated_at, agent_uid} ->
-        {:ok, %{agent_uid: agent_uid, waiting_since: updated_at}}
+      {%Run{} = run, agent_uid} ->
+        {:ok, %{agent_uid: agent_uid, waiting_since: run.updated_at, run: run}}
 
       nil ->
         {:error, :automation_job_run_not_found}
@@ -257,6 +257,9 @@ defmodule Ankole.AutomationJobs do
         case lock_job_run(repo, run_id) do
           {%Job{}, %Run{status: status}} when status in @finished_run_statuses ->
             {:ok, :noop}
+
+          {%Job{}, %Run{status: "running"}} ->
+            {:error, :automation_job_attempt_in_progress}
 
           {%Job{} = job, %Run{} = run} ->
             with {:ok, job} <- effective_status(repo, job, now) do
@@ -312,7 +315,20 @@ defmodule Ankole.AutomationJobs do
       when is_integer(run_id) and run_id > 0 and is_binary(attempt_id) and
              disposition in [:retry, :exhausted] do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
-    error = bounded_text("infrastructure dispatch failed: #{inspect(reason)}", @log_max_bytes)
+
+    prefix =
+      case reason do
+        :execution_outcome_unknown ->
+          "execution outcome unknown; verify external effects before rerunning"
+
+        {:execution_outcome_unknown, _} ->
+          "execution outcome unknown; verify external effects before rerunning"
+
+        _ ->
+          "infrastructure dispatch failed"
+      end
+
+    error = bounded_text("#{prefix}: #{inspect(reason)}", @log_max_bytes)
 
     Repo.transact(fn repo ->
       with {%Job{} = job, %Run{} = run} <- lock_job_run(repo, run_id),

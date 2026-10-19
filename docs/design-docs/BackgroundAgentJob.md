@@ -194,6 +194,13 @@ AIGateway conversation, creates one when none exists, and writes its id into
 its conversation context, so a control-plane-created Job and the successor Job
 that open steers seed get a conversation without a calling turn.
 
+For a Pod source Conversation, the execution context includes the source
+Page ID and Pod delivery instructions. The control plane derives both from
+the Conversation owner. The Worker passes those instructions to the Job's
+developer instructions, including resumed Jobs. Research reports default to
+editable Pod Pages; explicit file formats and other source channels retain
+their delivery rules.
+
 A Workflow task turn can also create a Job. The Job then records the
 `wf_task:<call_id>` session as its owner, so every lifecycle wakeup —
 completed, failed, or waiting — wakes the sleeping task instead of the main
@@ -893,6 +900,22 @@ source Job's task and final report.
 
 ## Send a Message and Wait for Its Turn
 
+Native Human instructions are resolved from the causal input and its consumed
+steers, separately from the main Agent's delegated task. The source Message
+establishes Human identity; the corresponding Signal retains the exact input
+version. Editing the visible Message puts the revised text into a new retry
+Signal without rewriting the original input. Queued, unconsumed messages do not
+become current Job instructions.
+
+Page creation provenance follows the original Job source. Current execution
+intent follows a newer applied Human request, including completion wakes and
+continued Jobs. A persisted `client:<signal-id>` steer receipt advances the
+control plane's reserved `applied_source_signal_id` metadata in the same fenced
+transaction. Worker metadata cannot set or clear that reference, and an older
+main Agent summary cannot reset it. Recovery after that durable receipt uses the
+applied request. The external Codex ACK and the subsequent database receipt are
+not an atomic transaction; an unrecorded steer remains open for replay.
+
 Sending a message writes a `command.steer` Signal. Its Signal ID is the
 causal message ID. CodexRunner passes this ID to Codex as
 `clientUserMessageId`. The trajectory recorder stores the same ID as
@@ -990,8 +1013,21 @@ the notification owned by the originating session.
 
 ## Return Results and Files
 
-Success requires a nonempty Codex final response.
+Success requires a nonempty Codex final response. A phased assistant message
+must have `phase: final_answer`. Commentary and partial answers stay in the Turn
+trajectory and cannot become the Job result. A missing or null phase keeps the
+pinned Codex protocol's legacy behavior. If no final report is present, the same
+thread gets one report request before the Job fails with `codex_empty_report`.
 The result also includes the stable Job Workspace path.
+
+Main compares each Job's reported outcomes and deliverables with the user's
+overall goal and current instructions. It reuses reported verification and
+continues concrete missing work before claiming completion. It does not start
+a generic verification Job for work already covered by the report.
+For a continuation, Main states the unmet outcome without an unverified
+reconstruction of saved state. The continued Job checks and reuses its earlier
+tool-returned IDs before it creates more content. An incomplete report does
+not show that saved work is absent.
 
 The result can list paths in these fields:
 

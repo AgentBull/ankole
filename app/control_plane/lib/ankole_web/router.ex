@@ -127,11 +127,61 @@ defmodule AnkoleWeb.Router do
   scope "/.internal-apis/pod", AnkoleWeb do
     pipe_through :pod_api
 
+    get "/realtime-token", PodPageController, :realtime_token
+    get "/agents/:uid/model-profiles", PodModelController, :catalog
+    get "/conversations/:id/model-profile", PodModelController, :show
+    put "/conversations/:id/model-profile", PodModelController, :update
+    get "/pages", PodPageController, :index
+    post "/pages", PodPageController, :create
+    get "/page-versions", PodPageController, :versions
+    get "/subjects", PodPageController, :subjects
+    post "/versions", PodPageController, :reconcile_versions
+    get "/space", PodPageController, :space
+    put "/space", PodPageController, :set_space
+    post "/space/agents", PodPageController, :space_agent
+    delete "/space/agents/:uid", PodPageController, :remove_space_agent
+    get "/pages/:id/files", PodFileController, :index
+    get "/pages/:id/files/content", PodFileController, :download
+    post "/pages/:id/files", PodFileController, :upload
+    post "/pages/:id/publish", PodFileController, :publish
+    get "/pages/:id/routes/*path", PodAppletController, :get
+    post "/pages/:id/routes/*path", PodAppletController, :post
+    put "/pages/:id/routes/*path", PodAppletController, :put
+    patch "/pages/:id/routes/*path", PodAppletController, :patch
+    delete "/pages/:id/routes/*path", PodAppletController, :delete
+    post "/pages/:id/copy-file", PodFileController, :copy
+    get "/pages/:id", PodPageController, :show
+    patch "/pages/:id", PodPageController, :update
+    delete "/pages/:id", PodPageController, :delete
+    post "/pages/:id/move", PodPageController, :move
+    post "/pages/:id/restore", PodPageController, :restore
+    post "/pages/:id/embeds/:ref/delete", PodPageController, :delete_embed
+    put "/pages/:id/content", PodPageController, :write
+    put "/pages/:id/user-state", PodPageController, :user_state
+    get "/pages/:id/sharing", PodPageController, :sharing
+    put "/pages/:id/sharing", PodPageController, :set_sharing
+    get "/databases/:page_id", PodDatabaseController, :tables
+    post "/databases/:page_id/tables", PodDatabaseController, :create_table
+    get "/tables/:id", PodDatabaseController, :show
+    post "/tables/:id/query", PodDatabaseController, :query
+    post "/tables/:id/aggregate", PodDatabaseController, :aggregate
+    post "/tables/:id/records", PodDatabaseController, :write
+    post "/tables/:id/fields", PodDatabaseController, :create_field
+    patch "/fields/:id", PodDatabaseController, :update_field
+    delete "/fields/:id", PodDatabaseController, :delete_field
+    post "/tables/:id/views", PodDatabaseController, :create_view
+    patch "/views/:id", PodDatabaseController, :update_view
+    delete "/views/:id", PodDatabaseController, :delete_view
+    post "/tables/:id/copy", PodDatabaseController, :copy
     get "/agents", PodController, :agents
+    post "/attachments", PodAttachmentController, :upload
+    get "/conversations/:id/attachments/:message_id", PodAttachmentController, :download
     get "/conversations", PodController, :index
     post "/conversations", PodController, :create
     get "/conversations/:id", PodController, :show
+    delete "/conversations/:id", PodController, :delete
     post "/conversations/:id/messages", PodController, :post_message
+    post "/conversations/:id/queue", PodController, :update_queue
     get "/conversations/:id/events", PodController, :events
   end
 
@@ -567,7 +617,7 @@ defmodule AnkoleWeb.Router do
   end
 
   # Browser-facing HTML. The `*path` catch-alls let each SPA own its own
-  # client-side routing: any deep link under the console mount, /pod, or /setup returns the same
+  # client-side routing: console/setup deep links and canonical Pod paths return the same
   # shell, and the React router takes over. SpaController re-checks setup/auth
   # state on every shell request, so the access gate stays server-side rather
   # than trusting the SPA to redirect.
@@ -587,6 +637,9 @@ defmodule AnkoleWeb.Router do
     get "/site-admin-console/*path", SpaController, :console
     get "/pod", SpaController, :pod
     get "/pod/*path", SpaController, :pod
+    get "/pages/:id", SpaController, :pod
+    get "/conversations/:id", SpaController, :pod
+    get "/content/:scope", SpaController, :pod
     get "/setup", SpaController, :setup
     get "/setup/*path", SpaController, :setup
   end

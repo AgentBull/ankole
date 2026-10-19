@@ -57,6 +57,7 @@ export function draftFromTokenQuota(quota: TokenQuota | null | undefined): Token
 }
 
 export const TokenQuotaEditorModel = createModel(() => {
+  let generation = Symbol()
   const sourceKey = signal<string>()
   const periodDays = signal('')
   const periodStartAt = signal('')
@@ -74,6 +75,10 @@ export const TokenQuotaEditorModel = createModel(() => {
   })
 
   return {
+    resetSource() {
+      generation = Symbol()
+      sourceKey.value = undefined
+    },
     sourceKey,
     periodDays,
     periodStartAt,
@@ -82,6 +87,7 @@ export const TokenQuotaEditorModel = createModel(() => {
     validationError,
     initialize(nextSourceKey: string, draft: TokenQuotaDraft) {
       if (sourceKey.value === nextSourceKey) return
+      generation = Symbol()
       batch(() => {
         sourceKey.value = nextSourceKey
         periodDays.value = draft.periodDays
@@ -94,14 +100,31 @@ export const TokenQuotaEditorModel = createModel(() => {
     clearValidation() {
       validationError.value = undefined
     },
-    markSaved(draft: TokenQuotaDraft) {
-      batch(() => {
-        periodDays.value = draft.periodDays
-        periodStartAt.value = draft.periodStartAt
-        limitTokens.value = draft.limitTokens
-        initialDraft.value = { ...draft }
-        validationError.value = undefined
-      })
+    captureSave() {
+      const requestedGeneration = generation
+      const submittedValidation = validationError.value
+      const submitted = {
+        periodDays: periodDays.value,
+        periodStartAt: periodStartAt.value,
+        limitTokens: limitTokens.value
+      }
+      return (accepted: TokenQuotaDraft) => {
+        if (generation !== requestedGeneration) return false
+        batch(() => {
+          if (JSON.stringify(periodDays.value) === JSON.stringify(submitted.periodDays)) {
+            periodDays.value = accepted.periodDays
+          }
+          if (JSON.stringify(periodStartAt.value) === JSON.stringify(submitted.periodStartAt)) {
+            periodStartAt.value = accepted.periodStartAt
+          }
+          if (JSON.stringify(limitTokens.value) === JSON.stringify(submitted.limitTokens)) {
+            limitTokens.value = accepted.limitTokens
+          }
+          initialDraft.value = { ...accepted }
+          if (validationError.value === submittedValidation) validationError.value = undefined
+        })
+        return true
+      }
     },
     submission(): TokenQuotaSubmission {
       if (!periodDays.value.trim()) return { ok: false, error: 'period_days_required' }

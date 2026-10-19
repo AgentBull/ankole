@@ -64,9 +64,11 @@ defmodule Ankole.AIGateway.ModelMetadata.Cache do
     {:noreply, state}
   end
 
-  @spec clear_for_test() :: :ok
-  def clear_for_test do
-    call(:clear)
+  if Mix.env() == :test do
+    @spec clear_for_test() :: :ok
+    def clear_for_test do
+      call(:clear)
+    end
   end
 
   @impl true
@@ -75,9 +77,11 @@ defmodule Ankole.AIGateway.ModelMetadata.Cache do
     {:reply, :ok, state}
   end
 
-  def handle_call(:clear, _from, state) do
-    true = :ets.delete_all_objects(@table)
-    {:reply, :ok, state}
+  if Mix.env() == :test do
+    def handle_call(:clear, _from, state) do
+      true = :ets.delete_all_objects(@table)
+      {:reply, :ok, state}
+    end
   end
 
   defp call(message) do

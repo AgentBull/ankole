@@ -1,12 +1,44 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import type { ConversationMessage, ConversationStatus, MessageSubmission, PodActivity } from '../api'
+import type {
+  ConversationMessage,
+  ConversationQueueRequest,
+  ConversationStatus,
+  MessageSubmission,
+  PodActivity
+} from '../api'
+import { ChatAttachments } from './chat-attachments'
+import { InternalAPIError } from '../../common/internal-api-client'
+import { requestErrorCode } from '../../common/request-errors'
 
 export type PendingMessage = MessageSubmission & { state: 'sending' | 'failed' }
 export type LiveReply = { text: string; responseID: string; signalIDs: string[] }
+export type FollowupMode = 'steer' | 'queue'
+export type ChatPresentation = 'page' | 'standalone'
+export type ChatReadingPosition = { atBottom: true } | { atBottom: false; messageID: string; offset: number }
 export type DisplayMessage =
   | { type: 'committed'; message: ConversationMessage }
   | { type: 'pending'; message: PendingMessage }
   | { type: 'live'; text: string }
+
+export function chatCommandPolicy(input: {
+  sending: boolean
+  queuePending: boolean
+  modelSaving: boolean
+  available: boolean
+  working: boolean
+  hasQueued: boolean
+  hasSubmission: boolean
+}) {
+  const disabled = input.sending || input.queuePending || !input.available
+  const canRetryLast = !disabled && !input.modelSaving && !input.working && !input.hasQueued
+  return {
+    disabled,
+    canSubmit: !disabled && !input.modelSaving && input.hasSubmission,
+    canRetryLast,
+    canQueue: (action: ConversationQueueRequest['action']) =>
+      !disabled && (!['regenerate', 'edit_last'].includes(action) || !input.modelSaving)
+  }
+}
 
 /** Derive the view from the remote cache and uncommitted local work. */
 export function mergeMessages(
@@ -36,12 +68,21 @@ export function shouldSendOnEnter(event: {
   shiftKey: boolean
   isComposing: boolean
   keyCode: number
+  ctrlKey?: boolean
+  metaKey?: boolean
 }): boolean {
-  return event.key === 'Enter' && !event.shiftKey && !event.isComposing && event.keyCode !== 229
+  return (
+    event.key === 'Enter' &&
+    (!event.shiftKey || !!event.ctrlKey || !!event.metaKey) &&
+    !event.isComposing &&
+    event.keyCode !== 229
+  )
 }
 
 export const ChatModel = createModel(() => {
   const draft = signal('')
+  const attachments = new ChatAttachments()
+  const conversationID = signal<string>()
   const selectedAgentUID = signal('')
   const pending = signal<PendingMessage>()
   const live = signal<LiveReply>()
@@ -51,10 +92,26 @@ export const ChatModel = createModel(() => {
   const error = signal<unknown>()
   const connecting = signal(false)
   const gone = signal(false)
+  const reading = signal<Partial<Record<ChatPresentation, ChatReadingPosition>>>({})
+  const deliveryMode = signal<FollowupMode>('steer')
+  const modelProfile = signal<string | null>(null)
+  const editing = signal<{
+    messageID: string
+    previousDraft: string
+    queueVersion: string
+    kind: 'queue' | 'last'
+    originalText: string | null
+    hasAttachments: boolean
+    commandID?: string
+  }>()
+  let stopCommandID: string | undefined
   const hasText = computed(() => draft.value.trim().length > 0)
+  const hasContent = computed(() => hasText.value || attachments.hasFiles.value)
 
   return {
     draft,
+    attachments,
+    conversationID,
     selectedAgentUID,
     pending,
     live,
@@ -62,23 +119,116 @@ export const ChatModel = createModel(() => {
     error,
     connecting,
     gone,
+    reading,
+    deliveryMode,
+    modelProfile,
+    editing,
     hasText,
-    submit(conversationID: string | undefined, agentUID: string, nextID: () => string): MessageSubmission {
+    hasContent,
+    rememberReading(presentation: ChatPresentation, position: ChatReadingPosition | undefined) {
+      if (!gone.peek()) reading.value = { ...reading.peek(), [presentation]: position }
+    },
+    beginEdit(
+      messageID: string,
+      text: string | null,
+      queueVersion: string,
+      kind: 'queue' | 'last' = 'queue',
+      hasAttachments = false
+    ) {
+      batch(() => {
+        editing.value = {
+          messageID,
+          previousDraft: editing.value?.previousDraft ?? draft.value,
+          queueVersion,
+          kind,
+          originalText: text,
+          hasAttachments,
+          ...(kind === 'last' ? { commandID: crypto.randomUUID() } : {})
+        }
+        draft.value = text ?? ''
+      })
+    },
+    cancelEdit() {
+      if (!editing.value) return
+      batch(() => {
+        draft.value = editing.value!.previousDraft
+        editing.value = undefined
+      })
+    },
+    rebaseEdit(messageID: string, savedText: string, queueVersion: string, useSaved = false) {
+      const current = editing.peek()
+      if (!current || current.messageID !== messageID) return false
+      if (!useSaved && savedText !== (current.originalText ?? '')) return false
+      batch(() => {
+        editing.value = {
+          ...current,
+          queueVersion,
+          originalText: savedText,
+          ...(useSaved && current.kind === 'last' ? { commandID: crypto.randomUUID() } : {})
+        }
+        if (useSaved) draft.value = savedText
+      })
+      return true
+    },
+    editSaved(messageID: string, text: string) {
+      if (editing.value?.messageID === messageID && draft.value === text) this.cancelEdit()
+    },
+    editCommand(): ConversationQueueRequest | undefined {
+      const current = editing.value
+      if (!current) return
+      return {
+        action: current.kind === 'last' ? 'edit_last' : 'edit',
+        messageID: current.messageID,
+        text: draft.value,
+        expectedVersion: current.queueVersion,
+        ...(current.kind === 'last' ? { expectedText: current.originalText, commandID: current.commandID } : {})
+      }
+    },
+    stopID(nextID: () => string) {
+      stopCommandID ??= nextID()
+      return stopCommandID
+    },
+    controlAccepted() {
+      stopCommandID = undefined
+    },
+    submit(
+      conversationID: string | undefined,
+      agentUID: string,
+      nextID: () => string,
+      mode = deliveryMode.value
+    ): MessageSubmission {
       const text = draft.value
       const previous = pending.value
+      const capture = attachments.capture()
       const submission =
-        previous && previous.text === text && previous.agentUID === agentUID
-          ? previous
-          : { conversationID: conversationID ?? nextID(), messageID: nextID(), agentUID, text }
+        previous &&
+        previous.text === text &&
+        previous.agentUID === agentUID &&
+        previous.deliveryMode === mode &&
+        previous.modelProfile === modelProfile.value &&
+        JSON.stringify(previous.attachmentIDs ?? []) === JSON.stringify(capture.attachmentIDs)
+          ? { ...previous, ...capture }
+          : {
+              conversationID: conversationID ?? nextID(),
+              messageID: nextID(),
+              agentUID,
+              text,
+              deliveryMode: mode,
+              modelProfile: modelProfile.value,
+              ...capture
+            }
       batch(() => {
         pending.value = { ...submission, state: 'sending' }
         error.value = undefined
       })
       return submission
     },
-    failed(failure: unknown) {
-      // A committed message may arrive through SSE before the POST fails.
-      if (!pending.value) return
+    failed(failure: unknown, messageID: string) {
+      // A committed message can permit a newer send before this request finishes.
+      if (pending.value?.messageID !== messageID) return
+      if (failure instanceof InternalAPIError && requestErrorCode(failure.payload) === 'attachment_expired') {
+        attachments.expired(pending.value.attachmentIDs)
+      }
       batch(() => {
         pending.value = { ...pending.value!, state: 'failed' }
         error.value = failure
@@ -86,15 +236,21 @@ export const ChatModel = createModel(() => {
     },
     accepted(submission: MessageSubmission) {
       batch(() => {
-        if (pending.value?.messageID === submission.messageID) pending.value = undefined
-        if (draft.value === submission.text) draft.value = ''
-        error.value = undefined
+        attachments.accepted(submission.attachmentIDs)
+        conversationID.value = submission.conversationID
+        if (pending.value?.messageID === submission.messageID) {
+          pending.value = undefined
+          if (draft.value === submission.text) draft.value = ''
+          error.value = undefined
+        }
       })
     },
     reconcile(messages: ConversationMessage[]) {
       batch(() => {
         const current = pending.value
         if (current && messages.some(message => message.id === current.messageID)) {
+          attachments.accepted(current.attachmentIDs)
+          conversationID.value = current.conversationID
           pending.value = undefined
           if (draft.value === current.text) draft.value = ''
           error.value = undefined
@@ -143,6 +299,7 @@ export const ChatModel = createModel(() => {
     markGone() {
       batch(() => {
         gone.value = true
+        reading.value = {}
         live.value = undefined
         activity.value = undefined
         connecting.value = false

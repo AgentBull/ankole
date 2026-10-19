@@ -7,10 +7,9 @@ type PageMetadata = {
 }
 
 export class PageRegistry {
-  private activeIndex = 0
+  private selectedPage?: Page
   private selectedFrame?: Frame
-  private readonly metadata = new WeakMap<Page, PageMetadata>()
-  private readonly installed = new WeakSet<Page>()
+  private readonly metadata = new Map<Page, PageMetadata>()
 
   constructor(
     readonly context: BrowserContext,
@@ -19,12 +18,13 @@ export class PageRegistry {
     for (const page of context.pages()) this.install(page)
     context.on('page', page => {
       this.install(page)
-      this.activeIndex = Math.max(0, this.pages().indexOf(page))
+      this.selectedPage = page
+      this.selectedFrame = undefined
     })
   }
 
   pages(): Page[] {
-    return this.context.pages().filter(page => !page.isClosed())
+    return [...this.metadata.keys()].filter(page => !page.isClosed())
   }
 
   async ensurePage(): Promise<Page> {
@@ -32,7 +32,7 @@ export class PageRegistry {
     if (current) return current
     const page = await this.context.newPage()
     this.install(page)
-    this.activeIndex = this.pages().indexOf(page)
+    this.selectedPage = page
     return page
   }
 
@@ -63,7 +63,7 @@ export class PageRegistry {
   async newPage(): Promise<Page> {
     const page = await this.context.newPage()
     this.install(page)
-    this.activeIndex = this.pages().indexOf(page)
+    this.selectedPage = page
     this.selectedFrame = undefined
     return page
   }
@@ -71,7 +71,7 @@ export class PageRegistry {
   switchPage(index: number): Page {
     const page = this.pages()[index]
     if (!page) throw new BrowserDataError('invalid_command', `tab index ${index} does not exist`)
-    this.activeIndex = index
+    this.selectedPage = page
     this.selectedFrame = undefined
     return page
   }
@@ -80,8 +80,6 @@ export class PageRegistry {
     const page = this.pages()[index]
     if (!page) throw new BrowserDataError('invalid_command', `tab index ${index} does not exist`)
     await page.close({ runBeforeUnload: false })
-    this.activeIndex = Math.min(this.activeIndex, Math.max(0, this.pages().length - 1))
-    this.selectedFrame = undefined
   }
 
   async selectFrame(target: string): Promise<Frame> {
@@ -102,7 +100,7 @@ export class PageRegistry {
       const metadata = this.metadata.get(page)
       return {
         index,
-        active: index === this.activeIndex,
+        active: page === this.currentPageOrUndefined(),
         url: metadata?.url ?? page.url(),
         title: metadata?.title ?? ''
       }
@@ -132,25 +130,29 @@ export class PageRegistry {
   private currentPageOrUndefined(): Page | undefined {
     const pages = this.pages()
     if (pages.length === 0) return undefined
-    if (this.activeIndex >= pages.length) this.activeIndex = pages.length - 1
-    return pages[this.activeIndex]
+    if (!this.selectedPage || !pages.includes(this.selectedPage)) this.selectedPage = pages[0]
+    return this.selectedPage
   }
 
   private install(page: Page): void {
-    if (this.installed.has(page)) return
-    this.installed.add(page)
+    if (this.metadata.has(page) || page.isClosed()) return
     this.metadata.set(page, { url: page.url(), title: '' })
     page.on('framenavigated', frame => {
       if (frame === page.mainFrame()) {
         const metadata = this.metadata.get(page) ?? { url: '', title: '' }
         metadata.url = frame.url()
         this.metadata.set(page, metadata)
-        this.selectedFrame = undefined
+        if (this.selectedPage === page) this.selectedFrame = undefined
       }
     })
     page.on('close', () => {
-      this.selectedFrame = undefined
-      this.activeIndex = Math.min(this.activeIndex, Math.max(0, this.pages().length - 1))
+      const index = [...this.metadata.keys()].indexOf(page)
+      this.metadata.delete(page)
+      if (this.selectedPage === page) {
+        const pages = this.pages()
+        this.selectedPage = pages[Math.min(index, pages.length - 1)]
+        this.selectedFrame = undefined
+      }
     })
     this.onPageInstalled(page)
   }

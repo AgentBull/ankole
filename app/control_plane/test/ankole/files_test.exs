@@ -5,13 +5,69 @@ defmodule Ankole.FilesTest do
 
   alias Ankole.Files
   alias Ankole.Files.Jobs.CollectUnreferenced
-  alias Ankole.Files.Schemas.AgentFile
+  alias Ankole.Files.Schemas.DriveFile
   alias Ankole.Files.Schemas.Blob
   alias Ankole.ObjectStore
 
   setup do
     %{principal: agent} = agent_fixture()
     %{agent_uid: agent.uid}
+  end
+
+  describe "Pod drive" do
+    test "keeps Agent and Pod paths separate and replaces a nullable drive key", %{
+      agent_uid: agent_uid
+    } do
+      {:ok, first} = Files.store("first Pod content")
+      {:ok, second} = Files.store("replacement")
+      path = "pages/test/file.txt"
+
+      assert {:ok, _} = Files.commit(:pod, [%{path: path, sha256: first.sha256, source: "pod"}])
+
+      assert {:ok, _} =
+               Files.commit(agent_uid, [%{path: path, sha256: first.sha256, source: "agent"}])
+
+      assert {:ok, _} = Files.commit(:pod, [%{path: path, sha256: second.sha256, source: "pod"}])
+      assert {:ok, %{agent_uid: nil}, "replacement"} = Files.read(:pod, path)
+      assert {:ok, %{agent_uid: ^agent_uid}, "first Pod content"} = Files.read(agent_uid, path)
+      assert {:ok, %{files: [_file], next_after: nil}} = Files.list(:pod)
+      assert {:ok, %{deleted: 1}} = Files.commit(:pod, [], ["pages/test"])
+      assert {:ok, _file} = Files.fetch(agent_uid, path)
+    end
+
+    test "allows the same Pod path in two tenants without exposing either", %{
+      tenant: first_tenant
+    } do
+      {:ok, stored} = Files.store("one content, two tenants")
+      other_tenant = create_tenant()
+      upsert = %{path: "pages/test/shared.txt", sha256: stored.sha256, source: "pod"}
+
+      assert {:ok, _} = Files.commit(:pod, [upsert])
+
+      Repo.with_tenant(other_tenant.id, fn ->
+        assert {:ok, %{files: []}} = Files.list(:pod)
+        assert {:ok, _} = Files.commit(:pod, [upsert])
+        assert {:ok, %{deleted: 1}} = Files.commit(:pod, [], ["pages"])
+      end)
+
+      assert Repo.tenant_id!() == first_tenant.id
+      assert {:ok, %{files: [_file]}} = Files.list(:pod)
+    end
+
+    test "a Pod reference keeps bytes alive for the existing garbage collector" do
+      {:ok, stored} = Files.store("Pod-only reference")
+      digest = Base.decode16!(stored.sha256, case: :lower)
+
+      {:ok, _} =
+        Files.commit(:pod, [%{path: "pages/test/a.txt", sha256: stored.sha256, source: "pod"}])
+
+      Repo.update_all(where(Blob, sha256: ^digest),
+        set: [last_referenced_at: DateTime.add(DateTime.utc_now(), -172_800)]
+      )
+
+      assert {:ok, 0} = CollectUnreferenced.mark_unreferenced()
+      assert %Blob{deleting: false} = Repo.get!(Blob, digest)
+    end
   end
 
   describe "store/1" do
@@ -75,10 +131,10 @@ defmodule Ankole.FilesTest do
                  %{path: "inbox/abc/photo.png", sha256: image, source: "inbound", mode: 0o600}
                ])
 
-      assert %AgentFile{path: "reports/q3.md", size: 11, content_type: "text/markdown"} = first
-      assert %AgentFile{content_type: "image/png", mode: 0o600, size: 4} = second
+      assert %DriveFile{path: "reports/q3.md", size: 11, content_type: "text/markdown"} = first
+      assert %DriveFile{content_type: "image/png", mode: 0o600, size: 4} = second
 
-      assert {:ok, %AgentFile{size: 11}, "report body"} = Files.read(agent_uid, "reports/q3.md")
+      assert {:ok, %DriveFile{size: 11}, "report body"} = Files.read(agent_uid, "reports/q3.md")
       assert {:error, :not_found} = Files.fetch(agent_uid, "reports/missing.md")
     end
 
@@ -92,7 +148,7 @@ defmodule Ankole.FilesTest do
       {:ok, %{files: [file]}} =
         Files.commit(agent_uid, [%{path: "notes.txt", sha256: second, source: "console"}])
 
-      assert %AgentFile{source: "console", size: 11} = file
+      assert %DriveFile{source: "console", size: 11} = file
       assert {:ok, _file, "version two"} = Files.read(agent_uid, "notes.txt")
     end
 
@@ -158,6 +214,27 @@ defmodule Ankole.FilesTest do
       assert {:ok, %{files: []}} = Files.list(agent_uid)
     end
 
+    test "path conflict checks treat SQL wildcard characters as literal file names", %{
+      agent_uid: agent_uid
+    } do
+      {:ok, %{sha256: sha256}} = Files.store("literal paths")
+
+      assert {:ok, _} =
+               Files.commit(agent_uid, [
+                 %{path: "abc/child", sha256: sha256, source: "agent"},
+                 %{path: "axb/child", sha256: sha256, source: "agent"}
+               ])
+
+      assert {:ok, _} =
+               Files.commit(agent_uid, [
+                 %{path: "a%", sha256: sha256, source: "agent"},
+                 %{path: "a_b", sha256: sha256, source: "agent"}
+               ])
+
+      assert {:error, {:path_conflict, "a%", "a%/nested"}} =
+               Files.commit(agent_uid, [%{path: "a%/nested", sha256: sha256, source: "agent"}])
+    end
+
     test "rejects an existing ancestor or descendant and rolls back deletes", %{
       agent_uid: agent_uid
     } do
@@ -217,7 +294,7 @@ defmodule Ankole.FilesTest do
 
       assert Enum.map(page, & &1.path) == ["skills/a/SKILL.md", "skills/a/x.py"]
 
-      assert {:ok, %{files: [%AgentFile{path: "skills/b/SKILL.md"}], next_after: nil}} =
+      assert {:ok, %{files: [%DriveFile{path: "skills/b/SKILL.md"}], next_after: nil}} =
                Files.list(agent_uid, "skills", limit: 2, after: "skills/a/x.py")
     end
 
@@ -227,7 +304,7 @@ defmodule Ankole.FilesTest do
       {:ok, _} = Files.commit(agent_uid, [%{path: "a.txt", sha256: sha256, source: "inbound"}])
       {:ok, _} = Files.commit(other.uid, [%{path: "b.txt", sha256: sha256, source: "inbound"}])
 
-      assert {:ok, %{files: [%AgentFile{path: "a.txt"}]}} = Files.list(agent_uid)
+      assert {:ok, %{files: [%DriveFile{path: "a.txt"}]}} = Files.list(agent_uid)
       assert {:error, :not_found} = Files.fetch(agent_uid, "b.txt")
       assert Repo.aggregate(Blob, :count) >= 1
     end
@@ -245,7 +322,7 @@ defmodule Ankole.FilesTest do
           %{path: "inbox/notes.txt", sha256: sha256, source: "agent"}
         ])
 
-      assert {:ok, %{folders: ["a", "b", "c"], files: [%AgentFile{}], truncated: false}} =
+      assert {:ok, %{folders: ["a", "b", "c"], files: [%DriveFile{}], truncated: false}} =
                Files.list_children(agent_uid, "inbox")
 
       assert {:ok, %{folders: ["a", "b"], truncated: true}} =
@@ -274,13 +351,13 @@ defmodule Ankole.FilesTest do
           }
         end
 
-      for chunk <- Enum.chunk_every(rows, 1_000), do: Repo.insert_all(AgentFile, chunk)
+      for chunk <- Enum.chunk_every(rows, 1_000), do: Repo.insert_all(DriveFile, chunk)
 
       assert {:ok, 5_001} = Files.move(agent_uid, "jobs/1", "jobs/archived")
-      assert Repo.aggregate(where(AgentFile, agent_uid: ^agent_uid), :count) == 5_001
+      assert Repo.aggregate(where(DriveFile, agent_uid: ^agent_uid), :count) == 5_001
 
       refute Repo.exists?(
-               from(file in AgentFile,
+               from(file in DriveFile,
                  where: file.agent_uid == ^agent_uid and like(file.path, "jobs/1/%")
                )
              )
@@ -457,7 +534,7 @@ defmodule Ankole.FilesTest do
           )
         end)
 
-      Repo.delete_all(where(AgentFile, agent_uid: ^uid))
+      Repo.delete_all(where(DriveFile, agent_uid: ^uid))
       Repo.delete!(Repo.get!(Ankole.Principals.Principal, uid))
       assert Repo.get_by!(Ankole.Conversations.Message, id: message.id).attachments != []
       digest = Base.decode16!(sha256, case: :lower)

@@ -17,6 +17,7 @@ defmodule Ankole.WorkerFilesFake do
       override for the body of a bundle push;
     * `:fail` — `%{operation => {code, message}}` that makes an operation
       answer with `rpc_error`;
+    * `:http` — uses a real HTTP request for push integration tests; defaults to ConnTest.
     * `:tamper_token` — when true, the relay request carries a wrong token.
 
   A push with `bundle_paths` answers with the bundle of those files, as the
@@ -44,12 +45,18 @@ defmodule Ankole.WorkerFilesFake do
       on_read: Keyword.get(opts, :on_read),
       on_bundle: Keyword.get(opts, :on_bundle),
       fail: Keyword.get(opts, :fail, %{}),
-      tamper_token: Keyword.get(opts, :tamper_token, false)
+      tamper_token: Keyword.get(opts, :tamper_token, false),
+      http: Keyword.get(opts, :http, false)
     }
 
     pid = spawn_link(fn -> loop(state) end)
     :ok = WorkerRoute.register_local_worker(route, pid)
-    ExUnit.Callbacks.on_exit(fn -> WorkerRoute.unregister_local_worker(route) end)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      WorkerRoute.unregister_local_worker(route)
+      if Process.alive?(pid), do: Process.exit(pid, :shutdown)
+    end)
+
     pid
   end
 
@@ -152,16 +159,28 @@ defmodule Ankole.WorkerFilesFake do
         {{:error, "file_too_large", "file exceeds #{request.max_bytes} bytes"}, state}
 
       {:ok, content} ->
-        conn =
-          build_conn()
-          |> put_req_header("content-type", "application/octet-stream")
-          |> put_req_header("content-length", Integer.to_string(byte_size(content)))
-          |> dispatch(@endpoint, :put, relay_path(state, request.url), content)
+        status =
+          if state.http do
+            Req.put!(request.url,
+              body: content,
+              headers: [{"content-type", "application/octet-stream"}],
+              retry: false,
+              receive_timeout: 120_000
+            ).status
+          else
+            conn =
+              build_conn()
+              |> put_req_header("content-type", "application/octet-stream")
+              |> put_req_header("content-length", Integer.to_string(byte_size(content)))
+              |> dispatch(@endpoint, :put, relay_path(state, request.url), content)
 
-        if conn.status == 200 do
+            conn.status
+          end
+
+        if status == 200 do
           {{:ok, %FabricProto.WorkerFileTransferResponse{size: byte_size(content)}}, state}
         else
-          {{:error, "relay_failed", "relay PUT answered #{conn.status}"}, state}
+          {{:error, "relay_failed", "relay PUT answered #{status}"}, state}
         end
 
       {:error, {code, message}} ->

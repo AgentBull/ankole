@@ -7,6 +7,9 @@ export const TYPESCRIPT_ARCHITECTURE_SCAN_ROOTS = [
   'app/agent_computer/src',
   'app/webapps',
   'libs/uikit/src',
+  'libs/ankole-editor/src',
+  'libs/applet-sdk/src',
+  'app/ankole-browser/src',
   'tools/devkit/src'
 ] as const
 
@@ -44,6 +47,16 @@ export interface BoundaryRule {
 }
 
 export const BOUNDARY_RULES: BoundaryRule[] = [
+  {
+    category: 'shared-editor-sdk-imports-app',
+    appliesTo: /^libs\/(ankole-editor|applet-sdk)\/src\//,
+    forbidResolvedPrefixes: ['app/', 'tools/'],
+    forbidBareSpecifiers: [
+      /^@ankole\/(agent-computer|webapps|control-plane|kernel|browser)(\/|$)/,
+      /^@agentbull\/devkit(\/|$)/
+    ],
+    reason: 'shared editor and Applet SDK modules must not depend on applications or repository tooling'
+  },
   {
     category: 'uikit-imports-app',
     appliesTo: /^libs\/uikit\/src\//,

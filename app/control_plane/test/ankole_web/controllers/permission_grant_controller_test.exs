@@ -159,6 +159,181 @@ defmodule AnkoleWeb.PermissionGrantControllerTest do
     assert %{"error" => %{"code" => "not_found"}} = json_response(conn, 404)
   end
 
+  test "create rejects the reserved page actions for principal and group owners", %{conn: conn} do
+    conn = console_conn(conn)
+    %{principal: owner} = human_fixture(%{uid: unique_uid("page-action-owner")})
+
+    assert {:ok, group} =
+             AuthZ.create_principal_group(%{
+               name: "page_action_group_#{System.unique_integer([:positive])}",
+               display_name: "Page Action Group"
+             })
+
+    for action <- ["page_view", "page_edit", "page_manage"],
+        owner_attrs <- [%{"principal_uid" => owner.uid}, %{"group_name" => group.name}] do
+      conn =
+        conn
+        |> recycle_api()
+        |> post(
+          ~p"/api/v1/permission-grants",
+          Map.merge(owner_attrs, %{
+            "resource_pattern" => "space:engineering",
+            "action" => action
+          })
+        )
+
+      assert %{"error" => %{"code" => "validation_failed", "details" => details}} =
+               json_response(conn, 422)
+
+      assert Enum.any?(details, &(&1["path"] == "action"))
+    end
+
+    assert {:ok, []} = AuthZ.list_principal_grants(owner.uid)
+    assert {:ok, []} = AuthZ.list_group_grants(group.id)
+  end
+
+  test "a page grant keeps its resource pattern and condition when updated", %{conn: conn} do
+    conn = console_conn(conn)
+    %{principal: owner} = human_fixture(%{uid: unique_uid("page-grant-owner")})
+
+    # The Pod writes page grants through the AuthZ internal interface.
+    assert {:ok, grant} =
+             AuthZ.create_permission_grant(%{
+               principal_uid: owner.uid,
+               resource_pattern: "space:engineering/**",
+               action: "page_view",
+               condition: "true",
+               description: "shared space"
+             })
+
+    for attrs <- [
+          %{"resource_pattern" => "**"},
+          %{"condition" => "false"},
+          %{"resource_pattern" => "space:engineering/**", "condition" => "true"},
+          %{"resource_pattern" => "**", "description" => "kept description"}
+        ] do
+      conn = conn |> recycle_api() |> patch(~p"/api/v1/permission-grants/#{grant.id}", attrs)
+
+      assert %{"error" => %{"code" => "validation_failed", "details" => details}} =
+               json_response(conn, 422)
+
+      assert details != []
+    end
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/permission-grants/#{grant.id}", %{
+        "description" => "shared with the team"
+      })
+
+    assert %{"permission_grant" => kept} = json_response(conn, 200)
+    assert kept["action"] == "page_view"
+    assert kept["resource_pattern"] == "space:engineering/**"
+    assert kept["condition"] == "true"
+    assert kept["description"] == "shared with the team"
+
+    # Ordinary grants keep partial updates without an action.
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/permission-grants", %{
+        "principal_uid" => owner.uid,
+        "resource_pattern" => "workspace:**",
+        "action" => "read"
+      })
+
+    assert %{"permission_grant" => ordinary} = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/permission-grants/#{ordinary["id"]}", %{"resource_pattern" => "**"})
+
+    assert %{"permission_grant" => %{"resource_pattern" => "**", "action" => "read"}} =
+             json_response(conn, 200)
+
+    # A request cannot turn a page grant into an ordinary grant.
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/permission-grants/#{grant.id}", %{
+        "action" => "read",
+        "resource_pattern" => "**"
+      })
+
+    assert %{"error" => %{"code" => "validation_failed", "details" => details}} =
+             json_response(conn, 422)
+
+    assert Enum.any?(details, &(&1["path"] == "action"))
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/permission-grants/#{ordinary["id"]}", %{"action" => "page_manage"})
+
+    assert %{"error" => %{"code" => "validation_failed", "details" => details}} =
+             json_response(conn, 422)
+
+    assert Enum.any?(details, &(&1["path"] == "action"))
+  end
+
+  test "Console cannot delete grants owned by Pod sharing", %{conn: conn} do
+    conn = console_conn(conn)
+    %{principal: owner} = human_fixture()
+
+    for action <- Ankole.Pod.Access.page_actions() do
+      {:ok, grant} =
+        AuthZ.create_permission_grant(%{
+          principal_uid: owner.uid,
+          resource_pattern: "pod:space:**",
+          action: action
+        })
+
+      response = conn |> recycle_api() |> delete(~p"/api/v1/permission-grants/#{grant.id}")
+      assert %{"error" => %{"code" => "validation_failed"}} = json_response(response, 422)
+      assert {:ok, ^grant} = AuthZ.get_permission_grant(grant.id)
+    end
+  end
+
+  test "ordinary grants keep their update shape", %{conn: conn} do
+    conn = console_conn(conn)
+    %{principal: owner} = human_fixture(%{uid: unique_uid("ordinary-owner")})
+
+    assert {:ok, group} =
+             AuthZ.create_principal_group(%{
+               name: "ordinary_group_#{System.unique_integer([:positive])}",
+               display_name: "Ordinary Group"
+             })
+
+    conn =
+      conn
+      |> recycle_api()
+      |> post(~p"/api/v1/permission-grants", %{
+        "group_name" => group.name,
+        "resource_pattern" => "chat:channel:*",
+        "action" => "update"
+      })
+
+    assert %{"permission_grant" => grant} = json_response(conn, 200)
+
+    conn =
+      conn
+      |> recycle_api()
+      |> patch(~p"/api/v1/permission-grants/#{grant["id"]}", %{
+        "resource_pattern" => "chat:channel:announcements",
+        "condition" => ~s(context.request.surface == "console_rest")
+      })
+
+    assert %{"permission_grant" => updated} = json_response(conn, 200)
+    assert updated["action"] == "update"
+    assert updated["resource_pattern"] == "chat:channel:announcements"
+    assert updated["condition"] == ~s(context.request.surface == "console_rest")
+    assert updated["group_id"] == group.id
+    assert updated["description"] == grant["description"]
+    assert updated["id"] != owner.uid
+  end
+
   test "deleting a malformed grant id answers not found in the console envelope", %{conn: conn} do
     conn =
       conn

@@ -11,6 +11,8 @@ export type BlockRead = { children(node: Plot): PageNode[] }
 export type BlockInsert = {
   title: string
   detail: string
+  /** Search aliases, kept out of the visible menu description. */
+  keywords?: string
   glyph: string
   /** The block can replace the text block at the caret. */
   turnInto: boolean

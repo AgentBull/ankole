@@ -393,6 +393,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
            Jobs.send_message(args["job_id"], %{
              "agent_uid" => run.agent_uid,
              "request_id" => Run.tool_identity(run, call),
+             "source_signal_id" => Route.current_input_signal_id(run),
              "message" => args["message"]
            }) do
       details = %{"job_id" => value.job.id, "status" => value.job.status}
@@ -548,7 +549,7 @@ defmodule Ankole.Sessions.Tools.Jobs do
     do: %{
       "agent_uid" => run.agent_uid,
       "owner_session_id" => run.session_id,
-      "source_signal_id" => run.signal_id,
+      "source_signal_id" => Route.current_input_signal_id(run),
       "source_tool_call_id" => Run.tool_identity(run, call),
       "reply_route" => Route.snapshot(run)
     }

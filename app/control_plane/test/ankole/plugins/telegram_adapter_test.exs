@@ -300,6 +300,65 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       assert :ok = ConnectionReconciler.stop({"owner-agent", "telegram-main"})
     end
 
+    test "normal stop and owner kill both stop a held poll; the bot has one owner" do
+      Process.flag(:trap_exit, true)
+      parent = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        case Path.basename(conn.request_path) do
+          "getMe" ->
+            Req.Test.json(conn, %{"ok" => true, "result" => %{"id" => 77, "is_bot" => true}})
+
+          "getWebhookInfo" ->
+            Req.Test.json(conn, %{"ok" => true, "result" => %{"url" => ""}})
+
+          "getUpdates" ->
+            send(parent, {:held_poll, self()})
+
+            receive do
+              :release -> Req.Test.json(conn, %{"ok" => true, "result" => []})
+            end
+        end
+      end)
+
+      for mode <- [:normal, :kill] do
+        token = "77:owner-#{mode}"
+        config = %{"botToken" => token}
+
+        opts = [
+          key: {"owner-agent", to_string(mode)},
+          config: config,
+          consumer:
+            Map.put(
+              consumer("owner-agent", to_string(mode), config),
+              :tenant_id,
+              Repo.tenant_id!()
+            )
+        ]
+
+        assert {:ok, owner} = ConnectionOwner.start_link(opts)
+        Process.unlink(owner)
+        on_exit(fn -> if Process.alive?(owner), do: GenServer.stop(owner) end)
+        assert_receive {:held_poll, poll}, 2_000
+        poll_monitor = Process.monitor(poll)
+        owner_monitor = Process.monitor(owner)
+
+        assert {:error, :poller_already_owned} =
+                 ConnectionOwner.start_link(
+                   Keyword.put(opts, :key, {"different-local-key", to_string(mode)})
+                 )
+
+        if mode == :normal, do: GenServer.stop(owner), else: Process.exit(owner, :kill)
+        assert_receive {:DOWN, ^owner_monitor, :process, ^owner, _}, 2_000
+        assert_receive {:DOWN, ^poll_monitor, :process, ^poll, _}, 2_000
+        assert {:ok, replacement} = ConnectionOwner.start_link(opts)
+        Process.unlink(replacement)
+        assert_receive {:held_poll, replacement_poll}, 2_000
+        refute replacement_poll == poll
+        assert :ok = GenServer.stop(replacement)
+      end
+    end
+
     test "keeps authentication failures in an operator-visible blocked state" do
       Req.Test.stub(__MODULE__, fn conn ->
         conn

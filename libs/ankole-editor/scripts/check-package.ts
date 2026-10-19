@@ -105,8 +105,13 @@ export default defineConfig({
   await writeFile(
     resolve(consumer, 'smoke.ts'),
     `
-import { headlessState, readTree, replaceTree } from '@ankole/block-editor/editor'
+import { headlessState, preparePageUpdate, readTree, replaceTree, PageCollaboration, insertImage, insertEmbed, type EditorHost, type PageChangeRequest, type PageChanges, type CollaborationState } from '@ankole/block-editor/editor'
 import { parseMarkdown, printMarkdown, printXml, parseXml, sameTree } from '@ankole/block-editor/document'
+const host: EditorHost = { resolveAsset: value => value }
+const changes: PageChangeRequest = { base_revision: 0, client_id: 'consumer', client_seq: 1, changes: [] }
+const response: PageChanges = { revision: 0, changes: [] }
+const stateOfCollaboration: CollaborationState = { revision: 0, xml: '<page />', pending: false }
+if (!PageCollaboration || !insertImage || !insertEmbed || !host.resolveAsset || !changes || !response || !stateOfCollaboration) throw new Error('Package host export missing')
 const source = '<future version="0">\\n  Content **with marks**\\n</future>'
 const page = readTree(headlessState(source).doc)
 if (!sameTree(parseMarkdown(source), parseXml(printXml(page)))) throw new Error('Package tree mismatch')
@@ -114,6 +119,11 @@ const reopened = readTree(headlessState(printMarkdown(page)).doc)
 const state = headlessState('Before')
 const written = readTree(state.update(replaceTree(state, parseXml(printXml(page)))).state.doc)
 if (printXml(reopened) !== printXml(page) || printXml(written) !== printXml(page)) throw new Error('Package editor mismatch')
+const local = headlessState('a b')
+const strong = local.doc.schema.getMark('Strong')!.of(null)
+const prepared = preparePageUpdate(local.update({ changes: { from: 1, to: 3, add: strong } }))
+const stored = headlessState(parseXml(printXml(readTree(prepared.newDoc)))).doc
+if (!prepared.newDoc.eq(stored) || !prepared.changes.apply(local.doc).eq(stored)) throw new Error('Package page update mismatch')
 `
   )
   await run(['bun', 'install'], consumer)

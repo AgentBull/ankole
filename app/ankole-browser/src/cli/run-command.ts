@@ -1,9 +1,10 @@
+import { dlopen } from 'bun:ffi'
 import { fork, type ChildProcess } from 'node:child_process'
 import { createWriteStream } from 'node:fs'
-import { copyFile, mkdir, open, readFile, rename, stat } from 'node:fs/promises'
+import { copyFile, mkdir, open, readFile, rename } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BrowserDataError, isFileNotFound } from '../errors'
+import { BrowserDataError } from '../errors'
 import type { BrowserCommand } from '../protocol'
 import { sendBrowserCommand, type BrowserClientContext } from '../client'
 
@@ -37,87 +38,93 @@ type RunResult = {
 
 export async function runBrowserCode(input: RunInput): Promise<Record<string, unknown>> {
   const runId = `run_${crypto.randomUUID()}`
-  const runDir = resolveRunDir(input.context, input.runDir)
+  const runDir = resolveRunDir(input.context, runId, input.runDir)
   const scriptCopy = resolve(runDir, 'script.mjs')
   const scriptCwd = process.cwd()
   let executionScript: string
   await mkdir(runDir, { recursive: true })
-  if (input.scriptSource !== undefined) {
-    await atomicText(scriptCopy, input.scriptSource)
-    executionScript = scriptCopy
-  } else if (input.scriptPath) {
-    executionScript = resolve(input.scriptPath)
-    if (executionScript !== scriptCopy) await copyFile(executionScript, scriptCopy)
-  } else throw new BrowserDataError('invalid_command', 'run requires script source or path')
-
-  const controller = new AbortController()
-  const timeout = setTimeout(
-    () => controller.abort(new BrowserDataError('timeout', 'browser code run timed out', { retryable: true })),
-    input.timeoutMs
-  )
-  timeout.unref()
-  const forwardAbort = (): void => controller.abort(input.signal?.reason ?? new DOMException('cancelled', 'AbortError'))
-  input.signal?.addEventListener('abort', forwardAbort, { once: true })
-
-  let lease: LeaseData | undefined
-  let child: ChildProcess | undefined
-  let outcome: 'ok' | 'error' | 'cancelled' = 'error'
-  const startedAt = new Date().toISOString()
+  const directoryLock = await lockRunDirectory(runDir)
   try {
-    lease = leaseData(
+    if (input.scriptSource !== undefined) {
+      await atomicText(scriptCopy, input.scriptSource)
+      executionScript = scriptCopy
+    } else if (input.scriptPath) {
+      executionScript = resolve(input.scriptPath)
+      if (executionScript !== scriptCopy) await copyFile(executionScript, scriptCopy)
+    } else throw new BrowserDataError('invalid_command', 'run requires script source or path')
+
+    const controller = new AbortController()
+    const timeout = setTimeout(
+      () => controller.abort(new BrowserDataError('timeout', 'browser code run timed out', { retryable: true })),
+      input.timeoutMs
+    )
+    timeout.unref()
+    const forwardAbort = (): void =>
+      controller.abort(input.signal?.reason ?? new DOMException('cancelled', 'AbortError'))
+    input.signal?.addEventListener('abort', forwardAbort, { once: true })
+
+    let lease: LeaseData | undefined
+    let child: ChildProcess | undefined
+    let outcome: 'ok' | 'error' | 'cancelled' = 'error'
+    const startedAt = new Date().toISOString()
+    try {
+      lease = leaseData(
+        await successfulData(
+          input.context,
+          { name: 'lease.acquire', args: { run_id: runId } },
+          input.session,
+          input.timeoutMs,
+          controller.signal
+        )
+      )
+      child = spawnRunner({ input, lease, runId, runDir, executionScript, scriptCwd })
+      const runner = observeRunner(child)
+      await abortable(runner.ready, controller.signal)
       await successfulData(
         input.context,
-        { name: 'lease.acquire', args: { run_id: runId } },
+        { name: 'lease.delegate', args: { lease_token: lease.lease_token } },
         input.session,
-        input.timeoutMs,
+        remaining(input.timeoutMs, startedAt),
         controller.signal
       )
-    )
-    child = spawnRunner({ input, lease, runId, runDir, executionScript, scriptCwd })
-    const runner = observeRunner(child)
-    await abortable(runner.ready, controller.signal)
-    await successfulData(
-      input.context,
-      { name: 'lease.delegate', args: { lease_token: lease.lease_token } },
-      input.session,
-      remaining(input.timeoutMs, startedAt),
-      controller.signal
-    )
-    child.send?.({ type: 'runner.start' })
-    await abortable(runner.done, controller.signal)
-    if (!(await waitForExit(child, 2_000))) await stopRunner(child, 'runner completed but did not exit')
-    const result = await readRunResult(runDir)
-    outcome = result.status === 'ok' ? 'ok' : result.status === 'cancelled' ? 'cancelled' : 'error'
-    return {
-      run_dir: runDir,
-      status: result.status,
-      value: result.value,
-      error: result.error
+      child.send?.({ type: 'runner.start' })
+      await abortable(runner.done, controller.signal)
+      if (!(await waitForExit(child, 2_000))) await stopRunner(child, 'runner completed but did not exit')
+      const result = await readRunResult(runDir, runId)
+      outcome = result.status === 'ok' ? 'ok' : result.status === 'cancelled' ? 'cancelled' : 'error'
+      return {
+        run_dir: runDir,
+        status: result.status,
+        value: result.value,
+        error: result.error
+      }
+    } catch (error) {
+      outcome = controller.signal.aborted ? 'cancelled' : 'error'
+      if (child) await stopRunner(child, controller.signal.reason)
+      const status = error instanceof BrowserDataError && error.code === 'timeout' ? 'timeout' : outcome
+      const fallback: RunResult = {
+        run_id: runId,
+        status,
+        value: null,
+        error: serializableError(error),
+        started_at: startedAt,
+        completed_at: new Date().toISOString()
+      }
+      await ensureRunResult(runDir, fallback)
+      throw error
+    } finally {
+      clearTimeout(timeout)
+      input.signal?.removeEventListener('abort', forwardAbort)
+      if (lease) {
+        await sendBrowserCommand(
+          input.context,
+          { name: 'lease.release', args: { lease_token: lease.lease_token, outcome } },
+          { session: input.session, timeoutMs: 5_000 }
+        ).catch(() => undefined)
+      }
     }
-  } catch (error) {
-    outcome = controller.signal.aborted ? 'cancelled' : 'error'
-    if (child) await stopRunner(child, controller.signal.reason)
-    const status = error instanceof BrowserDataError && error.code === 'timeout' ? 'timeout' : outcome
-    const fallback: RunResult = {
-      run_id: runId,
-      status,
-      value: null,
-      error: serializableError(error),
-      started_at: startedAt,
-      completed_at: new Date().toISOString()
-    }
-    await ensureRunResult(runDir, fallback)
-    throw error
   } finally {
-    clearTimeout(timeout)
-    input.signal?.removeEventListener('abort', forwardAbort)
-    if (lease) {
-      await sendBrowserCommand(
-        input.context,
-        { name: 'lease.release', args: { lease_token: lease.lease_token, outcome } },
-        { session: input.session, timeoutMs: 5_000 }
-      ).catch(() => undefined)
-    }
+    await directoryLock.close()
   }
 }
 
@@ -209,7 +216,11 @@ async function stopRunner(child: ChildProcess, reason: unknown): Promise<void> {
   if (await waitForExit(child, 2_000)) return
   child.kill('SIGTERM')
   if (await waitForExit(child, 500)) return
-  child.kill('SIGKILL')
+  if (child.exitCode === null && child.signalCode === null) {
+    const exited = new Promise<void>(resolve => child.once('exit', () => resolve()))
+    child.kill('SIGKILL')
+    await exited
+  }
 }
 
 async function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boolean> {
@@ -253,10 +264,10 @@ function leaseData(value: unknown): LeaseData {
   return candidate as LeaseData
 }
 
-function resolveRunDir(context: BrowserClientContext, requested?: string): string {
+function resolveRunDir(context: BrowserClientContext, runId: string, requested?: string): string {
   const root = resolve(context.artifactRoot)
   let path: string
-  if (!requested) path = resolve(root, 'runs', `ad-hoc-${new Date().toISOString().replace(/[:.]/g, '-')}`)
+  if (!requested) path = resolve(root, 'runs', runId)
   else if (requested.startsWith('browser/')) path = resolve(root, requested.slice('browser/'.length))
   else path = isAbsolute(requested) ? resolve(requested) : resolve(root, requested)
   const child = relative(root, path)
@@ -266,9 +277,33 @@ function resolveRunDir(context: BrowserClientContext, requested?: string): strin
   return path
 }
 
-async function readRunResult(runDir: string): Promise<RunResult> {
+// A kernel-held lock allows sequential reuse of --run-dir, rejects concurrent
+// writers, and is released on process exit. Never unlink the lock's inode.
+async function lockRunDirectory(runDir: string) {
+  const file = await open(resolve(runDir, '.run.lock'), 'a', 0o600)
   try {
-    return JSON.parse(await readFile(resolve(runDir, 'result.json'), 'utf8')) as RunResult
+    const library = dlopen(process.platform === 'darwin' ? '/usr/lib/libSystem.B.dylib' : 'libc.so.6', {
+      flock: { args: ['int', 'int'], returns: 'int' }
+    })
+    try {
+      if (library.symbols.flock(file.fd, 2 | 4) !== 0) {
+        throw new BrowserDataError('session_busy', 'run directory is in use', { retryable: true })
+      }
+    } finally {
+      library.close()
+    }
+    return file
+  } catch (error) {
+    await file.close()
+    throw error
+  }
+}
+
+async function readRunResult(runDir: string, runId: string): Promise<RunResult> {
+  try {
+    const result = JSON.parse(await readFile(resolve(runDir, 'result.json'), 'utf8')) as RunResult
+    if (result.run_id !== runId) throw new Error('result belongs to another run')
+    return result
   } catch (error) {
     throw new BrowserDataError('invalid_result', 'browser runner did not write a valid result.json', { cause: error })
   }
@@ -276,10 +311,10 @@ async function readRunResult(runDir: string): Promise<RunResult> {
 
 async function ensureRunResult(runDir: string, value: RunResult): Promise<void> {
   try {
-    await stat(resolve(runDir, 'result.json'))
+    await readRunResult(runDir, value.run_id)
     return
   } catch (error) {
-    if (!isFileNotFound(error)) throw error
+    if (!(error instanceof BrowserDataError && error.code === 'invalid_result')) throw error
   }
   await atomicText(resolve(runDir, 'result.json'), `${JSON.stringify(value, null, 2)}\n`)
 }

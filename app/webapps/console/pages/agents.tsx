@@ -52,6 +52,7 @@ import { AgentLibraryEditorModel } from '../state/agent-library-editor-model'
 import { CustomModelProfilesEditor } from './custom-model-profiles-editor'
 import { ModelProfilesEditor } from './model-profiles-editor'
 import { TokenQuotaEditor } from './token-quota-editor'
+import { TokenQuotaEditorModel } from '../state/token-quota-editor-model'
 import { WorkerEnvAgentSection } from './worker-env-agent-section'
 import { AgentFilesLink } from './agent-files'
 import { AgentWorkerProvider, WorkerProviderSelect } from './agent-worker-provider'
@@ -200,6 +201,7 @@ function AgentEditor({ uid }: { uid?: string }) {
   const navigate = useNavigate()
   const model = useModel(AgentEditorModel)
   const libraryModel = useModel(AgentLibraryEditorModel)
+  const quotaModel = useModel(TokenQuotaEditorModel)
   const displayNameInput = useRef<HTMLInputElement>(null)
   const handleInput = useRef<HTMLInputElement>(null)
   const roleInput = useRef<HTMLInputElement>(null)
@@ -325,7 +327,7 @@ function AgentEditor({ uid }: { uid?: string }) {
       description={t('console.agents.editor_description')}
       backTo="/agents"
       dirty={model.dirty.value}
-      supplementaryDirty={libraryModel.dirty.value}
+      supplementaryDirty={libraryModel.dirty.value || quotaModel.dirty.value}
       error={
         createAgent.error ??
         updateAgent.error ??
@@ -365,7 +367,7 @@ function AgentEditor({ uid }: { uid?: string }) {
               providerKinds={providerKinds.data?.provider_kinds ?? []}
               modelCatalog={modelCatalog.data?.models ?? []}
             />
-            <TokenQuotaEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} />
+            <TokenQuotaEditor key={selectedAgent.uid} agentUID={selectedAgent.uid} model={quotaModel} />
             <WorkerEnvAgentSection agentUID={selectedAgent.uid} />
             <AgentFilesLink agentUID={selectedAgent.uid} />
           </div>

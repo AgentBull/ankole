@@ -1,6 +1,6 @@
 /*
- * Click at the page end (SPEC §7.5 Page-end click). When the last block is a leaf (a database
- * reference, a divider, a read-only block) or a container (a table, a quote, a callout), a click in
+ * Click at the page end (SPEC §7.5 Page-end click). When the last block is a leaf (an embed, a
+ * divider, a read-only block) or a container (a table, a quote, a callout), a click in
  * the empty space below it adds an empty paragraph at the page end and puts the caret there. Below
  * a text block or a list, the click puts the caret in that block as usual.
  */

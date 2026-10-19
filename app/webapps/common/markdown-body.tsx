@@ -8,11 +8,11 @@ const MarkdownRenderer = lazy(() => import('./markdown-renderer'))
  * assistant text). The parser stack loads on demand; until it lands the text
  * shows as plain pre-wrapped prose, so content is readable immediately.
  */
-export function MarkdownBody({ text, className }: { text: string; className?: string }) {
+export function MarkdownBody({ text, className, copyCode }: { text: string; className?: string; copyCode?: boolean }) {
   return (
     <div className={cn('text-sm leading-6 break-words text-foreground', className)}>
       <Suspense fallback={<p className="whitespace-pre-wrap">{text}</p>}>
-        <MarkdownRenderer text={text} />
+        <MarkdownRenderer text={text} copyCode={copyCode} />
       </Suspense>
     </div>
   )

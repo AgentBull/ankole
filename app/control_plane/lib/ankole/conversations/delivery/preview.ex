@@ -184,6 +184,9 @@ defmodule Ankole.Conversations.Delivery.Preview do
 
       [] ->
         continue_without_live_owner(stream_signal_id, new_owner)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -281,7 +284,8 @@ defmodule Ankole.Conversations.Delivery.Preview do
     :global.trans({{__MODULE__, :recovery, signal_id}, self()}, fn ->
       case lookup(signal_id) do
         [] -> recover_without_owner(signal_id) |> start_recovered_preview()
-        _live -> :ok
+        [{_pid, _value}] -> :ok
+        {:error, _reason} = error -> error
       end
     end)
   end
@@ -582,6 +586,9 @@ defmodule Ankole.Conversations.Delivery.Preview do
              :ok <- recover(event.id) do
           :ok
         end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -882,17 +889,18 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   @doc false
-  def lookup(id) do
+  def lookup(id, timeout_ms \\ 5_000) do
     with %Signal{} = event <-
            PreviewState.load(Repo.get(Signal, id), Repo),
          pid when is_pid(pid) <- preview_pid(event),
-         true <- GenServer.call(pid, {:owns_event, id}) do
+         true <- GenServer.call(pid, {:owns_event, id}, timeout_ms) do
       [{pid, nil}]
     else
       _missing -> []
     end
   catch
-    :exit, _reason -> []
+    :exit, {:noproc, _call} -> []
+    :exit, _reason -> {:error, :reply_preview_owner_unavailable}
   end
 
   defp preview_pid(%Signal{} = event) do

@@ -113,10 +113,28 @@ message FilesListResponse {
 message FilesGetRequest {
   string path = 1;
   string home_relative_path = 2;
+  // Read a page-owned path from the Pod drive, authorized as this Agent.
+  bool pod_drive = 3;
 }
 
 message FilesGetResponse {
   DriveFile file = 1;
+}
+
+// Pod domain operations keep their identity in the authenticated turn. The
+// broker accepts a closed operation vocabulary and validates each payload.
+message PodRequest {
+  string operation = 1;
+  bytes params_json = 2;
+}
+
+message PodSyncRequest {
+  string binding_id = 1;
+  string automation_job_run_id = 2;
+  string attempt_id = 3;
+  reserved 4;
+  bytes cursor_json = 5;
+  string records_home_relative_path = 6;
 }
 
 // One file to name at `path`. The control plane pulls `home_relative_path`
@@ -148,6 +166,8 @@ message FilesCommitResponse {
 message ConversationInfo {
   string timezone = 4;
   string drive_directory = 5;
+  string page_id = 6;
+  string pod_instructions = 7;
 }
 
 message RuntimeSkillSummary {

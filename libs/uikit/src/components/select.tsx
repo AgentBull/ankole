@@ -132,7 +132,7 @@ function SelectContent({
           data-slot="select-content"
           data-align-trigger={alignItemWithTrigger}
           className={cn(
-            'ceramic relative isolate z-50 outline-none max-h-(--available-height) p-1 w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground transition-opacity duration-(--duration-overlay) ease-out data-[align-trigger=true]:transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
+            'ceramic relative isolate z-50 outline-none max-h-(--available-height) p-1 w-(--anchor-width) min-w-36 origin-(--transform-origin) overflow-x-hidden overflow-y-auto text-popover-foreground transition-none data-starting-style:opacity-0 data-ending-style:opacity-0',
             className
           )}
           {...props}>

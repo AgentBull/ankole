@@ -85,6 +85,29 @@ describe('@ankole/agent-computer Codex config', () => {
     }
   })
 
+  it('keeps the CP original Human request separate from workspace instructions', () => {
+    const originalHumanRequest =
+      '<original_human_request>\n' +
+      JSON.stringify({ message_id: 'human-message', text: 'Do not run my reserved step.\nI will do it.' }) +
+      '\n</original_human_request>'
+    const config = codexJobThreadConfig({
+      cwd: '/workspace/jobs/1000',
+      codexHome: '/workspace/.codex',
+      env: {},
+      runtime: aigatewayRuntime(),
+      originalHumanRequest,
+      projectConfig: { developer_instructions: 'Delegated workspace guidance.' }
+    })
+    const instructions = String(config.developer_instructions)
+    expect(instructions).toStartWith('Delegated workspace guidance.')
+    expect(instructions).toEndWith(originalHumanRequest)
+    const encoded = instructions.split('<original_human_request>\n')[1]!.split('\n</original_human_request>')[0]!
+    expect(JSON.parse(encoded)).toEqual({
+      message_id: 'human-message',
+      text: 'Do not run my reserved step.\nI will do it.'
+    })
+  })
+
   it('keeps CLI overrides process-scoped and trusts the project through thread config', () => {
     const projectRoot = '/agents/agent.v1/jobs/1000'
     const runtime = aigatewayRuntime()
@@ -96,6 +119,7 @@ describe('@ankole/agent-computer Codex config', () => {
       codexHome: '/agents/agent.v1/.codex',
       env: {},
       runtime,
+      podInstructions: 'Current Page ID: page-123. Save reports as Pod Pages.',
       turnTracePropagation: { traceparent, observabilityUserID },
       projectConfig: {
         features: { plugins: false, code_mode: { enabled: true } },
@@ -128,6 +152,7 @@ describe('@ankole/agent-computer Codex config', () => {
       'cli_auth_credentials_store="file"'
     ])
     expect(threadConfig.projects).toEqual({ [projectRoot]: { trust_level: 'trusted' } })
+    expect(threadConfig.developer_instructions).toContain('Current Page ID: page-123. Save reports as Pod Pages.')
     expect(threadConfig.features).toEqual({
       plugins: true,
       remote_plugin: false,

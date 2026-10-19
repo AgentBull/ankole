@@ -78,6 +78,25 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
     end
   end
 
+  @doc "Returns the persisted client input receipts of one Worker Turn."
+  def applied_signal_ids(%Turn{} = turn) do
+    TurnItem
+    |> where([item], item.turn_id == ^turn.id)
+    |> where([item], fragment("? ->> 'type'", item.item) == "userMessage")
+    |> select([item], item.item_key)
+    |> Repo.all()
+    |> Enum.flat_map(fn
+      "client:" <> id ->
+        case Ecto.UUID.cast(id) do
+          {:ok, id} -> [id]
+          :error -> []
+        end
+
+      _ ->
+        []
+    end)
+  end
+
   @spec list_for_job(pos_integer(), keyword()) :: [Turn.t()]
   def list_for_job(job_id, opts \\ []) when is_integer(job_id) and job_id > 0 do
     limit = opts |> Keyword.get(:limit, 100) |> max(1) |> min(200)

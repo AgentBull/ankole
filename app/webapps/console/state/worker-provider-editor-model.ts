@@ -24,6 +24,7 @@ export function newWorkerProviderDraft(kind: WorkerProviderKind): WorkerProvider
 }
 
 export const WorkerProviderEditorModel = createModel(() => {
+  let generation = Symbol()
   const sourceKey = signal<string>()
   const providerID = signal('')
   const displayName = signal('')
@@ -48,6 +49,10 @@ export const WorkerProviderEditorModel = createModel(() => {
   )
 
   return {
+    resetSource() {
+      generation = Symbol()
+      sourceKey.value = undefined
+    },
     sourceKey,
     providerID,
     displayName,
@@ -58,6 +63,7 @@ export const WorkerProviderEditorModel = createModel(() => {
     dirty,
     initialize(key: string, source: WorkerProviderDraft) {
       if (sourceKey.value === key) return
+      generation = Symbol()
       batch(() => {
         sourceKey.value = key
         providerID.value = source.providerID
@@ -70,6 +76,7 @@ export const WorkerProviderEditorModel = createModel(() => {
       })
     },
     selectKind(definition: WorkerProviderKind) {
+      generation = Symbol()
       batch(() => {
         kind.value = definition.kind
         config.value = definition.example
@@ -79,11 +86,39 @@ export const WorkerProviderEditorModel = createModel(() => {
     setCredential(name: string, value: string | null) {
       credentials.value = { ...credentials.value, [name]: value }
     },
-    markSaved() {
-      batch(() => {
-        initialDraft.value = draft.value
-        credentials.value = {}
-      })
+    captureSave() {
+      const requestedGeneration = generation
+      const submitted = {
+        providerID: providerID.value,
+        displayName: displayName.value,
+        kind: kind.value,
+        config: config.value,
+        isDefault: isDefault.value
+      }
+      const submittedCredentials = { ...credentials.value }
+      return (accepted: WorkerProviderDraft) => {
+        if (generation !== requestedGeneration) return false
+        batch(() => {
+          if (JSON.stringify(providerID.value) === JSON.stringify(submitted.providerID)) {
+            providerID.value = accepted.providerID
+          }
+          if (JSON.stringify(displayName.value) === JSON.stringify(submitted.displayName)) {
+            displayName.value = accepted.displayName
+          }
+          if (JSON.stringify(kind.value) === JSON.stringify(submitted.kind)) kind.value = accepted.kind
+          if (JSON.stringify(config.value) === JSON.stringify(submitted.config)) config.value = accepted.config
+          if (JSON.stringify(isDefault.value) === JSON.stringify(submitted.isDefault)) {
+            isDefault.value = accepted.isDefault
+          }
+          initialDraft.value = { ...accepted }
+          credentials.value = Object.fromEntries(
+            Object.entries(credentials.value).filter(
+              ([key, value]) => !(key in submittedCredentials) || value !== submittedCredentials[key]
+            )
+          )
+        })
+        return true
+      }
     }
   }
 })

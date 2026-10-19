@@ -71,6 +71,7 @@ pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
     let mut resolver =
         api_resolver::APIResolver::new(spec.api_resolver, spec.response_context.clone());
     let mut completed_items = BTreeMap::new();
+    let mut completed_bytes = 2usize;
     let mut raw_body_bytes = 0usize;
 
     let mut idle = SemanticIdle::new(spec.upstream.timeout.idle_duration());
@@ -105,7 +106,12 @@ pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
                     )
                 })?;
                 let events = resolver.ingest(value)?;
-                remember_completed_items(&events, &mut completed_items);
+                remember_completed_items(
+                    &events,
+                    &mut completed_items,
+                    &mut completed_bytes,
+                    spec.limits.max_pending_bytes,
+                )?;
 
                 if let Some(body) = collected_terminal_body(&events) {
                     ensure_collected_body_size(&body, spec.limits.max_pending_bytes)?;
@@ -162,7 +168,12 @@ pub(in crate::universal_ai_client) async fn run_websocket_model_request_once(
     }
 }
 
-fn remember_completed_items(events: &[Value], completed_items: &mut BTreeMap<usize, Value>) {
+fn remember_completed_items(
+    events: &[Value],
+    completed_items: &mut BTreeMap<usize, Value>,
+    retained_bytes: &mut usize,
+    max_bytes: usize,
+) -> Result<(), StreamError> {
     for event in events {
         if event.get("type").and_then(Value::as_str) != Some("response.output_item.done") {
             continue;
@@ -177,8 +188,43 @@ fn remember_completed_items(events: &[Value], completed_items: &mut BTreeMap<usi
         let Some(item) = event.get("item").filter(|item| item.is_object()) else {
             continue;
         };
+        let previous = completed_items.get(&output_index);
+        let previous_bytes = previous
+            .map(|item| sonic_rs::to_vec(item).map(|v| v.len()))
+            .transpose()
+            .map_err(|_| {
+                StreamError::new(
+                    "response_encode_failed",
+                    "hosted_responses",
+                    "completed item could not be encoded",
+                )
+            })?
+            .unwrap_or(0);
+        let item_bytes = sonic_rs::to_vec(item)
+            .map_err(|_| {
+                StreamError::new(
+                    "response_encode_failed",
+                    "hosted_responses",
+                    "completed item could not be encoded",
+                )
+            })?
+            .len();
+        let separator = usize::from(previous.is_none() && !completed_items.is_empty());
+        let next_bytes = retained_bytes
+            .saturating_sub(previous_bytes)
+            .saturating_add(item_bytes)
+            .saturating_add(separator);
+        if next_bytes > max_bytes.max(1) {
+            return Err(StreamError::new(
+                "response_body_too_large",
+                "hosted_responses",
+                "collected WebSocket output exceeded the configured response byte limit",
+            ));
+        }
         completed_items.insert(output_index, item.clone());
+        *retained_bytes = next_bytes;
     }
+    Ok(())
 }
 
 fn collected_terminal_body(events: &[Value]) -> Option<Value> {
@@ -225,4 +271,28 @@ fn missing_websocket_terminal_error() -> StreamError {
         "api_resolver",
         "upstream WebSocket closed before a terminal response event",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn collected_items_count_the_retained_array_and_replacements_before_terminal() {
+        let mut items = BTreeMap::new();
+        let mut bytes = 2;
+        let done = |index, text: &str| json!({"type":"response.output_item.done","output_index":index,"item":{"text":text}});
+        remember_completed_items(&[done(0, "first")], &mut items, &mut bytes, 64).unwrap();
+        remember_completed_items(&[done(0, "x")], &mut items, &mut bytes, 64).unwrap();
+        assert_eq!(
+            bytes,
+            sonic_rs::to_vec(&json!([{"text":"x"}])).unwrap().len()
+        );
+        let before = bytes;
+        assert!(
+            remember_completed_items(&[done(1, &"large".repeat(20))], &mut items, &mut bytes, 64)
+                .is_err()
+        );
+        assert_eq!(items.len(), 1);
+        assert_eq!(bytes, before);
+    }
 }

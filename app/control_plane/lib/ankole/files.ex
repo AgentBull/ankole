@@ -1,8 +1,8 @@
 defmodule Ankole.Files do
   @moduledoc """
-  Each Agent's drive in the control plane.
+  Agent and Pod drives in the control plane.
 
-  A drive file is one `agent_files` row: a path that names one byte content in
+  A drive file is one `drive_files` row: a path that names one byte content in
   `files`. The bytes are content addressed. The object key is
   `blobs/<sha256 hex>` in `Ankole.ObjectStore`, so one content is stored once
   however many Agents and paths name it.
@@ -10,7 +10,8 @@ defmodule Ankole.Files do
   A write has two steps. `store/1` makes the bytes durable and returns their
   digest; `commit/4` then names digests at paths in one transaction. The
   collection job (`Ankole.Files.Jobs.CollectUnreferenced`) removes contents
-  with no drive or uncompleted Delivery reference, after the one-day grace. The order of the steps and the
+  with no drive, Message attachment, or uncompleted Delivery reference after
+  the one-day grace. The order of the steps and the
   `deleting` mark keep the two from racing:
 
     * `store/1` inserts or refreshes the `files` row first, which clears
@@ -28,11 +29,13 @@ defmodule Ankole.Files do
 
   import Ecto.Query
 
-  alias Ankole.Files.Schemas.AgentFile
+  alias Ankole.Files.Schemas.DriveFile
   alias Ankole.Files.Schemas.Blob
   alias Ankole.ObjectStore
   alias Ankole.Principals
   alias Ankole.Repo
+
+  defguardp is_drive(drive) when is_binary(drive) or drive == :pod
 
   @max_path_bytes 1024
   @max_segment_bytes 255
@@ -40,8 +43,9 @@ defmodule Ankole.Files do
   @default_list_limit 1000
   @max_list_limit 5000
 
+  @type drive :: String.t() | :pod
   @type sha256_hex :: String.t()
-  @type commit_result :: %{files: [AgentFile.t()], deleted: non_neg_integer()}
+  @type commit_result :: %{files: [DriveFile.t()], deleted: non_neg_integer()}
   @type stored :: %{sha256: sha256_hex(), size: non_neg_integer()}
   @type upsert :: %{
           required(:path) => String.t(),
@@ -82,30 +86,31 @@ defmodule Ankole.Files do
   `{:error, {:path_conflict, parent, child}}` rejects a file that would also
   name a folder. The drive lock serializes changes to one Agent's path tree.
   """
-  @spec commit(String.t(), [upsert()], [String.t()]) ::
+  @spec commit(drive(), [upsert()], [String.t()]) ::
           {:ok, commit_result()} | {:error, term()}
-  def commit(agent_uid, upserts, deletes \\ []) when is_binary(agent_uid) do
-    Repo.transact(fn repo -> commit(repo, agent_uid, upserts, deletes) end)
+  def commit(drive, upserts, deletes \\ []) when is_drive(drive) do
+    Repo.transact(fn repo -> commit(repo, drive, upserts, deletes) end)
   end
 
   @doc """
   Same as `commit/3` inside the caller's transaction on `repo`.
   """
-  @spec commit(module(), String.t(), [upsert()], [String.t()]) ::
+  @spec commit(module(), drive(), [upsert()], [String.t()]) ::
           {:ok, commit_result()} | {:error, term()}
-  def commit(repo, agent_uid, upserts, deletes)
-      when is_atom(repo) and is_binary(agent_uid) and is_list(upserts) and is_list(deletes) do
+  def commit(repo, drive, upserts, deletes)
+      when is_atom(repo) and is_drive(drive) and is_list(upserts) and
+             is_list(deletes) do
     with {:ok, upserts} <- normalize_upserts(upserts),
          {:ok, deletes} <- normalize_paths(deletes),
-         :ok <- lock_drive(repo, agent_uid),
+         :ok <- lock_drive(repo, drive),
          {:ok, sizes} <- reference_blobs(repo, Enum.map(upserts, & &1.sha256)),
-         deleted = deletes |> Enum.map(&delete_path_in_tx(repo, agent_uid, &1)) |> Enum.sum(),
-         :ok <- validate_path_tree(repo, agent_uid, upserts) do
+         deleted = deletes |> Enum.map(&delete_path_in_tx(repo, drive, &1)) |> Enum.sum(),
+         :ok <- validate_path_tree(repo, drive, upserts) do
       now = DateTime.utc_now()
 
       files =
         Enum.map(upserts, fn upsert ->
-          {:ok, file} = upsert_file(repo, agent_uid, upsert, now)
+          {:ok, file} = upsert_file(repo, drive, upsert, now)
           %{file | size: Map.fetch!(sizes, file.sha256)}
         end)
 
@@ -119,29 +124,42 @@ defmodule Ankole.Files do
   Library uses this lock to read a complete installed-Skill snapshot. A
   separate namespace avoids reversing the Principal and Agent row lock order.
   """
-  @spec lock_drive(module(), String.t()) :: :ok | {:error, term()}
-  def lock_drive(repo, agent_uid) do
-    with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["agent-drive:#{agent_uid}"])
+  @spec lock_drive(module(), drive()) :: :ok | {:error, term()}
+  def lock_drive(repo, :pod) do
+    repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["pod-drive:#{Repo.tenant_id!()}"])
+    :ok
+  end
+
+  def lock_drive(repo, drive) do
+    with {:ok, drive} <- Principals.normalize_uid(drive) do
+      repo.query!("SELECT pg_advisory_xact_lock(hashtext($1))", ["agent-drive:#{drive}"])
       :ok
     end
   end
 
   @doc "Returns one drive file with its size."
-  @spec fetch(String.t(), String.t()) :: {:ok, AgentFile.t()} | {:error, term()}
-  def fetch(agent_uid, path) when is_binary(agent_uid) do
+  @spec fetch(drive(), String.t()) :: {:ok, DriveFile.t()} | {:error, term()}
+  def fetch(drive, path) when is_drive(drive) do
     with {:ok, path} <- normalize_path(path) do
-      case Repo.one(files_query(agent_uid) |> where([file], file.path == ^path)) do
-        %AgentFile{} = file -> {:ok, file}
+      case Repo.one(files_query(drive) |> where([file], file.path == ^path)) do
+        %DriveFile{} = file -> {:ok, file}
         nil -> {:error, :not_found}
       end
     end
   end
 
+  @doc "Returns the existing files at the requested paths in one drive."
+  @spec fetch_many(drive(), [String.t()]) :: {:ok, [DriveFile.t()]} | {:error, term()}
+  def fetch_many(drive, paths) when is_drive(drive) and is_list(paths) do
+    with {:ok, paths} <- normalize_paths(paths) do
+      {:ok, Repo.all(from(file in files_query(drive), where: file.path in ^paths))}
+    end
+  end
+
   @doc "Reads one drive file into memory."
-  @spec read(String.t(), String.t()) :: {:ok, AgentFile.t(), binary()} | {:error, term()}
-  def read(agent_uid, path) do
-    with {:ok, file} <- fetch(agent_uid, path),
+  @spec read(drive(), String.t()) :: {:ok, DriveFile.t(), binary()} | {:error, term()}
+  def read(drive, path) do
+    with {:ok, file} <- fetch(drive, path),
          {:ok, content} <- read_object(file.sha256) do
       {:ok, file, content}
     end
@@ -160,10 +178,16 @@ defmodule Ankole.Files do
     end
   end
 
+  @doc "Copies frozen attachment bytes into a local file without requiring its old drive path."
+  @spec read_content_to_file(sha256_hex(), Path.t()) :: :ok | {:error, term()}
+  def read_content_to_file(sha256, local_path) do
+    with {:ok, digest} <- decode_sha256(sha256), do: read_object_to_file(digest, local_path)
+  end
+
   @doc "Copies one drive file into a local file on this node."
-  @spec read_to_file(String.t(), String.t(), Path.t()) :: {:ok, AgentFile.t()} | {:error, term()}
-  def read_to_file(agent_uid, path, local_path) do
-    with {:ok, file} <- fetch(agent_uid, path),
+  @spec read_to_file(drive(), String.t(), Path.t()) :: {:ok, DriveFile.t()} | {:error, term()}
+  def read_to_file(drive, path, local_path) do
+    with {:ok, file} <- fetch(drive, path),
          :ok <- read_object_to_file(file.sha256, local_path) do
       {:ok, file}
     end
@@ -190,18 +214,18 @@ defmodule Ankole.Files do
   last page. `snapshot: true` adds a digest of the complete folder's path,
   content, and mode manifest, read under the drive lock.
   """
-  @spec list(String.t(), String.t(), keyword()) ::
-          {:ok, %{files: [AgentFile.t()], next_after: String.t() | nil}} | {:error, term()}
-  def list(agent_uid, prefix \\ "", opts \\ []) when is_binary(agent_uid) do
+  @spec list(drive(), String.t(), keyword()) ::
+          {:ok, %{files: [DriveFile.t()], next_after: String.t() | nil}} | {:error, term()}
+  def list(drive, prefix \\ "", opts \\ []) when is_drive(drive) do
     repo = Keyword.get(opts, :repo, Repo)
     limit = opts |> Keyword.get(:limit, @default_list_limit) |> min(@max_list_limit) |> max(1)
 
     if Keyword.get(opts, :snapshot, false) do
       repo.transact(fn repo ->
-        with :ok <- lock_drive(repo, agent_uid),
-             {:ok, query} <- prefix_query(files_query(agent_uid), prefix),
+        with :ok <- lock_drive(repo, drive),
+             {:ok, query} <- prefix_query(files_query(drive), prefix),
              {:ok, page} <-
-               list(agent_uid, prefix, Keyword.merge(opts, snapshot: false, repo: repo)) do
+               list(drive, prefix, Keyword.merge(opts, snapshot: false, repo: repo)) do
           manifest =
             query
             |> exclude(:select)
@@ -216,12 +240,12 @@ defmodule Ankole.Files do
         end
       end)
     else
-      list_page(repo, agent_uid, prefix, opts, limit)
+      list_page(repo, drive, prefix, opts, limit)
     end
   end
 
-  defp list_page(repo, agent_uid, prefix, opts, limit) do
-    with {:ok, query} <- prefix_query(files_query(agent_uid), prefix),
+  defp list_page(repo, drive, prefix, opts, limit) do
+    with {:ok, query} <- prefix_query(files_query(drive), prefix),
          {:ok, query} <- after_query(query, Keyword.get(opts, :after)) do
       files =
         query
@@ -241,18 +265,20 @@ defmodule Ankole.Files do
   #{@default_list_limit}). `truncated` is true when either list stopped at
   the bound, so a reader never takes a partial folder for the whole one.
   """
-  @spec list_children(String.t(), String.t(), keyword()) ::
-          {:ok, %{folders: [String.t()], files: [AgentFile.t()], truncated: boolean()}}
+  @spec list_children(drive(), String.t(), keyword()) ::
+          {:ok, %{folders: [String.t()], files: [DriveFile.t()], truncated: boolean()}}
           | {:error, term()}
-  def list_children(agent_uid, prefix \\ "", opts \\ []) when is_binary(agent_uid) do
+  def list_children(drive, prefix \\ "", opts \\ [])
+      when is_drive(drive) do
     limit = opts |> Keyword.get(:limit, @default_list_limit) |> min(@max_list_limit) |> max(1)
 
     with {:ok, scope} <- children_scope(prefix) do
       {like_pattern, offset} = scope
 
       base =
-        from(file in AgentFile,
-          where: file.agent_uid == ^agent_uid and like(file.path, ^like_pattern)
+        from(file in DriveFile,
+          where: ^drive_scope(drive),
+          where: like(file.path, ^like_pattern)
         )
 
       folders =
@@ -265,7 +291,7 @@ defmodule Ankole.Files do
         |> Repo.all()
 
       files =
-        files_query(agent_uid)
+        files_query(drive)
         |> where([file], like(file.path, ^like_pattern))
         |> where([file], fragment("strpos(substr(?, ?), '/') = 0", file.path, ^offset))
         |> order_by([file], asc: file.path)
@@ -289,19 +315,19 @@ defmodule Ankole.Files do
   target path fails the move with
   `:already_exists`. A folder cannot move into itself.
   """
-  @spec move(String.t(), String.t(), String.t()) ::
+  @spec move(drive(), String.t(), String.t()) ::
           {:ok, non_neg_integer()} | {:error, term()}
-  def move(agent_uid, from_path, to_path) when is_binary(agent_uid) do
+  def move(drive, from_path, to_path) when is_drive(drive) do
     with {:ok, from_path} <- normalize_path(from_path),
          {:ok, to_path} <- normalize_path(to_path),
          :ok <- validate_move_target(from_path, to_path) do
       Repo.transact(fn repo ->
-        with :ok <- lock_drive(repo, agent_uid) do
+        with :ok <- lock_drive(repo, drive) do
           # Remove the source paths before checking the final tree. A folder
           # can move up into its parent without conflicting with itself.
           {_count, sources} =
-            from(file in AgentFile,
-              where: file.agent_uid == ^agent_uid,
+            from(file in DriveFile,
+              where: ^drive_scope(drive),
               where: ^subtree(from_path),
               select: file
             )
@@ -310,7 +336,7 @@ defmodule Ankole.Files do
           moved = Enum.map(sources, &%{&1 | path: moved_path(&1.path, from_path, to_path)})
 
           with :ok <- require_sources(sources),
-               :ok <- validate_path_tree(repo, agent_uid, moved),
+               :ok <- validate_path_tree(repo, drive, moved),
                :ok <- insert_moved(repo, moved) do
             {:ok, length(moved)}
           end
@@ -320,24 +346,24 @@ defmodule Ankole.Files do
   end
 
   @doc "Removes one path and every path under it. Returns how many files were removed."
-  @spec delete(String.t(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def delete(agent_uid, path) when is_binary(agent_uid) do
+  @spec delete(drive(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def delete(drive, path) when is_drive(drive) do
     with {:ok, path} <- normalize_path(path) do
       Repo.transact(fn repo ->
-        with :ok <- lock_drive(repo, agent_uid) do
-          {:ok, delete_path_in_tx(repo, agent_uid, path)}
+        with :ok <- lock_drive(repo, drive) do
+          {:ok, delete_path_in_tx(repo, drive, path)}
         end
       end)
     end
   end
 
-  @doc "Returns whether the Agent's drive already names one content at some path."
-  @spec drive_has_content?(String.t(), sha256_hex()) :: boolean()
-  def drive_has_content?(agent_uid, sha256) when is_binary(agent_uid) do
+  @doc "Returns whether the drive already names one content at some path."
+  @spec drive_has_content?(drive(), sha256_hex()) :: boolean()
+  def drive_has_content?(drive, sha256) when is_drive(drive) do
     case decode_sha256(sha256) do
       {:ok, digest} ->
         Repo.exists?(
-          from(file in AgentFile, where: file.agent_uid == ^agent_uid and file.sha256 == ^digest)
+          from(file in DriveFile, where: ^drive_scope(drive), where: file.sha256 == ^digest)
         )
 
       {:error, _reason} ->
@@ -436,25 +462,56 @@ defmodule Ankole.Files do
 
   def file_name(_name), do: "file"
 
-  defp validate_path_tree(repo, agent_uid, upserts) do
-    paths =
-      from(file in AgentFile, where: file.agent_uid == ^agent_uid, select: file.path)
-      |> repo.all()
-      |> Enum.concat(Enum.map(upserts, & &1.path))
-      |> MapSet.new()
+  defp validate_path_tree(_repo, _drive, []), do: :ok
 
-    Enum.reduce_while(paths, :ok, fn path, :ok ->
-      parent =
-        path
-        |> String.split("/")
-        |> Enum.drop(-1)
-        |> Enum.scan(&(&2 <> "/" <> &1))
-        |> Enum.find(&MapSet.member?(paths, &1))
+  defp validate_path_tree(repo, drive, upserts) do
+    paths = MapSet.new(upserts, & &1.path)
 
-      if parent,
-        do: {:halt, {:error, {:path_conflict, parent, path}}},
-        else: {:cont, :ok}
-    end)
+    ancestors =
+      Map.new(
+        Enum.flat_map(paths, fn path ->
+          path
+          |> String.split("/")
+          |> Enum.drop(-1)
+          |> Enum.scan(&(&2 <> "/" <> &1))
+          |> Enum.map(&{&1, path})
+        end)
+      )
+
+    descendant =
+      Enum.reduce(paths, dynamic(false), fn path, predicate ->
+        prefix = Repo.escape_like(path) <> "/%"
+        dynamic([file], ^predicate or like(file.path, ^prefix))
+      end)
+
+    conflict_path = dynamic([file], file.path in ^Map.keys(ancestors) or ^descendant)
+
+    conflict =
+      Enum.find(Map.keys(ancestors), &MapSet.member?(paths, &1)) ||
+        repo.one(
+          from(file in DriveFile,
+            where: ^drive_scope(drive),
+            where: ^conflict_path,
+            select: file.path,
+            order_by: file.path,
+            limit: 1
+          )
+        )
+
+    case conflict do
+      nil ->
+        :ok
+
+      path ->
+        case Map.fetch(ancestors, path) do
+          {:ok, child} ->
+            {:error, {:path_conflict, path, child}}
+
+          :error ->
+            parent = Enum.find(paths, &String.starts_with?(path, &1 <> "/"))
+            {:error, {:path_conflict, parent, path}}
+        end
+    end
   end
 
   defp digest({:file, path}) when is_binary(path) do
@@ -587,9 +644,9 @@ defmodule Ankole.Files do
     end
   end
 
-  defp upsert_file(repo, agent_uid, upsert, now) do
-    file = %AgentFile{
-      agent_uid: agent_uid,
+  defp upsert_file(repo, drive, upsert, now) do
+    file = %DriveFile{
+      agent_uid: if(drive == :pod, do: nil, else: drive),
       path: upsert.path,
       sha256: upsert.sha256,
       mode: upsert.mode,
@@ -613,15 +670,15 @@ defmodule Ankole.Files do
            :message_id,
            :updated_at
          ]},
-      conflict_target: [:agent_uid, :path],
+      conflict_target: [:tenant_id, :agent_uid, :path],
       returning: true
     )
   end
 
-  defp delete_path_in_tx(repo, agent_uid, path) do
+  defp delete_path_in_tx(repo, drive, path) do
     {count, _rows} =
-      AgentFile
-      |> where([file], file.agent_uid == ^agent_uid)
+      DriveFile
+      |> where([file], ^drive_scope(drive))
       |> where(^subtree(path))
       |> repo.delete_all()
 
@@ -673,9 +730,9 @@ defmodule Ankole.Files do
     |> Enum.chunk_every(1000)
     |> Enum.reduce_while(:ok, fn rows, :ok ->
       {count, _rows} =
-        repo.insert_all(AgentFile, rows,
+        repo.insert_all(DriveFile, rows,
           on_conflict: :nothing,
-          conflict_target: [:agent_uid, :path]
+          conflict_target: [:tenant_id, :agent_uid, :path]
         )
 
       if count == length(rows), do: {:cont, :ok}, else: {:halt, {:error, :already_exists}}
@@ -692,10 +749,13 @@ defmodule Ankole.Files do
     end
   end
 
-  defp files_query(agent_uid) do
-    from(file in AgentFile,
+  defp drive_scope(:pod), do: dynamic([file], is_nil(file.agent_uid))
+  defp drive_scope(drive), do: dynamic([file], file.agent_uid == ^drive)
+
+  defp files_query(drive) do
+    from(file in DriveFile,
       join: blob in assoc(file, :blob),
-      where: file.agent_uid == ^agent_uid,
+      where: ^drive_scope(drive),
       select_merge: %{size: blob.size}
     )
   end
@@ -732,7 +792,7 @@ defmodule Ankole.Files do
   defp decode_sha256(value), do: {:error, {:invalid_sha256, value}}
 
   defp validate_source(source) do
-    if source in AgentFile.sources(), do: :ok, else: {:error, {:invalid_source, source}}
+    if source in DriveFile.sources(), do: :ok, else: {:error, {:invalid_source, source}}
   end
 
   defp normalize_mode(nil), do: {:ok, 0o644}

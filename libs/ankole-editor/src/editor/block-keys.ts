@@ -24,7 +24,7 @@ import { KeyBinding, Wordgard } from '../core/editor'
 import { GardSelection, GardState, Transaction } from '../core/state'
 import * as T from '../core/types'
 import { Callout } from '../blocks/callout'
-import { Database } from '../blocks/database'
+import { Embed } from '../blocks/embed'
 import { isList } from './block-insert'
 import {
   childAt,
@@ -67,7 +67,7 @@ function caretBlock(state: GardState, side: -1 | 1): Pos.Plot | null {
   return block && (side < 0 ? head.isAtStart(block) : head.isAtEnd(block)) ? block : null
 }
 
-/** A caret between blocks next to a block leaf, such as a divider or a database reference. */
+/** A caret between blocks next to a block leaf, such as a divider or an embed. */
 function besideLeaf(state: GardState, side: -1 | 1) {
   const { head } = state.sel
   const node = side < 0 ? head.nodeBefore : head.nodeAfter
@@ -76,7 +76,7 @@ function besideLeaf(state: GardState, side: -1 | 1) {
 
 /**
  * The last place for text in `node`: its last text block, or an empty block that can hold one.
- * Leaf blocks such as dividers and database references have none.
+ * Leaf blocks such as dividers and embeds have none.
  */
 function lastTextPlace(state: GardState, node: Pos.Node): Pos.Plot | null {
   if (!(node instanceof Pos.Plot)) return null
@@ -473,7 +473,7 @@ const deleteToLineEndWithoutKill: Command = wg =>
     deleteUnit(wg, 'forward'))
 
 /**
- * Up and Down go past a database reference (SPEC §7.5 Database references). Where the core's motion
+ * Up and Down go past an embed (SPEC §7.5 Embeds). Where the core's motion
  * selects one, the motion goes on from beside it. With nothing past it, the caret stays.
  */
 const lineMotion: Command<{ dir: 'up' | 'down'; extend?: boolean }> = (wg, param) => {
@@ -482,7 +482,7 @@ const lineMotion: Command<{ dir: 'up' | 'down'; extend?: boolean }> = (wg, param
   if (typeof moved == 'boolean') return moved
   const forward = param.dir == 'down'
   let selection = moved.selection as GardSelection | null
-  while (selection instanceof GardSelection.Node && selection.node.type == Database.type) {
+  while (selection instanceof GardSelection.Node && selection.node.type == Embed.type) {
     const beside = GardSelection.cursor(forward ? selection.to : selection.from, forward ? 1 : -1, selection.goalColumn)
     selection = wg.moveVertically(beside, forward, undefined, true)
   }

@@ -83,12 +83,15 @@ defmodule Ankole.Sessions.Context do
   end
 
   defp conversation_info(conversation) do
+    origin = ExternalTarget.origin(conversation)
+
     %{
       id: conversation.id,
       key: conversation.conversation_key,
       started_at: datetime(conversation.inserted_at) || "",
       timezone: installation_timezone(),
-      origin_channel: ExternalTarget.origin(conversation)
+      origin_channel: origin,
+      page_id: origin && origin.page_id
     }
   end
 

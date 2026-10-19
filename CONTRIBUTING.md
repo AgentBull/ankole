@@ -10,8 +10,8 @@ its own people, Agents, Brain and integrations. Site operators manage shared
 providers and infrastructure. The administrator Console defaults to
 `/site-admin-console`; `/console` returns 404 after this upgrade. Set
 `ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup to choose another absolute path.
-Keep that path in operator configuration. Active Humans can sign in to `/pod`
-through their tenant's providers. An OIDC application can also start login.
+Keep that path in operator configuration. Active Humans sign in on their tenant's
+slug host (locally, `http://<tenant-slug>.ankole.localhost:4000/`) through its providers. An OIDC application can also start login.
 The site administration Console keeps its separate administrator gate.
 
 ## Source builds
@@ -130,7 +130,7 @@ You do not need to learn every runtime before starting. The repository-level Bun
 | Component | What it does | Source | Local surface |
 | --- | --- | --- | --- |
 | PostgreSQL | Stores all durable control-plane state | Devkit Compose service | `localhost:5433` |
-| Control Plane | Runs setup, Console APIs, configuration, durable workflows, and runtime authority | `app/control_plane` | `http://localhost:4000` |
+| Control Plane | Runs setup, Console APIs, configuration, durable workflows, and runtime authority | `app/control_plane` | `http://ankole.localhost:4000` |
 | Webapps | Provide setup, authentication, and Console pages | `app/webapps` | Vite on `localhost:3035`, served through the control plane |
 | Agent Computer | Runs environment tools, Codex, Skill materialization, and Worker-local state | `app/agent_computer` | One Docker container per Agent, label `ankole.installation=dev` |
 | Kernel | Provides native primitives and AI transport | `app/kernel` | Loaded by Elixir through Rustler |
@@ -280,10 +280,10 @@ In another terminal, verify the visible boundaries:
 
 ```bash
 bun run services:status
-curl -I http://localhost:4000/
+curl -I http://ankole.localhost:4000/
 ```
 
-The database must be healthy and the HTTP request must reach the control plane. Then open [`http://localhost:4000`](http://localhost:4000). Create an Agent and wait for its Worker to become ready. List the containers with `docker ps -a --filter label=ankole.installation=dev`. Initial image preparation can take time; the creation request does not wait for it. After idle release, an environment tool or Job requests the Worker again; pure questions do not wait for it.
+The database must be healthy and the HTTP request must reach the control plane. Then open [`http://ankole.localhost:4000`](http://ankole.localhost:4000). Create an Agent and wait for its Worker to become ready. List the containers with `docker ps -a --filter label=ankole.installation=dev`. Initial image preparation can take time; the creation request does not wait for it. After idle release, an environment tool or Job requests the Worker again; pure questions do not wait for it.
 
 The development control plane listens on every interface, because Worker containers reach it through the Docker bridge gateway (`host.docker.internal`). On a shared network, block port 4000 from other machines.
 
@@ -330,7 +330,7 @@ Add these two URLs to the application's security settings:
 
 ```text
 https://open.feishu.cn/app/<APP_ID>/safe
-http://localhost:4000/sessions/oidc/lark-main/callback
+http://ankole.localhost:4000/sessions/oidc/lark-main/callback
 ```
 
 Replace `<APP_ID>` in the first URL with this application's real App ID. Do not paste the placeholder literally.
@@ -340,7 +340,7 @@ The second URL is the OIDC callback sent by the current setup flow. Feishu requi
 Keep these identities consistent:
 
 - identity provider ID: `lark-main`;
-- OIDC callback: `http://localhost:4000/sessions/oidc/lark-main/callback`;
+- OIDC callback: `http://ankole.localhost:4000/sessions/oidc/lark-main/callback`;
 - Signal platform-principal namespace: `lark-main`.
 
 `localhost` and `127.0.0.1` are different OAuth redirect URIs. Use the documented `localhost` URL unless you also update the exact Feishu allowlist entry.
@@ -526,7 +526,7 @@ A failed migration or an unfamiliar Ecto error is not automatic permission to re
 ### The page does not open
 
 ```bash
-curl -I http://localhost:4000/
+curl -I http://ankole.localhost:4000/
 lsof -nP -iTCP:4000 -sTCP:LISTEN
 lsof -nP -iTCP:3035 -sTCP:LISTEN
 ```
@@ -542,7 +542,7 @@ Click reprint, inspect the `bun dev` terminal, then use `bun run kit show bootst
 Confirm that the browser origin, provider ID, and Feishu allowlist produce exactly:
 
 ```text
-http://localhost:4000/sessions/oidc/lark-main/callback
+http://ankole.localhost:4000/sessions/oidc/lark-main/callback
 ```
 
 ### Login works but the bot does not reply
@@ -571,7 +571,7 @@ Worker environment changes are injected into new turns. Send a new message after
 
 ## Work on a contribution
 
-Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implementation rules. Follow its task-specific guidance links as needed.
+Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implementation rules.
 
 ### Repository map
 
@@ -653,6 +653,58 @@ configuration, `tini`, pinned Codex bindings, browser, OCR, and installed Lark
 CLI. `bun run test:docker` runs the unit suite in the image. Only the Docker
 commands require Docker and a current Worker image.
 
+### Pod content checks
+
+The Pod domain tests are under `test/ankole/pod`. Dedicated integration files
+check concurrent page moves, interrupted purge, tenant teardown, and 100,000-row
+Database queries with committed PostgreSQL transactions. Use a separate test
+partition. The GitHub sync file has the `external` tag and makes a read-only
+request to the public GitHub API; run it explicitly when network access is
+available.
+
+The real-browser check uses the production Pod and SDK with three authenticated
+identities. In separate terminals, run:
+
+```bash
+# Build the production frontend assets.
+cd app/webapps
+bun run build
+```
+
+```bash
+# Create a dedicated browser-test database and start its authenticated fixture.
+cd app/control_plane
+MIX_ENV=test MIX_TEST_PARTITION=pod_browser mix ecto.create
+MIX_ENV=test MIX_TEST_PARTITION=pod_browser mix ecto.migrate
+MIX_ENV=test MIX_TEST_PARTITION=pod_browser \
+  POD_BROWSER_STATE_PATH=/tmp/ankole-pod-browser.json \
+  mix run --no-start integration/support/pod_browser_server.exs
+```
+
+```bash
+cd app/webapps
+POD_BROWSER_STATE_PATH=/tmp/ankole-pod-browser.json bun run test:pod
+```
+
+The fixture binds `127.0.0.1:4000` by default. Set `POD_BROWSER_PORT` and use a
+distinct `pod_browser_`-prefixed test partition to run beside another fixture.
+It serves the built production assets on
+`http://<tenant-slug>.ankole.localhost:4000`. The state file supplies that canonical
+`base_url` and the site's shared account proof cookies; use it rather than navigating to the bind
+address or adding `tenant_id` to a URL. Stop another local server on that port
+before starting it. Each fixture start
+creates a new tenant and writes test identities to the state file with mode
+`0600`. Treat that file as credentials and remove it after the check. The browser database
+uses the normal connection pool so channel processes do not keep SQL Sandbox
+checkouts. The test does not bypass endpoint or page authorization. It covers
+live edits, tables, Applet publication, access revocation, and Office previews.
+Its independent sample-reservation workspace uses the production native Applet
+backend and committed records. The backend story checks pending submission,
+retained inputs after rejection, viewer write denial, competing reservations,
+and revision-paired frontend/backend replacement. It delays delivery of one
+real committed response to inspect pending UI; it does not replace that write.
+Run `test:garfish` separately for sandbox effects and entry-style scoping.
+
 ### Full local quality gate
 
 Before pushing a broad code change, run:
@@ -696,6 +748,34 @@ scenario, use `tools/e2e/run --gate --only=compose_upgrade`.
 The chaos suite's idle and image replacement scenarios use real database
 transactions and wait for the five-minute Worker demand window to end. Do
 not run another suite against the same database partition at the same time.
+
+For the Pod collaboration story, run:
+
+```bash
+tools/e2e/run --real-llm --only=pod_content_real_llm
+```
+
+This selection runs four stories with real models and Docker Workers. A Human
+uses browser Chat to request a report, typed sales table, formula, and applet;
+follows the saved Page link; adds a sale in the published applet; and requests
+an update through Page Chat without repeating the Page identity. The check
+reads the saved content and data, revokes Agent access, and deletes the
+Conversation while retaining its Pages. Another story develops a pure frontend
+SPA, exercises it in the browser, and verifies Agent-created and moved Pages.
+The Agent moves the original Page with space `edit` access and no permission
+upgrade. The move must preserve access to the Page and its subpages.
+The short move can finish directly in Main or through a real Job.
+The research story invokes the installed research Skill without specifying an
+output format and requires an editable Page linked from Chat. Individual tags
+are `pod_content_browser_report`, `pod_content_pure_spa`,
+`pod_content_research`, and `pod_applet_backend`. The backend story asks a real
+Agent to build and publish a sample-reservation Applet, uses its POST route in
+the browser, checks the saved caller-attributed write and retained failed
+quantity, and requests an update to the same Applet. These checks require the existing OpenRouter test
+credentials and production frontend assets. A successful Job report alone is
+not proof that the requested content was saved.
+Long-lived browser channels use the normal SQL connection pool; the suite
+deletes its committed fixtures and restores the test pool after cleanup.
 
 For the DeepSeek user stories and recovery checks, select these tags:
 

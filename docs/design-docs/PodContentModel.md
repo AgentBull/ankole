@@ -1,0 +1,557 @@
+# Pod Content Model
+
+A Conversation holds the work process. A Page keeps the result. Pod content is
+shared by Humans and Agents through the same domain contracts. PostgreSQL owns
+pages, documents, Database records, revisions, permissions, and file references.
+Worker files, browser caches, and channel presence are not durable truth.
+
+The first product version lets Humans and AI collaborate on these same stored
+documents and business tables. An AI-generated applet is another interface to
+the same Database and runs as its current Human. GitHub Issues are test input;
+they do not define a separate first-version product or connector interface.
+
+## Browser interactions
+
+Use Notion as the default reference for page, sharing, trash, property, and view
+interactions, including loading, empty, pending, failed, and concurrent edit
+states. Keep Ankole's components, visual identity, and domain contracts.
+This reference does not add features outside the first-version scope. See
+[views and filters](https://www.notion.com/help/views-filters-and-sorts),
+[properties](https://www.notion.com/help/database-properties), and
+[trash](https://www.notion.com/help/duplicate-delete-and-restore-content).
+Calendar, timeline, form, and chart presentations are Applets, not built-in
+Database views.
+
+Page titles and document bodies share one recoverable draft and navigation
+guard. Failed saves retain input. Pending dialogs keep their submitted inputs
+and cannot close. Page lists include the current role from the same permission
+tree traversal. Page moves list writable document destinations and exclude the
+page and its descendants. Trash search filters the authorized page list.
+Pod links use the tenant's slug subdomain and Kernel's short UUID codec:
+`https://<slug>.<site>/pages/<short-id>` and `/conversations/<short-id>`.
+Local development uses `<slug>.ankole.localhost:<port>`. Normal links have no `/pod`
+prefix or tenant query. Logged-in accounts are shared across Pod subdomains;
+switching uses the existing BrowserSessions authentication and activation owners.
+Each open document retains its selected identity, and every tenant request still
+checks that identity's admission. The content context supplies the same links to
+document embeds and full pages.
+
+Dialogs use compact forms, explicit cancellation, searchable page selection,
+and focus restoration. Enter submits ordinary forms; destructive confirmation
+starts with Cancel focused. Long forms scroll their bodies while retaining
+their title and actions. Property pickers stay anchored to their field.
+
+The sidebar search button and Command/Control+K open the same navigation menu.
+The menu links to Pages, Chats, and content locations. It does not send a request
+or replace an unfinished Chat draft. J/K moves focus within content lists;
+fields keep their normal typing and composition keys. Desktop rows use compact
+spacing, with larger targets on touch layouts. Page references use the same type
+icon in navigation, pickers, embedded content, and Chat outputs.
+
+Ordinary Pod actions use paper controls. State color does not mark a selected
+view. High-frequency menus and keyboard navigation open immediately. Mobile Chat
+panels retain their content during exit; reduced motion removes movement and
+uses a short fade. Chat scrolling also follows the reduced-motion preference.
+
+Standalone Chats follow Notion AI's conversation layout. Native follow-up input
+can steer at the Main loop's next boundary or wait for a separate reply. The
+durable queue supports editing, removal, ordering, and releasing one input;
+stale edits fail without overwriting newer changes. Stop cancels current work
+and pauses all pending inputs across refresh. Only Continue resumes the queue.
+Last-turn editing and regeneration reuse the existing retry and model-history
+owners, retain completed content changes, and reject changes to running or
+superseded turns. Earlier messages load in bounded windows into the same remote
+cache while keeping the current reading position.
+
+A first send keeps its local draft and request IDs until the server confirms it.
+Opening a new standalone Chat while that request is unfinished uses a separate
+draft. An unconfirmed first send remains available for recovery, with its original
+attachments and retry IDs.
+Late request results apply only to the captured draft and message. The existing
+Chat draft owner retains this work in memory for the current document.
+
+Returning to a Chat restores the visible message and its offset. The existing
+Chat draft model keeps this position in memory for the current document. Page
+panels and Conversation views keep separate positions because their widths can
+differ. A Chat at the bottom continues to follow new content. The latest-message
+action resumes that behavior. Reloading starts at the latest message.
+
+Model choices belong to the Chat, with null following the Agent default. Each
+accepted input captures its logical profile; later preference changes affect
+future replies. An input with a different profile from the active run must queue.
+
+Database cells keep the value and field versions from the start of an edit.
+Enter or Tab submits; Escape cancels; composition keys do not submit. A conflict
+keeps the draft for an explicit retry or discard. View changes preview locally;
+an editor can save them for everyone with the starting view version. A failed
+save retains the draft. Inline configuration belongs to its document embed.
+Invalid filter and calculation fields require repair instead of silently
+selecting another field.
+
+Ankole's settled differences remain: records are not pages and have no separate
+page trash; permanent record and field deletion requires confirmation. Moving
+a page keeps direct shares, including a move into Private. The move and share
+interfaces state this difference. Agents still require explicit admission, and
+applets run as their current Human.
+
+File uploads capture the selected file and loaded revision. Pending uploads
+freeze the picker; failures keep the selection for an explicit retry. A
+temporary realtime failure keeps loaded file content and offers reconnection.
+Only an authoritative access denial hides content. Applet loading and connection
+failures have separate retry actions; retrying a connection does not remount
+the applet.
+
+## Pages and access
+
+`Ankole.Pod.Pages` owns the page tree and lifecycle. A page is a `doc`,
+`database`, `applet`, or `file`. Only a document can have child pages. Tables
+and records belong to a Database; they are not pages. Sibling positions use
+PostgreSQL `C` collation. Page moves lock the tenant tree before they check for
+cycles, so concurrent opposite moves cannot create a cycle.
+
+`Ankole.Pod.Access` uses Principal and AuthZ. The actions are `page_view`,
+`page_edit`, and `page_manage`; the roles are `view`, `edit`, and `manage`.
+Page grants remain rows in `permission_grants`. The general Console grant API
+cannot create, change, or delete page authority. Tenant creation initializes
+the space policy once. Reads and scaffold repair do not restore removed grants.
+The upgrade initializes only tenants with no Pod pages and no page grants.
+
+- Active Humans have the space's default role. Space administrators can manage
+  unrestricted space pages even when the default role is `edit`.
+- A Private root belongs to its Human. An unrelated administrator's `**` grant
+  does not grant access to it.
+- Private creation and moves require the current Human's identity before
+  submission. An unavailable identity cannot change the target to the space.
+- Agents need explicit space admission or a page share. A request from a Human
+  does not lend that Human's authority to the Agent.
+- A restricted page stops inherited authority. Direct shares remain effective
+  after a move. A deleted ancestor hides all descendants and their shares.
+- Editors can move a Page when access to the Page and all its subpages remains
+  unchanged. A move that changes access, or whose access cannot be proved
+  unchanged, requires `page_manage`. The same rule applies to Humans and Agents.
+- Lists, search, favorites, recents, embeds, and file reads check current page
+  access. A reference to an inaccessible page does not expose its title or data.
+
+Agent writes check and lock the actual RunRef or Job attempt in the transaction
+that commits the content. The RPC broker passes this authority from the
+authenticated turn. A delayed file relay cannot commit after that turn closes
+or its attempt is replaced.
+
+Each content table carries `tenant_id`. Composite foreign keys prevent a
+reference to another tenant. `Ankole.Repo` requires an explicit tenant context.
+Tenant deletion removes records and other children in batches before pages.
+
+Deletion marks a page as trash and hides its subtree. A scheduled purge starts
+after `pod.trash_retention_days` (default 30). The purge marks its start in the
+same transaction that checks eligibility. Restore is rejected after that mark.
+The existing job removes records, file references, grants, and child pages in
+batches; an interrupted job resumes from the remaining rows. It does not use
+foreign-key cascades to perform bulk deletion.
+
+## Documents and collaboration
+
+`Ankole.Pod.Documents` owns revisions and writes. `page_contents` stores
+canonical page-tree XML and derived plain text. The Rust kernel validates the
+same XML vocabulary and normalization as `@ankole/block-editor`. The complete
+path is XML to document, normalization, ChangeSet application, normalization,
+and document to XML. A write is rejected if reading its XML back changes the
+submitted document. Limits are 8,388,608 UTF-16 units, 100,000 nodes, and depth
+128. Browser transactions enforce the same bounds before replacing the current
+document or undo history. Rejected input leaves the last legal draft editable
+and surfaces an error. A merged remote/local document that exceeds a bound
+keeps that draft and uses explicit reset/reload recovery.
+
+An Agent reads Markdown and its page revision with `ankole-pod pages.read`.
+Page reads hold a shared page lock through the content read. Revision replay
+uses the same lock and ends at the revision read under that lock.
+The Worker uses the editor parser and printer for `pages.write`. The control
+plane validates the XML before the write transaction. The transaction checks
+write authority. Under the page lock, it checks page access, type, and
+`base_revision` before it returns an XML validation error or commits the parsed
+document.
+XML bytes cross the existing signed WorkerFiles relay. They do not consume the
+RuntimeFabric RPC payload budget. A whole-page write creates a `reset` entry
+and advances the page revision atomically.
+
+A browser tab owns one authenticated Phoenix socket at `/pod/socket`. Its
+frame and fragmented-message limits are 32 MiB, so valid Unicode documents can
+cross the transport. Document editors use `page:<id>`. Each client has one
+immutable batch in flight, identified
+by `client_id` and `client_seq`. Before submission it applies `preparePageUpdate`
+to its own document and includes the normalization correction in the batch.
+The server accepts a batch once. Reusing its client sequence with different
+changes returns a conflict. An unknown result retries the same request.
+When a broadcast confirms a batch before its request completes, later edits
+wait for that request to release its slot, including after a transport failure.
+An explicit stale result supplies missing changes without committing the batch;
+the client rebases, prepares the pending edits again, and uses a new sequence.
+
+`page_changes` retains the last `pod.ot_replay_window` batches (default 1,000).
+Pruning occurs in the write transaction. A client outside the window reloads.
+Replay also respects the existing 32 MiB transport budget; an oversized replay
+requires a reload instead of constructing a response that cannot cross the socket.
+A reset or unavailable replay keeps unconfirmed edits as a recoverable draft.
+The log is an OT transport window, not a user-visible version history.
+
+ACL and tree changes recheck topic membership immediately. A reconnect, return
+to a visible tab, or the 60-second version check repairs missed broadcasts.
+Acknowledged state is already committed before a broadcast.
+
+The editor host resolves `embed` and `ankole:asset/<full-sha256>/<name>`.
+Creating an inline page first creates its child in the tree. Deleting its direct
+child embed through the block menu trashes that child. Removing a reference with
+a selection or an Agent document rewrite leaves the page in the tree.
+
+## Database
+
+`Ankole.Pod.Database` owns schemas, record writes, and query transactions.
+`db_tables`, `db_fields`, `db_views`, `db_records`, and `db_sync_bindings` share
+their Database page's access and lifecycle. Schema operations do not run DDL.
+A table has one primary field and at most 100,000 records.
+
+Records use JSONB maps keyed by field UUID. The `versions` map holds a separate
+compare-and-set value per field. An update supplies the versions of changed
+fields; a delete supplies the complete version map. Independent field edits can
+both succeed. A batch of at most 200 records commits as a unit. Type conversion
+rejects invalid values unless the caller explicitly requests clearing them;
+conversion advances the affected field versions. Link changes update reverse
+links in the same transaction. Deleting one direction keeps the counterpart's
+values and makes it a one-way field.
+
+`Ankole.Pod.Formula` parses same-record expressions and generates typed SQL.
+Formula values and system fields are read-only. References use field identity,
+so a rename does not change the formula. Renames refresh editable source from
+the same AST. Field names escape `]` and `\` as `\]` and `\\` in source. Cycles and removal of referenced fields
+are rejected. Division by zero returns null. Formula values are calculated at
+query time and included in mutation responses; there is no browser formula
+engine or stored-value backfill. Each requested formula uses its dependency
+graph. SQL evaluates a shared dependency at most once for that result and record;
+it does not expand the dependency again at each reference. Dependencies in an
+unselected conditional branch are not evaluated.
+
+One transaction journal records the tables and records actually changed by a
+batch, including both sides of a link. Each touched table advances once at
+commit. Repeated operations in a batch compare against the preceding operation's
+actual field versions; an old baseline rolls the whole batch back. Explicitly
+clearing a field advances its version even when its value is already absent.
+Field conversions stream rows in batches, validate final record bytes through
+the same owner as ordinary writes, and remain one atomic transaction.
+
+`Ankole.Pod.Query` owns typed filtering, sorting, keyset pagination, grouping,
+and aggregate SQL. It adds the record ID after explicit sort keys and handles
+nulls and mixed directions. Numeric and JSONB cursor keys keep PostgreSQL text
+representations; they do not pass through JavaScript numeric rounding. Aggregate
+groups return `value_json` alongside display values, and grouped record queries
+use that exact JSON value. The group condition is ANDed outside any user filter.
+Large kanban views fetch full-table group counts and page each group separately.
+Queries hold a table share lock so schema and data
+version match the result. The statement timeout includes lock waiting.
+
+The GIN `jsonb_path_ops` index supplies containment candidates. Array equality
+also checks JSONB equality: containment alone accepts supersets and different
+orders. Other operations scan within the selected table. Statistics support
+up to two group fields and date buckets in `system.timezone`. A count without
+a field counts rows; a count with a field counts its non-null values.
+
+A small table can be fetched in full for browser evaluation. The browser uses
+local operations only where they reproduce PostgreSQL semantics. It sends
+numeric comparisons, numeric formula operations, sum, average, and operations
+that depend on an unsupported database locale through the existing server query
+or aggregate path. PostgreSQL `numeric` precision is not replaced by JavaScript
+Number arithmetic. The server reports locale capabilities with the schema;
+shared fixtures cover both results and the route selection.
+Local evaluation requires the schema and complete record snapshot to have the
+same data version. A mismatch invalidates both cached reads and uses the server
+path for the current request.
+
+The built-in views are grid, kanban, and gallery. They are records browsers:
+they share the table query, record writes, permissions, and realtime updates,
+and differ only in presentation. A built-in view type must be a way to browse
+the same records. Calendar, timeline, form, and chart presentations are Applets;
+they introduce time-axis, public submission, or encoding semantics that do not
+belong to the Database contract. An Applet that presents a table reads and
+writes through the same Database API.
+
+View changes use their own versions. Dragging in kanban writes the related field
+through the ordinary record contract. Inline views keep their configuration in
+the document embed. The host validates this configuration before rendering a
+view; invalid input remains available for repair. An embed with an unsupported
+view type offers the same repair to grid.
+New fields, reverse fields, and views append after the last position by default.
+An explicit position remains authoritative. These writes use the existing table
+locks; a new self-link also reserves its uninserted forward field's position.
+
+`database.copy` makes an independent table under a target document. It applies
+the source filter, assigns new IDs, and adds references to existing attachment
+bytes. Copied formulas refer to the copy's own fields. Links become fixed
+multiple-select options with the original record IDs and their current titles;
+they no longer read the linked table. View configuration changes only field
+references, not business values that happen to equal a field ID. Later source
+edits do not change the copy.
+
+`pod.database.limits` has these configurable defaults:
+
+| Key | Default |
+| --- | --- |
+| `local_rows` | 5,000 |
+| `local_bytes` | 5,000,000 |
+| `query_rows` | 1,000 |
+| `record_bytes` | 1,000,000 |
+| `group_count` | 1,000 |
+| `statement_timeout_ms` | 5,000 |
+
+Both small-table thresholds must hold. `query_rows` bounds ordinary query
+pages; a complete small-table load uses `local_rows` and `local_bytes`.
+Schema mode is a row-count hint. The server decides local eligibility from
+its complete response size. When applying deltas, the client checks the UTF-8
+JSON size of its candidate snapshot and returns to that server check if the
+threshold is crossed. This client check is a performance optimization; it does
+not assume identical numeric encodings on both sides.
+Limits reject excess input or results rather than silently truncating them.
+There is no per-tenant query concurrency limit.
+
+## Files and Conversation origins
+
+`Ankole.Files` owns one site-wide blob store and `drive_files` references.
+An Agent drive uses its UID; the Pod drive uses a null `agent_uid` in the same
+table. A unique index treats nulls as equal. Pod references live under
+`pages/<page-id>/`. `Ankole.Pod.Files` authorizes their page before access.
+
+A file-page replacement commits its bytes and revision together. Document assets
+and Database attachments use the full digest in their path. Removing a document
+reference leaves its asset available until page purge. See [Files](Files.md).
+
+File pages preview PDF, images, audio, video, workbooks, and presentations.
+Workbook and presentation previews load their libraries on demand and read bytes
+through the authorized file URL. They do not send files to an external viewer.
+Workbooks support sheet selection; presentations support slide selection. The
+download keeps the original file. Preview fidelity depends on the supported
+format features and installed fonts; online Office editing is outside this
+version.
+
+A native Conversation message carries page links and verified attachments.
+Humans can upload, paste, and drop files without creating a Page. The existing
+Files owner stores bytes; accepted Messages retain canonical attachment facts.
+Each message gets its own incoming file paths so later Agent edits cannot change
+the bytes received by a subsequent message. Download checks current Chat
+membership and reads frozen bytes. Losing Page access prevents new Page-context
+input but does not revoke a participant's existing personal Chat attachments.
+Unsent local Files survive panel and route changes; refreshing before acceptance
+requires choosing those local files again. The unload guard protects that draft.
+Images and text can open in a read-only dialog in the same Chat. The dialog uses
+the existing authorized attachment URL, restores focus when it closes, and
+retains the original download and new-tab actions. Text previews read a bounded
+prefix and identify incomplete content. Closing the dialog cancels its request
+and releases preview data. Previewing a file does not create a Page.
+Saving an attachment to a file page uses the visible message's blob reference;
+it does not grant access to the Agent's whole drive or copy blob bytes. Replacing
+the source drive path cannot change the saved message attachment. A page keeps
+`saved_from_message_id`. A deleted source is shown as deleted; an inaccessible
+source exposes no Conversation metadata. Deleting a Conversation leaves pages
+and their Pod file references intact.
+
+For an Agent-created Page, the RPC broker defaults this source to the current
+input's message. A Job completion wakeup follows its persisted Job to that
+message. Continued Jobs keep this source across further wakeups unless a new
+Human message starts the continuation. Source lookup stays within the Agent
+and tenant and stops when a Job repeats or no message can be found.
+
+## Applets
+
+`ankole-pod applet init`, `build`, and `publish` create a React applet. Bun emits
+CommonJS with a named `provider = defineApplet(App)`. React, React DOM,
+`@ankole/uikit`, and `@ankole/applet-sdk` are supplied by the host. Source and
+`dist/index.html`, JavaScript, and CSS are published as one complete manifest
+under a page revision. Digests must already belong to the Agent drive or the
+same page; knowledge of an unrelated blob hash grants no access.
+The build embeds imported images, fonts, and media as data URLs in JavaScript
+and CSS. These resources remain usable when the host loads the publication from
+Blob URLs. Use imports or CSS `url()` for local resources; a runtime string
+path does not add a file to the build.
+
+An Applet can also include `src/server/main.ts`. The same build emits a bundled
+ES module at `server/main.js`. Publication replaces `src/`, `dist/`, and
+`server/` in one page transaction and advances one revision. Omitting the backend
+removes the previous `server/` reference. Before commit, the native runner
+evaluates the module in inspection mode and validates its default route table.
+Syntax errors, imports, invalid or conflicting routes, non-function handlers,
+and top-level capability calls reject the complete publication. The successful
+response includes the route list; there is no separately stored route table.
+
+The production host fetches the authorized manifest and each named digest.
+The build permits only the exact shared modules that the host registers.
+UIKit components use its root export; UIKit component subpaths and stylesheet
+imports fail the build with a correction message. The host already loads those styles.
+A changed or removed file requested with an expected digest returns a
+publication conflict after page authorization. The host rereads the manifest;
+page access denial still stops the load. On a stale-revision response,
+the host cancels an in-flight page read before it fetches the current snapshot.
+The new fetch must not reuse a read taken before publication. The host does not
+replay the rejected write. A revision gets a new Garfish
+instance name with caching disabled. The host scopes entry CSS and contains
+load and render failures. Document typography does not enter embedded objects.
+The Applet surface supplies the same base typography in inline and full-page views.
+After a caught render failure, a local reload action restarts the Applet without
+reloading the Pod or clearing the shared query cache.
+Unmount releases React, queries, channels, and tracked
+sandbox effects. Applets keep their DOM inside the supplied container and do
+not add a second CSS reset. Garfish is an application-stability boundary, not a
+hostile-code security boundary. Arbitrary host-body DOM and styles are outside
+its cleanup and entry-style guarantees.
+
+The SDK uses the current Human's ordinary Pod APIs and a shared QueryClient.
+`useRecords` and `useAggregate` retain live subscriptions. An explicit HTTP
+401, 403, or 404 hides cached data even while the live connection is unavailable.
+The first denial applies while a Query retry is pending, not only after its
+final error. A later temporary failure or component remount cannot make denied
+data visible; a successful read restores it. Temporary network failures before
+a denial keep the last data. Pending writes cannot make
+denied data visible again. Record updates and
+deletes require the caller to retain its record at the start of editing and pass
+its field versions explicitly; a later query refresh cannot replace that edit
+snapshot. Pending mutation inputs preview existing record values without
+changing the confirmed query cache. A failure removes that preview and retains
+newer confirmed reads. Creates and deletes show pending state and enter the result only
+after server confirmation, preserving failed input and deletion dialogs. The
+server confirms created records, auto-numbers, formulas and filtered or paged
+result membership. `useChannel` uses `applet:<page-id>:<room>` for temporary messages
+and presence. Presence and channel messages are not saved or replayed. Applets
+can use network fetch. Page and Database authority remains with the server.
+
+### Backend routes
+
+An Applet backend exports a table of `METHOD /path/:parameter` functions.
+Supported methods are GET, POST, PUT, PATCH, and DELETE. Literal path segments
+take precedence over parameter segments. Parameters are URL decoded; repeated
+query parameters are arrays and bracketed keys stay literal. The handler receives
+the method, path, parameters, query, optional JSON body, current principal,
+Applet page ID and revision, and tenant timezone. It receives no credentials.
+JSON results use status 200; `undefined` uses 204. A handler can throw
+`AnkoleRuntime.HttpError` with a 4xx status. Unexpected exceptions use a fixed
+browser error; Agent calls also receive bounded diagnostics and console logs.
+
+The HTTP path is `/.internal-apis/pod/pages/:id/routes/*path`. It uses the
+ordinary Pod login and CSRF checks and requires `x-ankole-applet-revision`.
+Admission reads the authorized Applet revision and immutable backend package
+under the same page lock. A stale revision gets 409 `applet_revision_changed`.
+The host rereads the Page and replaces its loaded publication. It does not
+replay a failed mutation. Agent RPC `applets.call`, exposed by `ankole-pod applet
+call`, uses the same invocation owner with the Agent's current write authority.
+
+Each invocation has one new native V8 isolate on its own thread. It keeps that
+isolate alive while capability requests wait; writes are never replayed. The
+isolate has ECMAScript built-ins, `Intl`, `console`, and `AnkoleRuntime`. It has no
+module loader, fetch, network, filesystem, environment, timers, Node, Deno,
+WebAssembly, or Web API shims. State cannot carry to the next invocation.
+`pod.applet.limits` sets total `timeout_ms` (default 60000) and `heap_mb` (default
+128), including typed-array external memory. Timeout, memory exhaustion, and
+client disconnection cancel that invocation. Already committed writes remain.
+The isolate shares the control-plane OS process; it does not protect that
+process from a native V8 vulnerability.
+
+`AnkoleRuntime` capabilities call existing domain owners with the caller's
+identity and tenant: `db.schema`, `db.query`, `db.aggregate`, `db.write`,
+`file.list`, `file.read`, and `file.write`. Each call repeats authorization;
+write calls also enforce current RunRef or Job authority. GET handlers cannot
+write. Database writes keep field-version conflicts and normal broadcasts.
+There is no transaction across capability calls. A guarded inventory update
+reads the record, writes with its field versions, and rereads after a conflict.
+Files use existing page-type, revision, and upload-size rules; byte values in
+the handler are `Uint8Array`.
+
+`ai.generateText` resolves only an LLM profile of the Agent configured by
+`pod.applet.ai_agent_uid`. It accepts `model`, `effort`, optional `system`, and
+`prompt`, and returns `text`, `finishReason`, and token `usage`. It rejects raw
+provider/model identifiers. Missing `light` uses the existing primary fallback.
+Usage belongs to the configured Agent without its token-quota admission check.
+An unset or disabled Agent yields `ai_not_configured`; model and effort errors
+use 422, and unavailable providers use 502.
+
+`useRoute` and `useRouteMutation` are thin TanStack Query hooks. They expand
+declared route parameters, preserve Query options and result objects, and use
+the loaded publication's revision and identity in the route cache prefix.
+Queries abort on unmount and hide cached data after an authoritative 401, 403,
+or 404. Temporary failures retain prior data. Route writes have no optimistic
+update or automatic invalidation. The Applet chooses which queries to refresh
+with its shared QueryClient and `routes.key()`.
+
+Backend routes do not create Pages or schema, schedule work, receive events,
+access connectors or secrets, make network requests, stream responses, or
+return binary HTTP bodies. Source and backend code remain readable to viewers;
+they must contain no secrets.
+
+An Agent's Worker browser has its own profile. It does not inherit the
+requesting Human's Pod login. Build checks and persisted-data reads are separate
+from authenticated host interaction. The runtime Skill uses the existing browser
+contract for rendered checks, returns the saved page link, and states any
+unverified host behavior. Its verification traces each requested action through
+the full write payload and saved result, including naming fields and derived
+values; a correct aggregate or success message is insufficient. A workspace
+handler check establishes logic only, not the authenticated Human interaction.
+
+## External test-data ingestion
+
+GitHub Issue reads exercise the shared data-write path in integration tests.
+There is no dedicated GitHub product interface. The existing job and ingestion
+primitives below keep that test boundary separate from collaborative Pod use.
+
+An existing AutomationJob reads the external source through an enabled Skill,
+MCP connector, or its provider API. A table has one `db_sync_bindings` row that
+names the job, source, cursor, and external-property-to-field map. No additional
+polling service owns this work.
+
+The script calls the injected `syncRecords(bindingID, rows, cursorMap)`. The
+existing automation bridge attaches the actual job run and attempt. The control
+plane checks the job owner, live attempt, binding status, WorkAccess, and current
+page edit access. External IDs update the same records. Mapped fields stay
+read-only locally, including while paused or after job cancellation; local custom
+fields are retained. Permanent Agent deletion removes its bindings and keeps
+the table and records. Each affected table advances its version once, and the
+committed schema event makes its formerly mapped fields editable locally.
+The SDK relays a temporary batch file through WorkerFiles and removes it after
+the call. The sync owner derives its transfer budget from the configured record
+bytes, 200 rows, mapped source keys, and external-ID encoding. Ordinary file
+transfers keep their own default limit. Unrelated source properties and redundant
+input still count toward the transfer budget. The RPC acknowledgment contains
+versions and changed IDs; record bytes stay outside the Fabric frame.
+Records, versions, and cursor commit together. Changes are broadcast after
+commit, including reverse-link changes. Scheduling uses the existing job tools.
+
+## Verification
+
+Fast suites cover the domain, endpoint encoding, channels, SDK, query fixtures,
+and editor state. Dedicated integration suites keep independent PostgreSQL
+transactions, 100,000-row measurements, interrupted purge, tenant teardown,
+provider reads, and real-browser user flows outside the default fast tests.
+The shared Rust/editor corpus compares XML and in-memory documents after every
+continuous edit batch. `test:garfish` tests the host compatibility boundary;
+`test:pod` uses the production Pod, real SDK, Phoenix endpoints, and PostgreSQL.
+Provider and process integration results do not by themselves prove a complete
+model-driven user session.
+
+The dedicated `pod_content_real_llm` suite starts from a native Human business
+request. The actual model creates the report, Database, and applet through the
+Worker CLI. A real authenticated Human follows the delivered Chat link, uses
+the applet inside the report to write the same table, and reloads it. A later
+request makes the AI update the original report from those records. The Human
+reopens the updated report from its new Chat link and checks the same applet
+and saved data. The suite also checks Agent revocation and saved content after
+deletion of the source Conversation. Its long-lived channels use the normal
+SQL connection pool; fixture cleanup precedes restoration of the test pool.
+
+Separate stories develop and use a pure frontend applet, move an existing Page
+without copying it, and invoke the installed research Skill without specifying
+an output format. The move story keeps Agent space `edit` access and requires
+the original Page to move without a permission upgrade or a change in access.
+The research story requires a saved, editable Page delivered through Chat.
+Its numeric and source-link assertions establish delivery and basic coverage,
+not semantic correctness. Review the delivered examples independently, including
+the rule applied to each computed value; correct verification notes do not
+establish that the final body's classification is correct.
+
+Each story must reach its final saved-content and browser assertions. A Job's
+success, a passing subsystem suite, or a partial provider run does not establish
+complete workflow or visual acceptance. Completion wakes use the whole-story
+test deadline while initial Human dispatch has a separate guard; these harness
+budgets do not define product deadlines. The separate domain, browser, editor,
+and Worker suites verify only their own boundaries.

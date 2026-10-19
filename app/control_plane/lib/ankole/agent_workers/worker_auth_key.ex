@@ -40,16 +40,9 @@ defmodule Ankole.AgentWorkers.WorkerAuthKey do
   @spec ensure() :: {:ok, String.t()} | {:error, term()}
   def ensure do
     case AppConfigure.get(definition()) do
-      {:ok, key} ->
-        {:ok, key}
-
-      :error ->
-        with {:ok, generated} <- AppConfigure.generate(definition()) do
-          AppConfigure.put_global(definition(), generated)
-        end
-
-      {:error, _reason} = error ->
-        error
+      {:ok, key} -> {:ok, key}
+      :error -> AppConfigure.ensure_generated_global(definition())
+      error -> error
     end
   end
 

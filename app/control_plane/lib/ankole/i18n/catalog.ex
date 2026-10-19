@@ -131,8 +131,8 @@ defmodule Ankole.I18n.Catalog do
     exception -> {:error, exception}
   end
 
-  # AppConfigure only promises a non-empty string. This is the enforcement point
-  # where that durable value must match the loaded application catalog.
+  # Recheck the stored value against this release's catalog. A value written
+  # before catalog validation, or a locale removed by a release, can be invalid.
   defp apply_config_default_locale do
     with {:ok, configured} <-
            Ankole.AppConfigure.get(Config.default_locale_definition(), scope: :global),
@@ -141,6 +141,19 @@ defmodule Ankole.I18n.Catalog do
       Resolver.clear_chain_cache()
       :ok
     else
+      {:error, {:storage_error, "global", "i18n.default_locale", :unavailable_locale}} ->
+        Logging.warning(
+          "i18n.catalog.default_unavailable",
+          "Stored default locale is unavailable; using release default",
+          %{locale: "en-US"}
+        )
+
+        with {:ok, tag} <- language_tag_for_loaded_locale("en-US"),
+             {:ok, _} <- Localize.put_default_locale(tag) do
+          Resolver.clear_chain_cache()
+          :ok
+        end
+
       {:error, %ArgumentError{} = error} ->
         {:error, error}
 

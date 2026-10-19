@@ -13,6 +13,8 @@ import {
 import { RiAddLine, RiDraggable, RiMoreLine } from '@remixicon/react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactElement } from 'react'
 import type { Command } from '../core/command'
+import { Embed, embedAttributes } from '../blocks/embed'
+import { editorHost } from '../editor/host'
 import type { Node, Pos } from '../core/doc'
 import { Decoration, KeyBinding, type Wordgard } from '../core/editor'
 import { history } from '../core/history'
@@ -270,6 +272,18 @@ function BlockActions() {
       }
       applyBlockType(editor, type)
     })
+  const remove = async () => {
+    const pos = targetOf(editor)
+    const target = topBlock(editor.state, pos)
+    if (!target || editor.state.readOnly) return
+    const ref = target.node.type === Embed.type ? embedAttributes(target.node).ref : undefined
+    if (ref && editorHost(editor)?.deleteEmbed) {
+      if (!(await editorHost(editor)!.deleteEmbed!(ref))) return
+      // A pending network request must not remove another block after a local edit.
+      if (topBlock(editor.state, pos)?.node !== target.node) return
+    }
+    deleteBlock(editor, pos!)
+  }
   return (
     <>
       <DropdownMenuLabel>{block ? '当前 Block' : '先将光标放入文档'}</DropdownMenuLabel>
@@ -298,7 +312,7 @@ function BlockActions() {
         下移
       </DropdownMenuItem>
       <DropdownMenuSeparator />
-      <DropdownMenuItem disabled={!block} variant="destructive" onClick={act(pos => deleteBlock(editor, pos))}>
+      <DropdownMenuItem disabled={!block} variant="destructive" onClick={() => void remove()}>
         删除 Block
       </DropdownMenuItem>
     </>
@@ -377,14 +391,19 @@ export function BlockHandles({ anchor }: { anchor: HTMLElement }) {
       const top = hit.rect.top - anchor.getBoundingClientRect().top + (lineBox - handleHeight) / 2
       setHover(previous => (previous?.pos === hit.pos && previous.top === top ? previous : { pos: hit.pos, top }))
     }
-    const leave = () => {
-      if (!keep()) setHover(null)
+    const leave = (event: PointerEvent) => {
+      if (event.pointerType === 'mouse' && !keep()) setHover(null)
+    }
+    const pointerUp = (event: PointerEvent) => {
+      if (event.pointerType !== 'mouse') move(event)
     }
     scroller.addEventListener('mousemove', move)
-    scroller.addEventListener('mouseleave', leave)
+    scroller.addEventListener('pointerup', pointerUp)
+    scroller.addEventListener('pointerleave', leave)
     return () => {
       scroller.removeEventListener('mousemove', move)
-      scroller.removeEventListener('mouseleave', leave)
+      scroller.removeEventListener('pointerup', pointerUp)
+      scroller.removeEventListener('pointerleave', leave)
     }
   }, [editor, anchor])
 

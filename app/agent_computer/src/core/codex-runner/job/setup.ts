@@ -120,6 +120,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         jobGuidance: readCodexJobGuidance(opts.builtinSkillsRoot),
         skillsPrompt,
         driveDirectory: agentContext.conversation?.driveDirectory,
+        podInstructions: agentContext.conversation?.podInstructions,
         lazySkillRouting: brainEnabled,
         timezone: agentContext.conversation?.timezone
       }).content
@@ -222,6 +223,11 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         env: threadEnv,
         runtime: runtimeConfig,
         driveDirectory: agentContext.conversation?.driveDirectory,
+        podInstructions: agentContext.conversation?.podInstructions,
+        originalHumanRequest:
+          typeof turnStart.request_context?.original_human_request === 'string'
+            ? turnStart.request_context.original_human_request
+            : undefined,
         turnTracePropagation,
         projectConfig: readCodexJobProjectConfig(jobProject.root)
       }),

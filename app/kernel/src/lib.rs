@@ -29,6 +29,9 @@ pub mod markdown;
 #[cfg(any(test, feature = "nif"))]
 pub mod signals;
 
+#[cfg(any(test, feature = "nif"))]
+pub mod page_document;
+
 #[cfg(feature = "object_store")]
 pub mod object_store;
 
@@ -37,6 +40,12 @@ pub mod model_image;
 
 #[cfg(feature = "program_runner")]
 pub mod program_runner;
+
+#[cfg(feature = "program_runner")]
+mod isolate_control;
+
+#[cfg(feature = "applet_runtime")]
+pub mod applet_runtime;
 
 #[cfg(feature = "universal_ai_client")]
 pub mod universal_ai_client;

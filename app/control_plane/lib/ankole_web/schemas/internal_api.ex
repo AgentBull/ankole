@@ -623,10 +623,11 @@ defmodule AnkoleWeb.Schemas.InternalAPI do
         properties: %{
           id: %Schema{type: :string},
           title: %Schema{type: :string},
+          pageID: %Schema{type: :string, nullable: true},
           agent: ConversationAgent,
           lastActivityAt: %Schema{type: :string}
         },
-        required: [:id, :title, :agent, :lastActivityAt],
+        required: [:id, :title, :pageID, :agent, :lastActivityAt],
         additionalProperties: false
       },
       struct?: false
@@ -643,6 +644,48 @@ defmodule AnkoleWeb.Schemas.InternalAPI do
         type: :object,
         properties: %{conversations: %Schema{type: :array, items: Conversation}},
         required: [:conversations],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConversationLink do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ConversationLink",
+        type: :object,
+        properties: %{kind: %Schema{type: :string, enum: ["page"]}, id: %Schema{type: :string}},
+        required: [:kind, :id],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConversationAttachment do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ConversationAttachment",
+        type: :object,
+        properties: %{
+          path: %Schema{type: :string},
+          blob_ref: %Schema{type: :string},
+          name: %Schema{type: :string},
+          size: %Schema{type: :integer},
+          mime_type: %Schema{type: :string},
+          content_type: %Schema{type: :string},
+          attachment_id: %Schema{type: :integer},
+          upload_id: %Schema{type: :string},
+          resource_type: %Schema{type: :string}
+        },
+        required: [:path, :blob_ref, :name, :size],
         additionalProperties: false
       },
       struct?: false
@@ -666,7 +709,9 @@ defmodule AnkoleWeb.Schemas.InternalAPI do
           text: %Schema{type: :string},
           createdAt: %Schema{type: :string},
           signalID: %Schema{type: :string, nullable: true},
-          replyToMessageID: %Schema{type: :string, nullable: true}
+          replyToMessageID: %Schema{type: :string, nullable: true},
+          links: %Schema{type: :array, items: ConversationLink},
+          attachments: %Schema{type: :array, items: ConversationAttachment}
         },
         required: [
           :id,
@@ -677,8 +722,48 @@ defmodule AnkoleWeb.Schemas.InternalAPI do
           :text,
           :createdAt,
           :signalID,
-          :replyToMessageID
+          :replyToMessageID,
+          :links,
+          :attachments
         ],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConversationAttachmentUpload do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ConversationAttachmentUpload",
+        type: :object,
+        properties: %{
+          file: %Schema{type: :string, format: :binary},
+          fileID: %Schema{type: :string}
+        },
+        required: [:file, :fileID],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConversationAttachmentReceipt do
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ConversationAttachmentReceipt",
+        type: :object,
+        properties: %{
+          receipt: %Schema{type: :string},
+          name: %Schema{type: :string},
+          size: %Schema{type: :integer},
+          content_type: %Schema{type: :string, nullable: true}
+        },
+        required: [:receipt, :name, :size, :content_type],
         additionalProperties: false
       },
       struct?: false
@@ -777,9 +862,38 @@ defmodule AnkoleWeb.Schemas.InternalAPI do
         properties: %{
           conversation: Conversation,
           messages: %Schema{type: :array, items: ConversationMessage},
+          removedMessageIDs: %Schema{type: :array, items: %Schema{type: :string}},
+          olderMessagesBeforeSeq: %Schema{type: :integer, nullable: true, minimum: 1},
+          messageRange: %Schema{
+            type: :object,
+            properties: %{
+              firstSeq: %Schema{type: :integer, minimum: 1},
+              lastSeq: %Schema{type: :integer, minimum: 0}
+            },
+            required: [:firstSeq, :lastSeq],
+            additionalProperties: false
+          },
+          pendingInputs: %Schema{
+            type: :array,
+            items: AnkoleWeb.Schemas.InternalAPI.ConversationPendingInput
+          },
+          queuePaused: %Schema{type: :boolean},
+          queueVersion: %Schema{type: :string},
+          retryableMessageID: %Schema{type: :string, nullable: true},
           status: ConversationStatus
         },
-        required: [:conversation, :messages, :status],
+        required: [
+          :conversation,
+          :messages,
+          :removedMessageIDs,
+          :olderMessagesBeforeSeq,
+          :messageRange,
+          :pendingInputs,
+          :queuePaused,
+          :queueVersion,
+          :retryableMessageID,
+          :status
+        ],
         additionalProperties: false
       },
       struct?: false
@@ -798,7 +912,11 @@ defmodule AnkoleWeb.Schemas.InternalAPI do
           conversationID: %Schema{type: :string},
           messageID: %Schema{type: :string},
           agentUID: %Schema{type: :string},
-          text: %Schema{type: :string}
+          pageID: %Schema{type: :string, nullable: true},
+          modelProfile: %Schema{type: :string, nullable: true},
+          text: %Schema{type: :string},
+          attachments: %Schema{type: :array, items: %Schema{type: :string}},
+          deliveryMode: %Schema{type: :string, enum: ["steer", "queue"]}
         },
         required: [:conversationID, :messageID, :agentUID, :text],
         additionalProperties: false
@@ -815,8 +933,71 @@ defmodule AnkoleWeb.Schemas.InternalAPI do
       %{
         title: "ConversationMessageRequest",
         type: :object,
-        properties: %{messageID: %Schema{type: :string}, text: %Schema{type: :string}},
+        properties: %{
+          messageID: %Schema{type: :string},
+          text: %Schema{type: :string},
+          attachments: %Schema{type: :array, items: %Schema{type: :string}},
+          deliveryMode: %Schema{type: :string, enum: ["steer", "queue"]}
+        },
         required: [:messageID, :text],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConversationPendingInput do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ConversationPendingInput",
+        type: :object,
+        properties: %{
+          messageID: %Schema{type: :string},
+          text: %Schema{type: :string},
+          deliveryMode: %Schema{type: :string, enum: ["steer", "queue"]},
+          modelProfile: %Schema{type: :string},
+          attachments: %Schema{type: :array, items: ConversationAttachment}
+        },
+        required: [:messageID, :text, :deliveryMode, :modelProfile, :attachments],
+        additionalProperties: false
+      },
+      struct?: false
+    )
+  end
+
+  defmodule ConversationQueueRequest do
+    @moduledoc false
+    require OpenApiSpex
+
+    OpenApiSpex.schema(
+      %{
+        title: "ConversationQueueRequest",
+        type: :object,
+        properties: %{
+          action: %Schema{
+            type: :string,
+            enum: [
+              "edit",
+              "send_now",
+              "remove",
+              "reorder",
+              "stop",
+              "resume",
+              "regenerate",
+              "edit_last"
+            ]
+          },
+          messageID: %Schema{type: :string},
+          text: %Schema{type: :string},
+          messageIDs: %Schema{type: :array, items: %Schema{type: :string}},
+          commandID: %Schema{type: :string},
+          expectedVersion: %Schema{type: :string},
+          expectedText: %Schema{type: :string, nullable: true}
+        },
+        required: [:action],
         additionalProperties: false
       },
       struct?: false

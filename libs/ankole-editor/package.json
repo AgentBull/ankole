@@ -44,7 +44,10 @@
     "test:native": "bun test ./compat/native.test.ts",
     "test:package": "bun scripts/check-package.ts",
     "build:playground": "bun run build && bun --bun vite build",
-    "lint": "oxlint ."
+    "lint": "oxlint .",
+    "generate:corpus": "bun scripts/rust-corpus.ts --write",
+    "test:corpus": "bun test ./test/rust-corpus.test.ts",
+    "test:rust": "bun scripts/check-rust.ts"
   },
   "dependencies": {
     "@ankole/uikit": "workspace:*",

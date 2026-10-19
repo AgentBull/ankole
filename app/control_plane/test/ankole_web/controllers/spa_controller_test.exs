@@ -19,12 +19,15 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/setup"
   end
 
-  test "GET / redirects to Pod after setup completes", %{conn: conn} do
+  test "GET / redirects to the tenant's canonical Pod origin after setup completes", %{
+    conn: conn,
+    tenant: tenant
+  } do
     {:ok, true} = SetupConfig.put_completed(true)
 
     conn = get(conn, ~p"/")
 
-    assert redirected_to(conn) == ~p"/pod"
+    assert redirected_to(conn) == AnkoleWeb.PodURL.origin(conn, tenant) <> "/"
   end
 
   test "GET /setup serves setup before completion", %{conn: conn} do
@@ -41,10 +44,13 @@ defmodule AnkoleWeb.SpaControllerTest do
     assert redirected_to(conn) == ~p"/"
   end
 
-  test "GET /sessions/new serves auth after completion", %{conn: conn} do
+  test "GET /sessions/new serves auth on the tenant host after completion", %{
+    conn: conn,
+    tenant: tenant
+  } do
     {:ok, true} = SetupConfig.put_completed(true)
 
-    conn = get(conn, ~p"/sessions/new")
+    conn = conn |> Map.put(:host, tenant.slug <> ".ankole.localhost") |> get(~p"/sessions/new")
     next = redirected_to(conn)
     assert next =~ "/sessions/new?flow="
     conn = conn |> recycle() |> get(next)
@@ -68,10 +74,14 @@ defmodule AnkoleWeb.SpaControllerTest do
              AnkoleWeb.Session.login_transaction(conn, flow)
   end
 
-  test "GET /pod redirects anonymous users to auth after completion", %{conn: conn} do
+  test "the canonical Page redirects anonymous users to auth with its short path intact", %{
+    conn: conn,
+    tenant: tenant
+  } do
     {:ok, true} = SetupConfig.put_completed(true)
 
-    conn = get(conn, ~p"/pod/some/path")
+    path = "/pages/" <> Ankole.Kernel.uuid_shorten(Ankole.Kernel.gen_uuid_v7())
+    conn = conn |> Map.put(:host, tenant.slug <> ".ankole.localhost") |> get(path)
 
     flow =
       redirected_to(conn)
@@ -80,21 +90,36 @@ defmodule AnkoleWeb.SpaControllerTest do
       |> URI.decode_query()
       |> Map.fetch!("flow")
 
-    assert {:ok, %{purpose: :pod, request: %{"return_to" => "/pod/some/path"}}} =
+    assert {:ok, %{purpose: :pod, request: %{"return_to" => ^path}}} =
              AnkoleWeb.Session.login_transaction(conn, flow)
   end
 
-  test "GET /pod serves its shell without the console path", %{conn: conn} do
-    conn = conn |> active_admin_conn() |> get(~p"/pod")
+  test "the canonical Pod serves its shell without the console path", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    conn =
+      conn
+      |> Map.put(:host, tenant.slug <> ".ankole.localhost")
+      |> active_admin_conn()
+      |> get(~p"/")
+
     html = html_response(conn, 200)
 
     assert html =~ ~s(http://assets.test/entrypoints/pod.tsx)
     refute html =~ "/site-admin-console"
   end
 
-  test "GET /sessions/new sends a signed-in administrator to the pod", %{conn: conn} do
-    conn = conn |> active_admin_conn() |> get(~p"/sessions/new")
+  test "GET /sessions/new sends a signed-in administrator to the pod", %{
+    conn: conn,
+    tenant: tenant
+  } do
+    conn =
+      conn
+      |> Map.put(:host, tenant.slug <> ".ankole.localhost")
+      |> active_admin_conn()
+      |> get(~p"/sessions/new")
 
-    assert redirected_to(conn) == ~p"/pod"
+    assert redirected_to(conn) == ~p"/"
   end
 end

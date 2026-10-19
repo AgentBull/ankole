@@ -25,12 +25,24 @@ defmodule Ankole.DataCase do
 
   @doc "Creates an isolated tenant without changing site configuration."
   def create_tenant do
-    %Ankole.Tenants.Tenant{}
-    |> Ankole.Tenants.Tenant.changeset(%{
-      slug: "test-" <> Ankole.Ecto.UUIDv7.autogenerate(),
-      display_name: "Test tenant"
-    })
-    |> Ankole.Repo.insert!()
+    {:ok, tenant} =
+      Ankole.Repo.transact(fn repo ->
+        tenant =
+          %Ankole.Tenants.Tenant{}
+          |> Ankole.Tenants.Tenant.changeset(%{
+            slug: "test-" <> Ankole.Ecto.UUIDv7.autogenerate(),
+            display_name: "Test tenant"
+          })
+          |> repo.insert!()
+
+        Ankole.Repo.with_tenant(tenant.id, fn ->
+          :ok = Ankole.Pod.Access.initialize_space(repo)
+        end)
+
+        {:ok, tenant}
+      end)
+
+    tenant
   end
 
   @doc "Selects the privileged tenant for a serial test of site administration."

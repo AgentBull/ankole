@@ -104,17 +104,15 @@ export function ResourceEditorPage({
   /**
    * Unsaved-draft flag. When provided, leaving the editor page with a dirty
    * draft asks for confirmation (in-app navigation and tab close), and the
-   * footer shows an unsaved hint. The guard stands down while `submitting`,
-   * so a save that navigates from its mutation's option-level `onSuccess`
-   * (which runs before the pending state clears) leaves freely. A page that
-   * navigates after another mutation composes that mutation's pending flag
-   * into `dirty` the same way.
+   * footer shows an unsaved hint. The ordinary guard stands down while
+   * submitting so an acknowledged save can navigate. Use supplementaryDirty
+   * for drafts that remain editable during the request.
    */
   dirty?: boolean
   error?: unknown
   secondary?: ReactNode
   supplementary?: ReactNode
-  /** Drafts saved by separate controls must also block navigation during the main save. */
+  /** Draft changes that must also block navigation during the main save. */
   supplementaryDirty?: boolean
   title: string
   /** A page-level draft problem. It renders without the request-failure title. */

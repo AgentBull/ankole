@@ -241,7 +241,7 @@ defmodule Ankole.AIGateway.Compaction do
              tail_rows_requested
            ),
          candidate = %{candidate | brain_context_pack: pack},
-         {:ok, summary} <- summarize_candidate(subject_uid, candidate),
+         {:ok, summary} <- CompactionSummarizer.summarize_candidate(subject_uid, candidate),
          :ok <-
            CompactionArtifacts.checkpoint_within_budget(
              candidate,
@@ -405,7 +405,7 @@ defmodule Ankole.AIGateway.Compaction do
     } = context
 
     with {:ok, truncated_history} <-
-           CompactionHistory.truncate_history_to_stable_tail(history, current_input),
+           CompactionCandidate.truncate_history_to_stable_tail(history, current_input),
          {:ok, retained_items} <-
            CompactionHistory.history_items_for_artifact(subject_uid, truncated_history),
          {:ok, history_items} <-
@@ -520,17 +520,6 @@ defmodule Ankole.AIGateway.Compaction do
 
   defp overflow_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp overflow_reason(reason), do: inspect(reason)
-
-  # `identity` names the Agent-token request that asked for this compaction.
-  # Automatic compaction passes none and runs on behalf of the control plane.
-  defp summarize_candidate(subject_uid, candidate, identity \\ []) do
-    CompactionSummarizer.summarize(
-      subject_uid,
-      CompactionHistory.messages_to_items(candidate.prefix),
-      candidate.previous_chat_history,
-      [recent_items: candidate.recent_items] ++ identity
-    )
-  end
 
   defp maybe_put_count(map, _key, []), do: map
   defp maybe_put_count(map, key, values), do: Map.put(map, key, length(values))

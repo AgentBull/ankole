@@ -5,7 +5,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
   Resolution is enabled by default. The existing
   `security.ssrf_filter` setting controls only whether private and
   loopback hosts are rejected; its default remains open for enterprise intranet
-  use. The shared kernel URL classifier always rejects cloud metadata targets.
+  use. Each redirect resolves and checks every address with the kernel policy,
+  then connects to a checked IP with the original HTTP and TLS hostname.
   """
 
   alias Ankole.Kernel, as: NativeKernel
@@ -122,8 +123,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
   end
 
   defp resolve_url(url, client, ssrf_filter?) do
-    with :ok <- validate_url(url, ssrf_filter?),
-         {:ok, fetched} <- fetch_image(url, ssrf_filter?),
+    with {:ok, fetched} <- fetch_image(url, ssrf_filter?),
          :ok <- validate_image(fetched),
          filename <- image_filename(fetched.final_url, fetched.content_type),
          {:ok, image_key} <- upload_image(client, fetched.body, filename, fetched.content_type) do
@@ -139,15 +139,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
     do: {:error, :too_many_image_redirects}
 
   defp do_fetch_image(url, ssrf_filter?, redirects_left) do
-    with :ok <- validate_url(url, ssrf_filter?),
+    with {:ok, connection} <- image_connection(url, ssrf_filter?),
          {:ok, %Req.Response{} = response} <-
            Req.request(
              method: :get,
-             url: url,
+             url: connection.url,
+             headers: [{"host", connection.host}],
              redirect: false,
              retry: false,
              receive_timeout: 15_000,
-             connect_options: [timeout: 5_000],
+             finch: [name: Req.Finch, pool_tag: connection.pool_tag],
              into: &collect_image_body/2
            ) do
       cond do
@@ -174,6 +175,57 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
           {:error, {:image_fetch_status, response.status}}
       end
     end
+  end
+
+  defp image_connection(url, ssrf_filter?) do
+    with :ok <- validate_url(url, ssrf_filter?),
+         uri <- URI.parse(url),
+         {:ok, addresses} <- image_addresses(uri.host),
+         :ok <- validate_addresses(uri, addresses, ssrf_filter?) do
+      address = hd(addresses)
+      target = URI.to_string(%{uri | host: to_string(:inet.ntoa(address)), authority: nil})
+      pool_tag = {__MODULE__, uri.host}
+
+      # Use a tagged pool in the existing client. Req's dynamic connection
+      # options would create permanent pool-name atoms for arbitrary hostnames.
+      :ok =
+        Finch.start_pool(Req.Finch, Finch.Pool.new(target, tag: pool_tag),
+          protocols: [:http1],
+          pool_max_idle_time: 60_000,
+          conn_opts: [
+            hostname: uri.host,
+            transport_opts: [timeout: 5_000, inet6: tuple_size(address) == 8]
+          ]
+        )
+
+      host = if String.contains?(uri.host, ":"), do: "[#{uri.host}]", else: uri.host
+      host = if uri.port == URI.default_port(uri.scheme), do: host, else: "#{host}:#{uri.port}"
+      {:ok, %{url: target, host: host, pool_tag: pool_tag}}
+    end
+  end
+
+  defp image_addresses(host) do
+    addresses =
+      for family <- [:inet, :inet6],
+          {:ok, addresses} <- [:inet.getaddrs(to_charlist(host), family)],
+          address <- addresses,
+          do: address
+
+    case Enum.uniq(addresses) do
+      [] -> {:error, :image_dns_resolution_failed}
+      addresses -> {:ok, addresses}
+    end
+  end
+
+  defp validate_addresses(uri, addresses, ssrf_filter?) do
+    Enum.reduce_while(addresses, :ok, fn address, :ok ->
+      url = URI.to_string(%{uri | host: to_string(:inet.ntoa(address)), authority: nil})
+
+      case validate_url(url, ssrf_filter?) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
   end
 
   defp collect_image_body({:data, chunk}, {request, response}) when is_binary(chunk) do

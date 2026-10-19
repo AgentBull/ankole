@@ -109,6 +109,21 @@ defmodule Ankole.IdentityProvidersTest do
              )
 
     assert_received {:identity_realtime_reconciled, _pid}
+
+    # The lifecycle owner must receive disable transitions too; filtering them
+    # here leaves remote listeners/subscriptions running until a later sweep.
+    for {enabled, sync} <- [{true, %{"contacts" => false, "websocket" => false}}, {false, %{}}] do
+      assert {:ok, _} =
+               IdentityProviders.save_provider(
+                 "lark-main",
+                 "lark",
+                 %{"appID" => "cli_identity", "appSecret" => "secret", "sync" => sync},
+                 enabled,
+                 reconcile_realtime?: true
+               )
+
+      assert_received {:identity_realtime_reconciled, _pid}
+    end
   end
 
   test "invalid identity provider adapter declarations return contract errors" do

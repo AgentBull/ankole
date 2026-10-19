@@ -14,6 +14,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   pattern `principals.entra_id.graph_subscriptions.<provider_id>`.
   """
 
+  alias Ankole.Repo
   alias Ankole.AppConfigure
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.Microsoft365Adapter.Config
@@ -37,22 +38,73 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   """
   @spec ensure(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ensure(provider_id, config, opts \\ []) do
+    with_provider_lock(provider_id, fn -> ensure_locked(provider_id, config, opts) end)
+  end
+
+  # Desired mode is read after arbitration, rather than by each scheduler before
+  # waiting for another node's in-flight create/delete operation.
+  def reconcile_current(provider_id, config_key, opts \\ []) do
+    with_provider_lock(provider_id, fn ->
+      with {:ok, {config, enabled}} <- fresh_desired(provider_id, config_key),
+           {:ok, config} <- Config.validate_identity_config(config) do
+        enabled? =
+          enabled and get_in(config, ["sync", "contacts"]) != false and
+            get_in(config, ["sync", "realtime"]) == true
+
+        if enabled? do
+          case ensure_locked(provider_id, config, opts) do
+            {:ok, _} -> {:ensured, provider_id}
+            {:error, reason} -> {:error, %{provider_id: provider_id, reason: reason}}
+          end
+        else
+          case delete_all_locked(provider_id, config) do
+            {:ok, %{deleted: 0}} -> {:skipped, provider_id}
+            {:ok, _} -> {:removed, provider_id}
+            {:error, reason} -> {:error, %{provider_id: provider_id, reason: reason}}
+          end
+        end
+      else
+        {:error, reason} -> {:error, %{provider_id: provider_id, reason: reason}}
+        :error -> {:error, %{provider_id: provider_id, reason: :provider_config_missing}}
+      end
+    end)
+  end
+
+  defp with_provider_lock(provider_id, fun) do
+    :global.trans({{__MODULE__, Repo.tenant_id!(), provider_id}, self()}, fun)
+  end
+
+  defp ensure_locked(provider_id, config, opts) do
     client = Config.identity_client(config)
     notification_url = notification_url(provider_id, config)
-    state = load_state(provider_id)
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
-    {_state, entries, failures} =
-      Enum.reduce(@resources, {state, [], []}, fn resource, {state, entries, failures} ->
-        existing = Enum.find(state, &(MapHelpers.optional_text(&1, "resource") == resource))
+    {entries, failures} =
+      Enum.reduce(@resources, {[], []}, fn resource, {entries, failures} ->
+        # Each resource can leave a durable creation intent even when POST fails.
+        # Reload before the next resource so that intent cannot be overwritten.
+        result =
+          with {:ok, state} <- fresh_state(provider_id) do
+            existing = Enum.find(state, &(MapHelpers.optional_text(&1, "resource") == resource))
 
-        with {:ok, entry} <- ensure_resource(client, resource, existing, notification_url, now),
-             {:ok, state} <-
-               persist_resource_entry(provider_id, client, state, resource, entry, existing) do
-          {state, [entry | entries], failures}
-        else
-          {:error, reason} ->
-            {state, entries, [%{resource: resource, reason: reason} | failures]}
+            with {:ok, entry} <-
+                   ensure_resource(
+                     provider_id,
+                     client,
+                     state,
+                     resource,
+                     existing,
+                     notification_url,
+                     now
+                   ),
+                 {:ok, _} <-
+                   persist_resource_entry(provider_id, client, state, resource, entry, existing),
+                 do: {:ok, entry}
+          end
+
+        case result do
+          {:ok, entry} -> {[entry | entries], failures}
+          {:error, reason} -> {entries, [%{resource: resource, reason: reason} | failures]}
         end
       end)
 
@@ -91,25 +143,30 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   """
   @spec delete_all(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def delete_all(provider_id, config) do
+    with_provider_lock(provider_id, fn -> delete_all_locked(provider_id, config) end)
+  end
+
+  defp delete_all_locked(provider_id, config) do
     client = Config.identity_client(config)
-    state = load_state(provider_id)
 
-    {deleted, remaining, failures} =
-      Enum.reduce(state, {0, [], []}, fn entry, {deleted, remaining, failures} ->
-        case delete_subscription(client, entry) do
-          :ok ->
-            {deleted + 1, remaining, failures}
+    with {:ok, state} <- fresh_state(provider_id) do
+      {deleted, remaining, failures} =
+        Enum.reduce(state, {0, [], []}, fn entry, {deleted, remaining, failures} ->
+          case delete_entry(client, entry) do
+            :ok ->
+              {deleted + 1, remaining, failures}
 
-          {:error, reason} ->
-            failure = %{subscription_id: MapHelpers.optional_text(entry, "id"), reason: reason}
-            {deleted, [entry | remaining], [failure | failures]}
+            {:error, reason} ->
+              failure = %{subscription_id: MapHelpers.optional_text(entry, "id"), reason: reason}
+              {deleted, [entry | remaining], [failure | failures]}
+          end
+        end)
+
+      with {:ok, _} <- persist_state(provider_id, Enum.reverse(remaining)) do
+        case failures do
+          [] -> {:ok, %{deleted: deleted}}
+          failures -> {:error, {:graph_subscription_deletion_failed, Enum.reverse(failures)}}
         end
-      end)
-
-    with {:ok, _persisted} <- persist_state(provider_id, Enum.reverse(remaining)) do
-      case failures do
-        [] -> {:ok, %{deleted: deleted}}
-        failures -> {:error, {:graph_subscription_deletion_failed, Enum.reverse(failures)}}
       end
     end
   end
@@ -126,73 +183,172 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
     |> Enum.any?(&(MapHelpers.optional_text(&1, "clientState") == client_state))
   end
 
-  defp ensure_resource(client, resource, nil, notification_url, now),
-    do: create_subscription(client, resource, notification_url, now)
+  defp ensure_resource(provider, client, state, resource, nil, url, now),
+    do: create_subscription(provider, client, state, resource, url, now)
 
-  defp ensure_resource(client, resource, existing, notification_url, now) do
+  defp ensure_resource(provider, client, state, resource, existing, url, now) do
     cond do
-      existing["notificationUrl"] != notification_url ->
-        with :ok <- delete_subscription(client, existing),
-             do: create_subscription(client, resource, notification_url, now)
+      existing["notificationUrl"] != url ->
+        with :ok <- delete_entry(client, existing),
+             do: create_subscription(provider, client, state, resource, url, now)
 
-      needs_renewal?(existing, now) ->
-        renew_subscription(client, resource, existing, notification_url, now)
+      existing["phase"] == "creating" ->
+        recover_creation(client, existing, now)
 
       true ->
-        {:ok, existing}
+        case Graph.get(client, "subscriptions/" <> existing["id"]) do
+          {:ok, remote} ->
+            if remote["notificationUrl"] && remote["notificationUrl"] != url do
+              with :ok <- delete_subscription(client, existing),
+                   do: create_subscription(provider, client, state, resource, url, now)
+            else
+              existing =
+                Map.put(
+                  existing,
+                  "expiration",
+                  remote["expirationDateTime"] || existing["expiration"]
+                )
+
+              case renew_subscription(client, existing, now) do
+                {:error, %Error{status: 404}} ->
+                  create_subscription(provider, client, state, resource, url, now)
+
+                result ->
+                  result
+              end
+            end
+
+          {:error, %Error{status: 404}} ->
+            create_subscription(provider, client, state, resource, url, now)
+
+          error ->
+            error
+        end
     end
   end
 
-  defp create_subscription(client, resource, notification_url, now) do
-    client_state = generate_client_state()
-    expiration = expiration(now)
+  defp renew_subscription(client, existing, now) do
+    if needs_renewal?(existing, now) do
+      case Graph.patch(client, "subscriptions/" <> existing["id"],
+             body: %{"expirationDateTime" => expiration(now)}
+           ) do
+        {:ok, remote} ->
+          {:ok, Map.put(existing, "expiration", remote["expirationDateTime"] || expiration(now))}
 
-    case Graph.post(client, "subscriptions",
-           body: %{
-             "changeType" => @change_type,
-             "notificationUrl" => notification_url,
-             "resource" => resource,
-             "expirationDateTime" => expiration,
-             "clientState" => client_state
-           }
-         ) do
-      {:ok, subscription} ->
-        {:ok,
-         %{
-           "id" => Map.get(subscription, "id"),
-           "resource" => resource,
-           "notificationUrl" => notification_url,
-           "expiration" => Map.get(subscription, "expirationDateTime") || expiration,
-           "clientState" => client_state
-         }}
-
-      {:error, _reason} = error ->
-        error
+        error ->
+          error
+      end
+    else
+      {:ok, existing}
     end
   end
 
-  defp renew_subscription(client, resource, existing, notification_url, now) do
-    subscription_id = MapHelpers.optional_text(existing, "id")
-    expiration = expiration(now)
+  defp create_subscription(provider, client, state, resource, url, now) do
+    # GET cannot recover clientState. Clear an old untracked subscription only
+    # when its callback belongs to this provider, then persist the secret before
+    # POST. A crash after POST can now recover the remote id without losing it.
+    with {:ok, remote} <- matching_subscriptions(client, resource),
+         :ok <- clear_untracked(client, remote, url) do
+      pending = %{
+        "phase" => "creating",
+        "resource" => resource,
+        "notificationUrl" => url,
+        "expiration" => expiration(now),
+        "clientState" => generate_client_state()
+      }
 
-    case Graph.patch(client, "subscriptions/" <> subscription_id,
-           body: %{"expirationDateTime" => expiration}
-         ) do
-      {:ok, subscription} ->
-        {:ok,
-         Map.put(
-           existing,
-           "expiration",
-           Map.get(subscription, "expirationDateTime") || expiration
-         )}
-
-      {:error, %Error{status: 404}} ->
-        create_subscription(client, resource, notification_url, now)
-
-      {:error, _reason} = error ->
-        error
+      with {:ok, _} <- persist_state(provider, put_resource_entry(state, resource, pending)),
+           do: post_subscription(client, pending, now)
     end
   end
+
+  defp recover_creation(client, pending, now, may_post \\ true) do
+    with {:ok, remote} <- matching_subscriptions(client, pending["resource"]) do
+      case remote do
+        [] when may_post ->
+          # A permission failure can leave this intent pending past its first
+          # expiration. Keep its saved secret and request a fresh lifetime.
+          post_subscription(client, Map.put(pending, "expiration", expiration(now)), now)
+
+        [] ->
+          {:error, :graph_subscription_conflict_not_visible}
+
+        [entry] ->
+          if entry["notificationUrl"] == pending["notificationUrl"],
+            do: {:ok, created_entry(pending, entry)},
+            else: {:error, :graph_subscription_owned_elsewhere}
+
+        _ ->
+          {:error, :graph_subscription_owned_elsewhere}
+      end
+    end
+  end
+
+  defp post_subscription(client, pending, now) do
+    body = %{
+      "resource" => pending["resource"],
+      "notificationUrl" => pending["notificationUrl"],
+      "clientState" => pending["clientState"],
+      "expirationDateTime" => pending["expiration"],
+      "changeType" => @change_type
+    }
+
+    case Graph.post(client, "subscriptions", body: body) do
+      {:ok, remote} -> {:ok, created_entry(pending, remote)}
+      # The original POST may have succeeded before its response was lost.
+      {:error, %Error{status: 409}} -> recover_creation(client, pending, now, false)
+      error -> error
+    end
+  end
+
+  defp created_entry(pending, remote) do
+    pending
+    |> Map.delete("phase")
+    |> Map.put("id", remote["id"])
+    |> Map.put("expiration", remote["expirationDateTime"] || pending["expiration"])
+  end
+
+  defp matching_subscriptions(client, resource),
+    do: matching_subscriptions(client, "subscriptions", resource, [])
+
+  defp matching_subscriptions(client, path, resource, found) do
+    with {:ok, response} <- Graph.get(client, path) do
+      matches =
+        Enum.filter(Map.get(response, "value", []), fn entry ->
+          String.trim_leading(entry["resource"] || "", "/") == String.trim_leading(resource, "/") and
+            Enum.sort(String.split(entry["changeType"] || "", ",")) ==
+              Enum.sort(String.split(@change_type, ","))
+        end)
+
+      case response["@odata.nextLink"] do
+        next when is_binary(next) ->
+          matching_subscriptions(client, next, resource, found ++ matches)
+
+        _ ->
+          {:ok, found ++ matches}
+      end
+    end
+  end
+
+  defp clear_untracked(client, remote, url) do
+    Enum.reduce_while(remote, :ok, fn entry, :ok ->
+      if entry["notificationUrl"] == url do
+        case delete_subscription(client, entry) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      else
+        {:halt, {:error, :graph_subscription_owned_elsewhere}}
+      end
+    end)
+  end
+
+  defp delete_entry(client, %{"phase" => "creating"} = pending) do
+    with {:ok, remote} <- matching_subscriptions(client, pending["resource"]),
+         do: clear_untracked(client, remote, pending["notificationUrl"])
+  end
+
+  defp delete_entry(client, entry), do: delete_subscription(client, entry)
 
   defp needs_renewal?(entry, now) do
     case entry |> MapHelpers.optional_text("expiration") |> parse_datetime() do
@@ -249,6 +405,45 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
       {:ok, %{"subscriptions" => subscriptions}} when is_list(subscriptions) -> subscriptions
       _missing -> []
     end
+  end
+
+  defp fresh_desired(provider_id, key) do
+    Repo.transact(fn repo ->
+      activation_key = Ankole.IdentityProviders.Config.active_definition().key
+
+      with {:ok, providers} <- AppConfigure.get_tenant_by_key_in_tx(repo, activation_key),
+           {:ok, config} <- AppConfigure.get_tenant_by_key_in_tx(repo, key) do
+        provider =
+          Enum.find(
+            providers,
+            &(&1["provider_id"] == provider_id and &1["config_key"] == key and
+                &1["adapter_id"] == "entra-id")
+          )
+
+        {:ok, {config, not is_nil(provider) and provider["enabled"] != false}}
+      else
+        :error -> {:error, :provider_config_missing}
+        error -> error
+      end
+    end)
+  end
+
+  defp fresh_state(provider_id) do
+    Repo.transact(fn repo ->
+      case AppConfigure.get_tenant_by_key_in_tx(repo, Config.subscription_state_key(provider_id)) do
+        {:ok, %{"subscriptions" => subscriptions}} when is_list(subscriptions) ->
+          {:ok, subscriptions}
+
+        :error ->
+          {:ok, []}
+
+        {:error, _} = error ->
+          error
+
+        _ ->
+          {:error, :invalid_graph_subscription_state}
+      end
+    end)
   end
 
   defp persist_state(provider_id, entries) do

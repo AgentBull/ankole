@@ -15,21 +15,6 @@ defmodule AnkoleWeb.Endpoint do
   # AEAD. The browser carries the payload but cannot read or tamper with it.
   # `key_context` is threaded down to SessionCookieStore so the cookie's key is
   # derived under a named context, isolating it from other Kernel-derived keys.
-  # `secure` is a compile-time flag (off by default for local HTTP dev, on in
-  # production behind TLS) — it must be a literal here, so it cannot be runtime-tuned.
-  @session_options [
-    store: AnkoleWeb.SessionCookieStore,
-    key:
-      if(Application.compile_env(:ankole, :secure_cookies, false),
-        do: "__Host-ankole",
-        else: "_ankole_key"
-      ),
-    key_context: "_ankole_key",
-    same_site: "Lax",
-    max_age: 86_400,
-    http_only: true,
-    secure: Application.compile_env(:ankole, :secure_cookies, false)
-  ]
 
   # An OIDC callback URL must carry the scheme the browser used. This trusts
   # `x-forwarded-proto` from every caller. SaaS also uses the ingress-supplied
@@ -53,6 +38,15 @@ defmodule AnkoleWeb.Endpoint do
       max_frame_size: 16 * 1024 * 1024,
       timeout: 60_000,
       compress: false
+    ],
+    longpoll: false
+
+  socket "/pod/socket", AnkoleWeb.PodSocket,
+    websocket: [
+      check_origin: :conn,
+      connect_info: [:uri],
+      max_frame_size: Ankole.Pod.Documents.max_wire_bytes(),
+      timeout: 60_000
     ],
     longpoll: false
 
@@ -81,6 +75,7 @@ defmodule AnkoleWeb.Endpoint do
   end
 
   plug AnkoleWeb.Plugs.WebhookCallbackBodyReader
+  plug AnkoleWeb.Plugs.AppletRouteBody
 
   plug Plug.Parsers,
     parsers: [
@@ -94,7 +89,7 @@ defmodule AnkoleWeb.Endpoint do
 
   plug Plug.MethodOverride
   plug Plug.Head
-  plug Plug.Session, @session_options
+  plug AnkoleWeb.SessionCookies
   plug AnkoleWeb.SiteAdminConsole
   plug Application.compile_env(:ankole, :http_entry, AnkoleWeb.Router)
 end

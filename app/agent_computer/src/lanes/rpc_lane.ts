@@ -9,7 +9,7 @@ import {
   type WorkerRPCHandlers
 } from './rpc_contract'
 import { ms } from '@agentbull/active-support'
-import { errorMessage } from '../common/errors'
+import { errorMessage, nodeErrorCode } from '../common/errors'
 import { create, fromBinary, toBinary, type DescMessage, type MessageInitShape } from '@bufbuild/protobuf'
 import type { JsonObject as JSONObject } from '@agentbull/active-support'
 import { RuntimeFabricTransportError, isRuntimeFabricTransportError, type EnvelopeSender } from '../fabric/fabric'
@@ -171,6 +171,7 @@ export class RuntimeRPCClient {
     frame: RPCFrame<M>,
     options: RPCCallOptions = {}
   ): Promise<RPCResponseOf<M> | RPCRejection> {
+    const deadlineUnixMs = Date.now() + (options.timeoutMs ?? this.timeoutMs)
     const deadline = new AbortController()
     const signal = AbortSignal.any([deadline.signal, this.shutdown.signal, ...(options.signal ? [options.signal] : [])])
     let sent = false
@@ -182,7 +183,7 @@ export class RuntimeRPCClient {
       for (;;) {
         signal.throwIfAborted()
         try {
-          return await this.requestOnce(method, payload, frame, signal, () => {
+          return await this.requestOnce(method, payload, frame, signal, deadlineUnixMs, () => {
             sent = true
           })
         } catch (error) {
@@ -210,6 +211,7 @@ export class RuntimeRPCClient {
     payload: RPCRequestInit<M>,
     frame: RPCFrame<M>,
     signal: AbortSignal,
+    deadlineUnixMs: number,
     sent: () => void
   ): Promise<RPCResponseOf<M> | RPCRejection> {
     signal.throwIfAborted()
@@ -246,6 +248,7 @@ export class RuntimeRPCClient {
           body: {
             case: 'rpcRequest',
             value: create(RPCRequestSchema, {
+              deadlineUnixMs: BigInt(deadlineUnixMs),
               requestId: requestID,
               method,
               payload: requestBytes,
@@ -323,18 +326,73 @@ export async function handleWorkerRPCRequest(
   }
 
   const schema = rpcOperations[method]
+  const deadlineUnixMs = Number(request.deadlineUnixMs)
+  if (!Number.isSafeInteger(deadlineUnixMs) || deadlineUnixMs <= Date.now()) {
+    await sendWorkerRPCError(
+      sendEnvelope,
+      request,
+      'worker_rpc_deadline_exceeded',
+      'Worker RPC expired before execution',
+      {
+        method,
+        execution_started: false
+      },
+      true
+    )
+    return
+  }
+  const deadline = new AbortController()
+  const timer = setTimeout(
+    () => deadline.abort(new DOMException('Worker RPC deadline exceeded', 'TimeoutError')),
+    deadlineUnixMs - Date.now()
+  )
+  let executionStarted = false
   try {
     // The compiler cannot correlate rpcOperations[M] request/response pairs
     // through the method union, so the payload narrowing happens here once.
     const payload = fromBinary(schema.request, request.payload)
-    const result = await (handler as WorkerRPCHandler<WorkerOwnedRPCMethod>)(payload as never)
+    if (Date.now() >= deadlineUnixMs) {
+      deadline.abort(new DOMException('Worker RPC deadline exceeded', 'TimeoutError'))
+    }
+    deadline.signal.throwIfAborted()
+    executionStarted = true
+    const result = await (handler as WorkerRPCHandler<WorkerOwnedRPCMethod>)(payload as never, {
+      deadlineUnixMs,
+      signal: deadline.signal
+    })
+    if (Date.now() >= deadlineUnixMs) {
+      deadline.abort(new DOMException('Worker RPC deadline exceeded', 'TimeoutError'))
+    }
+    deadline.signal.throwIfAborted()
     await sendWorkerRPCResponse(
       sendEnvelope,
       request,
       toBinary(schema.response, create(schema.response, result as MessageInitShape<DescMessage>))
     )
   } catch (error) {
-    if (error instanceof FileTransferError) {
+    const code = nodeErrorCode(error)
+    if (code === 'automation_preparation_failed' || code === 'automation_result_unknown') {
+      await sendWorkerRPCError(
+        sendEnvelope,
+        request,
+        code,
+        errorMessage(error),
+        {
+          method,
+          execution_started: code === 'automation_result_unknown'
+        },
+        code === 'automation_preparation_failed'
+      )
+    } else if (deadline.signal.aborted) {
+      await sendWorkerRPCError(
+        sendEnvelope,
+        request,
+        'worker_rpc_deadline_exceeded',
+        'Worker RPC deadline exceeded',
+        { method, execution_started: executionStarted },
+        !executionStarted
+      )
+    } else if (error instanceof FileTransferError) {
       await sendWorkerRPCError(sendEnvelope, request, error.code, error.message, { method })
     } else if (method.startsWith('worker_files.')) {
       await sendWorkerRPCError(sendEnvelope, request, 'operation_failed', errorMessage(error), {
@@ -343,6 +401,8 @@ export async function handleWorkerRPCRequest(
     } else {
       await sendWorkerRPCError(sendEnvelope, request, 'worker_rpc_failed', errorMessage(error), { method })
     }
+  } finally {
+    clearTimeout(timer)
   }
 }
 
@@ -370,7 +430,8 @@ async function sendWorkerRPCError(
   request: RPCRequestMessage,
   code: string,
   message: string,
-  details: JSONObject
+  details: JSONObject,
+  retryable = false
 ): Promise<void> {
   await sendEnvelope(
     createEnvelope({
@@ -381,7 +442,7 @@ async function sendWorkerRPCError(
           requestId: request.requestId,
           code,
           message,
-          retryable: false,
+          retryable,
           detailsJson: jsonBytes(details)
         })
       }

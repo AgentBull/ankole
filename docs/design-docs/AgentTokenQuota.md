@@ -22,6 +22,12 @@ of a Background Agent Job. A compaction that such a request starts with the
 `compaction_trigger` item, including the Codex remote compaction call, is that
 request's own model work and counts the same way.
 
+Applet backend model calls also record usage under the Agent configured by
+`pod.applet.ai_agent_uid`. They keep `subject_type: "agent"` for attribution but
+skip quota admission through an internal control-plane option. The Applet's
+invocation time and memory limits still apply. This exception does not let an
+HTTP caller disable quota checks.
+
 For each provider round that ends with `response.completed` or
 `response.incomplete`, the ledger records `usage.input_tokens` and
 `usage.output_tokens` as the provider reported them. The counted amount is
@@ -52,7 +58,7 @@ can therefore end above the limit by its own usage.
 | --- | --- |
 | `id` | UUIDv7 primary key |
 | `subject_uid` | The Agent Principal |
-| `origin` | `agent` for a control-plane Session, `codex` for a Background Agent Job request |
+| `origin` | `agent` for a control-plane Session or Applet, `codex` for a Background Agent Job request |
 | `model` | The resolved `provider_id/model` selector |
 | `input_tokens`, `output_tokens` | Non-negative provider usage of the round |
 | `inserted_at` | Record time; the window query uses it |
@@ -104,8 +110,9 @@ change moves the local wall-clock boundary by one hour.
 AIGateway checks the quota when it resolves the model of an `llm` request, in
 `ResponsesPreparation.resolve_runtime` and in the WebSocket `response.create`
 entry, before the model and its credential are selected. A request with
-`subject_type` `agent` is checked; in-process callers pass no `subject_type`
-and skip the check. A compaction trigger carries the same identity into the
+`subject_type` `agent` is checked unless the internal Applet adapter disables
+quota admission. Other in-process callers pass no `subject_type` and skip the
+check. A compaction trigger carries the same identity into the
 summarizer or the provider compaction call, so it is checked and counted like
 the request that sent it. The rejection touches no credential, and an Agent at
 its limit receives the quota answer even when its credential pool is also

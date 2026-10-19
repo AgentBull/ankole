@@ -153,7 +153,7 @@ describe('editable content keeps its visible form', () => {
       '<callout tone="warning">\n  x\n</callout>',
       { type: 'Callout', marks: { CalloutTone: 'warning' }, content: [paragraph('x')] }
     ],
-    ['<database ref="roadmap" />', { type: 'Database', marks: { DatabaseRef: 'roadmap' } }]
+    ['<embed ref="roadmap" />', { type: 'Embed', marks: { EmbedRef: 'roadmap' } }]
   ] as [string, Shape][])('imports %s as an editing node', (source, expected) => {
     const first = open(source)
     const second = open(exportMarkdown(first))
@@ -238,9 +238,9 @@ describe('block actions keep what the new block can show', () => {
     expect(run(source, type)).toBe(expected)
   })
 
-  test('a divider or database reference leaves one paragraph for the caret', () => {
+  test('a divider or embed leaves one paragraph for the caret', () => {
     expect(run('x', 'divider')).toBe('<page><p>x</p><hr /><p /></page>')
-    expect(run('x\n\n<p />', 'database')).toBe('<page><p>x</p><database /><p /></page>')
+    expect(run('x\n\n<p />', 'embed')).toBe('<page><p>x</p><embed /><p /></page>')
   })
 
   test('a copy keeps the state of task items', () => {

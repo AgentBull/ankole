@@ -13,6 +13,7 @@ defmodule Ankole.AppConfigure.Cache do
 
   @table :ankole_app_configure_cache
   @topic "app_configure:cache"
+  @max_age_ms 5_000
   # Row entries use tuples, so this atom key cannot collide with them.
   @refresh_generation :refresh_generation
 
@@ -39,9 +40,11 @@ defmodule Ankole.AppConfigure.Cache do
     cache_key = cache_key(scope, key, Repo.tenant_id())
 
     case safe_lookup(cache_key) do
-      [{^cache_key, state}] -> {:ok, state}
-      [] -> :miss
-      :missing_table -> :miss
+      [{^cache_key, state, expires_at}] ->
+        if expires_at > monotonic_ms(), do: {:ok, state}, else: :miss
+
+      _ ->
+        :miss
     end
   end
 
@@ -51,7 +54,8 @@ defmodule Ankole.AppConfigure.Cache do
   The read runs in the calling process, so it is re-entrant inside the caller's
   open transaction and the SQL Sandbox serves it from the caller's test
   connection. The cache process then publishes the result only if no refresh
-  started after this load began, and it never replaces an existing entry. A
+  started after this load began, and it never replaces an entry whose read started later. Cache entries
+  expire after five seconds, including absent rows. A
   refresh follows a commit, so an earlier load can hold the row from before that
   commit, and a failed refresh leaves no entry to block it. The caller still
   gets its own result. A load that begins after a refresh sees that refresh's
@@ -61,11 +65,12 @@ defmodule Ankole.AppConfigure.Cache do
   def load(scope, key) do
     assert_scope!(scope)
     generation = refresh_generation()
+    loaded_at = monotonic_ms()
     read_result = read_one(scope, key)
 
     GenServer.call(
       __MODULE__,
-      {:publish_load, scope, key, Repo.tenant_id(), generation, read_result}
+      {:publish_load, scope, key, Repo.tenant_id(), generation, loaded_at, read_result}
     )
   end
 
@@ -98,18 +103,20 @@ defmodule Ankole.AppConfigure.Cache do
     GenServer.call(__MODULE__, {:refresh, scope, key, tenant_id})
   end
 
-  @doc """
-  Clears the ETS projection for tests.
-  """
-  @spec clear_for_test() :: :ok
-  def clear_for_test do
-    GenServer.call(__MODULE__, :clear_for_test)
-  end
+  if Mix.env() == :test do
+    @doc """
+    Clears the ETS projection for tests.
+    """
+    @spec clear_for_test() :: :ok
+    def clear_for_test do
+      GenServer.call(__MODULE__, :clear_for_test)
+    end
 
-  @doc false
-  @spec fail_next_refresh_for_test(String.t(), String.t(), term()) :: :ok
-  def fail_next_refresh_for_test(scope, key, reason) when is_binary(scope) and is_binary(key) do
-    GenServer.call(__MODULE__, {:fail_next_refresh_for_test, scope, key, reason})
+    @doc false
+    @spec fail_next_refresh_for_test(String.t(), String.t(), term()) :: :ok
+    def fail_next_refresh_for_test(scope, key, reason) when is_binary(scope) and is_binary(key) do
+      GenServer.call(__MODULE__, {:fail_next_refresh_for_test, scope, key, reason})
+    end
   end
 
   @impl true
@@ -131,23 +138,30 @@ defmodule Ankole.AppConfigure.Cache do
 
   @impl true
   def handle_call(
-        {:publish_load, scope, key, tenant_id, generation, read_result},
+        {:publish_load, scope, key, tenant_id, generation, loaded_at, read_result},
         _from,
         server_state
       ) do
     with {:ok, state} <- read_result,
          ^generation <- refresh_generation() do
-      :ets.insert_new(@table, {cache_key(scope, key, tenant_id), state})
+      cache_key = cache_key(scope, key, tenant_id)
+
+      case safe_lookup(cache_key) do
+        [{^cache_key, _, expires_at}] when expires_at > loaded_at -> :ok
+        _ -> :ets.insert(@table, {cache_key, state, loaded_at + @max_age_ms})
+      end
     end
 
     {:reply, read_result, server_state}
   end
 
-  def handle_call({:refresh, scope, key, tenant_id}, _from, server_state)
-      when is_map_key(server_state, {:fail_next_refresh, scope, key}) do
-    {reason, server_state} = Map.pop!(server_state, {:fail_next_refresh, scope, key})
-    invalidate(scope, key, tenant_id)
-    {:reply, {:error, reason}, server_state}
+  if Mix.env() == :test do
+    def handle_call({:refresh, scope, key, tenant_id}, _from, server_state)
+        when is_map_key(server_state, {:fail_next_refresh, scope, key}) do
+      {reason, server_state} = Map.pop!(server_state, {:fail_next_refresh, scope, key})
+      invalidate(scope, key, tenant_id)
+      {:reply, {:error, reason}, server_state}
+    end
   end
 
   def handle_call({:refresh, scope, key, tenant_id}, {caller, _tag}, server_state) do
@@ -159,15 +173,17 @@ defmodule Ankole.AppConfigure.Cache do
     {:reply, loaded, server_state}
   end
 
-  def handle_call({:fail_next_refresh_for_test, scope, key, reason}, _from, server_state) do
-    {:reply, :ok, Map.put(server_state, {:fail_next_refresh, scope, key}, reason)}
-  end
+  if Mix.env() == :test do
+    def handle_call({:fail_next_refresh_for_test, scope, key, reason}, _from, server_state) do
+      {:reply, :ok, Map.put(server_state, {:fail_next_refresh, scope, key}, reason)}
+    end
 
-  @impl true
-  def handle_call(:clear_for_test, _from, _server_state) do
-    :ets.delete_all_objects(@table)
-    new_refresh_generation()
-    {:reply, :ok, %{}}
+    @impl true
+    def handle_call(:clear_for_test, _from, _server_state) do
+      :ets.delete_all_objects(@table)
+      new_refresh_generation()
+      {:reply, :ok, %{}}
+    end
   end
 
   defp safe_lookup(key) do
@@ -179,9 +195,10 @@ defmodule Ankole.AppConfigure.Cache do
   # Startup loading is best-effort for the projection. PostgreSQL is still the
   # durable source of truth, and later cache misses can load individual rows.
   defp load_all do
+    loaded_at = monotonic_ms()
     rows = Repo.all(Ankole.AppConfigure.SiteConfig)
 
-    Enum.each(rows, &write_row/1)
+    Enum.each(rows, &write_row(&1, loaded_at))
     :ok
   rescue
     error ->
@@ -200,17 +217,18 @@ defmodule Ankole.AppConfigure.Cache do
   # missing row cannot leave an old value behind in the projection.
   defp load_one(scope, key, caller) do
     invalidate(scope, key, Repo.tenant_id())
+    loaded_at = monotonic_ms()
 
     AppConfig.for_scope(scope)
     |> where([row], row.scope == ^scope and row.key == ^key)
     |> Repo.one(caller: caller)
     |> case do
       nil ->
-        write_state(scope, key, :absent)
+        write_state(scope, key, :absent, loaded_at)
         {:ok, :absent}
 
       %{value: _} = row ->
-        write_row(row)
+        write_row(row, loaded_at)
         {:ok, {:row, row.value}}
     end
   rescue
@@ -266,11 +284,13 @@ defmodule Ankole.AppConfigure.Cache do
     :ets.insert(@table, {@refresh_generation, make_ref()})
   end
 
-  defp write_row(%{scope: scope, key: key, value: value}) do
-    write_state(scope, key, {:row, value})
+  defp monotonic_ms, do: System.monotonic_time(:millisecond)
+
+  defp write_row(%{scope: scope, key: key, value: value}, loaded_at) do
+    write_state(scope, key, {:row, value}, loaded_at)
   end
 
-  defp write_state(scope, key, state) do
-    :ets.insert(@table, {cache_key(scope, key, Repo.tenant_id()), state})
+  defp write_state(scope, key, state, loaded_at) do
+    :ets.insert(@table, {cache_key(scope, key, Repo.tenant_id()), state, loaded_at + @max_age_ms})
   end
 end

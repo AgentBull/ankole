@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom'
 import {
   Badge,
   Button,
@@ -159,20 +160,33 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
   })
   const definition = definitions?.find(item => item.kind === model.kind.value)
   const saved = () => {
-    model.markSaved()
     toast.success(t('console.worker_providers.saved'))
   }
   const create = useMutation({
     ...ankoleWebWorkerProviderControllerCreateMutation(),
-    onSuccess: response => {
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, _variables, confirm) => {
+      let accepted = false
+      flushSync(() => {
+        accepted = confirm?.(workerProviderDraft(response.worker_provider)) ?? false
+      })
+      if (!accepted) return
       saved()
-      navigate(`${providersPath}/${encodeURIComponent(response.worker_provider.provider_id)}`)
+      if (!model.dirty.value) navigate(`${providersPath}/${encodeURIComponent(response.worker_provider.provider_id)}`)
     }
   })
-  const update = useMutation({ ...ankoleWebWorkerProviderControllerUpdateMutation(), onSuccess: saved })
+  const update = useMutation({
+    ...ankoleWebWorkerProviderControllerUpdateMutation(),
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, _variables, confirm) => {
+      if (confirm?.(workerProviderDraft(response.worker_provider))) saved()
+    }
+  })
   const remove = useMutation({
     ...ankoleWebWorkerProviderControllerDeleteMutation(),
-    onSuccess: () => {
+    onMutate: () => window.location.href,
+    onSuccess: (_response, _variables, sourceURL) => {
+      if (window.location.href !== sourceURL) return
       navigate(providersPath)
     }
   })
@@ -199,6 +213,7 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
       description={t('console.worker_providers.editor_description')}
       backTo={providersPath}
       dirty={model.dirty.value && !remove.isPending}
+      supplementaryDirty={model.dirty.value && !remove.isPending}
       error={saveError ?? remove.error ?? providers.error ?? kinds.error}
       submitting={create.isPending || update.isPending}
       submitUnavailable={status !== 'ready' || !definition}
@@ -222,117 +237,123 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
           )
         ) : null
       }>
-      <LabeledField label={t('console.worker_providers.id')} required={!providerID}>
-        {providerID ? (
-          <ReadOnlyValue mono>{providerID}</ReadOnlyValue>
-        ) : (
-          <Input
-            value={model.providerID.value}
-            onChange={event => (model.providerID.value = event.target.value)}
-            autoComplete="off"
+      <fieldset className="contents" disabled={create.isPending}>
+        <LabeledField label={t('console.worker_providers.id')} required={!providerID}>
+          {providerID ? (
+            <ReadOnlyValue mono>{providerID}</ReadOnlyValue>
+          ) : (
+            <Input
+              value={model.providerID.value}
+              onChange={event => (model.providerID.value = event.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+            />
+          )}
+        </LabeledField>
+        <LabeledField label={t('console.worker_providers.name')} required>
+          <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
+        </LabeledField>
+        <LabeledField label={t('console.worker_providers.kind')} required={!providerID}>
+          {providerID ? (
+            <ReadOnlyValue>{model.kind.value}</ReadOnlyValue>
+          ) : (
+            <Select
+              value={model.kind.value}
+              onValueChange={value => {
+                const next = definitions?.find(item => item.kind === value)
+                if (next) model.selectKind(next)
+              }}>
+              <SelectTrigger aria-label={t('console.worker_providers.kind')} className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {definitions?.map(item => (
+                  <SelectItem key={item.kind} value={item.kind}>
+                    {item.kind}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </LabeledField>
+        <LabeledField
+          label={t('console.worker_providers.default')}
+          description={t('console.worker_providers.default_hint')}>
+          <Switch checked={model.isDefault.value} onCheckedChange={value => (model.isDefault.value = value)} />
+        </LabeledField>
+        <LabeledField
+          label={t('console.worker_providers.config')}
+          description={t('console.worker_providers.config_hint')}
+          required>
+          <Textarea
+            className="min-h-80 font-mono text-xs"
             spellCheck={false}
+            value={model.config.value}
+            onChange={event => (model.config.value = event.target.value)}
           />
-        )}
-      </LabeledField>
-      <LabeledField label={t('console.worker_providers.name')} required>
-        <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
-      </LabeledField>
-      <LabeledField label={t('console.worker_providers.kind')} required={!providerID}>
-        {providerID ? (
-          <ReadOnlyValue>{model.kind.value}</ReadOnlyValue>
-        ) : (
-          <Select
-            value={model.kind.value}
-            onValueChange={value => {
-              const next = definitions?.find(item => item.kind === value)
-              if (next) model.selectKind(next)
-            }}>
-            <SelectTrigger aria-label={t('console.worker_providers.kind')} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {definitions?.map(item => (
-                <SelectItem key={item.kind} value={item.kind}>
-                  {item.kind}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </LabeledField>
-      <LabeledField
-        label={t('console.worker_providers.default')}
-        description={t('console.worker_providers.default_hint')}>
-        <Switch checked={model.isDefault.value} onCheckedChange={value => (model.isDefault.value = value)} />
-      </LabeledField>
-      <LabeledField
-        label={t('console.worker_providers.config')}
-        description={t('console.worker_providers.config_hint')}
-        required>
-        <Textarea
-          className="min-h-80 font-mono text-xs"
-          spellCheck={false}
-          value={model.config.value}
-          onChange={event => (model.config.value = event.target.value)}
-        />
-      </LabeledField>
-      {details.length ? (
-        <ul className="grid gap-2 text-sm text-destructive-foreground" role="alert">
-          {details.map((detail, index) => (
-            <li key={index}>
-              <code>{String(detail.path ?? detail.field ?? '')}</code>
-              {typeof detail.line === 'number' ? ` (${t('console.worker_providers.line', { line: detail.line })})` : ''}
-              : {String(detail.message ?? '')}
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {Object.entries(definition?.credentials ?? {}).map(([name, credential]) => {
-        const stored = selected?.credentials[name]
-        const removed = model.credentials.value[name] === null
-        return (
-          <LabeledField
-            key={name}
-            label={name}
-            description={
-              removed ? t('console.worker_providers.credential_removed') : t('console.worker_providers.credential_hint')
-            }
-            required={credential.required && !stored}>
-            {name === 'kubeconfig' ? (
-              <Textarea
-                className="min-h-40 font-mono text-xs"
-                autoComplete="off"
-                spellCheck={false}
-                placeholder={stored}
-                value={model.credentials.value[name] ?? ''}
-                onChange={event => model.setCredential(name, event.target.value)}
-              />
-            ) : (
-              <EncryptedValueInput
-                disabled={removed}
-                placeholder={removed ? undefined : stored}
-                revealLabel={t('console.aria.reveal_secret')}
-                value={model.credentials.value[name] ?? ''}
-                onChange={event => model.setCredential(name, event.target.value)}
-              />
-            )}
-            {/* The server keeps a kubeconfig: in-cluster and remote access cannot change. */}
-            {stored && !credential.required && name !== 'kubeconfig' ? (
-              <div>
-                <Button
-                  size="xs"
-                  type="button"
-                  variant="outline"
-                  onClick={() => model.setCredential(name, removed ? '' : null)}>
-                  {removed
-                    ? t('console.worker_providers.credential_keep')
-                    : t('console.worker_providers.credential_remove')}
-                </Button>
-              </div>
-            ) : null}
-          </LabeledField>
-        )
-      })}
+        </LabeledField>
+        {details.length ? (
+          <ul className="grid gap-2 text-sm text-destructive-foreground" role="alert">
+            {details.map((detail, index) => (
+              <li key={index}>
+                <code>{String(detail.path ?? detail.field ?? '')}</code>
+                {typeof detail.line === 'number'
+                  ? ` (${t('console.worker_providers.line', { line: detail.line })})`
+                  : ''}
+                : {String(detail.message ?? '')}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {Object.entries(definition?.credentials ?? {}).map(([name, credential]) => {
+          const stored = selected?.credentials[name]
+          const removed = model.credentials.value[name] === null
+          return (
+            <LabeledField
+              key={name}
+              label={name}
+              description={
+                removed
+                  ? t('console.worker_providers.credential_removed')
+                  : t('console.worker_providers.credential_hint')
+              }
+              required={credential.required && !stored}>
+              {name === 'kubeconfig' ? (
+                <Textarea
+                  className="min-h-40 font-mono text-xs"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={stored}
+                  value={model.credentials.value[name] ?? ''}
+                  onChange={event => model.setCredential(name, event.target.value)}
+                />
+              ) : (
+                <EncryptedValueInput
+                  disabled={removed}
+                  placeholder={removed ? undefined : stored}
+                  revealLabel={t('console.aria.reveal_secret')}
+                  value={model.credentials.value[name] ?? ''}
+                  onChange={event => model.setCredential(name, event.target.value)}
+                />
+              )}
+              {/* The server keeps a kubeconfig: in-cluster and remote access cannot change. */}
+              {stored && !credential.required && name !== 'kubeconfig' ? (
+                <div>
+                  <Button
+                    size="xs"
+                    type="button"
+                    variant="outline"
+                    onClick={() => model.setCredential(name, removed ? '' : null)}>
+                    {removed
+                      ? t('console.worker_providers.credential_keep')
+                      : t('console.worker_providers.credential_remove')}
+                  </Button>
+                </div>
+              ) : null}
+            </LabeledField>
+          )
+        })}
+      </fieldset>
     </ResourceEditorPage>
   )
 }

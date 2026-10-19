@@ -144,6 +144,7 @@ defmodule Ankole.Tenants do
              |> repo.insert() do
         Repo.with_tenant(tenant.id, fn ->
           with :ok <- ensure_scaffold(tenant),
+               :ok <- Ankole.Pod.Access.initialize_space(repo),
                {:ok, _} <-
                  Ankole.Brain.SchemaPacks.install_packs(
                    Map.get(attrs, :brain_packs, []),
@@ -295,6 +296,8 @@ defmodule Ankole.Tenants do
     tenant = repo.get!(Tenant, tenant_id)
 
     Repo.with_tenant(tenant.id, fn ->
+      Ankole.Pod.Pages.lock_tree()
+
       if group = repo.get_by(Group, name: Root.admin_group_name(), built_in: true) do
         repo.delete_all(from grant in Grant, where: grant.group_id == ^group.id)
         repo.delete!(group)

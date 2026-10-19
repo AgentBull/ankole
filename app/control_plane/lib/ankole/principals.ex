@@ -248,7 +248,7 @@ defmodule Ankole.Principals do
         {:ok, {principal, conversation_ids}}
       end
     end)
-    |> publish_agent_conversation_status()
+    |> publish_agent_changes()
   end
 
   @doc """
@@ -264,13 +264,19 @@ defmodule Ankole.Principals do
            {:ok, principal} <- fetch_principal_for_update(repo, uid),
            :ok <- ensure_principal_type(principal, :agent),
            conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
+           {:ok, tables} <- release_agent_bindings_in_tx(repo, principal),
            {:ok, principal} <- change_agent_status_in_tx(repo, principal) do
-        {:ok, {principal, conversation_ids}}
+        {:ok, {principal, conversation_ids, tables}}
       end
     end)
-    |> publish_agent_conversation_status()
+    |> publish_agent_changes()
     |> reconcile_agent_worker()
   end
+
+  defp release_agent_bindings_in_tx(repo, %Principal{uid: uid, status: :disabled}),
+    do: Ankole.Pod.Sync.release_agent_bindings_in_tx(repo, uid)
+
+  defp release_agent_bindings_in_tx(_repo, _principal), do: {:ok, []}
 
   defp change_agent_status_in_tx(repo, principal) do
     case principal.status do
@@ -297,19 +303,24 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp publish_agent_conversation_status({:ok, {%Principal{} = principal, conversation_ids}}) do
+  defp publish_agent_changes({:ok, {principal, conversation_ids}}),
+    do: publish_agent_changes({:ok, {principal, conversation_ids, []}})
+
+  defp publish_agent_changes({:ok, {%Principal{} = principal, conversation_ids, tables}}) do
     unless Repo.in_transaction?() do
       Repo.with_tenant(principal.tenant_id, fn ->
         Enum.each(conversation_ids, fn id ->
           Ankole.Conversations.publish_status(%{session_id: Ankole.Sessions.Key.conversation(id)})
         end)
+
+        Ankole.Pod.Sync.broadcast_released_bindings(tables)
       end)
     end
 
     {:ok, principal}
   end
 
-  defp publish_agent_conversation_status(result), do: result
+  defp publish_agent_changes(result), do: result
 
   # A disabled Agent's Worker stops when it is idle, and a deleted Agent's
   # Worker objects are deleted; the Worker owner does both after the commit.

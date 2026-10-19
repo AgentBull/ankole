@@ -280,7 +280,7 @@ export function SelectionToolbar() {
   return createPortal(
     <div
       ref={toolbar}
-      className="selection-toolbar ankole-editor-overlay"
+      className="selection-toolbar ankole-editor-overlay ceramic"
       style={position}
       role={linkForm ? 'dialog' : 'toolbar'}
       aria-label={linkForm ? '编辑链接' : '选区格式'}

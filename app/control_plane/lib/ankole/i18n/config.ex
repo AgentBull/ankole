@@ -2,10 +2,8 @@ defmodule Ankole.I18n.Config do
   @moduledoc """
   AppConfigure definitions owned by the I18n subsystem.
 
-  AppConfigure stores the operator-selected locale id as durable runtime
-  configuration. It does not scan locale files. Catalog startup and reload own
-  the stronger check that the stored id is actually available in the loaded
-  application catalog.
+  The definition validates the active locale against the available catalogs.
+  Startup validation reads release catalog filenames before Catalog starts.
   """
 
   alias Ankole.AppConfigure
@@ -19,9 +17,8 @@ defmodule Ankole.I18n.Config do
   @doc """
   Returns the declared AppConfigure definition for the default locale.
 
-  The schema only requires a non-empty string. This is a deliberate boundary:
-  saving a choice and proving that the release contains a matching catalog are
-  different responsibilities.
+  Generic AppConfigure writes use the same catalog availability check as the
+  dedicated locale UI.
   """
   @spec default_locale_definition() :: Definition.t()
   def default_locale_definition do
@@ -29,10 +26,29 @@ defmodule Ankole.I18n.Config do
       scope: :tenant,
       key: @default_locale_key,
       encrypted: false,
-      schema: Schema.non_empty_string(),
+      schema: Schema.new(&validate_locale/1),
       default_value: @default_locale,
       description: "Default locale used when rendering Ankole text."
     )
+  end
+
+  @doc false
+  def validate_locale(locale) do
+    loaded = Ankole.I18n.Resolver.loaded()
+
+    available =
+      if map_size(loaded) > 0 do
+        loaded
+      else
+        locales_dir()
+        |> Ankole.I18n.Loader.list_catalog_files()
+        |> Map.new(&{Ankole.I18n.Loader.locale_id_from_path(&1), true})
+      end
+
+    case Ankole.I18n.Resolver.exact_loaded_locale(locale, available) do
+      nil -> {:error, :unavailable_locale}
+      canonical -> {:ok, canonical}
+    end
   end
 
   @doc """

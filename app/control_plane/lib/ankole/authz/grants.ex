@@ -11,6 +11,9 @@ defmodule Ankole.AuthZ.Grants do
   @console_admin_actions ~w(read update delete reset decrypt sync)
 
   def create_permission_grant(repo, attrs) do
+    :ok = Ankole.Repo.require_transaction(repo)
+    Ankole.Pod.Pages.lock_tree()
+
     with {:ok, attrs} <- grant_attrs(repo, attrs) do
       %Grant{}
       |> Grant.changeset(attrs)
@@ -19,6 +22,9 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   def upsert_permission_grant(repo, attrs) do
+    :ok = Ankole.Repo.require_transaction(repo)
+    Ankole.Pod.Pages.lock_tree()
+
     with {:ok, attrs} <- grant_attrs(repo, attrs),
          changeset <- Grant.changeset(%Grant{}, attrs),
          {:ok, normalized} <- Changeset.apply_action(changeset, :insert) do
@@ -31,6 +37,9 @@ defmodule Ankole.AuthZ.Grants do
   end
 
   def update_permission_grant(repo, %Grant{} = grant, attrs) do
+    :ok = Ankole.Repo.require_transaction(repo)
+    Ankole.Pod.Pages.lock_tree()
+
     with {:ok, attrs} <- grant_attrs(repo, attrs) do
       grant
       |> Grant.changeset(attrs)

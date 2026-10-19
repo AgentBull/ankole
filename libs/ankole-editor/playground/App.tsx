@@ -196,9 +196,7 @@ export function App() {
         </button>
         <button
           className="sidebar-link"
-          onClick={() =>
-            document.querySelector('.database-reference')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-          }>
+          onClick={() => document.querySelector('.embed')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
           <span>02</span>数据库引用
         </button>
         <button

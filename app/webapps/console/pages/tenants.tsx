@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom'
 import { principalLabel } from '../state/principal-label'
 import {
   Badge,
@@ -122,22 +123,40 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
     absent: () => Boolean(tenantID && tenants.isSuccess && !selected)
   })
   const saved = () => {
-    model.markSaved()
     toast.success(t('console.tenants.saved'))
   }
   const create = useMutation({
     ...ankoleWebTenantControllerCreateMutation(),
-    onSuccess: response => {
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, variables, confirm) => {
+      let accepted = false
+      flushSync(() => {
+        accepted =
+          confirm?.({
+            slug: response.tenant.slug,
+            displayName: response.tenant.display_name,
+            brainPacks: variables.body.brain_packs ?? []
+          }) ?? false
+      })
+      if (!accepted) return
       saved()
-      navigate(`/tenants/${response.tenant.id}`)
+      if (!model.dirty.value) navigate(`/tenants/${response.tenant.id}`)
     }
   })
-  const update = useMutation({ ...ankoleWebTenantControllerUpdateMutation(), onSuccess: saved })
+  const update = useMutation({
+    ...ankoleWebTenantControllerUpdateMutation(),
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, _variables, confirm) => {
+      if (confirm?.({ slug: response.tenant.slug, displayName: response.tenant.display_name, brainPacks: [] })) saved()
+    }
+  })
   const suspend = useMutation({ ...ankoleWebTenantControllerSuspendMutation(), onSuccess: saved })
   const resume = useMutation({ ...ankoleWebTenantControllerResumeMutation(), onSuccess: saved })
   const remove = useMutation({
     ...ankoleWebTenantControllerDeleteMutation(),
-    onSuccess: () => {
+    onMutate: () => window.location.href,
+    onSuccess: (_response, _variables, sourceURL) => {
+      if (window.location.href !== sourceURL) return
       navigate('/tenants')
     }
   })
@@ -148,6 +167,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
       description={t('console.tenants.editor_description')}
       backTo="/tenants"
       dirty={model.dirty.value && !remove.isPending}
+      supplementaryDirty={model.dirty.value && !remove.isPending}
       error={
         create.error ??
         update.error ??
@@ -202,46 +222,48 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
           <TransferAdministration tenant={selected} />
         ) : undefined
       }>
-      <LabeledField label={t('console.tenants.name')} required>
-        <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
-      </LabeledField>
-      <LabeledField label={t('console.tenants.slug')} required description={t('console.tenants.slug_hint')}>
-        <Input
-          value={model.slug.value}
-          onChange={event => (model.slug.value = event.target.value)}
-          pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
-          autoComplete="off"
-          spellCheck={false}
-        />
-      </LabeledField>
-      {selected ? (
-        <LabeledField label={t('console.tenants.state')}>
-          <ReadOnlyValue>{t(`console.tenants.${tenantState(selected)}`)}</ReadOnlyValue>
+      <fieldset className="contents" disabled={create.isPending}>
+        <LabeledField label={t('console.tenants.name')} required>
+          <Input value={model.displayName.value} onChange={event => (model.displayName.value = event.target.value)} />
         </LabeledField>
-      ) : (
-        <div className="grid gap-3">
-          <p className="text-sm text-muted-foreground">{t('console.tenants.packs_hint')}</p>
-          {tenants.data?.brain_packs.map(pack => (
-            <LabeledField key={pack} label={pack}>
-              <Switch
-                checked={model.brainPacks.value.includes(pack)}
-                onCheckedChange={checked => {
-                  model.brainPacks.value = checked
-                    ? [...model.brainPacks.value, pack]
-                    : model.brainPacks.value.filter(value => value !== pack)
-                }}
-              />
-            </LabeledField>
-          ))}
-        </div>
-      )}
-      {isPrivileged ? <p className="text-sm text-muted-foreground">{t('console.tenants.protected')}</p> : null}
-      {selected?.suspended_at ? (
-        <p className="text-sm text-muted-foreground">{t('console.tenants.suspended_hint')}</p>
-      ) : null}
-      {selected?.deleting_at ? (
-        <p className="text-sm text-muted-foreground">{t('console.tenants.deleting_hint')}</p>
-      ) : null}
+        <LabeledField label={t('console.tenants.slug')} required description={t('console.tenants.slug_hint')}>
+          <Input
+            value={model.slug.value}
+            onChange={event => (model.slug.value = event.target.value)}
+            pattern="[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?"
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </LabeledField>
+        {selected ? (
+          <LabeledField label={t('console.tenants.state')}>
+            <ReadOnlyValue>{t(`console.tenants.${tenantState(selected)}`)}</ReadOnlyValue>
+          </LabeledField>
+        ) : (
+          <div className="grid gap-3">
+            <p className="text-sm text-muted-foreground">{t('console.tenants.packs_hint')}</p>
+            {tenants.data?.brain_packs.map(pack => (
+              <LabeledField key={pack} label={pack}>
+                <Switch
+                  checked={model.brainPacks.value.includes(pack)}
+                  onCheckedChange={checked => {
+                    model.brainPacks.value = checked
+                      ? [...model.brainPacks.value, pack]
+                      : model.brainPacks.value.filter(value => value !== pack)
+                  }}
+                />
+              </LabeledField>
+            ))}
+          </div>
+        )}
+        {isPrivileged ? <p className="text-sm text-muted-foreground">{t('console.tenants.protected')}</p> : null}
+        {selected?.suspended_at ? (
+          <p className="text-sm text-muted-foreground">{t('console.tenants.suspended_hint')}</p>
+        ) : null}
+        {selected?.deleting_at ? (
+          <p className="text-sm text-muted-foreground">{t('console.tenants.deleting_hint')}</p>
+        ) : null}
+      </fieldset>
     </ResourceEditorPage>
   )
 }

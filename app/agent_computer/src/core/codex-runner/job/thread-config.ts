@@ -21,12 +21,19 @@ export function codexJobThreadConfig(input: {
   env: Record<string, string>
   runtime: CodexRuntimeConfig
   driveDirectory?: string
+  podInstructions?: string
+  originalHumanRequest?: string
   turnTracePropagation?: TurnTracePropagation
   projectConfig?: Record<string, unknown>
 }): Record<string, unknown> {
   const baseURL = input.runtime.aiGatewayKey.baseUrl.replace(/\/+$/, '')
   const config = mergeConfig(input.projectConfig ?? {}, {
-    developer_instructions: [input.projectConfig?.developer_instructions, codexJobDriveContext(input.driveDirectory)]
+    developer_instructions: [
+      input.projectConfig?.developer_instructions,
+      codexJobDriveContext(input.driveDirectory),
+      input.podInstructions,
+      input.originalHumanRequest
+    ]
       .filter(value => typeof value === 'string' && value.length > 0)
       .join('\n\n'),
     model_provider: 'ankole_aigateway',

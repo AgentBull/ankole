@@ -61,11 +61,11 @@ test('slash inserts an editable callout that reopens with its body', async ({ pa
   await expect(page.locator('.callout p')).toContainText('保留内容')
 })
 
-const withReference = 'Before\n\n<database ref="tasks" />\n\nAfter'
+const withReference = 'Before\n\n<embed ref="tasks" />\n\nAfter'
 
-test('select all, delete, undo and redo include a database reference', async ({ page }) => {
+test('select all, delete, undo and redo include an embed', async ({ page }) => {
   await openDocument(page, withReference)
-  const card = page.locator('.editor-content .database-reference')
+  const card = page.locator('.editor-content .embed')
   await selectDocument(page)
   await page.keyboard.press('Backspace')
   await expect(card).toHaveCount(0)
@@ -79,8 +79,8 @@ test('select all, delete, undo and redo include a database reference', async ({ 
   await expect(card.locator('code')).toHaveText('tasks')
 })
 
-test('Backspace and Delete beside a database reference join the text around it and keep it', async ({ page }) => {
-  const card = page.locator('.editor-content .database-reference')
+test('Backspace and Delete beside an embed join the text around it and keep it', async ({ page }) => {
+  const card = page.locator('.editor-content .embed')
   for (const [key, at] of [
     ['Backspace', 'last'],
     ['Delete', 'first']

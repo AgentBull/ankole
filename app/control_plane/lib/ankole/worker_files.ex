@@ -15,7 +15,8 @@ defmodule Ankole.WorkerFiles do
 
   `put/3` rejects oversize content before any RPC is sent, and the push relay
   rejects a Worker upload larger than the bound before it reads the body. The
-  bound is a module guarantee and cannot be widened per call.
+  default bound remains the upload policy. `stream/2` accepts `max_bytes:` when
+  its domain caller derives a different bound for a validated bulk operation.
   """
 
   alias Ankole.RuntimeFabric.V1, as: FabricProto
@@ -106,7 +107,11 @@ defmodule Ankole.WorkerFiles do
              is_binary(target_dir) do
     with worker = worker(opts),
          {:ok, %{"body" => body}} <-
-           push(worker, home_relative_dir, Keyword.put(opts, :bundle_paths, paths)) do
+           push(
+             worker,
+             home_relative_dir,
+             opts |> Keyword.delete(:max_bytes) |> Keyword.put(:bundle_paths, paths)
+           ) do
       write_bundle(body, paths, target_dir)
     end
   rescue
@@ -119,11 +124,12 @@ defmodule Ankole.WorkerFiles do
   defp push(worker, home_relative_path, opts) do
     timeout_ms = Keyword.get(opts, :timeout_ms, @transfer_timeout_ms)
 
-    with {:ok, session} <-
+    with {:ok, max_bytes} <- transfer_limit(opts),
+         {:ok, session} <-
            Relay.open(%{
              direction: :push,
              worker: worker,
-             max_bytes: @max_transfer_bytes,
+             max_bytes: max_bytes,
              ttl_ms: timeout_ms,
              consumer: self(),
              owner: self()
@@ -131,7 +137,7 @@ defmodule Ankole.WorkerFiles do
       transfer_id = session.transfer_id
 
       request = %{
-        transfer_request(session, home_relative_path)
+        transfer_request(session, home_relative_path, max_bytes)
         | bundle_paths: Keyword.get(opts, :bundle_paths, [])
       }
 
@@ -326,12 +332,12 @@ defmodule Ankole.WorkerFiles do
     result
   end
 
-  defp transfer_request(session, home_relative_path) do
+  defp transfer_request(session, home_relative_path, max_bytes \\ @max_transfer_bytes) do
     %FabricProto.WorkerFileTransferRequest{
       transfer_id: session.transfer_id,
       url: session.url,
       home_relative_path: home_relative_path,
-      max_bytes: @max_transfer_bytes,
+      max_bytes: max_bytes,
       expires_at: DateTime.to_iso8601(session.expires_at)
     }
   end
@@ -364,6 +370,13 @@ defmodule Ankole.WorkerFiles do
       {:ok, %File.Stat{type: :regular, size: size}} -> {:ok, size}
       {:ok, %File.Stat{}} -> {:error, {:invalid_source, :not_regular_file}}
       {:error, reason} -> {:error, {:invalid_source, reason}}
+    end
+  end
+
+  defp transfer_limit(opts) do
+    case Keyword.get(opts, :max_bytes, @max_transfer_bytes) do
+      bytes when is_integer(bytes) and bytes > 0 -> {:ok, bytes}
+      _ -> {:error, :invalid_transfer_limit}
     end
   end
 

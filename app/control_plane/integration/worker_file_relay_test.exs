@@ -76,6 +76,46 @@ defmodule Ankole.WorkerFileRelayIntegrationTest do
     assert %{status: 200} = Task.await(request, 5_000)
   end
 
+  @tag timeout: 180_000
+  test "a full mapped sync batch above the ordinary upload limit crosses the real HTTP relay" do
+    allow_cache_database_access()
+    Ankole.AppConfigure.Cache.clear_for_test()
+    context = Ankole.PodSyncFixtures.binding_attempt_fixture()
+    initial_version = Repo.get!(Ankole.Pod.DbTable, context.table.id).data_version
+    expected_version = initial_version + 1
+    route = "sync-large-relay-#{System.unique_integer([:positive])}"
+    value = :binary.copy("x", 900_000)
+    rows = for id <- 1..200, do: %{external_id: "record-#{id}", data: %{"title" => value}}
+    json = Torque.encode!(rows)
+    assert byte_size(json) > Ankole.WorkerFiles.max_transfer_bytes()
+    Ankole.WorkerFilesFake.start!(route, files: %{"sync.json" => json}, http: true)
+    worker = %{Repo.get!(AgentWorker, context.agent) | state: "ready", transport_route: route}
+    target = AgentWorkers.target(worker)
+
+    assert {:error, %{"code" => "file_too_large"}} =
+             Ankole.WorkerFiles.stream("sync.json", worker: target)
+
+    request = %Ankole.RuntimeFabric.V1.PodSyncRequest{
+      binding_id: context.binding.id,
+      automation_job_run_id: to_string(context.run.id),
+      attempt_id: context.run.attempt_id,
+      records_home_relative_path: "sync.json",
+      cursor_json: "{\"page\":1}"
+    }
+
+    assert {:ok, %{"result" => %{changed_ids: ids, data_version: ^expected_version}}} =
+             Ankole.Pod.RPCBroker.handle_sync(context.agent, request, %{
+               route: route,
+               worker_id: context.agent,
+               request_id: "large-sync"
+             })
+
+    assert length(ids) == 200
+    assert Repo.aggregate(Ankole.Pod.DbRecord, :count) == 200
+    assert %{cursor: %{"page" => 1}} = Repo.get!(Ankole.Pod.DbSyncBinding, context.binding.id)
+    assert Ankole.WorkerFiles.max_transfer_bytes() == 100 * 1024 * 1024
+  end
+
   defp receive_body(id, relay, chunks) do
     receive do
       {:relay_chunk, ^id, chunk} ->

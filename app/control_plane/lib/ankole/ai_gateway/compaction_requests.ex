@@ -349,7 +349,8 @@ defmodule Ankole.AIGateway.CompactionRequests do
              CompactionPolicy.retained_tail_budget_tokens(threshold, pack)
            ),
          candidate = %{candidate | brain_context_pack: pack},
-         {:ok, summary} <- summarize_candidate(subject_uid, candidate, identity),
+         {:ok, summary} <-
+           CompactionSummarizer.summarize_candidate(subject_uid, candidate, identity),
          :ok <- CompactionArtifacts.checkpoint_within_budget(candidate, summary, [], threshold),
          {:ok, artifact} <-
            CompactionArtifacts.create_artifact_for_candidate(
@@ -724,13 +725,4 @@ defmodule Ankole.AIGateway.CompactionRequests do
   end
 
   defp standalone_input(_request), do: {:error, :missing_input}
-
-  defp summarize_candidate(subject_uid, candidate, identity) do
-    CompactionSummarizer.summarize(
-      subject_uid,
-      CompactionHistory.messages_to_items(candidate.prefix),
-      candidate.previous_chat_history,
-      [recent_items: candidate.recent_items] ++ identity
-    )
-  end
 end

@@ -43,6 +43,7 @@ defmodule Ankole.Application do
       [
         Ankole.Repo,
         {Phoenix.PubSub, name: Ankole.PubSub},
+        AnkoleWeb.PodPresence,
         Ankole.OIDC.SigningKey,
         Ankole.AppConfigure.Registry,
         Ankole.AppConfigure.Cache,
@@ -57,6 +58,7 @@ defmodule Ankole.Application do
         Ankole.AIGateway.CredentialPool,
         {Task.Supervisor, name: Ankole.AIGateway.ProgramTaskSupervisor, max_children: 4},
         {Task.Supervisor, name: Ankole.AIGateway.BrainTaskSupervisor, max_children: 64},
+        {Task.Supervisor, name: Ankole.Pod.AppletTaskSupervisor},
         {Task.Supervisor,
          name: Ankole.AIGateway.ResponseRecoveryTaskSupervisor, max_children: 16},
         Ankole.AIGateway.ResponseStream.Supervisor,

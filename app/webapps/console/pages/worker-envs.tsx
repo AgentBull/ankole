@@ -1,3 +1,4 @@
+import { flushSync } from 'react-dom'
 import {
   Badge,
   Alert,
@@ -247,16 +248,30 @@ export function WorkerEnvEditorPage() {
 
   const update = useMutation({
     ...api.update(),
-    onSuccess: response => {
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, _variables, confirm) => {
+      let accepted = false
+      flushSync(() => {
+        accepted =
+          confirm?.({
+            name: response.worker_env.name,
+            value: response.worker_env.secret ? ENCRYPTED_VALUE_MASK : (response.worker_env.value ?? ''),
+            secret: response.worker_env.secret,
+            description: response.worker_env.description ?? ''
+          }) ?? false
+      })
+      if (!accepted) return
       toast.success(t('console.worker_envs.saved', { name: response.worker_env.name }))
       setPlaintextConfirmOpen(false)
 
-      navigate('/worker-envs')
+      if (!model.dirty.value) navigate('/worker-envs')
     }
   })
   const remove = useMutation({
     ...api.remove(),
-    onSuccess: (_data, variables) => {
+    onMutate: () => window.location.href,
+    onSuccess: (_data, variables, sourceURL) => {
+      if (window.location.href !== sourceURL) return
       toast.success(t('console.worker_envs.deleted', { name: variables.path.name }))
       model.resetSource()
 
@@ -268,8 +283,9 @@ export function WorkerEnvEditorPage() {
     meta: { invalidates: false },
     ...api.decrypt(),
     gcTime: 0,
-    onSuccess: response => {
-      model.value.value = response.decrypted_value.value
+    onMutate: () => model.captureReveal(),
+    onSuccess: (response, _variables, confirm) => {
+      confirm?.(response.decrypted_value.value)
     }
   })
 
@@ -326,6 +342,7 @@ export function WorkerEnvEditorPage() {
         description={item?.description ?? t('console.worker_envs.editor_description')}
         backTo="/worker-envs"
         dirty={model.dirty.value && !remove.isPending}
+        supplementaryDirty={model.dirty.value && !remove.isPending}
         validationError={model.validationError.value}
         error={update.error ?? decrypt.error ?? list.error}
         submitting={update.isPending}
@@ -394,10 +411,14 @@ export function WorkerEnvEditorPage() {
                 required
                 className="font-mono"
                 revealLabel={t('console.worker_envs.reveal')}
-                revealed={item !== undefined && decrypt.data?.decrypted_value.name === item.name}
+                revealed={
+                  item !== undefined &&
+                  decrypt.data?.decrypted_value.name === item.name &&
+                  decrypt.data.decrypted_value.value === model.value.value
+                }
                 revealing={decrypt.isPending}
                 value={model.value.value}
-                onChange={event => (model.value.value = event.target.value)}
+                onChange={event => model.setValue(event.target.value)}
                 onReveal={item ? () => decrypt.mutate({ path: { name: item.name } }) : undefined}
               />
             ) : (
@@ -407,7 +428,7 @@ export function WorkerEnvEditorPage() {
                 className="font-mono"
                 spellCheck={false}
                 value={model.value.value}
-                onChange={event => (model.value.value = event.target.value)}
+                onChange={event => model.setValue(event.target.value)}
               />
             )}
           </LabeledField>

@@ -561,7 +561,10 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp job_metadata(attrs, manages_workspace_root) when is_boolean(manages_workspace_root) do
     case Map.get(attrs, "metadata", %{}) do
       %{} = metadata ->
-        {:ok, Map.put(metadata, "managed_background_agent_job_root", manages_workspace_root)}
+        {:ok,
+         metadata
+         |> Map.delete("applied_source_signal_id")
+         |> Map.put("managed_background_agent_job_root", manages_workspace_root)}
 
       _value ->
         {:error, :invalid_background_agent_job_metadata}

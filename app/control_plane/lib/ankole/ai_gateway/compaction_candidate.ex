@@ -10,6 +10,7 @@ defmodule Ankole.AIGateway.CompactionCandidate do
     only: [
       previous_checkpoint_items: 2,
       rows_after_last_compaction: 1,
+      split_last_compaction: 1,
       message_items: 1,
       text_compactable_message?: 1,
       messages_to_items: 1,
@@ -33,6 +34,21 @@ defmodule Ankole.AIGateway.CompactionCandidate do
             brain_context_pack: []
 
   @type t :: %__MODULE__{}
+
+  def truncate_history_to_stable_tail(history, current_input) do
+    {checkpoint, tail} = split_last_compaction(history)
+    tail_count = length(tail)
+    minimum_count = min(tail_rows(), tail_count)
+    boundary_plan = boundary_plan(tail, current_input)
+
+    case Enum.find(Range.new(minimum_count, tail_count), fn retained_count ->
+           safe_boundary?(boundary_plan, tail_count - retained_count)
+         end) do
+      nil -> {:error, :no_safe_truncation_boundary}
+      retained_count -> {:ok, checkpoint ++ Enum.take(tail, -retained_count)}
+    end
+  end
+
   def for_history(
         subject_uid,
         history,

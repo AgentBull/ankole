@@ -16,8 +16,8 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   alias Ankole.Conversations.Delivery.PreviewAdapter
   alias Ankole.Conversations.Conversation
 
-  # Give a transient provider failure a short recovery window before retry.
-  @reply_preview_settle_timeout_ms 30_000
+  # Release the outbox slot promptly while a preview finishes its provider IO.
+  @reply_preview_settle_timeout_ms 100
   # Delivery sources that must stop a live preview before dispatch.
   @reply_preview_finalization_sources ~w(
     session_dead_letter_notice
@@ -246,8 +246,8 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # waiting to acquire the Signal row lock. Wait for the preview owner to
   # stop before claiming terminal delivery, then re-read the Signal under
   # the intent lock so the final operation edits that preview instead of posting
-  # a duplicate reply. A timeout leaves the durable row in `created`, so Delivery
-  # reconciliation can restore its wakeup after the dispatch job is discarded.
+  # a duplicate reply. A timeout leaves the intent untouched; the job snoozes
+  # before it claims an attempt or sends a provider request.
   defp await_reply_preview_finalization(agent_uid, binding_name, outbound_key, options) do
     case Ankole.Conversations.Delivery.Queries.fetch_delivery(
            agent_uid,
@@ -279,20 +279,25 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
 
   defp await_reply_preview_stop(signal_id, timeout_ms)
        when is_binary(signal_id) and is_integer(timeout_ms) and timeout_ms >= 0 do
-    case Ankole.Conversations.Delivery.Preview.lookup(signal_id) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+
+    case Preview.lookup(signal_id, @reply_preview_settle_timeout_ms) do
       [{pid, _value}] ->
         monitor = Process.monitor(pid)
 
         receive do
           {:DOWN, ^monitor, :process, ^pid, _reason} -> :ok
         after
-          timeout_ms ->
+          max(0, deadline - System.monotonic_time(:millisecond)) ->
             Process.demonitor(monitor, [:flush])
             {:error, :reply_preview_settle_timeout}
         end
 
       [] ->
         :ok
+
+      {:error, :reply_preview_owner_unavailable} ->
+        {:error, :reply_preview_settle_timeout}
     end
   end
 

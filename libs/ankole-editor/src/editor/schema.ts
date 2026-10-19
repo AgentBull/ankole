@@ -11,7 +11,7 @@
 import { Elt, Leaf, Mark, Node, parse, Plot, Schema, ValidationError } from '../core/doc'
 import * as T from '../core/types'
 import { blocks } from '../blocks'
-import { databaseCard } from '../blocks/database'
+import { embedCard } from '../blocks/embed'
 import { Attrs, checkPairs, type Pairs } from './attributes'
 
 const G = Node.Group
@@ -91,7 +91,16 @@ function view(frozen: Frozen, inline: boolean): Elt<string> {
   if (frozen.name === 'callout') {
     return Elt.mk('aside', { class: 'callout', ...(tone ? { 'data-tone': tone } : {}) }, children)
   }
-  if (frozen.name === 'database') return databaseCard(attr('ref'))
+  if (frozen.name === 'embed') {
+    return embedCard(
+      Object.fromEntries(
+        ['ref', 'table', 'view'].flatMap(name => {
+          const value = attr(name)
+          return value === undefined ? [] : [[name, value] as const]
+        })
+      )
+    )
+  }
   if (shown.has(frozen.name)) return Elt.create(frozen.name, [], children)
   return Elt.mk(
     inline ? 'span' : 'div',

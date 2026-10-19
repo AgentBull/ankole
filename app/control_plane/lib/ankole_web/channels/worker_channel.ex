@@ -45,6 +45,7 @@ defmodule AnkoleWeb.WorkerChannel do
   @telemetry_methods ["observability.spans.export"]
   @mailbox_limit 10_000
   @initial_worker_byte_credit 64 * 1024 * 1024
+  @max_message_bytes 16 * 1024 * 1024
 
   @default_limits %{
     command_ack_timeout_ms: 10_000,
@@ -124,6 +125,9 @@ defmodule AnkoleWeb.WorkerChannel do
   def join(_topic, _payload, _socket), do: {:error, %{"reason" => "unknown_topic"}}
 
   @impl true
+  def handle_in(_event, {:binary, bytes}, socket) when byte_size(bytes) > @max_message_bytes,
+    do: {:reply, {:error, %{"reason" => "message_too_large"}}, socket}
+
   def handle_in(event, payload, socket) do
     case mailbox_overflow?() do
       true ->

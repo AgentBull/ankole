@@ -106,22 +106,29 @@ tenant cannot be suspended or deleted; transfer its role first.
 
 ## Pod work entry
 
-The work shell is `/pod`, with its private browser API at
-`/.internal-apis/pod`. Any active Human can sign in through the tenant's existing
-providers and use the Conversation participant contract. No siteadmin gate
-applies to work entry, and work login does not open management APIs.
+The work shell belongs to the tenant's slug host: locally,
+`http://<tenant-slug>.ankole.localhost:4000/`; production uses the configured Pod
+subdomain. Pages and Conversations use `/pages/<short-uuid>` and
+`/conversations/<short-uuid>`. Kernel encodes each UUID's 16 bytes as canonical,
+unpadded base64url (22 characters). Durable storage, internal `ankole:page`
+references and the private browser API at `/.internal-apis/pod` keep full UUIDs.
 
-On a single host, `tenant_id` identifies the target organization, for example
-`/pod?tenant_id=<uuid>`. It is public routing data, not access proof. Without an
-explicit target, use the valid active context or the privileged tenant as the
-default organization. An explicit unknown target fails. Callback targets remain
-fixed by the login transaction; `x-ankole-tenant` is only a Console data selector.
-Open pages send their fixed authentication and tenant on each API request.
+The Host selects the tenant. Normal navigation does not carry `tenant_id` or
+use a `/pod` prefix. Legacy browser paths redirect to the canonical host and
+short path. Unknown or unavailable tenant hosts fail closed. Open documents
+pin their authentication and tenant on API requests; a conflicting tenant hint
+cannot override the Host. The site shares its browser group and independent
+account proof cookies across Pod subdomains. Login flows, API authorization and
+the realtime socket still check the target tenant. A page keeps its pinned
+authentication after another tab selects an account. The private SaaS entry
+retains its one-use handoff for entry without a shared proof.
 
-FOSS replaces its default work authentication when another work identity signs
-in. The core can keep independent proofs for callers that request add mode.
-See [Browser Sessions](BrowserSessions.md). A multi-Pod navigation product is
-not required for a single-host deployment.
+Any active Human can sign in through their tenant's existing providers and use
+the Conversation participant contract. No siteadmin gate applies to work entry,
+and work login does not open management APIs. Pod login adds the new work
+authentication to the browser's existing account collection. The sidebar opens
+the existing account chooser without signing out and preserves the return path. See
+[Browser Sessions](BrowserSessions.md).
 
 ## Configuration and integrations
 
@@ -169,6 +176,13 @@ restart work. Already admitted attempts retain their existing
 completion contract. Agent cleanup releases Workers and persistent storage.
 The deletion job processes bounded, idempotent batches; PostgreSQL constraints
 and the final transaction prevent a concurrent write from leaving orphan rows.
+Its table list names child rows before their parents, so each batch deletes rows
+of one table and the cascade foreign keys do not carry bulk data. The Pod content
+tables enter the list as `db_records`, `db_sync_bindings`, `db_views`,
+`db_fields`, `db_tables`, `page_user_states`, `page_changes`, `page_contents`,
+then `pages`.
+Page batches delete leaves first, so a parent cannot cascade through a large
+subtree in one batch.
 Unreferenced blob bytes remain the responsibility of the existing file GC.
 
 A failed batch can retry from durable facts. Deletion is not an export or an

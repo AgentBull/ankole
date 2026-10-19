@@ -9,6 +9,7 @@ export type IdentityEditorDraft = {
 }
 
 export const IdentityEditorModel = createModel(() => {
+  let generation = Symbol()
   const sourceKey = signal<string>()
   const adapterID = signal('')
   const providerID = signal('')
@@ -39,6 +40,10 @@ export const IdentityEditorModel = createModel(() => {
   }
 
   return {
+    resetSource() {
+      generation = Symbol()
+      sourceKey.value = undefined
+    },
     sourceKey,
     adapterID,
     providerID,
@@ -48,15 +53,40 @@ export const IdentityEditorModel = createModel(() => {
     validationError,
     initialize(nextSourceKey: string, draft: IdentityEditorDraft) {
       if (sourceKey.value === nextSourceKey) return
+      generation = Symbol()
       sourceKey.value = nextSourceKey
       apply(draft)
     },
     changeAdapter(draft: IdentityEditorDraft) {
+      generation = Symbol()
       apply(draft)
     },
-    /** Rebaselines the draft to the persisted provider, so a save clears dirty without leaving the page. */
-    markSaved(draft: IdentityEditorDraft) {
-      apply(draft)
+    /** Confirms the submitted fields and keeps edits made while saving. */
+    captureSave() {
+      const requestedGeneration = generation
+      const submittedValidation = validationError.value
+      const submitted = {
+        adapterID: adapterID.value,
+        providerID: providerID.value,
+        enabled: enabled.value,
+        config: config.value
+      }
+      return (accepted: IdentityEditorDraft) => {
+        if (generation !== requestedGeneration) return false
+        batch(() => {
+          if (JSON.stringify(adapterID.value) === JSON.stringify(submitted.adapterID)) {
+            adapterID.value = accepted.adapterID
+          }
+          if (JSON.stringify(providerID.value) === JSON.stringify(submitted.providerID)) {
+            providerID.value = accepted.providerID
+          }
+          if (JSON.stringify(enabled.value) === JSON.stringify(submitted.enabled)) enabled.value = accepted.enabled
+          if (JSON.stringify(config.value) === JSON.stringify(submitted.config)) config.value = accepted.config
+          initialDraft.value = { ...accepted }
+          if (validationError.value === submittedValidation) validationError.value = undefined
+        })
+        return true
+      }
     },
     clearValidation() {
       validationError.value = undefined

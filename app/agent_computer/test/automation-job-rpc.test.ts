@@ -41,6 +41,7 @@ describe('automation job worker RPC', () => {
       },
       create(RPCRequestSchema, {
         requestId: 'automation-run-request',
+        deadlineUnixMs: BigInt(Date.now() + 5_000),
         method: 'automation_job.run',
         payload: toBinary(AutomationJobRunRequestSchema, runRequest)
       }),
@@ -87,6 +88,7 @@ describe('automation job worker RPC', () => {
       },
       create(RPCRequestSchema, {
         requestId: 'automation-run-failed',
+        deadlineUnixMs: BigInt(Date.now() + 5_000),
         method: 'automation_job.run',
         payload: toBinary(
           AutomationJobRunRequestSchema,
@@ -109,6 +111,94 @@ describe('automation job worker RPC', () => {
       requestId: 'automation-run-failed',
       code: 'worker_rpc_failed',
       message: 'WorkerEnv RPC unavailable'
+    })
+  })
+  it('rejects an expired request without decoding or starting its handler', async () => {
+    const sent: Envelope[] = []
+    let started = false
+    await handleWorkerRPCRequest(
+      async envelope => {
+        sent.push(envelope)
+      },
+      create(RPCRequestSchema, {
+        requestId: 'expired',
+        method: 'automation_job.run',
+        deadlineUnixMs: BigInt(Date.now() - 1),
+        payload: new Uint8Array([255])
+      }),
+      {
+        runAutomationJob: async () => {
+          started = true
+          return {}
+        }
+      }
+    )
+    expect(started).toBe(false)
+    expect(sent[0]!.body).toMatchObject({
+      case: 'rpcError',
+      value: { code: 'worker_rpc_deadline_exceeded', retryable: true }
+    })
+  })
+
+  it('waits for deadline cancellation cleanup before replying', async () => {
+    const sent: Envelope[] = []
+    let cleaned = false
+    await handleWorkerRPCRequest(
+      async envelope => {
+        expect(cleaned).toBe(true)
+        sent.push(envelope)
+      },
+      create(RPCRequestSchema, {
+        requestId: 'held',
+        method: 'automation_job.run',
+        deadlineUnixMs: BigInt(Date.now() + 50),
+        payload: toBinary(AutomationJobRunRequestSchema, create(AutomationJobRunRequestSchema, {}))
+      }),
+      {
+        runAutomationJob: async (_request, { signal }) => {
+          await new Promise<void>(resolve => signal.addEventListener('abort', () => resolve(), { once: true }))
+          await Bun.sleep(10)
+          cleaned = true
+          signal.throwIfAborted()
+          return {}
+        }
+      }
+    )
+    expect(sent[0]!.body).toMatchObject({
+      case: 'rpcError',
+      value: { code: 'worker_rpc_deadline_exceeded', retryable: false }
+    })
+  })
+
+  it('rejects a late result even when synchronous work delays the deadline timer', async () => {
+    const sent: Envelope[] = []
+    const deadlineUnixMs = Date.now() + 100
+    let started = false
+    await handleWorkerRPCRequest(
+      async envelope => {
+        sent.push(envelope)
+      },
+      create(RPCRequestSchema, {
+        requestId: 'blocked-timer',
+        method: 'automation_job.run',
+        deadlineUnixMs: BigInt(deadlineUnixMs),
+        payload: toBinary(AutomationJobRunRequestSchema, create(AutomationJobRunRequestSchema, {}))
+      }),
+      {
+        runAutomationJob: async () => {
+          started = true
+          while (Date.now() <= deadlineUnixMs) {
+            // Keep the timer queued until the handler returns its late result.
+          }
+          return { status: 'succeeded', exitCode: 0 }
+        }
+      }
+    )
+    expect(started).toBe(true)
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.body).toMatchObject({
+      case: 'rpcError',
+      value: { code: 'worker_rpc_deadline_exceeded', retryable: false }
     })
   })
 })

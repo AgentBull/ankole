@@ -4,7 +4,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { createMemoryRouter, RouterProvider } from 'react-router'
 import { InternalAPIError } from '../../common/internal-api-client'
 import { ChatRoute } from '../chat-page'
+import { ChatDraftProvider } from '../chat-drafts'
 import { conversationNotFound, conversationQuery, podKeys, type ConversationDetail } from '../api'
+import { podLocation } from '../../common/browser-context'
+
+const conversationID = '00112233-4455-6677-8899-aabbccddeeff'
 
 const notFound = new InternalAPIError(404, 'Not Found', {
   error: { code: 'conversation_not_found', message: 'Conversation unavailable' }
@@ -49,8 +53,16 @@ describe('Pod unavailable conversations', () => {
       defaultOptions: { queries: { gcTime: Infinity, retry: false, staleTime: Infinity } }
     })
     const cached: ConversationDetail = {
+      pendingInputs: [],
+      queuePaused: false,
+      queueVersion: 'version',
+      retryableMessageID: null,
+      removedMessageIDs: [],
+      olderMessagesBeforeSeq: null,
+      messageRange: { firstSeq: 1, lastSeq: 1 },
       conversation: {
-        id: 'conversation',
+        pageID: null,
+        id: conversationID,
         title: 'Private title',
         agent: { uid: 'agent', displayName: 'Agent', active: true },
         lastActivityAt: '2026-10-14T00:00:00Z'
@@ -62,6 +74,8 @@ describe('Pod unavailable conversations', () => {
           authorType: 'human',
           authorUID: 'person',
           kind: 'message',
+          links: [],
+          attachments: [],
           text: 'Previously cached private text',
           createdAt: '2026-10-14T00:00:00Z',
           replyToMessageID: null,
@@ -85,18 +99,20 @@ describe('Pod unavailable conversations', () => {
         }
       }
     }
-    client.setQueryData(podKeys.detail('conversation'), cached)
+    client.setQueryData(podKeys.detail(conversationID), cached)
     client
       .getQueryCache()
-      .find({ queryKey: podKeys.detail('conversation'), exact: true })!
+      .find({ queryKey: podKeys.detail(conversationID), exact: true })!
       .setState({ status: 'error', error: notFound })
     const router = createMemoryRouter([{ path: '/conversations/:conversationID', element: <ChatRoute /> }], {
-      initialEntries: ['/conversations/conversation']
+      initialEntries: [podLocation(`/conversations/${conversationID}`).pathname]
     })
     try {
       const html = renderToStaticMarkup(
         <QueryClientProvider client={client}>
-          <RouterProvider router={router} />
+          <ChatDraftProvider>
+            <RouterProvider router={router} />
+          </ChatDraftProvider>
         </QueryClientProvider>
       )
       expect(html).toContain('role="alert"')

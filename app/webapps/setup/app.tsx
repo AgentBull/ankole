@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { toast } from '@ankole/uikit/components/sonner'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import * as v from 'valibot'
@@ -71,6 +71,7 @@ function identitySchema(adapterRequired: string, providerIDInvalid: string) {
 
 export function SetupApp() {
   const queryClient = useQueryClient()
+  const pending = useIsMutating() > 0
   const { t } = useTranslation()
   useEffect(() => {
     document.title = t('setup.document_title')
@@ -119,7 +120,10 @@ export function SetupApp() {
 
   return (
     <SetupLayout>
-      <section className="grid flex-1 grid-cols-1 gap-6 py-8 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <fieldset
+        disabled={pending}
+        inert={pending}
+        className="grid flex-1 grid-cols-1 gap-6 py-8 lg:grid-cols-[220px_minmax(0,1fr)]">
         <nav className="h-fit border border-border bg-background/95 p-3 backdrop-blur" aria-label={t('setup.steps')}>
           <ol className="flex flex-row gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
             {steps.map((item, index) => {
@@ -196,7 +200,7 @@ export function SetupApp() {
             />
           )}
         </div>
-      </section>
+      </fieldset>
     </SetupLayout>
   )
 }
@@ -337,6 +341,7 @@ function PluginsStep({ model, onContinue }: { model: InstanceType<typeof Plugins
           return (
             <label key={plugin.id} className="flex items-start gap-3 border border-border/70 bg-card/60 px-4 py-4">
               <Checkbox
+                disabled={mutation.isPending}
                 checked={checked}
                 onCheckedChange={value => model.setPluginSelected(plugin.id, value === true)}
               />
@@ -520,6 +525,7 @@ function SSOIdentityForm({
 
   function submitIdentity(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (mutation.isPending) return
     const draft = model.submission()
     const result = v.safeParse(identitySchema(t('setup.adapter_required'), t('setup.provider_id_invalid')), draft)
     if (!result.success) {

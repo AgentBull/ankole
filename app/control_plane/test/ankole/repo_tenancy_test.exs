@@ -97,10 +97,17 @@ defmodule Ankole.RepoTenancyTest do
     Repo.with_tenant(other.id, fn -> group("shared") end)
 
     Repo.across_tenants(fn ->
-      assert [%Group{tenant_id: tenant_id}] = Repo.all(Group, tenant: {:id, tenant.id})
+      assert [%Group{tenant_id: tenant_id}] =
+               Repo.all(from(g in Group, where: g.name == "shared"), tenant: {:id, tenant.id})
+
       assert tenant_id == tenant.id
-      assert {1, nil} = Repo.delete_all(Group, tenant: {:id, tenant.id})
-      query = from g in Group, where: g.tenant_id in ^[tenant.id, other.id]
+
+      assert {1, nil} =
+               Repo.delete_all(from(g in Group, where: g.name == "shared"),
+                 tenant: {:id, tenant.id}
+               )
+
+      query = from g in Group, where: g.tenant_id in ^[tenant.id, other.id] and g.name == "shared"
       assert [%Group{tenant_id: other_id}] = Repo.all(query)
       assert other_id == other.id
     end)
@@ -115,12 +122,15 @@ defmodule Ankole.RepoTenancyTest do
 
     query =
       from g in Group,
+        where: g.name == "candidate",
         where: not exists(from other in Group, where: other.name == "excluded", select: 1)
 
     assert [%Group{name: "candidate", tenant_id: tenant_id}] = Repo.all(query)
     assert tenant_id == tenant.id
 
-    source_query = from(g in subquery(from g in Group, select: %{name: g.name}))
+    source_query =
+      from(g in subquery(from g in Group, where: g.name == "candidate", select: %{name: g.name}))
+
     assert [%{name: "candidate"}] = Repo.all(source_query)
   end
 
@@ -225,9 +235,15 @@ defmodule Ankole.RepoTenancyTest do
 
   test "raw table queries use the explicit tenant context", %{tenant: tenant} do
     group("raw")
+    other = new_tenant()
+    Repo.with_tenant(other.id, fn -> group("raw") end)
 
     assert [tenant.id] ==
-             Repo.all(from g in "principal_groups", select: type(g.tenant_id, Ecto.UUID))
+             Repo.all(
+               from g in "principal_groups",
+                 where: g.name == "raw",
+                 select: type(g.tenant_id, Ecto.UUID)
+             )
   end
 
   test "Oban options cannot bypass business queries or nested tenant sources", %{tenant: tenant} do
@@ -235,7 +251,7 @@ defmodule Ankole.RepoTenancyTest do
     other = new_tenant()
     Repo.with_tenant(other.id, fn -> group("oban-option") end)
 
-    assert Repo.all(Group, oban: true) == [own]
+    assert Repo.all(from(g in Group, where: g.name == "oban-option"), oban: true) == [own]
 
     queries = [
       from(g in Group),
@@ -393,11 +409,12 @@ defmodule Ankole.RepoTenancyTest do
     own = group("batch-write")
     other = new_tenant()
     foreign = Repo.with_tenant(other.id, fn -> group("batch-write") end)
-    assert {1, nil} = Repo.update_all(Group, set: [display_name: "Updated"])
+    rows = from(g in Group, where: g.name == "batch-write")
+    assert {1, nil} = Repo.update_all(rows, set: [display_name: "Updated"])
     assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign.id) end) == foreign
     assert_raise ArgumentError, fn -> Repo.update_all(Group, set: [tenant_id: other.id]) end
     assert Repo.get!(Group, own.id).tenant_id == own.tenant_id
-    assert {1, nil} = Repo.delete_all(Group)
+    assert {1, nil} = Repo.delete_all(rows)
     assert Repo.with_tenant(other.id, fn -> Repo.get!(Group, foreign.id) end) == foreign
   end
 

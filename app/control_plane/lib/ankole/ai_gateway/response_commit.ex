@@ -173,33 +173,14 @@ defmodule Ankole.AIGateway.ResponseCommit do
           {:ok, Message.t() | :already_terminal} | {:error, :not_found | term()}
   def fail_generating_response_in_tx(repo, subject_uid, response_id, error_details, now)
       when is_map(error_details) do
-    with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
-         {:ok, message_id} <- decode_response_id(response_id) do
-      case lock_response_for_subject(repo, subject_uid, message_id) do
-        %Message{status: "generating"} = message ->
-          metadata = Map.put(message.metadata || %{}, "error", error_details)
-
-          case repo.update_all(
-                 from(candidate in Message,
-                   where: candidate.id == ^message.id and candidate.status == "generating",
-                   select: candidate
-                 ),
-                 [set: [status: "error", metadata: metadata, updated_at: now]],
-                 returning: true
-               ) do
-            {1, [%Message{} = updated]} -> {:ok, updated}
-            {0, []} -> {:ok, :already_terminal}
-          end
-
-        %Message{} ->
-          {:ok, :already_terminal}
-
-        nil ->
-          {:error, :not_found}
-      end
-    else
-      _invalid -> {:error, :not_found}
-    end
+    transition_generating_response(
+      repo,
+      subject_uid,
+      response_id,
+      now,
+      "error",
+      {"error", error_details}
+    )
   end
 
   @doc """
@@ -217,22 +198,29 @@ defmodule Ankole.AIGateway.ResponseCommit do
         ) :: {:ok, Message.t() | :already_terminal} | {:error, :not_found | term()}
   def retract_generating_response_in_tx(repo, subject_uid, response_id, reason, now)
       when is_binary(reason) do
+    transition_generating_response(
+      repo,
+      subject_uid,
+      response_id,
+      now,
+      "retracted",
+      {"retraction", %{"reason" => reason, "retracted_at" => DateTime.to_iso8601(now)}}
+    )
+  end
+
+  defp transition_generating_response(repo, subject_uid, response_id, now, status, {key, value}) do
     with {:ok, subject_uid} <- Principals.normalize_uid(subject_uid),
          {:ok, message_id} <- decode_response_id(response_id) do
       case lock_response_for_subject(repo, subject_uid, message_id) do
         %Message{status: "generating"} = message ->
-          metadata =
-            Map.put(message.metadata || %{}, "retraction", %{
-              "reason" => reason,
-              "retracted_at" => DateTime.to_iso8601(now)
-            })
+          metadata = Map.put(message.metadata || %{}, key, value)
 
           case repo.update_all(
                  from(candidate in Message,
                    where: candidate.id == ^message.id and candidate.status == "generating",
                    select: candidate
                  ),
-                 [set: [status: "retracted", metadata: metadata, updated_at: now]],
+                 [set: [status: status, metadata: metadata, updated_at: now]],
                  returning: true
                ) do
             {1, [%Message{} = updated]} -> {:ok, updated}

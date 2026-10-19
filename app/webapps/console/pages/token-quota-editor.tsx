@@ -1,6 +1,5 @@
 import { match } from '@agentbull/active-support'
 import { Input, Progress, ProgressLabel, ProgressValue, Skeleton, cn, toast } from '@ankole/uikit'
-import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useRef, type ReactNode } from 'react'
@@ -32,14 +31,19 @@ import { useEditorDraft } from '../use-editor-draft'
  * no limit; a reset ends the current period at once and starts an empty one.
  * Neither touches the recorded usage.
  */
-export function TokenQuotaEditor({ agentUID }: { agentUID: string }) {
+export function TokenQuotaEditor({
+  agentUID,
+  model
+}: {
+  agentUID: string
+  model: InstanceType<typeof TokenQuotaEditorModel>
+}) {
   useSignals()
   const { t, i18n } = useTranslation()
   // The picker edits wall-clock time in the browser's zone; the hint names that
   // zone so the operator knows which midnight a date means.
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const timeZoneLabel = [timeZone, timeZoneOffsetLabel(timeZone, i18n.language)].filter(Boolean).join(' ')
-  const model = useModel(TokenQuotaEditorModel)
   const periodDaysInput = useRef<HTMLInputElement>(null)
   const periodStartAtInput = useRef<HTMLInputElement>(null)
   const limitTokensInput = useRef<HTMLInputElement>(null)
@@ -63,16 +67,18 @@ export function TokenQuotaEditor({ agentUID }: { agentUID: string }) {
   // report through a toast instead.
   const save = useMutation({
     ...ankoleWebAgentControllerPutTokenQuotaMutation(),
-    onSuccess: response => {
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, _variables, confirm) => {
+      if (!confirm?.(draftFromTokenQuota(response.token_quota))) return
       toast.success(t('console.agents.token_quota_saved'))
-      model.markSaved(draftFromTokenQuota(response.token_quota))
     }
   })
   const clear = useMutation({
     ...ankoleWebAgentControllerDeleteTokenQuotaMutation(),
-    onSuccess: () => {
+    onMutate: () => model.captureSave(),
+    onSuccess: (_response, _variables, confirm) => {
+      if (!confirm?.(emptyTokenQuotaDraft())) return
       toast.success(t('console.agents.token_quota_cleared'))
-      model.markSaved(emptyTokenQuotaDraft())
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -80,9 +86,10 @@ export function TokenQuotaEditor({ agentUID }: { agentUID: string }) {
   // again. An unsaved edit of the start time cannot survive it.
   const reset = useMutation({
     ...ankoleWebAgentControllerResetTokenQuotaMutation(),
-    onSuccess: response => {
+    onMutate: () => model.captureSave(),
+    onSuccess: (response, _variables, confirm) => {
+      if (!confirm?.(draftFromTokenQuota(response.token_quota))) return
       toast.success(t('console.agents.token_quota_reset_done'))
-      model.markSaved(draftFromTokenQuota(response.token_quota))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })

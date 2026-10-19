@@ -23,6 +23,7 @@ defmodule AnkoleWeb.PodControllerTest do
 
     def chunk(state, data) do
       send(state.owner, {:stream_frame, IO.iodata_to_binary(data)})
+      if after_chunk = state[:after_chunk], do: after_chunk.()
       {:ok, "", %{state | chunks_left: state.chunks_left - 1}}
     end
   end
@@ -118,7 +119,34 @@ defmodule AnkoleWeb.PodControllerTest do
     id = attrs["conversationID"]
     message_id = attrs["messageID"]
 
-    assert Enum.sort(Map.keys(detail)) == ["conversation", "messages", "status"]
+    assert Enum.sort(Map.keys(detail)) == [
+             "conversation",
+             "messageRange",
+             "messages",
+             "olderMessagesBeforeSeq",
+             "pendingInputs",
+             "queuePaused",
+             "queueVersion",
+             "removedMessageIDs",
+             "retryableMessageID",
+             "status"
+           ]
+
+    assert detail["messageRange"] == %{"firstSeq" => 1, "lastSeq" => 1}
+    assert detail["olderMessagesBeforeSeq"] == nil
+    assert detail["queuePaused"] == false
+    assert detail["retryableMessageID"] == nil
+
+    assert [
+             %{
+               "messageID" => ^message_id,
+               "deliveryMode" => "steer",
+               "attachments" => [],
+               "modelProfile" => "primary"
+             }
+           ] = detail["pendingInputs"]
+
+    assert is_binary(detail["queueVersion"])
     assert %{"state" => "queued", "retryAt" => nil} = detail["status"]
 
     assert %{
@@ -182,6 +210,32 @@ defmodule AnkoleWeb.PodControllerTest do
 
     assert AnkoleWeb.InternalAPIContract.json_response(retried, 200) ==
              AnkoleWeb.InternalAPIContract.json_response(posted, 200)
+  end
+
+  test "page chat uses the same conversation API and can be recovered by page", %{conn: conn} do
+    {conn, human_uid} = console_conn_with_principal(conn)
+    agent = agent_fixture().principal
+    {:ok, page} = Ankole.Pod.Pages.create(human_uid, %{title: "Current page"})
+    attrs = Map.put(create_request(agent.uid), "pageID", page.id)
+    pause_session(agent.uid, attrs["conversationID"])
+    created = post(conn, ~p"/.internal-apis/pod/conversations", attrs)
+    detail = AnkoleWeb.InternalAPIContract.json_response(created, 200)
+    assert detail["conversation"]["pageID"] == page.id
+
+    listed =
+      created |> recycle_api() |> get(~p"/.internal-apis/pod/conversations", %{pageID: page.id})
+
+    assert %{"conversations" => [conversation]} =
+             AnkoleWeb.InternalAPIContract.json_response(listed, 200)
+
+    assert conversation == detail["conversation"]
+
+    shown =
+      listed
+      |> recycle_api()
+      |> get(~p"/.internal-apis/pod/conversations/#{attrs["conversationID"]}")
+
+    assert AnkoleWeb.InternalAPIContract.json_response(shown, 200) == detail
   end
 
   test "invalid bodies, IDs, and text keep the declared error codes", %{conn: conn} do
@@ -402,6 +456,78 @@ defmodule AnkoleWeb.PodControllerTest do
     )
 
     refute_receive {:ai_gateway_event, :response_started, ^gateway}
+  end
+
+  for revoked <- [:authentication, :principal] do
+    @tag revoked: revoked
+    test "revoking #{revoked} stops disclosure of queued stream output", %{
+      conn: conn,
+      revoked: revoked
+    } do
+      {:ok, true} = SetupConfig.put_completed(true)
+      human = human_fixture().principal
+      human_uid = human.uid
+
+      {:ok, authenticated_conn, transaction} =
+        conn |> Plug.Test.init_test_session(%{}) |> WebSession.begin_login(:pod, %{})
+
+      {:ok, _} =
+        Ankole.BrowserSessions.bind_provider(
+          WebSession.browser_reference(authenticated_conn),
+          transaction.id,
+          "lark-main"
+        )
+
+      {:ok, authenticated_conn, _} =
+        WebSession.complete_login(authenticated_conn, transaction.id, %{
+          "principal_uid" => human_uid,
+          "access_version" => human.access_version,
+          "provider_id" => "lark-main",
+          "external_id" => "external-human"
+        })
+
+      agent = agent_fixture().principal
+      {:ok, detail} = Conversations.create(human_uid, domain_request(agent.uid))
+      signal = Repo.get_by!(Ankole.Signals.Signal, session_id: detail.session_id)
+
+      gateway = %{
+        subject_uid: agent.uid,
+        conversation_id: detail.model_conversation_id,
+        response_id: "resp_" <> Ecto.UUID.generate(),
+        metadata: %{"signal_id" => signal.id},
+        payload: %{text: "This queued text must stay private."}
+      }
+
+      browser_ref = WebSession.browser_reference(authenticated_conn)
+      authentication_ref = WebSession.authentication_reference(authenticated_conn)
+
+      revoke = fn ->
+        result =
+          case revoked do
+            :authentication -> Ankole.BrowserSessions.revoke(browser_ref, authentication_ref)
+            :principal -> disable_principal_fixture(human_uid)
+          end
+
+        assert {:ok, _} = result
+      end
+
+      request = %{
+        stream_request(authenticated_conn, detail.conversation.id)
+        | adapter:
+            {StreamAdapter,
+             %{
+               owner: self(),
+               events: [{:ai_gateway_event, :output_text_delta, gateway}],
+               chunks_left: 5,
+               after_chunk: revoke
+             }}
+      }
+
+      assert %Plug.Conn{state: :chunked} = @endpoint.call(request, @endpoint.init([]))
+      assert_receive {:stream_frame, ": ping\n\nevent: activity\ndata: " <> _}
+      refute_receive {:stream_frame, _}
+      refute_receive {:stream_closed, _}
+    end
   end
 
   test "a stream that joins after started receives the future delta with its Signal inputs", %{

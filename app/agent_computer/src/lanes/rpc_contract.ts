@@ -6,6 +6,8 @@ import {
   FilesGetResponseSchema,
   FilesListRequestSchema,
   FilesListResponseSchema,
+  PodRequestSchema,
+  PodSyncRequestSchema,
   AIGatewayAPIKeyRequestSchema,
   AIGatewayAPIKeyResponseSchema,
   ActorTurnAbortRequestSchema,
@@ -49,6 +51,9 @@ export type RPCOperation =
   | { owner: 'worker'; handler: keyof WorkerRPCHandlers; request: DescMessage; response: DescMessage }
 
 export const rpcOperations = {
+  'pod.read': { scope: 'turn', effect: 'read', request: PodRequestSchema, response: JSONPassthroughResponseSchema },
+  'pod.write': { scope: 'turn', effect: 'write', request: PodRequestSchema, response: JSONPassthroughResponseSchema },
+  'pod.sync': { scope: 'worker_agent', request: PodSyncRequestSchema, response: JSONPassthroughResponseSchema },
   'session_turn.abort': {
     scope: 'turn',
     effect: 'complete',
@@ -179,8 +184,11 @@ export type WorkerOwnedRPCMethod = {
 export type ControlPlaneOwnedRPCMethod = Exclude<RPCMethod, WorkerOwnedRPCMethod>
 
 /** One worker-owned operation: the handler that runs it and how its result is reported. */
+export type WorkerRPCContext = { deadlineUnixMs: number; signal: AbortSignal }
+
 export type WorkerRPCHandler<M extends WorkerOwnedRPCMethod> = (
-  request: MessageShape<(typeof rpcOperations)[M]['request']>
+  request: MessageShape<(typeof rpcOperations)[M]['request']>,
+  context: WorkerRPCContext
 ) => Promise<MessageInitShape<(typeof rpcOperations)[M]['response']>>
 
 export type WorkerRPCHandlers = {

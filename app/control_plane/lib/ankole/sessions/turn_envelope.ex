@@ -29,10 +29,10 @@ defmodule Ankole.Sessions.TurnEnvelope do
            mode: mode,
            agent_context: if(mode == "start" and not is_nil(context), do: agent_context(context)),
            turn: JobTurnRef.to_proto(turn_ref),
-           signal: signal_envelope(signal),
+           signal: signal_envelope(signal, turn_ref),
            fetch_runtime_config: fetch_runtime_config(turn_ref.agent_uid),
            model_ref: turn_model_ref(turn_start_spec),
-           request_context_json: Torque.encode!(turn_request_context(turn_start_spec)),
+           request_context_json: Torque.encode!(turn_request_context(turn_start_spec, turn_ref)),
            hosted_tools: turn_hosted_tools(turn_start_spec),
            runtime_env: turn_runtime_env(turn_start_spec)
          }}
@@ -54,7 +54,7 @@ defmodule Ankole.Sessions.TurnEnvelope do
         {:mailbox_updated,
          %FabricProto.MailboxUpdated{
            turn: JobTurnRef.to_proto(turn_ref),
-           signal: signal_envelope(signal)
+           signal: signal_envelope(signal, turn_ref)
          }}
     }
   end
@@ -92,6 +92,8 @@ defmodule Ankole.Sessions.TurnEnvelope do
       skills_prompt: Map.get(context, :skills_prompt, ""),
       conversation: %FabricProto.ConversationInfo{
         timezone: context.conversation.timezone,
+        page_id: Map.get(context.conversation, :page_id) || "",
+        pod_instructions: Ankole.Sessions.Prompt.pod_instructions(context.conversation),
         drive_directory:
           case Map.get(context.conversation, :origin_channel) do
             %{id: channel_id} -> Ankole.Files.chat_directory(channel_id)
@@ -151,8 +153,12 @@ defmodule Ankole.Sessions.TurnEnvelope do
     config
   end
 
-  defp turn_request_context(turn_start_spec) do
-    map_get(turn_start_spec, :request_context) || %{}
+  defp turn_request_context(turn_start_spec, turn_ref) do
+    Map.put(
+      map_get(turn_start_spec, :request_context) || %{},
+      "original_human_request",
+      Ankole.Sessions.Prompt.original_human_request(turn_ref)
+    )
   end
 
   defp turn_runtime_env(turn_start_spec) do
@@ -207,12 +213,19 @@ defmodule Ankole.Sessions.TurnEnvelope do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
-  defp signal_envelope(%Signal{} = signal) do
+  defp signal_envelope(%Signal{} = signal, turn_ref) do
     %FabricProto.SignalEnvelope{
       signal_id: signal.id,
       type: signal.type,
       binding_name: signal.reply_binding_name || "",
-      payload_json: json_bytes(Signal.envelope(signal))
+      payload_json:
+        json_bytes(
+          Map.put(
+            Signal.envelope(signal),
+            "original_human_request",
+            Ankole.Sessions.Prompt.original_human_request(%{turn_ref | signal_id: signal.id})
+          )
+        )
     }
   end
 

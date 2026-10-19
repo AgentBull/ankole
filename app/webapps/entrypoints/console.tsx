@@ -2,4 +2,6 @@ import { createConsoleMutationCache } from '../console/query-client'
 import { mountApp } from '../common/mount'
 import { ConsoleApp, createConsoleRouter } from '../console/app'
 
-void mountApp(queryClient => <ConsoleApp router={createConsoleRouter(queryClient)} />, createConsoleMutationCache())
+void mountApp(queryClient => <ConsoleApp router={createConsoleRouter(queryClient)} />, {
+  mutationCache: createConsoleMutationCache()
+})

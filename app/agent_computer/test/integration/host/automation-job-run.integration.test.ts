@@ -1,6 +1,6 @@
 import { create } from '@bufbuild/protobuf'
 import { afterEach, describe, expect, it } from 'bun:test'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
   AutomationJobRunRequestSchema,
@@ -8,6 +8,7 @@ import {
 } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { removeAbandonedRunDirectories, runAutomationJob } from '../../../src/automation-jobs/run'
 import { WORKER_SHARE_ROOT } from '../../../src/core/agent-home-paths'
+import { jsonBytes, jsonObjectFromBytes } from '../../../src/fabric/envelope_proto'
 import type { RPCRequester } from '../../../src/lanes/rpc_lane'
 import {
   runFixture,
@@ -79,6 +80,82 @@ await emitEvent({ observed: ctx.event.data.value, job_id: ctx.job.id })
     expect(result.error).toContain('main.ts is missing from automation/integration in the drive')
     expect(existsSync(fixture.runDirectory)).toBe(false)
   })
+
+  it('passes sync batches from the script through the existing bridge with the claimed attempt', async () => {
+    const fixture = runFixture(`
+const result = await syncRecords('binding-1', [
+  { external_id: 'issue-42', data: { title: 'Repair the report', state: 'open' } }
+], { page: 2 })
+console.log(JSON.stringify(result))
+`)
+    root = fixture.root
+    const baseRPC = rpcStub(fixture, [])
+    const batches: unknown[] = []
+    const rpc = (async (method, payload, frame, options) => {
+      if (method !== 'pod.sync') return baseRPC(method, payload, frame, options)
+      const sync = payload as {
+        bindingId: string
+        automationJobRunId: string
+        attemptId: string
+        recordsHomeRelativePath: string
+        cursorJson: Uint8Array
+      }
+      batches.push({
+        binding: sync.bindingId,
+        run: sync.automationJobRunId,
+        attempt: sync.attemptId,
+        records: JSON.parse(readFileSync(join(fixture.config.agentHomeRoot, sync.recordsHomeRelativePath), 'utf8')),
+        cursor: jsonObjectFromBytes(sync.cursorJson, 'cursor')
+      })
+      return { bodyJson: jsonBytes({ result: { data_version: 7 } }) }
+    }) as RPCRequester
+    const run = request(fixture, {})
+    const result = await runAutomationJob(run, { config: fixture.config, sdkPath: fixture.sdkPath, rpc })
+    expect(result.status).toBe('succeeded')
+    expect(JSON.parse(result.stdout)).toEqual({ data_version: 7 })
+    expect(batches).toEqual([
+      {
+        binding: 'binding-1',
+        run: run.automationJobRunId,
+        attempt: run.attemptId,
+        records: [{ external_id: 'issue-42', data: { title: 'Repair the report', state: 'open' } }],
+        cursor: { page: 2 }
+      }
+    ])
+    expect(existsSync(fixture.runDirectory)).toBe(false)
+  })
+
+  it('relays one 200-record sync batch larger than a fabric frame and removes its source file', async () => {
+    const fixture = runFixture(`
+const records = Array.from({ length: 200 }, (_, index) => ({ external_id: String(index), data: { text: '完整🐂'.repeat(10_000) } }))
+console.log(JSON.stringify(await syncRecords('binding-large', records)))
+`)
+    root = fixture.root
+    const baseRPC = rpcStub(fixture, [])
+    let source = '',
+      count = 0
+    const rpc = (async (method, payload, frame, options) => {
+      if (method !== 'pod.sync') return baseRPC(method, payload, frame, options)
+      const sync = payload as { recordsHomeRelativePath: string }
+      source = join(fixture.config.agentHomeRoot, sync.recordsHomeRelativePath)
+      const bytes = readFileSync(source)
+      expect(bytes.byteLength).toBeGreaterThan(16 * 1024 * 1024)
+      const records = JSON.parse(bytes.toString('utf8'))
+      expect(records).toHaveLength(200)
+      expect(records[199].external_id).toBe('199')
+      expect(records[199].data.text).toBe('完整🐂'.repeat(10_000))
+      count++
+      return { bodyJson: jsonBytes({ result: { data_version: 8 } }) }
+    }) as RPCRequester
+    const run = request(fixture, {})
+    run.timeoutMs = 20_000
+    const result = await runAutomationJob(run, { config: fixture.config, sdkPath: fixture.sdkPath, rpc })
+    expect(result.status).toBe('succeeded')
+    expect(result.stdout).toContain('"data_version":8')
+    expect(count).toBe(1)
+    expect(existsSync(source)).toBe(false)
+    expect(existsSync(fixture.runDirectory)).toBe(false)
+  }, 30_000)
 
   it('throws on a drive failure during the copy, so the control plane retries the attempt', async () => {
     const fixture = runFixture('console.log("never runs")\n')
@@ -203,6 +280,79 @@ throw new Error("source schema changed")
     expect(existsSync(JSON.parse(result.stdout).config)).toBe(false)
   })
 
+  for (const exitCode of [0, 17]) {
+    for (const inheritedOutput of [false, true]) {
+      it(`cleans descendants after leader exit ${exitCode}, inherited output ${inheritedOutput}`, async () => {
+        const fixture = runFixture(`
+const child = Bun.spawn(['/bin/sh', '-c', 'trap "" TERM; sleep 30'], { stdin: 'ignore', stdout: ${inheritedOutput ? '1' : "'ignore'"}, stderr: ${inheritedOutput ? '2' : "'ignore'"} })
+child.unref()
+console.log(child.pid)
+process.exit(${exitCode})
+`)
+        root = fixture.root
+        const started = performance.now()
+        const result = await runAutomationJob(request(fixture, {}), {
+          config: fixture.config,
+          sdkPath: fixture.sdkPath,
+          rpc: rpcStub(fixture, [])
+        })
+        expect(result.exitCode).toBe(exitCode)
+        expect(performance.now() - started).toBeLessThan(2_000)
+        const childPID = Number(result.stdout.trim())
+        expect(childPID).toBeGreaterThan(0)
+        for (let i = 0; i < 100 && alive(childPID); i++) await Bun.sleep(10)
+        expect(alive(childPID)).toBe(false)
+        expect(existsSync(fixture.runDirectory)).toBe(false)
+      })
+    }
+  }
+
+  it('cancels the owned process group before removing its execution materials', async () => {
+    const fixture = runFixture('')
+    root = fixture.root
+    const pidFile = join(fixture.root, 'pid')
+    fixture.drive.put(
+      `${fixture.drivePrefix}/main.ts`,
+      `await Bun.write(${JSON.stringify(pidFile)}, String(process.pid)); await new Promise(() => {})`
+    )
+    const controller = new AbortController()
+    const pending = runAutomationJob(request(fixture, {}), {
+      config: fixture.config,
+      sdkPath: fixture.sdkPath,
+      rpc: rpcStub(fixture, []),
+      signal: controller.signal
+    })
+    for (let i = 0; i < 200 && !existsSync(pidFile); i++) await Bun.sleep(10)
+    expect(existsSync(pidFile)).toBe(true)
+    const pid = Number(readFileSync(pidFile, 'utf8'))
+    controller.abort(new DOMException('caller cancelled', 'AbortError'))
+    expect((await pending).status).toBe('failed')
+    expect(alive(pid)).toBe(false)
+    expect(existsSync(fixture.runDirectory)).toBe(false)
+  })
+
+  it('spends one budget on preparation and never starts after preparation expires', async () => {
+    const fixture = runFixture('throw new Error("must never execute")')
+    root = fixture.root
+    const base = rpcStub(fixture, [])
+    let preparationSignal: AbortSignal | undefined
+    const rpc: RPCRequester = (method, payload, frame, options) => {
+      if (method !== 'files.list') return base(method, payload, frame, options)
+      preparationSignal = options?.signal
+      expect(options?.timeoutMs).toBeLessThanOrEqual(50)
+      return new Promise((_resolve, reject) =>
+        preparationSignal!.addEventListener('abort', () => reject(preparationSignal!.reason), { once: true })
+      )
+    }
+    const pending = runAutomationJob(
+      { ...request(fixture, {}), timeoutMs: 50 },
+      { config: fixture.config, sdkPath: fixture.sdkPath, rpc }
+    )
+    await expect(pending).rejects.toMatchObject({ code: 'automation_preparation_failed' })
+    expect(preparationSignal?.aborted).toBe(true)
+    expect(existsSync(fixture.runDirectory)).toBe(false)
+  })
+
   it('kills a hung script at the supplied resource deadline', async () => {
     const fixture = runFixture('await new Promise(() => {})\n')
     root = fixture.root
@@ -228,3 +378,12 @@ throw new Error("source schema changed")
     expect(mcporterConfigNames()).toEqual(configsBefore)
   })
 })
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}

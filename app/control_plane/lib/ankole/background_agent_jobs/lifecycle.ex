@@ -48,7 +48,8 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
            :ok <- lock_agent_slots(repo, agent_uid),
            %Job{} = job <-
              Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
-           {:ok, turn} <- Turns.upsert_from_worker_in_tx(repo, job, attrs) do
+           {:ok, turn} <- Turns.upsert_from_worker_in_tx(repo, job, attrs),
+           {:ok, _job} <- record_checkpoint_source_in_tx(repo, job, turn) do
         {:ok, turn}
       else
         nil -> {:error, :job_not_found}
@@ -315,7 +316,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
              |> lifecycle_timestamps(job, now)
            )
            |> repo.update(),
-         :ok <- complete_applied_in_tx(repo, job, turn_ref, opts, now),
+         {:ok, job} <- complete_applied_in_tx(repo, job, turn_ref, opts, now),
          {:ok, steer_outcome} <-
            resolve_open_steers_after_commit(repo, job, now, turn_ref, opts),
          {:ok, wakeup_event} <- conclude_job_transition(repo, job, now, steer_outcome) do
@@ -380,22 +381,58 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
        when job.status in ["waiting_on_user", "succeeded", "failed", "stopped"] do
     ids = Enum.uniq([ref.signal_id | Keyword.get(opts, :applied_signal_ids, [])])
 
-    Enum.reduce_while(ids, :ok, fn id, :ok ->
-      case Ankole.Signals.lock_signal_in_tx(repo, id) do
-        %Signal{agent_uid: uid, session_id: session} = event
-        when uid == ref.agent_uid and session == ref.session_id ->
-          case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now) do
-            {:ok, _} -> {:cont, :ok}
-            error -> {:halt, error}
-          end
+    result =
+      Enum.reduce_while(ids, {:ok, []}, fn id, {:ok, applied} ->
+        case Ankole.Signals.lock_signal_in_tx(repo, id) do
+          %Signal{agent_uid: uid, session_id: session} = event
+          when uid == ref.agent_uid and session == ref.session_id ->
+            case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now) do
+              {:ok, _} -> {:cont, {:ok, [event | applied]}}
+              error -> {:halt, error}
+            end
 
-        _ ->
-          {:halt, {:error, :invalid_applied_signal_id}}
-      end
-    end)
+          _ ->
+            {:halt, {:error, :invalid_applied_signal_id}}
+        end
+      end)
+
+    with {:ok, applied} <- result, do: record_applied_source_in_tx(repo, job, applied)
   end
 
-  defp complete_applied_in_tx(_repo, _job, _ref, _opts, _now), do: :ok
+  defp complete_applied_in_tx(_repo, job, _ref, _opts, _now), do: {:ok, job}
+
+  # The Worker's existing client:<Signal id> receipt is recorded only after
+  # Codex accepts turn/start or turn/steer. Commit the source with that fenced
+  # checkpoint, before a crash can resume the Job with its earlier request.
+  defp record_checkpoint_source_in_tx(repo, job, turn) do
+    if turn.runtime_thread_id == job.runtime_thread_id do
+      ids = Turns.applied_signal_ids(turn)
+
+      events =
+        repo.all(
+          from event in Signal,
+            where:
+              event.id in ^ids and event.agent_uid == ^job.agent_uid and
+                event.session_id == ^Ankole.BackgroundAgentJobs.job_session_id(job.id)
+        )
+
+      record_applied_source_in_tx(repo, job, events)
+    else
+      {:ok, job}
+    end
+  end
+
+  defp record_applied_source_in_tx(repo, job, events) do
+    case Ankole.Conversations.Route.applied_human_source(job, events) do
+      nil ->
+        {:ok, job}
+
+      id ->
+        job
+        |> Ecto.Changeset.change(metadata: Map.put(job.metadata, "applied_source_signal_id", id))
+        |> repo.update()
+    end
+  end
 
   defp complete_steer_events_in_tx(_repo, [], _now), do: :ok
 
@@ -880,8 +917,15 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
 
   defp preserve_metadata(attrs, %Job{metadata: metadata}) do
     case Map.get(attrs, "metadata") do
-      %{} = next_metadata -> Map.put(attrs, "metadata", Map.merge(metadata || %{}, next_metadata))
-      _value -> attrs
+      %{} = next_metadata ->
+        Map.put(
+          attrs,
+          "metadata",
+          Map.merge(metadata || %{}, Map.delete(next_metadata, "applied_source_signal_id"))
+        )
+
+      _value ->
+        attrs
     end
   end
 

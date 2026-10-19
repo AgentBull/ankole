@@ -1,6 +1,5 @@
 defmodule Ankole.Sessions do
   @moduledoc "Wakes the single driver for committed Session input. PostgreSQL owns the inbox."
-  import Ecto.Query
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Jobs.EnsureDriver
   alias Ankole.Signals.Signal
@@ -16,26 +15,7 @@ defmodule Ankole.Sessions do
   def status(%{agent_uid: uid, session_id: session}) do
     now = DateTime.utc_now(:microsecond)
 
-    event =
-      Repo.one(
-        from(event in Signal,
-          where:
-            event.agent_uid == ^uid and event.session_id == ^session and
-              event.input_state == "open" and is_nil(event.completed_at),
-          order_by: [
-            asc:
-              fragment(
-                "CASE WHEN ? > ? THEN 2 WHEN ? IS NULL THEN 1 ELSE 0 END",
-                event.available_at,
-                ^now,
-                event.last_attempt_at
-              ),
-            asc: event.available_at,
-            asc: event.queue_sequence
-          ],
-          limit: 1
-        )
-      )
+    event = Ankole.Sessions.Queue.status_event(Repo, uid, session, now)
 
     case event do
       nil ->

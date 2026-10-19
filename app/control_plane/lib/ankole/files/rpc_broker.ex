@@ -10,7 +10,7 @@ defmodule Ankole.Files.RPCBroker do
   """
 
   alias Ankole.Files
-  alias Ankole.Files.Schemas.AgentFile
+  alias Ankole.Files.Schemas.DriveFile
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers.RPCWire
   alias Ankole.WorkerFiles
@@ -44,12 +44,22 @@ defmodule Ankole.Files.RPCBroker do
   @doc "Writes one drive file into the calling Worker's Agent Home."
   def handle_get(agent_uid, %FabricProto.FilesGetRequest{} = request, ctx) do
     with {:ok, target} <- home_relative_path(request.home_relative_path),
-         {:ok, file} <- send_file(agent_uid, request.path, target, worker_target(ctx)) do
+         :ok <- authorize_get(agent_uid, request),
+         drive = if(request.pod_drive, do: :pod, else: agent_uid),
+         {:ok, file} <- send_file(drive, request.path, target, ctx) do
       {:ok, %FabricProto.FilesGetResponse{file: drive_file(file)}}
     else
       {:error, reason} -> error(ctx, reason)
     end
   end
+
+  defp authorize_get(uid, %{pod_drive: true, path: path}) do
+    with {:ok, page_id, _relative} <- Ankole.Pod.Files.parse_path(path),
+         {:ok, _page} <- Ankole.Pod.Pages.authorize(uid, page_id, "page_view"),
+         do: :ok
+  end
+
+  defp authorize_get(_uid, _request), do: :ok
 
   @doc """
   Names files from the calling Worker's Agent Home at drive paths, and removes
@@ -64,6 +74,7 @@ defmodule Ankole.Files.RPCBroker do
   """
   def handle_commit(agent_uid, %FabricProto.FilesCommitRequest{} = request, ctx) do
     with {:ok, upserts} <- resolve_upserts(agent_uid, request.upserts, ctx),
+         {:ok, _opts} <- transfer_opts(ctx),
          {:ok, %{files: files, deleted: deleted}} <-
            Files.commit(agent_uid, upserts, request.deletes) do
       {:ok,
@@ -74,8 +85,8 @@ defmodule Ankole.Files.RPCBroker do
   end
 
   @doc "Encodes one drive file for the wire."
-  @spec drive_file(AgentFile.t()) :: FabricProto.DriveFile.t()
-  def drive_file(%AgentFile{} = file) do
+  @spec drive_file(DriveFile.t()) :: FabricProto.DriveFile.t()
+  def drive_file(%DriveFile{} = file) do
     %FabricProto.DriveFile{
       path: file.path,
       sha256: Base.encode16(file.sha256, case: :lower),
@@ -89,13 +100,14 @@ defmodule Ankole.Files.RPCBroker do
     }
   end
 
-  defp send_file(agent_uid, path, target, worker) do
+  defp send_file(agent_uid, path, target, ctx) do
     local_path = Files.temp_path()
 
     try do
       with {:ok, file} <- Files.read_to_file(agent_uid, path, local_path),
+           {:ok, opts} <- transfer_opts(ctx),
            {:ok, _transfer} <-
-             WorkerFiles.put(target, {:file, local_path}, worker: worker) do
+             WorkerFiles.put(target, {:file, local_path}, opts) do
         {:ok, file}
       end
     after
@@ -169,7 +181,7 @@ defmodule Ankole.Files.RPCBroker do
       transfers
       |> transfer_batches()
       |> Enum.reduce_while({:ok, %{}}, fn batch, {:ok, received} ->
-        case receive_batch(batch, worker_target(ctx)) do
+        case receive_batch(batch, ctx) do
           {:ok, stored} -> {:cont, {:ok, Map.merge(received, stored)}}
           {:error, _reason} = error -> {:halt, error}
         end
@@ -178,6 +190,19 @@ defmodule Ankole.Files.RPCBroker do
   end
 
   defp worker_target(ctx), do: %{worker_id: ctx.worker_id, transport_route: ctx.route}
+
+  defp transfer_opts(ctx) do
+    deadline = Map.get(ctx, :deadline_unix_ms, 0)
+
+    remaining =
+      if deadline > 0,
+        do: min(120_000, deadline - System.system_time(:millisecond)),
+        else: 120_000
+
+    if remaining > 0,
+      do: {:ok, [worker: worker_target(ctx), timeout_ms: remaining]},
+      else: {:error, :rpc_deadline_exceeded}
+  end
 
   defp transfer_batches(transfers) do
     {nested, top_level} = Enum.split_with(transfers, &String.contains?(&1.source, "/"))
@@ -222,23 +247,25 @@ defmodule Ankole.Files.RPCBroker do
   defp bundle_path(folder, transfer),
     do: String.replace_prefix(transfer.source, folder <> "/", "")
 
-  defp receive_batch({:file, transfer}, worker) do
-    with {:ok, stored} <- receive_file(transfer.source, worker) do
+  defp receive_batch({:file, transfer}, ctx) do
+    with {:ok, opts} <- transfer_opts(ctx),
+         {:ok, stored} <- receive_file(transfer.source, opts) do
       store_verified([{transfer, stored}])
     end
   end
 
-  defp receive_batch({:bundle, folder, transfers}, worker) do
+  defp receive_batch({:bundle, folder, transfers}, ctx) do
     target_dir = Files.temp_path()
     File.mkdir_p!(target_dir)
 
     try do
-      with {:ok, local_paths} <-
+      with {:ok, opts} <- transfer_opts(ctx),
+           {:ok, local_paths} <-
              WorkerFiles.receive_bundle(
                folder,
                Enum.map(transfers, &bundle_path(folder, &1)),
                target_dir,
-               worker: worker
+               opts
              ) do
         transfers
         |> Enum.zip(local_paths)
@@ -267,12 +294,12 @@ defmodule Ankole.Files.RPCBroker do
     end)
   end
 
-  defp receive_file(source_path, worker) do
+  defp receive_file(source_path, opts) do
     local_path = Files.temp_path()
 
     try do
       with {:ok, %{"body" => body}} <-
-             WorkerFiles.stream(source_path, worker: worker) do
+             WorkerFiles.stream(source_path, opts) do
         Enum.into(body, File.stream!(local_path))
         Files.store({:file, local_path})
       end

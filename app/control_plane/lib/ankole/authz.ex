@@ -616,12 +616,16 @@ defmodule Ankole.AuthZ do
   """
   @spec delete_permission_grant(String.t()) :: {:ok, Grant.t()} | {:error, term()}
   def delete_permission_grant(id) do
-    with {:ok, id} <- Ecto.UUID.cast(id),
-         %Grant{} = grant <- Repo.get(Grant, id) do
-      Repo.delete(grant)
-    else
-      _not_found -> {:error, :not_found}
-    end
+    Repo.transact(fn repo ->
+      Ankole.Pod.Pages.lock_tree()
+
+      with {:ok, id} <- Ecto.UUID.cast(id),
+           %Grant{} = grant <- repo.get(Grant, id) do
+        repo.delete(grant)
+      else
+        _not_found -> {:error, :not_found}
+      end
+    end)
   end
 
   @doc """

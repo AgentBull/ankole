@@ -18,9 +18,9 @@ defmodule AnkoleWeb.Assets do
 
   @doc "Returns stylesheet and script tags for a named webapp entry."
   @spec entry_tags(Plug.Conn.t(), String.t()) :: iodata()
-  def entry_tags(%Plug.Conn{} = _conn, entry) when is_map_key(@entries, entry) do
+  def entry_tags(%Plug.Conn{} = conn, entry) when is_map_key(@entries, entry) do
     case dev_server() do
-      nil -> manifest_entry_tags(entry)
+      nil -> manifest_entry_tags(conn, entry)
       base_url -> dev_entry_tags(base_url, entry)
     end
   end
@@ -38,7 +38,7 @@ defmodule AnkoleWeb.Assets do
     ]
   end
 
-  defp manifest_entry_tags(entry) do
+  defp manifest_entry_tags(conn, entry) do
     manifest = read_manifest()
 
     # A production entry needs its own hashed JS plus the CSS and shared chunks
@@ -46,9 +46,21 @@ defmodule AnkoleWeb.Assets do
     # so the first paint isn't missing styles or blocked on lazily-discovered chunks.
     case manifest_entry(manifest, entry) do
       %{"file" => file} = chunk ->
+        chunks = [chunk | initial_route_chunks(conn, entry, chunk, manifest)]
+
+        css = chunks |> Enum.flat_map(&manifest_css(&1, manifest)) |> Enum.uniq()
+
+        preloads =
+          chunks
+          |> Enum.flat_map(fn %{"file" => chunk_file} = chunk ->
+            [asset_path(chunk_file) | manifest_imports(chunk, manifest)]
+          end)
+          |> Enum.uniq()
+          |> Enum.reject(&(&1 == asset_path(file)))
+
         [
-          chunk |> manifest_css(manifest) |> Enum.map(&stylesheet_tag/1),
-          chunk |> manifest_imports(manifest) |> Enum.map(&modulepreload_tag/1),
+          Enum.map(css, &stylesheet_tag/1),
+          Enum.map(preloads, &modulepreload_tag/1),
           module_script_tag(asset_path(file))
         ]
 
@@ -59,6 +71,29 @@ defmodule AnkoleWeb.Assets do
     end
   end
 
+  # Preload only a dynamic module that the entry manifest already declares.
+  # React Router still owns route matching and execution. These hints let the
+  # browser fetch the current screen before the shell initializes the router.
+  defp initial_route_chunks(%Plug.Conn{path_info: path}, entry, chunk, manifest)
+       when entry in ["pod", "saas-pod"] do
+    key =
+      case path do
+        ["pages", _id] -> "pod/page-workspace.tsx"
+        [] -> "pod/chat-page.tsx"
+        ["conversations", _id] -> "pod/chat-page.tsx"
+        _path -> nil
+      end
+
+    with true <- key in Map.get(chunk, "dynamicImports", []),
+         %{"file" => _file} = route <- Map.get(manifest, key) do
+      [route]
+    else
+      _missing -> []
+    end
+  end
+
+  defp initial_route_chunks(_conn, _entry, _chunk, _manifest), do: []
+
   @doc """
   Returns modulepreload tags for the locale catalog chunks the SPA fetches
   before its first render.
@@ -68,16 +103,17 @@ defmodule AnkoleWeb.Assets do
   round trip on every full page load. The shell already knows the locale, so
   it can start both fetches with the HTML.
   """
-  @spec locale_preload_tags(String.t()) :: iodata()
-  def locale_preload_tags(locale) do
+  @spec locale_preload_tags(String.t(), String.t() | nil) :: iodata()
+  def locale_preload_tags(locale, entry \\ nil) do
     case dev_server() do
       nil ->
         manifest = read_manifest()
+        query = if entry in ["pod", "saas-pod"], do: "?pod", else: ""
 
         [locale, "en-US"]
         |> Enum.uniq()
         |> Enum.flat_map(fn id ->
-          case locale_chunk(manifest, id) do
+          case locale_chunk(manifest, id, query) do
             %{"file" => file} -> [modulepreload_tag(asset_path(file))]
             _missing -> []
           end
@@ -90,9 +126,9 @@ defmodule AnkoleWeb.Assets do
     end
   end
 
-  defp locale_chunk(manifest, locale) do
+  defp locale_chunk(manifest, locale, query) do
     Enum.find_value(manifest, fn {key, chunk} ->
-      if String.ends_with?(key, "/locales/#{locale}.json"), do: chunk
+      if String.ends_with?(key, "/locales/#{locale}.json#{query}"), do: chunk
     end)
   end
 

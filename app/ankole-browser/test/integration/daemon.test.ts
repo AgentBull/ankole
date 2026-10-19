@@ -84,6 +84,32 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
     await rm(root, { recursive: true, force: true })
   }, 20_000)
 
+  test('closing an earlier inactive tab preserves the selected page, including native close events', async () => {
+    const tabsContext = { ...context, session: 'tab-identity' }
+    const paths = await Promise.all(
+      ['A', 'B', 'C', 'D'].map(async title => {
+        const path = join(root, `tab-${title}.html`)
+        await writeFile(path, `<!doctype html><title>${title}</title>`)
+        return path
+      })
+    )
+    expect((await sendBrowserCommand(tabsContext, { name: 'open', args: { url: `file://${paths[0]}` } })).ok).toBe(true)
+    for (const path of paths.slice(1)) {
+      expect(
+        (await sendBrowserCommand(tabsContext, { name: 'tab', args: { action: 'new', url: `file://${path}` } })).ok
+      ).toBe(true)
+    }
+    expect((await sendBrowserCommand(tabsContext, { name: 'tab', args: { action: 'switch', index: 2 } })).ok).toBe(true)
+    expect((await sendBrowserCommand(tabsContext, { name: 'tab', args: { action: 'close', index: 0 } })).ok).toBe(true)
+    const result = await runCode(
+      tabsContext,
+      'export default async ({ page, context }) => { await context.pages()[0].close(); return page.title() }'
+    )
+    expect(result).toMatchObject({ status: 'ok', value: 'C' })
+    const remaining = await sendBrowserCommand(tabsContext, { name: 'tab', args: { action: 'list' } })
+    expect(remaining).toMatchObject({ ok: true, data: [{ active: true }, { active: false }] })
+  }, 20_000)
+
   test('confirm fails fast and is explicitly dismissible', async () => {
     const snapshot = await sendBrowserCommand(context, { name: 'snapshot', args: { interactive: true } })
     expect(snapshot.ok).toBe(true)
@@ -154,6 +180,36 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
       }
     })
   }, 10_000)
+
+  test('code runs own their default artifacts and serialize explicit directory reuse', async () => {
+    const previousRunner = process.env.ANKOLE_BROWSER_RUNNER
+    process.env.ANKOLE_BROWSER_RUNNER = resolve(import.meta.dir, '../../dist/runner/bootstrap.js')
+    try {
+      const run = (value: string, session: string, runDir?: string) =>
+        runBrowserCode({
+          context,
+          session,
+          scriptSource: `export default async () => { await new Promise(resolve => setTimeout(resolve, 500)); return ${JSON.stringify(value)} }`,
+          runDir,
+          scriptArgs: [],
+          timeoutMs: 10_000
+        })
+      const [first, second] = await Promise.all([run('first', 'run-a'), run('second', 'run-b')])
+      expect(first.value).toBe('first')
+      expect(second.value).toBe('second')
+      expect(first.run_dir).not.toBe(second.run_dir)
+      expect(String(first.run_dir)).toMatch(/run_[a-f0-9-]+$/)
+      const runDir = join(context.artifactRoot, 'reused')
+      const pending = run('held', 'run-a', runDir)
+      await waitForPath(join(runDir, 'script.mjs'))
+      await expect(run('collision', 'run-b', runDir)).rejects.toMatchObject({ code: 'session_busy' })
+      expect((await pending).value).toBe('held')
+      expect((await run('replacement', 'run-b', runDir)).value).toBe('replacement')
+    } finally {
+      if (previousRunner === undefined) delete process.env.ANKOLE_BROWSER_RUNNER
+      else process.env.ANKOLE_BROWSER_RUNNER = previousRunner
+    }
+  }, 30_000)
 
   test('browser.bind runner sees and changes the same persistent page', async () => {
     const packageRoot = resolve(import.meta.dir, '../..')

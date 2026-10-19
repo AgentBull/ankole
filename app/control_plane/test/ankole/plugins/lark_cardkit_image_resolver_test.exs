@@ -99,10 +99,223 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
              "cloud_metadata_image_url_blocked"
   end
 
+  test "DNS metadata and IPv4-mapped IPv6 answers are rejected before downloading", %{
+    agent: agent
+  } do
+    dns_hosts([
+      {{169, 254, 169, 254}, [~c"metadata-image.test"]},
+      {{192, 0, 2, 1}, [~c"mixed-image.test"]},
+      {{0, 0, 0, 0, 0, 65_535, 43_518, 43_518}, [~c"mixed-image.test"]}
+    ])
+
+    Req.default_options(plug: fn _ -> flunk("blocked DNS answers must not download") end)
+
+    for host <- ["metadata-image.test", "mixed-image.test"] do
+      url = "http://#{host}/image.png"
+
+      assert {:ok, %{"answer" => answer}, state} =
+               ImageResolver.resolve(%{"answer" => "![image](#{url})"}, agent.uid, %{}, :unused)
+
+      assert answer == "[image](#{url})"
+      assert state[url]["reason"] =~ "cloud_metadata_image_url_blocked"
+    end
+  end
+
+  test "resolved private addresses follow the existing intranet setting", %{agent: agent} do
+    dns_hosts([{{10, 0, 0, 8}, [~c"intranet-image.test"]}])
+    url = "http://intranet-image.test/chart.png"
+    presentation = %{"answer" => "![image](#{url})"}
+    parent = self()
+
+    Req.default_options(
+      plug: fn conn ->
+        send(parent, {:dialed, conn.host, Plug.Conn.get_req_header(conn, "host")})
+
+        conn
+        |> Plug.Conn.put_resp_content_type("image/png")
+        |> Plug.Conn.send_resp(200, "png-bytes")
+      end
+    )
+
+    assert {:ok, %{"answer" => "![image](img_intranet)"}, _} =
+             ImageResolver.resolve(presentation, agent.uid, %{}, upload_client("img_intranet"))
+
+    assert_receive {:dialed, "10.0.0.8", ["intranet-image.test"]}
+    assert {:ok, true} = AppConfigure.put_global(SSRFFilter.definition(), true)
+    assert {:ok, _, state} = ImageResolver.resolve(presentation, agent.uid, %{}, :unused)
+    assert state[url]["reason"] =~ "private_network_image_url_blocked"
+    refute_receive {:dialed, _, _}
+  end
+
+  test "DNS failures and redirected metadata names degrade to links", %{agent: agent} do
+    dns_hosts([{{169, 254, 169, 254}, [~c"redirected-metadata.test"]}])
+    parent = self()
+
+    Req.default_options(
+      plug: fn conn ->
+        send(parent, {:download, conn.request_path})
+
+        conn
+        |> Plug.Conn.put_resp_header("location", "http://redirected-metadata.test/image.png")
+        |> Plug.Conn.send_resp(302, "")
+      end
+    )
+
+    missing = "http://missing-image.test/image.png"
+
+    assert {:ok, _, missing_state} =
+             ImageResolver.resolve(%{"answer" => "![image](#{missing})"}, agent.uid, %{}, :unused)
+
+    assert missing_state[missing]["reason"] =~ "image_dns_resolution_failed"
+    refute_receive {:download, _}
+
+    url = "http://127.0.0.1/redirect"
+
+    assert {:ok, %{"answer" => answer}, state} =
+             ImageResolver.resolve(%{"answer" => "![image](#{url})"}, agent.uid, %{}, :unused)
+
+    assert_receive {:download, "/redirect"}
+    refute_receive {:download, "/image.png"}
+    assert answer == "[image](#{url})"
+    assert state[url]["reason"] =~ "cloud_metadata_image_url_blocked"
+  end
+
+  test "the real HTTP connection stays on the checked IP after DNS changes", %{agent: agent} do
+    host = "rebound-image.test"
+
+    dns_hosts([
+      {{127, 0, 0, 1}, [~c"rebound-image.test"]},
+      {{169, 254, 169, 254}, [~c"before-rebind-metadata.test"]}
+    ])
+
+    parent = self()
+
+    server =
+      start_supervised!(
+        {Bandit,
+         ip: {127, 0, 0, 1},
+         port: 0,
+         plug: fn conn, _ ->
+           send(parent, {:http_host, Plug.Conn.get_req_header(conn, "host")})
+
+           conn
+           |> Plug.Conn.put_resp_content_type("image/png")
+           |> Plug.Conn.send_resp(200, "png-bytes")
+         end}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+    url = "http://#{host}:#{port}/chart.png"
+
+    Req.default_options(
+      adapter: fn request ->
+        assert request.url.host == "127.0.0.1"
+        :inet_db.del_host({127, 0, 0, 1})
+        :inet_db.add_host({169, 254, 169, 254}, [to_charlist(host)])
+        Req.Finch.run(request)
+      end
+    )
+
+    assert {:ok, %{"answer" => "![image](img_pinned)"}, state} =
+             ImageResolver.resolve(
+               %{"answer" => "![image](#{url})"},
+               agent.uid,
+               %{},
+               upload_client("img_pinned")
+             )
+
+    assert state[url]["status"] == "ready"
+    assert_receive {:http_host, [authority]}
+    assert authority == "#{host}:#{port}"
+    assert {:ok, [{169, 254, 169, 254}]} = :inet.getaddrs(to_charlist(host), :inet)
+  end
+
+  @tag :capture_log
+  test "HTTPS uses the original hostname for SNI and certificate verification", %{agent: agent} do
+    host = "tls-image.test"
+    dns_hosts([{{127, 0, 0, 1}, [~c"tls-image.test", ~c"wrong-tls-image.test"]}])
+    rsa = [key: {:rsa, 2048, 17}, digest: :sha256]
+    san = {:Extension, {2, 5, 29, 17}, false, [dNSName: to_charlist(host)]}
+
+    certificates =
+      :public_key.pkix_test_data(%{
+        server_chain: %{root: rsa, intermediates: [], peer: rsa ++ [extensions: [san]]},
+        client_chain: %{root: rsa, intermediates: [], peer: rsa}
+      })
+
+    ca_path =
+      Path.join(System.tmp_dir!(), "ankole-image-ca-#{System.unique_integer([:positive])}.pem")
+
+    on_exit(fn ->
+      File.rm(ca_path)
+      :public_key.cacerts_clear()
+      :public_key.cacerts_load()
+    end)
+
+    File.write!(
+      ca_path,
+      :public_key.pem_encode(
+        Enum.map(certificates[:client_config][:cacerts], &{:Certificate, &1, :not_encrypted})
+      )
+    )
+
+    :ok = :public_key.cacerts_load(ca_path)
+    parent = self()
+
+    transport_options =
+      Keyword.take(certificates[:server_config], [:cert, :key]) ++
+        [
+          sni_fun: fn name ->
+            send(parent, {:tls_sni, name})
+            []
+          end
+        ]
+
+    server =
+      start_supervised!(
+        {Bandit,
+         scheme: :https,
+         ip: {127, 0, 0, 1},
+         port: 0,
+         thousand_island_options: [transport_options: transport_options],
+         plug: fn conn, _ ->
+           send(parent, {:tls_http_host, conn.host})
+
+           conn
+           |> Plug.Conn.put_resp_content_type("image/png")
+           |> Plug.Conn.send_resp(200, "png-bytes")
+         end}
+      )
+
+    {:ok, {_ip, port}} = ThousandIsland.listener_info(server)
+    url = "https://#{host}:#{port}/chart.png"
+
+    assert {:ok, %{"answer" => "![image](img_tls)"}, _} =
+             ImageResolver.resolve(
+               %{"answer" => "![image](#{url})"},
+               agent.uid,
+               %{},
+               upload_client("img_tls")
+             )
+
+    assert_receive {:tls_sni, ~c"tls-image.test"}
+    assert_receive {:tls_http_host, ^host}
+
+    wrong = "https://wrong-tls-image.test:#{port}/chart.png"
+
+    assert {:ok, _, state} =
+             ImageResolver.resolve(%{"answer" => "![image](#{wrong})"}, agent.uid, %{}, :unused)
+
+    assert state[wrong]["status"] == "failed"
+    assert state[wrong]["reason"] =~ "hostname_check_failed"
+    assert_receive {:tls_sni, ~c"wrong-tls-image.test"}
+    refute_receive {:tls_http_host, _}
+  end
+
   test "the default fetch assembles streamed image chunks before upload", %{agent: agent} do
     presentation =
       ReplyPresentation.new()
-      |> ReplyPresentation.append_answer("![图](https://example.com/chart.png)")
+      |> ReplyPresentation.append_answer("![图](https://localhost/chart.png)")
 
     with_streamed_response(["png-", "bytes"], fn chunk_count ->
       assert {:ok, rendered, state} =
@@ -110,14 +323,14 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
 
       assert :counters.get(chunk_count, 1) == 2
       assert rendered["answer"] == "![图](img_streamed)"
-      assert get_in(state, ["https://example.com/chart.png", "status"]) == "ready"
+      assert get_in(state, ["https://localhost/chart.png", "status"]) == "ready"
     end)
   end
 
   test "the default fetch halts before buffering more than 20 MiB", %{agent: agent} do
     presentation =
       ReplyPresentation.new()
-      |> ReplyPresentation.append_answer("![图](https://example.com/oversized.png)")
+      |> ReplyPresentation.append_answer("![图](https://localhost/oversized.png)")
 
     ten_mebibytes = String.duplicate("x", 10 * 1_024 * 1_024)
 
@@ -126,9 +339,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
                ImageResolver.resolve(presentation, agent.uid, %{}, :unused_client)
 
       assert :counters.get(chunk_count, 1) == 3
-      assert rendered["answer"] == "[图](https://example.com/oversized.png)"
+      assert rendered["answer"] == "[图](https://localhost/oversized.png)"
 
-      assert get_in(state, ["https://example.com/oversized.png", "reason"]) =~
+      assert get_in(state, ["https://localhost/oversized.png", "reason"]) =~
                "image_too_large"
     end)
   end
@@ -138,7 +351,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
   } do
     presentation =
       ReplyPresentation.new()
-      |> ReplyPresentation.append_answer("![图](https://example.com/slow.png)")
+      |> ReplyPresentation.append_answer("![图](https://localhost/slow.png)")
 
     previous_options = Req.default_options()
     attempts = :counters.new(1, [])
@@ -155,8 +368,8 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
                ImageResolver.resolve(presentation, agent.uid, %{}, :unused_client)
 
       assert :counters.get(attempts, 1) == 1
-      assert rendered["answer"] == "[图](https://example.com/slow.png)"
-      assert get_in(state, ["https://example.com/slow.png", "reason"]) =~ "timeout"
+      assert rendered["answer"] == "[图](https://localhost/slow.png)"
+      assert get_in(state, ["https://localhost/slow.png", "reason"]) =~ "timeout"
     after
       Req.default_options(previous_options)
     end
@@ -181,7 +394,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
   end
 
   test "a failed image upload degrades to a link instead of an invalid image key", %{agent: agent} do
-    url = "https://example.com/chart.png"
+    url = "https://localhost/chart.png"
 
     presentation =
       ReplyPresentation.new()
@@ -252,5 +465,16 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitImageResolverTest do
         end
       ]
     )
+  end
+
+  defp dns_hosts(records) do
+    previous_lookup = :inet_db.res_option(:lookup)
+    :inet_db.set_lookup([:file])
+    Enum.each(records, fn {address, names} -> :inet_db.add_host(address, names) end)
+
+    on_exit(fn ->
+      Enum.each(records, fn {address, _} -> :inet_db.del_host(address) end)
+      :inet_db.set_lookup(previous_lookup)
+    end)
   end
 end

@@ -146,18 +146,18 @@ const scenarios: Scenario[] = [
     expected: 'shello\n\n---\n\ne'
   },
   {
-    name: 'text after a database reference merges past it; the reference stays',
-    markdown: 's\n\n<database ref="r" />\n\nhello\n\ne',
+    name: 'text after an embed merges past it; the reference stays',
+    markdown: 's\n\n<embed ref="r" />\n\nhello\n\ne',
     at: ['hello', 0],
     keys: [...backspace, ...lineStart],
-    expected: 'shello\n\n<database ref="r" />\n\ne'
+    expected: 'shello\n\n<embed ref="r" />\n\ne'
   },
   {
-    name: 'nothing happens after a database reference at the page start',
-    markdown: '<database ref="r" />\n\nhello\n\ne',
+    name: 'nothing happens after an embed at the page start',
+    markdown: '<embed ref="r" />\n\nhello\n\ne',
     at: ['hello', 0],
     keys: [...backspace, ...lineStart],
-    expected: '<database ref="r" />\n\nhello\n\ne'
+    expected: '<embed ref="r" />\n\nhello\n\ne'
   },
   {
     name: 'the text of a one-line callout merges into the paragraph before it; the empty callout goes',
@@ -279,18 +279,18 @@ const scenarios: Scenario[] = [
     expected: 's\n\n- hellochild\n- next\n\ne'
   },
   {
-    name: 'Delete before a database reference takes in the text after it; the reference stays',
-    markdown: 's\n\nhello\n\n<database ref="r" />\n\ne',
+    name: 'Delete before an embed takes in the text after it; the reference stays',
+    markdown: 's\n\nhello\n\n<embed ref="r" />\n\ne',
     at: ['hello', 'end'],
     keys: forward,
-    expected: 's\n\nhelloe\n\n<database ref="r" />'
+    expected: 's\n\nhelloe\n\n<embed ref="r" />'
   },
   {
-    name: 'nothing happens before a database reference at the page end',
-    markdown: 's\n\nhello\n\n<database ref="r" />',
+    name: 'nothing happens before an embed at the page end',
+    markdown: 's\n\nhello\n\n<embed ref="r" />',
     at: ['hello', 'end'],
     keys: forward,
-    expected: 's\n\nhello\n\n<database ref="r" />'
+    expected: 's\n\nhello\n\n<embed ref="r" />'
   },
   {
     name: 'Delete at the end of a callout takes in the next paragraph',

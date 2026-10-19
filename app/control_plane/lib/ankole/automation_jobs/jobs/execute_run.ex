@@ -41,6 +41,7 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   def run(%Oban.Job{args: %{"automation_job_run_id" => run_id}} = oban_job)
       when is_integer(run_id) and run_id > 0 do
     case AutomationJobs.pending_run(run_id) do
+      {:ok, %{run: %{status: "running"} = run}} -> await_running_attempt(run, oban_job)
       {:ok, pending} -> start_when_ready(run_id, pending, oban_job)
       {:error, :automation_job_run_finished} -> :ok
       {:error, :automation_job_run_not_found} -> {:cancel, :automation_job_run_not_found}
@@ -48,6 +49,16 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
   end
 
   def run(%Oban.Job{}), do: {:cancel, :missing_automation_job_run_id}
+
+  # A prior wake may have sent the script before its process or node died.
+  # Keep its attempt fence; starting another attempt could repeat effects.
+  defp await_running_attempt(run, oban_job) do
+    if DateTime.diff(DateTime.utc_now(), run.started_at, :millisecond) < @rpc_timeout_ms do
+      {:snooze, @worker_wait_seconds}
+    else
+      handle_infrastructure_failure(run, :execution_outcome_unknown, oban_job, :exhausted)
+    end
+  end
 
   defp start_when_ready(run_id, pending, oban_job) do
     case AgentWorkers.ready_worker(pending.agent_uid) do
@@ -82,15 +93,25 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
       {:error, :automation_job_run_not_found} ->
         {:cancel, :automation_job_run_not_found}
 
+      {:error, :automation_job_attempt_in_progress} ->
+        {:snooze, @worker_wait_seconds}
+
       {:error, reason} ->
         {:error, reason}
     end
   end
 
   defp dispatch_attempt(worker, job, run, oban_job) do
-    with {:ok, skills} <- Library.runtime_skills_for_agent(job.agent_uid),
-         request = run_request(job, run, skills),
-         {:ok, payload} <-
+    case Library.runtime_skills_for_agent(job.agent_uid) do
+      {:ok, skills} -> dispatch_prepared(worker, job, run, skills, oban_job)
+      {:error, reason} -> handle_infrastructure_failure(run, reason, oban_job)
+    end
+  end
+
+  defp dispatch_prepared(worker, job, run, skills, oban_job) do
+    request = run_request(job, run, skills)
+
+    with {:ok, payload} <-
            WorkerRoute.request_rpc(
              AgentWorkers.target(worker),
              "automation_job.run",
@@ -111,7 +132,16 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
            }) do
       :ok
     else
-      {:error, reason} -> handle_infrastructure_failure(run, reason, oban_job)
+      {:error, %{"details_json" => %{"execution_started" => false}} = reason} ->
+        handle_infrastructure_failure(run, reason, oban_job)
+
+      {:error, reason} ->
+        handle_infrastructure_failure(
+          run,
+          {:execution_outcome_unknown, reason},
+          oban_job,
+          :exhausted
+        )
     end
   end
 
@@ -129,8 +159,9 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
     }
   end
 
-  defp handle_infrastructure_failure(run, reason, %Oban.Job{} = oban_job) do
-    disposition = if oban_job.attempt >= oban_job.max_attempts, do: :exhausted, else: :retry
+  defp handle_infrastructure_failure(run, reason, oban_job, disposition \\ nil) do
+    disposition =
+      disposition || if oban_job.attempt >= oban_job.max_attempts, do: :exhausted, else: :retry
 
     case AutomationJobs.infrastructure_failure(
            run.id,

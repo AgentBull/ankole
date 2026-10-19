@@ -7,7 +7,7 @@ defmodule Ankole.Conversations.Attachments do
   @attachment_id_sequence "conversation_attachment_id_seq"
   @attachment_id_min 10_000
   @attachment_id_max 9_007_199_254_740_991
-  @attachment_identity_fields ~w(provider_ref provider_file_id provider_file_key provider_uri blob_ref storage_ref)
+  @attachment_identity_fields ~w(upload_id provider_ref provider_file_id provider_file_key provider_uri blob_ref storage_ref)
   @attachment_materialization_fields ~w(attachment_id blob_ref path content_type size size_bytes bytes)
 
   @doc """
@@ -223,6 +223,21 @@ defmodule Ankole.Conversations.Attachments do
         &1
       )
     )
+  end
+
+  @doc """
+  Assigns native Message identities without exposing a queued upload in the Agent drive.
+  A Message has its own path so a later upload cannot read or replace an Agent's edits to an older input.
+  """
+  def prepare_native_in_tx(repo, conversation_id, message_id, attachments, existing) do
+    attachments
+    |> Enum.with_index()
+    |> Enum.map(fn {attachment, index} ->
+      path = Files.content_path("inbox", attachment["blob_ref"], attachment["name"])
+      attachment = put_attachment_id(repo, attachment, index, existing)
+      Map.put(attachment, "path", String.replace_prefix(path, "inbox/", "inbox/#{message_id}/"))
+    end)
+    |> scope(conversation_id)
   end
 
   # A later observation cannot take stored bytes away from an attachment. A

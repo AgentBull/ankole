@@ -98,7 +98,7 @@ describe('TokenQuotaEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('markSaved adopts the persisted quota as the clean draft', () => {
+  test('a captured save adopts the persisted quota as the clean draft', () => {
     const model = new TokenQuotaEditorModel()
     model.initialize('agent:alpha', emptyTokenQuotaDraft())
 
@@ -106,7 +106,7 @@ describe('TokenQuotaEditorModel', () => {
     model.validationError.value = 'limit_tokens_required'
     expect(model.dirty.value).toBe(true)
 
-    model.markSaved(draftFromTokenQuota(storedQuota))
+    model.captureSave()(draftFromTokenQuota(storedQuota))
     expect(model.dirty.value).toBe(false)
     expect(model.periodStartAt.value).toBe(dateTimeLocalValue(storedQuota.period_start_at))
     expect(model.validationError.value).toBeUndefined()

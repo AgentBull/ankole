@@ -45,7 +45,11 @@ const is = (node: Node, type: { type: unknown } | unknown) => node.type === ((ty
 
 /** The editor document for a page tree. Applies N first. An empty page gets its placeholder paragraph. */
 export function pageDocument(tree: Element): Plot.Doc {
-  const page = normalizeTree(tree)
+  return normalizedPageDocument(normalizeTree(tree))
+}
+
+/** @internal Builds a document from an already validated normal form. */
+export function normalizedPageDocument(page: Element): Plot.Doc {
   const content = (page.children as Element[]).map(block)
   return S.schema.doc(content.length ? content : [T.Paragraph.withMarks([S.PagePlaceholder]).create([])])
 }

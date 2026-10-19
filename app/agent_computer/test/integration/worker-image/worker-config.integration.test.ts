@@ -20,6 +20,29 @@ it('loads the image configuration and removes the auth key before child processe
   })
 })
 
+it('installs the Pod CLI with the editor codec and real applet build dependencies', async () => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const root = await mkdtemp('/tmp/ankole-pod-image-')
+  const directory = `${root}/tracker`
+  try {
+    const help = Bun.spawnSync(['ankole-pod', '--help'])
+    expect(help.exitCode).toBe(0)
+    expect(help.stdout.toString()).toContain('pages.write')
+    expect(Bun.spawnSync(['ankole-pod', 'applet', 'init', directory]).exitCode).toBe(0)
+    const build = Bun.spawnSync(['ankole-pod', 'applet', 'build', directory])
+    expect(build.stderr.toString()).toBe('')
+    expect(build.exitCode).toBe(0)
+    const script = await Bun.file(`${directory}/dist/app.js`).text()
+    expect(script).toContain('@ankole/applet-sdk')
+    expect(script).not.toContain('jsxDEV')
+    expect(await Bun.file(`${directory}/dist/index.html`).text()).toContain('./app.js')
+    const { parseMarkdown, printXml } = await import('@ankole/block-editor/document')
+    expect(printXml(parseMarkdown('## Saved report'))).toContain('Saved report')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 it.skipIf(process.arch !== 'x64')('provides OSSFS2 for Function Compute custom images', () => {
   const result = Bun.spawnSync(['ossfs2', '--version'])
   expect(result.exitCode).toBe(0)

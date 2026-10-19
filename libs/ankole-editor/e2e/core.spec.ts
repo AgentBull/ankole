@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test'
 import { expect, test } from './helpers'
 
 // This upstream test expects a fixed character offset when the target x is a glyph midpoint.
@@ -51,5 +52,87 @@ test('clicking consecutive and trailing empty code lines edits that line', async
       await page.keyboard.type('X')
       await expect(page.locator('#workspace pre')).toHaveJSProperty('innerHTML', expected)
     })
+  }
+})
+
+async function guardedNativeEditor(page: Page) {
+  await page.goto('/test/core/browser/index.html')
+  await page.waitForFunction(() => window.coreTestResults)
+  await page.evaluate(async () => {
+    const editorPath = '/src/core/editor/index.ts'
+    const extensionPath = '/src/editor/extension.ts'
+    const { Wordgard } = await import(editorPath)
+    const { editorExtension, initialState } = await import(extensionPath)
+    const parent = document.querySelector<HTMLElement>('#workspace')!
+    parent.replaceChildren()
+    parent.style.opacity = '1'
+    parent.style.pointerEvents = 'auto'
+    const editor = Wordgard.create({
+      parent,
+      state: initialState('Before', [
+        editorExtension(),
+        Wordgard.transactionGuard.of((transactions: { newDoc: { textContent(): string } }[]) => {
+          if (transactions.at(-1)!.newDoc.textContent().includes('X')) throw new Error('Rejected test edit')
+        }),
+        Wordgard.exceptionSink.of(() => {})
+      ])
+    })
+    Object.assign(window, { guardedEditor: editor })
+    editor.focus()
+  })
+  return page.locator('#workspace [contenteditable="true"]')
+}
+
+test('rejected native typing restores DOM input tracking and accepts later typing', async ({ page }) => {
+  test.skip(
+    !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
+    'Only the development server serves the test page'
+  )
+  const editor = await guardedNativeEditor(page)
+  await editor.press('End')
+  await editor.pressSequentially('X')
+  await expect(editor.locator('p')).toHaveText('Before')
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const editor = (
+          window as unknown as {
+            guardedEditor: { state: { doc: unknown }; inputState: { domDoc: { eq(document: unknown): boolean } } }
+          }
+        ).guardedEditor
+        return editor.inputState.domDoc.eq(editor.state.doc)
+      })
+    )
+    .toBe(true)
+  await editor.pressSequentially(' after')
+  await expect(editor.locator('p')).toHaveText('Before after')
+})
+
+test('a rejected native composition restores the accepted document and can resume editing', async ({
+  page,
+  browserName
+}) => {
+  test.skip(browserName !== 'chromium', 'CDP composition is available only in Chromium.')
+  test.skip(
+    !!process.env.E2E_CONSUMER_ROOT || process.env.E2E_PREVIEW === '1',
+    'Only the development server serves the test page'
+  )
+  const editor = await guardedNativeEditor(page)
+  await editor.press('End')
+  const client = await page.context().newCDPSession(page)
+  try {
+    await client.send('Input.imeSetComposition', { text: 'X', selectionStart: 1, selectionEnd: 1 })
+    await expect(editor.locator('p')).toHaveText('Before')
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as unknown as { guardedEditor: { composing: boolean } }).guardedEditor.composing)
+      )
+      .toBe(false)
+    await editor.pressSequentially(' after')
+    await expect(editor.locator('p')).toHaveText('Before after')
+    await editor.press('ControlOrMeta+z')
+    await expect(editor.locator('p')).toHaveText('Before')
+  } finally {
+    await client.detach()
   }
 })

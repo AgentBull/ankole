@@ -96,6 +96,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private runtimeThreadID: string | undefined
   private codexTurnID: string | undefined
   private outputText = ''
+  private originalHumanRequest: string | undefined
   private latestTokenUsage: BackgroundAgentJobTurnUsage | undefined
   private completedFilesChanged: BackgroundAgentJobPathHandoff = emptyBackgroundAgentJobPathHandoff()
   private activeFilesChanged: BackgroundAgentJobPathHandoff = emptyBackgroundAgentJobPathHandoff()
@@ -132,6 +133,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   ) {
     this.appliedEventIDs.add(turnStart.signal.signal_id)
     this.runtimeThreadID = job.runtimeThreadId || undefined
+    this.originalHumanRequest = stringValue(turnStart.request_context?.original_human_request)
     this.legacyThreadReplay = jsonObjectFromBytes(job.metadataJson, 'Job metadata')?.legacy_thread_replay === true
     this.modelProfile = codexJobModelProfile(turnStart)
     this.expectedSkillNames = prepared.skills.loadable.map(skill => skill.skillName).sort(compareCodePointStrings)
@@ -571,6 +573,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
   private async startCodexTurn(input: string): Promise<void> {
     if (!this.client || !this.runtimeThreadID) throw new Error('codex thread is not available')
+    this.outputText = ''
     const clientUserMessageID = turnClientUserMessageID(this.turnStart)
     const progressVersion = this.leadRuntimeProgressVersion
     this.clearFirstProgressDeadline()
@@ -749,13 +752,11 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
       if (decision.action === 'retry_turn') {
         await Bun.sleep(decision.delayMs ?? 0)
-        this.outputText = ''
         await this.startCodexTurn(retryContinuationInput())
         return
       }
       if (decision.action === 'compact_then_retry') {
         await this.compactThread()
-        this.outputText = ''
         await this.startCodexTurn(retryContinuationInput())
         return
       }
@@ -765,7 +766,6 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         await this.persistRuntimeThreadAnchor(
           outcome === 'replayed' ? 'replayed_from_transcript' : 'new_thread_from_bounded_history'
         )
-        this.outputText = ''
         if (outcome === 'replayed') {
           await this.startCodexTurn(retryContinuationInput())
         } else {
@@ -835,7 +835,9 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       this.rollActiveFilesChanged()
       this.codexTurnID = projection.turnID ?? this.codexTurnID
     } else if (projection.type === 'agent_completed') {
-      this.outputText = projection.text
+      // Codex permits a missing phase for legacy models. Intermediate messages
+      // remain in the trajectory but cannot satisfy the final-report contract.
+      if (projection.phase === null || projection.phase === 'final_answer') this.outputText = projection.text
     } else if (projection.type === 'token_usage') {
       this.latestTokenUsage = projection.usage
     } else if (projection.type === 'turn_diff') {
@@ -1033,6 +1035,20 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     this.rejectDone(error)
   }
 
+  private applyOriginalHumanRequest(update: TurnSteerUpdate): void {
+    if (!update.signal) return
+    const request = stringValue(jsonObject(update.signal.payload_json).original_human_request)
+    if (request && request !== this.originalHumanRequest) {
+      const instructions = stringValue(this.prepared.threadConfig.developer_instructions) ?? ''
+      const base =
+        this.originalHumanRequest && instructions.endsWith(this.originalHumanRequest)
+          ? instructions.slice(0, -this.originalHumanRequest.length).trimEnd()
+          : instructions
+      this.prepared.threadConfig.developer_instructions = [base, request].filter(Boolean).join('\n\n')
+      this.originalHumanRequest = request
+    }
+  }
+
   /**
    * Sends queued runtime updates only while the current Codex Turn can accept them.
    *
@@ -1080,12 +1096,14 @@ class CodexJobSession implements AgentCodexRuntimeSession {
             this.codexTurnID!,
             updates,
             () => !this.finalizing,
-            async (eventID, text) => {
+            async (eventID, text, update) => {
+              this.applyOriginalHumanRequest(update)
               this.turnRecorder.recordSteering(this.codexTurnID, eventID, text)
               await this.turnRecorder.flush()
             },
             async update => {
-              if (update.signal) this.appliedEventIDs.add(update.signal.signal_id)
+              if (!update.signal) return
+              this.appliedEventIDs.add(update.signal.signal_id)
             }
           )
         )
@@ -1119,7 +1137,8 @@ function turnInput(turnStart: TurnStart, job: BackgroundAgentJobResponse): strin
     const command = jsonObject(jsonObject(jsonObject(turnStart.signal.payload_json).data).command)
     const message = stringValue(command.argsText)
     if (!message) throw new Error('BackgroundAgentJob message command is missing argsText')
-    return message
+    const originalRequest = stringValue(jsonObject(turnStart.signal.payload_json).original_human_request)
+    return originalRequest ? `${originalRequest}\n\nDelegated message:\n${message}` : message
   }
 
   if (job.attempts > 1 && job.runtimeThreadId) {
@@ -1190,15 +1209,17 @@ async function steerActiveTurn(
   turnID: string,
   updates: TurnSteerUpdate[],
   acceptsOutcome: () => boolean,
-  onTrajectorySteering: (eventID: string, text: string) => Promise<void>,
+  onTrajectorySteering: (eventID: string, text: string, update: TurnSteerUpdate) => Promise<void>,
   onSteeringApplied?: (update: TurnSteerUpdate) => Promise<void>
 ): Promise<void> {
   for (const update of updates) {
     const event = update.signal
     if (!event) continue
     const command = jsonObject(jsonObject(jsonObject(event.payload_json).data).command)
-    const text = stringValue(command.argsText)
-    if (!text) continue
+    const message = stringValue(command.argsText)
+    if (!message) continue
+    const originalRequest = stringValue(jsonObject(event.payload_json).original_human_request)
+    const text = originalRequest ? `${originalRequest}\n\nDelegated message:\n${message}` : message
     try {
       await client.request('turn/steer', {
         ['threadId']: threadID,
@@ -1207,7 +1228,7 @@ async function steerActiveTurn(
         input: textInput(text)
       })
       if (!acceptsOutcome()) continue
-      await onTrajectorySteering(event.signal_id, text)
+      await onTrajectorySteering(event.signal_id, text, update)
       await onSteeringApplied?.(update)
     } catch (error) {
       if (!acceptsOutcome()) continue

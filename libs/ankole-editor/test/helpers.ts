@@ -30,6 +30,7 @@ class HeadlessEditor {
       throw new Error('Dispatching a transaction starting from the wrong state')
     }
     const transactions = Transaction.append(spec instanceof Transaction ? spec : this.state.update(spec))
+    for (const guard of this.state.facet(Wordgard.transactionGuard)) guard(transactions, this as unknown as Wordgard)
     this.state = transactions.at(-1)!.state
     for (const listener of this.state.facet(Wordgard.transactionListener)) {
       listener(transactions, this as unknown as Wordgard)

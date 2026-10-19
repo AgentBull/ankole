@@ -1,5 +1,192 @@
 # Changelog
 
+## Version 2.0.0-alpha.12 (2026-10-19)
+
+- Keep every local document draft after repeated external resets, protect
+  navigation until each retained draft is handled, and keep an uploading
+  Database row mounted when it leaves the viewport. Carry removed message IDs
+  across loaded Chat history so a stale response cannot restore deleted text.
+- Apply Console save and reveal results to the submitted draft and source.
+  Keep later edits dirty, and prevent a late delete response from changing the
+  next route. Freeze pending Setup and login controls, and restore the saved
+  industry-pack selection when returning to an earlier Setup step.
+- Use one caller deadline for automation preparation and execution. Stop the
+  command group before removing its files, and do not replay an attempt whose
+  execution result is unknown. Keep a browser profile when its saved CDP
+  endpoint fails, and signal only a process owned by a live child handle.
+- Serialize permission-grant writes and page moves with the tenant tree lock.
+  Remove the global grant table lock. Normalize Principal and record IDs before
+  cell validation, reuse reverse-field definitions within a Database write,
+  and remove per-record reads from sync batches that have no reverse links.
+- Expire configuration cache entries after five seconds, initialize a
+  generated global value atomically, and reject unavailable default locales
+  before storage. Start with the release locale when an older stored default
+  is unavailable. Remove test reset and fault handlers from production builds.
+- Serialize Graph subscription creation, recovery and deletion for each
+  provider. Save the creation secret before the remote request, check remote
+  state during recovery, and process disabled providers through the same owner.
+  Link Telegram polling tasks to one bot owner across connected nodes, and
+  reject stale Feishu SDK token-refresh results.
+- Limit concurrent native Applet runs and retained WebSocket output. Accept
+  successful CONNECT status codes throughout the 2xx range and parse SSE BOMs
+  and CR, LF and CRLF line endings across chunk boundaries. Include shared
+  editor, Applet SDK and browser sources in architecture checks and resolve
+  runtime imports through workspace exports.
+- Limit built-in Database views to records browsers: grid, kanban, and gallery.
+  Remove calendar, gantt, and form view types, their presentation code and saved
+  configuration fields, and the form submission path. Calendar, timeline, form,
+  and chart presentations belong to Applets. The view contract and database
+  constraint accept only the three built-in types, and an inline embed with a
+  removed type offers repair to grid.
+- Read Page content and revision under one lock, bound replay to that revision,
+  and submit pending edits after an earlier request is confirmed by broadcast
+  but its transport fails. Initialize Space authority only during tenant creation;
+  keep permission reads from restoring removed grants and protect grant deletion.
+- Require matching schema and record versions for local Database queries. Compile
+  shared dependencies once per requested formula, with conditional evaluation.
+  Keep copied formulas on copied fields and freeze linked-record choices without
+  changing UUID-valued business text.
+- Embed Applet images, fonts, and media in build output. Retry a publication that
+  removes a requested file without treating that change as lost page access.
+  Validate inline view configuration before rendering.
+- Centralize Chat command rules and reading-position effects. Keep a new draft
+  separate from an unfinished Chat creation, retain its recovery and retry IDs,
+  and prevent late request results from changing a newer send. Make Pod user-flow
+  checks use the production wake path, verify saved facts and formula behavior,
+  and save and reload a real Human edit to an Agent-created research Page.
+- Add optional Applet backend routes, built and published with the frontend
+  under one Page revision. Run each call in a fresh native V8 isolate with
+  caller-authorized Database and file capabilities, configured Agent model
+  profiles, cancellation, and time and memory limits. Add SDK route hooks and
+  Agent build, publish, and call commands. Reject invalid backend packages
+  before publication, and reload a stale frontend without replaying its write.
+  Cancel an older page read before fetching a changed Applet revision so a
+  delayed response cannot leave the Applet loading.
+- Keep embedded Applet text and controls consistent with their full-page view.
+  Document typography stops at embedded objects. Reject imports that the host
+  cannot provide during build, and let users restart an Applet after a render
+  failure without reloading the Pod.
+- Keep saved work during Agent Job continuation. Describe the missing outcome
+  and reuse existing object IDs instead of treating an incomplete report as
+  evidence that no work was saved.
+- Check the retained Human authorization before a Session retry, keep activity
+  available during reply completion and late preview recovery, and preserve
+  newer Applet data after a failed write. Keep pending edits visible without
+  changing confirmed records.
+- Reduce repeated Pod authentication and page ancestry reads. Check Drive path
+  conflicts without loading the complete drive, notify other tabs when a copied
+  table adds a Page, and share the sandboxed file download policy. Close a
+  document channel when a rejected request confirms lost viewing access. Keep
+  access and revision errors ahead of invalid XML in complete document writes.
+- Unify Pod navigation and references with one Page type icon, neutral ordinary
+  actions, and compact desktop lists. Open the same search and navigation menu
+  from the sidebar or Command/Control+K. Keep drafts when opening a new Chat,
+  and support J/K navigation in content lists without taking keys from fields.
+- Keep view draft feedback flat on the work surface.
+- Keep file selection, replacement, and download above the preview. Retain a
+  failed selection and reset preview selection after a replacement. Keep mobile
+  Chat exit transitions without reopening a closed panel on send completion.
+  Make frequent menus immediate, and honor reduced motion for overlays and Chat
+  scrolling.
+- Explain lost tool-call arguments in provider replay without changing stored
+  calls, results, or media parts.
+- Keep Pod message history, pending inputs, and execution status consistent
+  when a reply finishes during a detail read.
+- Check DNS answers for Feishu Markdown image downloads and connect to a
+  checked IP with the original HTTPS hostname. Keep intranet access under the
+  existing setting and reject cloud metadata targets through DNS and redirects.
+- Add durable Pod pages with space and Private navigation, sharing, search,
+  favorites, trash, restore, and file previews. Save Conversation text and
+  attachments as pages, retain their origins, and keep saved content after a
+  Conversation is deleted. Agents use the same page permissions through the
+  new `ankole-pod` CLI. Private creation and moves wait for the current Human's
+  identity before they can submit. Let editors move Pages when access to the
+  Page and its subpages stays unchanged; require full access for moves that can
+  change permissions.
+- Align Pod page and Database interactions with Notion where the content model
+  permits. Keep failed title, cell, form, and view drafts; require explicit
+  conflict recovery and shared-view saves. Confirm permanent record and field
+  deletion, filter move destinations by actual roles, append new fields and views
+  in creation order, and search trash. Freeze pending uploads
+  and dialogs, and distinguish temporary realtime failures from access denial.
+  Use searchable page pickers, compact forms with Enter submission, and anchored
+  property pickers. Keep long dialog actions visible while their bodies scroll.
+- Open Pods on their slug subdomain, including `<slug>.ankole.localhost` in local
+  development. Use Kernel short UUIDs in Page and Conversation links, with no
+  tenant query or `/pod` prefix. Share the browser's logged-in accounts across
+  Pod subdomains and allow switching between authorized identities while
+  retaining each open document's selected identity.
+- Use a single document canvas, compact page actions, and a responsive Page Chat
+  panel while retaining Ankole's design tokens and component styles. Keep rapid
+  Chat switches and their input in the same committed navigation, and open the
+  mobile Chat panel before its message content loads. Make document
+  block actions available by touch, keep sharing and table filters beside their
+  controls, and keep search aliases out of menu labels.
+- Add live document editing with canonical XML validation, operational
+  transforms, missed-change recovery, and recoverable drafts after a whole-page
+  replacement. Inline Database and applet pages keep their own identity when
+  a document reference is removed.
+- Add Page-linked Chats that reopen in either the page panel or Conversation
+  view with the same current Page. Keep unsent messages and pending sends when
+  closing the panel or navigating, warn before unloading a draft, and allow
+  copying local input after page access is revoked or a Chat is deleted elsewhere.
+  Keep acknowledged messages visible during delayed or failed refreshes.
+- Give Pod Chats a Notion AI layout with native steer and editable, reorderable
+  message queues. Stop pauses pending inputs across refreshes; Continue resumes
+  them and Send now releases one selected input. Reject stale concurrent queue
+  edits. Support last-turn editing and regeneration through the real retry
+  mechanism, retaining changes already made to Pages, Databases, and applets.
+  Copy whole messages or exact code, and load earlier history without losing
+  the reading position. Restore the visible message when returning to a Chat,
+  with separate positions for the Page panel and Conversation view.
+- Upload, paste, or drop Chat attachments with recoverable local drafts, stable
+  send retries, and frozen message downloads. Keep incoming file paths separate
+  for each message. Preview images and text in the same Chat, retain keyboard
+  focus and unsent input, and keep the original download and new-tab actions.
+  Limit preview reads and cancel them when the preview closes.
+  Let a Chat select an authorized model profile for subsequent
+  replies, retaining the model already captured by active and queued inputs.
+- Default native Pod research and document requests to editable Pages in both
+  main Agent and Background Agent Job instructions. Research Skills keep explicit
+  user format requests and deliver saved Page links by default. Keep the original
+  Chat source when a completion wake or continued Job creates more Pages.
+  Verify each applet action's complete write and saved result, including naming
+  fields, and check research examples' numeric conclusions in the delivered body.
+- Carry the consumed native Human request separately from a delegated Job task.
+  Retain that input version across completion wakes, continuations, and recovery;
+  applied Human steers update execution intent without changing Page provenance.
+  Editing a previous message creates a new retry input without rewriting the
+  original consumed Signal. Scope Job completion and verification instructions
+  to Agent-assigned work, leaving Human-reserved interactions for the Human.
+- Fix reopening documents with a saved slash query, hide the slash menu when
+  the editor loses focus, and apply typed table filters directly without an
+  extra focus change. Show the actual parent title in page navigation.
+- Load Pod views and the applet runtime on demand, index the page tree once,
+  and emit compressed production text assets for the existing static server.
+  Fetch the current Page alongside its view and load only Pod and shared
+  translations at startup, retaining complete catalogs for other applications.
+  Keep page-tree folding choices across remounts, reloads, and same-identity tabs,
+  separately for each Pod and document identity.
+- Add typed business tables, formulas, field-level edit conflicts, three
+  built-in views, filters, statistics, and independent report copies. Humans and Agents query
+  and edit the same tables through their own permissions. Runtime limits are
+  configurable; there is no per-tenant query concurrency limit. Permanent Agent
+  deletion keeps synchronized records and releases their fields for local edits.
+- Add React applets with the shared Pod SDK, components, live data, presence,
+  atomic publication, and revision replacement. Applet initialization accepts
+  existing empty directories and preserves nonempty ones. Mount applets inside
+  their documented CSS scope and guide standard controls to the host UIKit.
+  Generalize Agent file
+  references to include a tenant Pod drive, reuse stored bytes, and remove page
+  and table data in batches during purge and tenant deletion.
+- Keep Background Agent Job final reports separate from runtime commentary and
+  partial answers. Use the existing report retry when a Turn has no final report.
+  Compare Job reports with the user's overall goal and continue specific missing
+  work before claiming completion, reusing reported verification.
+- Shorten the coding-agent guidelines to authorization, contracts, and
+  repository boundaries. Commands, layout, and architecture stay in the
+  owning files.
+
 ## Version 2.0.0-alpha.11 (2026-10-19)
 
 - Return OIDC token authentication errors with the implemented Basic challenge;

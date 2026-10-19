@@ -30,7 +30,13 @@ test('a provider refetch keeps operator YAML and credential edits, and never see
   expect(model.config.value).toBe('# Operator comment\ninstance: lite\nidleReleaseAfter: 5m\n')
   expect(model.credentials.value).toEqual({ api_token: 'replacement' })
   expect(model.dirty.value).toBe(true)
-  model.markSaved()
+  model.captureSave()({
+    providerID: model.providerID.value,
+    displayName: model.displayName.value,
+    kind: model.kind.value,
+    config: model.config.value,
+    isDefault: model.isDefault.value
+  })
   expect(model.credentials.value).toEqual({})
   expect(model.dirty.value).toBe(false)
   model[Symbol.dispose]()

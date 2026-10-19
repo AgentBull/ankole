@@ -685,22 +685,49 @@
   }
 }
 
-/*
- * `animate-spin` keeps moving. A stopped spinner reads as a hung request.
- */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 1ms !important;
     animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
     transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
 
-  .animate-spin {
-    animation-duration: 1.5s !important;
+  .animate-spin,
+  .animate-pulse {
+    animation: none !important;
+  }
+
+  :is(
+    [data-slot='dialog-content'],
+    [data-slot='dialog-overlay'],
+    [data-slot='popover-content'],
+    [data-slot='hover-card-content'],
+    [data-slot='sheet-content'],
+    [data-slot='sheet-overlay'],
+    [data-slot='drawer-popup'],
+    [data-slot='drawer-overlay']
+  ) {
+    transition-property: opacity !important;
+    transition-duration: var(--duration-feedback) !important;
+    transition-timing-function: var(--ease-out) !important;
+  }
+
+  :is([data-slot='dialog-content'], [data-slot='popover-content'], [data-slot='hover-card-content']) {
+    scale: none !important;
+  }
+
+  [data-slot='sheet-content'] {
+    translate: none !important;
+  }
+
+  [data-slot='drawer-popup']:is([data-starting-style], [data-ending-style]) {
+    transform: var(--drawer-open-transform) !important;
+    opacity: 0 !important;
   }
 }
 

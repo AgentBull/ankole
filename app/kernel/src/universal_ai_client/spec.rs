@@ -376,12 +376,13 @@ pub struct HostedImageGenerationSpec {
 
 const MAX_FUNCTION_CALL_ARGUMENT_BYTES: usize = 256 * 1024;
 const MAX_REPAIRABLE_FUNCTION_CALL_ARGUMENT_BYTES: usize = 64 * 1024;
+const UNRECOVERABLE_CALL_ARGUMENTS_NOTE: &str = "[History replay note: The original tool-call arguments could not be recovered and were replaced with {} for provider compatibility. The output below is the recorded result of the original call; it does not mean the tool ran with {}. Check authoritative state before repeating a side effect.]";
 
 // Durable history is the raw audit record; provider replay is a stricter
 // projection. Repair deterministic punctuation damage first. Only a malformed
 // call that already has a matching output may fall back to `{}` so the pair
-// remains provider-valid. An unpaired malformed call is omitted rather than
-// inventing arguments or a result.
+// remains provider-valid. Its output explains the lost arguments. An unpaired
+// malformed call is omitted rather than inventing arguments or a result.
 fn normalize_function_call_replay(request: &mut Map<String, Value>) {
     let Some(Value::Array(items)) = request.get_mut("input") else {
         return;
@@ -400,6 +401,7 @@ fn normalize_function_call_replay(request: &mut Map<String, Value>) {
                 .map(str::to_string)
         })
         .collect::<HashSet<_>>();
+    let mut unrecoverable_call_ids = HashSet::new();
 
     items.retain_mut(|item| {
         let Some(item) = item.as_object_mut() else {
@@ -429,11 +431,44 @@ fn normalize_function_call_replay(request: &mut Map<String, Value>) {
             .is_some_and(|call_id| output_call_ids.contains(call_id));
 
         if paired {
+            if let Some(call_id) = item.get("call_id").and_then(Value::as_str) {
+                unrecoverable_call_ids.insert(call_id.to_string());
+            }
             item.insert("arguments".to_string(), Value::String("{}".to_string()));
         }
 
         paired
     });
+
+    if unrecoverable_call_ids.is_empty() {
+        return;
+    }
+
+    for item in items {
+        let Some(item) = item.as_object_mut() else {
+            continue;
+        };
+        if item.get("type").and_then(Value::as_str) == Some("function_call_output")
+            && item
+                .get("call_id")
+                .and_then(Value::as_str)
+                .is_some_and(|id| unrecoverable_call_ids.contains(id))
+        {
+            let output = item.entry("output").or_insert(Value::Null);
+            match output {
+                Value::Array(parts) => parts.insert(
+                    0,
+                    json!({"type": "input_text", "text": UNRECOVERABLE_CALL_ARGUMENTS_NOTE}),
+                ),
+                Value::String(text) => {
+                    *text = format!("{UNRECOVERABLE_CALL_ARGUMENTS_NOTE}\n{text}");
+                }
+                value => {
+                    *value = Value::String(format!("{UNRECOVERABLE_CALL_ARGUMENTS_NOTE}\n{value}"));
+                }
+            }
+        }
+    }
 }
 
 fn normalize_function_arguments(arguments: &str) -> Option<String> {
@@ -940,10 +975,79 @@ mod tests {
         assert_eq!(input[0]["call_id"], json!("call_paired"));
         assert_eq!(input[0]["arguments"], json!("{}"));
         assert_eq!(input[1]["call_id"], json!("call_paired"));
+        assert_eq!(
+            input[1]["output"],
+            json!(format!(
+                "{UNRECOVERABLE_CALL_ARGUMENTS_NOTE}\nInvalid arguments: unterminated string"
+            ))
+        );
+        assert_eq!(
+            context.request["input"][1]["output"],
+            json!("Invalid arguments: unterminated string")
+        );
         assert!(
             !sonic_rs::to_string(input)
                 .unwrap()
                 .contains("call_unpaired")
+        );
+    }
+
+    #[test]
+    fn unrecoverable_call_replay_preserves_media_other_results_and_repeated_projection() {
+        let parts = json!([
+            {"type": "input_text", "text": "Original result"},
+            {"type": "input_image", "image_url": "https://example.com/image.png"}
+        ]);
+        let context = ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({"input": [
+                {"type": "function_call", "call_id": "bad", "name": "read_file", "arguments": "broken"},
+                {"type": "function_call_output", "call_id": "bad", "output": parts},
+                {"type": "function_call", "call_id": "good", "name": "read_file", "arguments": "{}"},
+                {"type": "function_call_output", "call_id": "good", "output": "Unchanged"}
+            ]}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        };
+
+        let mut projected = context.resolved_provider_request_object();
+        let input = projected["input"].as_array().unwrap();
+        let output = input[1]["output"].as_array().unwrap();
+        assert_eq!(output[0]["text"], json!(UNRECOVERABLE_CALL_ARGUMENTS_NOTE));
+        assert_eq!(&output[1..], parts.as_array().unwrap());
+        assert_eq!(input[2], context.request["input"][2]);
+        assert_eq!(input[3], context.request["input"][3]);
+        assert_eq!(context.request["input"][1]["output"], parts);
+
+        let once = projected.clone();
+        normalize_function_call_replay(&mut projected);
+        assert_eq!(projected, once);
+    }
+
+    #[test]
+    fn unrecoverable_call_replay_keeps_structured_output_as_json_after_the_note() {
+        let context = ResponseContext {
+            model: "gpt-test".to_string(),
+            request: json!({"input": [
+                {"type": "function_call", "call_id": "bad", "name": "patch", "arguments": "broken"},
+                {"type": "function_call_output", "call_id": "bad", "output": {"changed": true}}
+            ]}),
+            provider_options: json!({}),
+            stream: None,
+            include_model: true,
+        };
+
+        let projected = context.resolved_provider_request_object();
+        assert_eq!(
+            projected["input"][1]["output"],
+            json!(format!(
+                "{UNRECOVERABLE_CALL_ARGUMENTS_NOTE}\n{{\"changed\":true}}"
+            ))
+        );
+        assert_eq!(
+            context.request["input"][1]["output"],
+            json!({"changed": true})
         );
     }
 

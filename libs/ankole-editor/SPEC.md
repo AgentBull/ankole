@@ -71,7 +71,7 @@ If content goes past a limit, the package reports an error. It does not truncate
 | `tr` | Block | Only `th` and `td` | — | Only in `table` |
 | `th`, `td` | Block | Block | `align`: the same values as for `p`. `colspan`, `rowspan`: an integer from 1 to 9999. | Only in `tr` |
 | `callout` | Block | Block | `tone`: `info` or `warning` | — |
-| `database` | Block | Empty | `ref`: any value | — |
+| `embed` | Block | Empty | `ref`, `table`, `view`: any value | — |
 | `a` | Inline | Inline | `href`: any value, required. `title`: any value. | — |
 | `img` | Inline | Empty | `src`: any value, required. `alt`, `title`: any value. | — |
 | `br` | Inline | Empty | — | — |
@@ -80,7 +80,9 @@ If content goes past a limit, the package reports an error. It does not truncate
 
 A known element (an element in the vocabulary) can have attributes that are not in the vocabulary. The package keeps these attributes without change and reports them as warnings (section 6.4). The package also keeps an unknown element and all its attributes without change, and reports the element as a warning.
 
-`database` holds only a reference. The owner of the database controls the format, existence, and lifecycle of `ref`. A page does not hold fields, records, views, or settings of the database.
+`embed` holds only a reference. `ref` names the page that the embed shows. A database embed can also have `table` and `view`. The embedded page controls the format, existence, and lifecycle of these values. A page does not hold fields, records, views, or settings of the embedded page. The editor does not load the embedded page, read its assets, or delete it; those operations belong to the product that stores pages.
+
+The product gives two address forms. A page link uses `ankole:page/<page ID>` in `href`, and an image that a page owns uses `ankole:asset/<digest>/<file name>` in `src`. The package treats both as any other attribute value. It reads, prints, and copies them without change, and it does not resolve them.
 
 ## 3. Normalization
 
@@ -438,7 +440,7 @@ The editing engine is in `src/core`. It is a fork of Wordgard and is part of the
 | `hr` | Divider |
 | `table`, `tr`, `th`, `td` | Table, row, header cell, cell. Cells are containers. `colspan`, `rowspan`, and `align` are marks on the cell. |
 | `callout` | Callout, which is a container. The editor imports each child block. |
-| `database` | Database reference |
+| `embed` | Embed |
 | Format elements, `span` with `style` | Marks on text: bold, italic, strikethrough, underline, highlight, subscript, superscript, code, and style |
 | `a` with content | A link mark on text. The mark keeps all attributes of the link. |
 | `br` | Line-break node |
@@ -460,6 +462,12 @@ An empty page imports as one empty paragraph with a placeholder mark. This parag
 
 For each valid page tree `T`, an import and then a read give `N(T)`.
 
+#### Prepare a submission
+
+`preparePageUpdate(transaction)` prepares the final local transaction of a batch for XML storage. Run input appenders first, and call it after IME composition ends. The function reads and writes the document through the XML conversion chain, makes a correction for the parts that differ, and merges that correction into the transaction. Mark changes keep text positions. The returned transaction keeps the mapped selection and effects, annotations, and history boundary.
+
+The client applies the returned transaction in place of the original. It composes that transaction's changes with the earlier changes in the batch, then sends the result. Normalizing only the wire data while keeping the old client document breaks the next batch. Remote replay applies the prepared changes without a new local preparation. The M2 live transport and client adapter are separate work.
+
 ### 7.4 Read-only elements
 
 A read-only element holds one element, and a read gives that element without change. The editor shows the content of the element:
@@ -468,7 +476,7 @@ A read-only element holds one element, and a read gives that element without cha
 - `img` shows the image.
 - A link shows its text. When the pointer hovers over the link, the editor shows the address.
 - A task item shows a checkbox that you cannot operate.
-- A callout and a database reference show in their own styles.
+- A callout and an embed show in their own styles.
 - A block-level unknown element shows its content and a label with the element name.
 - An inline unknown element shows its content. When the pointer hovers over it, the editor shows the element name.
 
@@ -506,7 +514,7 @@ The text content of a read-only element is all the text in the element, joined i
   - If you press Enter in an empty list item, an item in a sublist outdents one level. A top-level item becomes a paragraph, and the list splits at that position.
   - If you press Enter at the start of a list item that is not empty, the editor adds an empty list item before it.
 - **Callouts**: If both ends of the selection are in the same callout, a delete or a cut removes only content and keeps the callout. If you delete all blocks in a callout, one empty paragraph stays in it.
-- **Database references**: The delete keys do not delete a database reference (refer to Delete). The Up Arrow and Down Arrow keys move the caret past it. The block menu can delete it. A selection that contains it can also delete it. For example, a click on it makes a node selection that contains it.
+- **Embeds**: The delete keys do not delete an embed (refer to Delete). The Up Arrow and Down Arrow keys move the caret past it. The block menu can delete it. A selection that contains it can also delete it. For example, a click on it makes a node selection that contains it. Deleting the block removes only the embed. The page that it names stays.
 - **Delete**: Backspace deletes backward, and Delete deletes forward.
   - Backspace deletes one character before the caret. It deletes an emoji, a zero-width joiner (ZWJ) sequence, or a character outside the Basic Multilingual Plane as one unit. For other characters with combining marks, each Backspace removes the last combining mark. Delete removes the full character after the caret.
   - On Apple platforms, Ctrl+H deletes the character before the caret, and Ctrl+D deletes the character after the caret. Ctrl+K deletes to the end of the line. Option+Backspace and Option+Delete delete by word. Command+Backspace deletes to the start of the line, and Command+Delete deletes to the end of the line.
@@ -523,14 +531,14 @@ The text content of a read-only element is all the text in the element, joined i
   - From pasted HTML, the editor keeps headings, lists and nested lists, quotes, and tables. It also keeps task items (`aria-checked`, or GitHub task list items), code blocks with `data-language`, links (`href`, `title`), and images (`src`, `alt`, `title`).
   - For formats, the editor reads the format elements and `<b>`, `<i>`, `<del>`, and `<strike>`. Bold comes only from the font weights `bold` and 700.
   - For styles, the editor keeps only text case changes (`text-transform`) and alignment (`data-align` or `text-align`). It disregards `text-align: start` and reads `end` as `right`. It removes all other styles and all block styles.
-  - The editor reads callouts and database references only in the form that the editor writes.
+  - The editor reads callouts and embeds only in the form that the editor writes.
   - When you copy between editors, the clipboard HTML carries the exact data of the copied content. If that data is not there, or does not agree with the page schema, the editor reads the HTML.
   - If the clipboard has only plain text, the editor reads it as Markdown. If the result has blocks other than paragraphs, or formats, links, or line breaks, the editor inserts it as page content. If the result has only plain paragraphs, contains unknown elements, or cannot be read, the editor inserts the plain text.
   - In a code block, the editor always inserts plain text, and line breaks become line-break nodes. If the clipboard has only HTML, the editor uses the text of the HTML, with one line for each block.
   - When the editor inserts page content, only the text blocks at the two edges are open. If the first block is a text block, it merges into the block at the caret. If the last block is a text block, the text after the caret merges into it. Lists, tables, quotes, and callouts go in as full blocks.
   - A fully selected quote, callout, list item, cell, list, or table copies as a full block. A cell copies with its row and its table. A list item copies with its list. A cell selection copies a table of the selected cells. A partial selection in a list item copies without the list.
   - In copied plain text, each text block is one line. A copied table has one line for each row, with a tab between cells.
-- **Page-end click**: This rule applies when the last block is a leaf block or a container. A leaf block is a database reference, a divider, or a block-level read-only element. A container is a table, a quote, or a callout. A click in the empty area below the last block adds an empty paragraph at the end of the page. The caret goes into that paragraph.
+- **Page-end click**: This rule applies when the last block is a leaf block or a container. A leaf block is an embed, a divider, or a block-level read-only element. A container is a table, a quote, or a callout. A click in the empty area below the last block adds an empty paragraph at the end of the page. The caret goes into that paragraph.
 - **History**: Each of these is one undo step:
   - a format change from the toolbar
   - a block menu action
@@ -550,7 +558,7 @@ A text block is a block that contains text directly: a paragraph, a heading, or 
 | The first paragraph of a quote | All paragraphs of the quote become plain paragraphs. | This paragraph merges into the nearest text block before the quote. If there is no text block before it, nothing changes. |
 | The first paragraph of a callout | This paragraph merges into the nearest text block before the callout. If the callout becomes empty, the editor deletes it. If there is no text block before the callout, nothing changes. | Same as Backspace |
 | The first paragraph of a table cell | Nothing changes. | Same as Backspace |
-| A block after a divider, a database reference, or a block-level read-only element | The block merges into the nearest text block before them. These blocks stay in their positions. If there is no text block before them, nothing changes. | Same as Backspace |
+| A block after a divider, an embed, or a block-level read-only element | The block merges into the nearest text block before them. These blocks stay in their positions. If there is no text block before them, nothing changes. | Same as Backspace |
 | A block after a quote, a callout, or a table | The block merges into the last text block in it. For a table, this text block is in the last cell. | Same as Backspace |
 | The first block of the page | If the block is empty and other blocks come after it, the editor deletes it and moves the caret to the next block. In other cases, nothing changes. | Same as Backspace |
 | Any other block | The block merges into the previous block. The type of the previous block does not change. | Same as Backspace |
@@ -559,7 +567,7 @@ When the caret is at the end of a block, a forward delete (Delete, Ctrl+D, Ctrl+
 
 | Condition | Result |
 | --- | --- |
-| The next block is a divider, a database reference, or a block-level read-only element. | The nearest text block after them merges into the block at the caret. These blocks stay in their positions. If there is no text block after them, nothing changes. |
+| The next block is a divider, an embed, or a block-level read-only element. | The nearest text block after them merges into the block at the caret. These blocks stay in their positions. If there is no text block after them, nothing changes. |
 | The block at the caret is the last paragraph of a quote or a callout. | The nearest text block after the container merges into the block at the caret. |
 | The next block is a quote or a callout. | The first text block in it merges into the block at the caret. If the container becomes empty, the editor deletes it. |
 | The next block is a table, or the block at the caret is the last paragraph of a table cell. | Nothing changes. |
@@ -580,7 +588,7 @@ The block type operation `applyBlockType(editor, type, replace?)` is one undo st
 | `bullet`, `number`, `check` | Changes the selected paragraphs, headings, and code blocks into list items. Each block becomes the paragraph of a list item and keeps its alignment, style, and attributes that are not in the vocabulary. A block with no content and no attributes becomes an empty list item. The indent of a block becomes its nesting level in the list. Each item can be a maximum of one level deeper than the previous item. The first item of a new list does not nest. If a list of the same type is directly before the blocks, the new list items go into that list. In a bullet list, each run of consecutive task items or plain items counts as one list. The operation changes the type of the run that contains the selected items. |
 | `quote`, `callout` | Puts the text of the paragraph, heading, or code block at the caret into a new paragraph. Wraps that paragraph in a quote or a callout. The new paragraph keeps the alignment, indent, style, and attributes outside the vocabulary from the old block. The caret moves to the end of the new paragraph. If the caret is in a different type of block, the operation splits that block at the caret. It puts an empty quote or callout between the two parts and moves the caret into it. A list splits at the list item with the caret. If the caret is at the end of the last list item, the second part is an empty list item. |
 | `code` | Changes the selected blocks into code blocks. Keeps only the text, the line breaks, and the attributes that are not in the vocabulary. If the old block is a code block, keeps its language and `meta`. A code block has no alignment, indent, or style. |
-| `divider`, `database` | Inserts a divider, or a database reference with no linked database, at the caret. If the paragraph at the caret is empty and has no attributes outside the vocabulary, that paragraph becomes the new block. An empty paragraph comes after it. In other cases, the operation splits the block at the caret and puts the new block between the two parts. A list splits as for `quote`. The caret moves to a position after the new block. |
+| `divider`, `embed` | Inserts a divider, or an empty embed at the caret. If the paragraph at the caret is empty and has no attributes outside the vocabulary, that paragraph becomes the new block. An empty paragraph comes after it. In other cases, the operation splits the block at the caret and puts the new block between the two parts. A list splits as for `quote`. The caret moves to a position after the new block. |
 
 When a code block changes into another type, the editor removes `meta`. When a heading changes into another type, the editor does not keep the heading level. When a code block splits in the middle, the two parts both keep the language and `meta`.
 
@@ -600,7 +608,8 @@ Props of `BlockEditor`:
 | --- | --- | --- | --- |
 | `initial` | `string \| DocumentElement` | `''` | The component reads it only one time, when it makes the editor. |
 | `onReady` | `(editor) => void \| (() => void)` | — | The component calls it after it makes the editor. The component calls the returned function when it unmounts. |
-| `onChange` | `() => void` | — | The component calls it synchronously each time a dispatched update changes the page. It gets no content. |
+| `onChange` | `() => void` | — | The component calls it synchronously each time an accepted update changes the page. It gets no content. |
+| `onError` | `(error: unknown) => void` | — | Reports a rejected edit without replacing the current document. Without a callback, the component displays the error. |
 | `readOnly` | `boolean` | `false` | Refer to the text below. |
 | `ariaLabel` | `string` | `文档编辑器` ("document editor") | The accessible name of the edit area |
 | `placeholder` | `string` | `输入 / 添加 Block，或直接开始写作…` ("Type / to add a Block, or start to write…") | The prompt for an empty page. Refer to the text below. |
@@ -655,7 +664,7 @@ The insert options are in this order:
 9. `代码块` (Code block)
 10. `分割线` (Divider)
 11. `提示块` (Callout)
-12. `数据库` (Database)
+12. `嵌入` (Embed)
 
 | Action | Shortcut |
 | --- | --- |
@@ -721,10 +730,34 @@ A revision number is valid only in one editor instance.
 | --- | --- |
 | `@ankole/block-editor` | `BlockEditor`, `BlockEditorProps`, `EditorToolbar`, `useEditor`, `useEditorState` |
 | `@ankole/block-editor/document` | `parseMarkdown`, `printMarkdown`, `parseXml`, `printXml`, `normalizeTree`, `sameTree`, `unknownNames`, `vocabulary`, `marks`, `DocumentError`, `element`, `text`, `textOf`, `limits`, and the types `DocumentElement`, `DocumentNode`, `DocumentText`, `SourceFormat`, `Mark`, `ElementRule` |
-| `@ankole/block-editor/editor` | `editorExtension`, `initialState`, `headlessState`, `PageSession`, `pageDocument`, `readTree`, `replaceTree`, `applyBlockType`, `blockOptions`, `canTurnInto`, `coreBlockTypes`, `currentBlock`, `deleteBlock`, `duplicateBlocks`, `insertAfterBlock`, `moveBlocks`, `toggleFormat`, `undo`, `redo`, and the types `Editor`, `PageWrite`, `PageSnapshot`, `PageApplied`, `BlockDefinition`, `BlockInsert`, `BlockOption`, `BlockType`, `FormatName` |
+| `@ankole/block-editor/editor` | `editorExtension`, `initialState`, `headlessState`, `PageSession`, `PageCollaboration`, `insertEmbed`, `insertImage`, `pageDocument`, `readTree`, `replaceTree`, `preparePageUpdate`, `applyBlockType`, `blockOptions`, `canTurnInto`, `coreBlockTypes`, `currentBlock`, `deleteBlock`, `duplicateBlocks`, `insertAfterBlock`, `moveBlocks`, `toggleFormat`, `undo`, `redo`, and the types `Editor`, `PageWrite`, `PageSnapshot`, `PageApplied`, `BlockDefinition`, `BlockInsert`, `BlockOption`, `BlockType`, `FormatName`, `EditorHost`, `EmbedAttributes`, `PageChange`, `PageChanges`, `PageChangeRequest`, `CollaborationState` |
 | `@ankole/block-editor/styles.css` | The styles of the editor and its overlays |
 
 A host imports only these entry points. `readTree(editor.state.doc)` reads the page in the editor. `replaceTree(editor.state, tree)` returns an update that replaces the full page, and `editor.dispatch` applies it.
+
+The optional `host` in `initialState` or `BlockEditor` supplies `EditorHost`:
+
+| Hook | Contract |
+| --- | --- |
+| `mountEmbed(attributes, container, update)` | Mount the referenced resource and return its cleanup function. `update` changes only the reference attributes through an editor transaction. |
+| `resolveAsset(address)` | Resolve the image address; the editor preserves its alt text and title. |
+| `openPage(id)` | Open a page link in the host's navigation. |
+| `deleteEmbed(id)` | Handle the explicit block-menu deletion action. Ordinary selection edits remove the reference only. |
+
+`insertEmbed` and `insertImage` insert at the current selection in one undoable
+editor transaction. `PageCollaboration` owns the local pending change set and
+one in-flight batch. The host supplies send, change, reset, and sync callbacks;
+the server assigns revisions. Preparation failures preserve the local document
+and publish an error. The host owns reconnecting the transport. Calling
+`dispose()` ends that collaboration instance.
+
+Document transactions validate the existing source, node, and depth bounds
+before updating editor state, revision, or undo history. A rejected transaction
+keeps the preceding legal draft. `PageSession.readXml()` returns its revision
+and XML, reusing the accepted document's validated source; `read()` retains the
+complete XML and Markdown snapshot contract. When a remote change combined
+with pending local edits exceeds a bound, collaboration preserves the current
+legal draft and requests the existing reset/reload recovery.
 
 ### 8.2 Dependencies and build
 
@@ -756,7 +789,7 @@ A block with its own editor node has a `BlockDefinition` with these fields:
 | `read(node, { children })` | Reads an element from a node. `children` reads the child blocks. |
 | `insert` | The menu item: `title`, `detail`, `glyph`, `turnInto` (if the block can replace the text block at the caret), and `insert(editor)` |
 
-To install a block type, add its definition to the `blocks` list in `src/blocks/index.ts`. Then add the kind, content, and attributes of its element to `src/document/vocabulary.ts`. You do not change the Markdown and XML readers and writers. This package has two block definitions: `callout` and `database`.
+To install a block type, add its definition to the `blocks` list in `src/blocks/index.ts`. Then add the kind, content, and attributes of its element to `src/document/vocabulary.ts`. You do not change the Markdown and XML readers and writers. This package has two block definitions: `callout` and `embed`.
 
 ## 9. Example host
 
@@ -832,7 +865,9 @@ The build targets for JS and CSS are `chrome126`, `firefox153`, and `safari17`.
   A browser exception or a console error makes the test fail. `E2E_PREVIEW=1` uses the built output.
 - `E2E_PREVIEW=1 bun run test:chromium126` runs the same scenarios on Chrome for Testing 126.
 - `bun run test:native` runs WebDriver tests in native Firefox ESR on port 3147. `NATIVE_BROWSER=safari` uses Safari.
-- `bun run test:package` installs the editor and UI Kit from tarballs and checks the public types. Then it checks reads and writes on a headless editor state and builds a host. Last, it runs the embedding tests in the three browsers. These tests also use `PageSession`.
+- `bun run generate:corpus` writes the shared golden file in `corpus/rust`. `bun run test:corpus` checks it without rewriting it. It holds pages, rejected sources, exact document-limit boundaries, and local edit batches from the production transaction pipeline. Each batch has the expected client XML and document. Replay compares the in-memory client with a server that stores and reads XML after every batch. A mismatch fails the preflight. `FC_SEED` selects the generated samples or the independent property-test seed. `corpus/rust/README.md` describes format version 2 and its limits.
+- `bun run test:package` installs the editor and UI Kit from tarballs and checks the public types. Then it checks reads and writes on a headless editor state and builds a host. Last, it runs the embedding tests in the three browsers. These tests also use `PageSession`, `PageCollaboration`, and the host hooks,
+  including cursor-position image insertion and undo.
 - `bun run type-check`, `bun run fmt:check`, and `bun run build` check the types, the format, and the build.
 - `bun run test:e2e:install` and `bun run test:compat:install chromium126 firefox-esr` install the test browsers.
 
