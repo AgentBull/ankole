@@ -424,11 +424,17 @@ export class BrowserSession {
               timeout: Math.min(30_000, navigationTimeout)
             })
             const text = await waitForReadableText(page, urlDeadline)
+            const textLimit = 512 * 1024
+            const textEnd = (text.codePointAt(textLimit - 1) ?? 0) > 0xffff ? textLimit - 1 : textLimit
+            const content = text.slice(0, textEnd)
             const title = await page.title()
+            if (!content.isWellFormed() || !title.isWellFormed()) {
+              throw new BrowserDataError('invalid_result', 'rendered fetch returned invalid Unicode')
+            }
             results[index] = {
               url: page.url(),
               title,
-              text: text.slice(0, 512 * 1024),
+              text: content,
               metadata: { source: 'rendered_fallback' },
               warnings: []
             }

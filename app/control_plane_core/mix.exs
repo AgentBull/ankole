@@ -10,7 +10,8 @@ defmodule AnkoleCore.MixProject do
       build_path: "_build/#{edition()}",
       deps_path: "../control_plane/deps",
       lockfile: "../control_plane/mix.lock",
-      elixirc_paths: ["lib"] ++ internal_paths(),
+      elixirc_paths:
+        if(Mix.env() == :test, do: ["lib", "test/support"], else: ["lib"]) ++ internal_paths(),
       deps: deps()
     ]
   end

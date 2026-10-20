@@ -282,7 +282,8 @@ and reconnect callbacks remain provider-owned.
 
 `feishu_protocol` owns the Feishu WebSocket frame codec. Both the Lark Plugin
 and `tools/fake-feishu` depend on it; the fake platform does not depend on the
-control plane.
+control plane. The host integration suite runs the real client against that
+standalone platform.
 
 Reuse an existing domain owner for domain operations. Shared Markdown prose
 transformations live in `Ankole.Plugins.MarkdownChunks`; normalized multi-send

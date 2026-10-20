@@ -59,7 +59,8 @@ defmodule Ankole.MixProject do
 
     [
       Path.join(repo_root, "tools/e2e/support"),
-      Path.join(repo_root, "tools/fake-feishu/platform")
+      Path.join(repo_root, "tools/fake-feishu/platform"),
+      Path.join(repo_root, "tools/fake-feishu/lib")
     ]
   end
 

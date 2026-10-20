@@ -58,6 +58,11 @@ The image exposes its installed Chromium headless shell as
 `/usr/local/bin/chromium`. OfficeCLI uses PATH to find this browser. Its
 Chrome-family lookup does not read `ANKOLE_BROWSER_CHROMIUM_EXECUTABLE` or
 `PLAYWRIGHT_BROWSERS_PATH`.
+The image builds OfficeCLI from its fixed stable source with a screenshot
+patch. Screenshot failures return a nonzero exit code in resident mode.
+Only a new, non-empty capture can replace the output PNG. A failed capture
+retains the existing PNG, its permissions, and its symbolic link.
+Remove this patch when a stable OfficeCLI release provides these guarantees.
 
 A provider cannot be deleted while a Worker row refers to it. Without an
 explicit provider or a default, Agent creation fails with

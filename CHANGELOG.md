@@ -7,7 +7,8 @@
   Share matching HTTP and WebSocket primitives without changing provider error,
   response, token, or reconnect behavior. Keep the Feishu frame codec separate
   so the fake platform does not load the control plane.
-
+- Fix Control Plane image builds by including the Worker source used by Webapps
+  type checks.
 - Remove Control Plane compile-connected cycles by separating pure domain
   declarations from business modules. Publish committed conversation and Session
   changes through their own PubSub contracts, with durable input and delivery
@@ -25,6 +26,19 @@
   organization that this browser is signed in to, switches between them,
   opens the account chooser, sets the theme, and signs out. A site
   administrator also gets a link to the Site Console.
+- Return OfficeCLI screenshot failures in resident mode. Require a fresh PNG
+  before replacing output, and retain existing images when capture fails.
+- Keep build proxy settings out of the Worker startup environment.
+- Keep one pending Checkback wake when its due time changes after 60 seconds.
+- Preserve empty and whitespace Workflow results. Check current Human access
+  before each replay, cancel pending calls after revocation, and retain results
+  from calls admitted before revocation.
+- Preserve Unicode characters at the rendered browser text limit. Reject
+  invalid Unicode in rendered page text or titles before reporting success.
+- Ignore old environment decryption responses after save, clear or remasking.
+  Keep replacement values that the operator has edited.
+- Accept binary media types for AI Gateway file content downloads. Retain
+  token and origin checks and JSON negotiation for other gateway routes.
 
 ## Version 2.0.0-alpha.13 (2026-10-19)
 

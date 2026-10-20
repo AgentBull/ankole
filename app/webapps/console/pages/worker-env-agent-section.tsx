@@ -65,6 +65,7 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
   const [editing, setEditing] = useState<string>()
   const [revealed, setRevealed] = useState<Record<string, string>>({})
   const revealTimers = useRef<Record<string, number>>({})
+  const revealRequests = useRef<Record<string, symbol>>({})
   const [draftError, setDraftError] = useState<string>()
   const [plaintextConfirmOpen, setPlaintextConfirmOpen] = useState(false)
   const nameInput = useRef<HTMLInputElement>(null)
@@ -74,8 +75,8 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     ...ankoleWebWorkerEnvControllerUpdateForAgentMutation(),
     onMutate: () => editGeneration.current,
     onSuccess: (_data, variables, generation) => {
-      if (generation !== editGeneration.current) return
       hideRevealed(variables.path.name)
+      if (generation !== editGeneration.current) return
       toast.success(t('console.worker_envs.saved', { name: variables.path.name }))
       setDraft(emptyDraft)
       setEditing(undefined)
@@ -98,30 +99,32 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     meta: { invalidates: false },
     ...ankoleWebWorkerEnvControllerDecryptForAgentMutation(),
     gcTime: 0,
-    onMutate: () => editGeneration.current,
-    onSuccess: (response, _variables, generation) => {
-      if (generation !== editGeneration.current) return
+    onMutate: variables => {
+      const request = Symbol()
+      revealRequests.current[variables.path.name] = request
+      return { generation: editGeneration.current, request }
+    },
+    onSuccess: (response, _variables, context) => {
       const { name, value } = response.decrypted_value
+      if (revealRequests.current[name] !== context.request) return
+      delete revealRequests.current[name]
+      if (context.generation !== editGeneration.current) return
       setRevealed(current => ({
         ...current,
         [name]: value
       }))
       window.clearTimeout(revealTimers.current[name])
-      revealTimers.current[name] = window.setTimeout(() => {
-        setRevealed(current => {
-          const next = { ...current }
-          delete next[name]
-          return next
-        })
-        delete revealTimers.current[name]
-      }, 30_000)
-      setDraftState(current => (current.name === name ? { ...current, value } : current))
+      revealTimers.current[name] = window.setTimeout(() => hideRevealed(name), 30_000)
+      setDraftState(current =>
+        current.name === name && isEncryptedValueMask(current.value) ? { ...current, value } : current
+      )
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
 
   useEffect(() => {
     const remaskAll = () => {
+      revealRequests.current = {}
       for (const timeout of Object.values(revealTimers.current)) window.clearTimeout(timeout)
       revealTimers.current = {}
       setRevealed({})
@@ -129,11 +132,13 @@ export function WorkerEnvAgentSection({ agentUID }: { agentUID: string }) {
     window.addEventListener('blur', remaskAll)
     return () => {
       window.removeEventListener('blur', remaskAll)
+      revealRequests.current = {}
       for (const timeout of Object.values(revealTimers.current)) window.clearTimeout(timeout)
     }
   }, [])
 
   const hideRevealed = (name: string) => {
+    delete revealRequests.current[name]
     window.clearTimeout(revealTimers.current[name])
     delete revealTimers.current[name]
     setRevealed(current => {

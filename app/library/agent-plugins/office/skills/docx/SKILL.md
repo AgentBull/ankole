@@ -460,15 +460,14 @@ Borders use the format `style;size;color;space`: `single;4;FF0000;1`. Hex colors
 2. `officecli view "$FILE" outline` — heading hierarchy (no H1 → H3 skips), TOC presence, section count.
 3. `officecli view "$FILE" text --max-lines 400` — typos, stray `\$`/`\t`/`\n` literals, placeholder tokens.
 4. `officecli validate "$FILE"` — schema check (the Delivery Gate re-runs this on the closed, on-disk file).
-5. **Visual pass — whole document as a contact sheet** (vision-capable agents only — if you cannot interpret images, skip this step: steps 1–4 are your ceiling, and flag the document "not visually verified" at handoff). Use the checked screenshot command below, then Read its PNG. `--grid auto` tiles **every page** into one image (auto column count; `--grid 4` to force) — you *see* pagination, blank pages, heading rhythm, lopsided margins, and TOC/cover placement, not just the DOM. Windows+Word renders each page through real Word; elsewhere HTML. If the screenshot fails, fall back to `view html` and flag cross-page breaks / alignment / rhythm as "not visually verified". Thumbnails only **locate**: confirm any fine call (column alignment, line spacing, indents, dark-on-dark, caption placement) on the suspect page at full resolution with `screenshot --page N` (no `--grid`; real Word on Windows). "validate pass" is not delivery; "looks like a real document" is.
+5. **Visual pass — whole document as a contact sheet** (vision-capable agents only — if you cannot interpret images, skip this step: steps 1–4 are your ceiling, and flag the document "not visually verified" at handoff). Use the screenshot command below, then Read its PNG. `--grid auto` tiles **every page** into one image (auto column count; `--grid 4` to force) — you *see* pagination, blank pages, heading rhythm, lopsided margins, and TOC/cover placement, not just the DOM. Windows+Word renders each page through real Word; elsewhere HTML. If the screenshot fails, fall back to `view html` and flag cross-page breaks / alignment / rhythm as "not visually verified". Thumbnails only **locate**: confirm any fine call (column alignment, line spacing, indents, dark-on-dark, caption placement) on the suspect page at full resolution with `screenshot --page N` (no `--grid`; real Word on Windows). "validate pass" is not delivery; "looks like a real document" is.
 6. If anything failed, fix, then **rerun the full cycle** — one fix commonly creates another problem.
 
-OfficeCLI 1.0.157 can return exit 0 after a screenshot failure. Use a new output directory for each capture and require a non-empty file. Read the PNG only after the full command succeeds. Apply the same check to single-page captures.
+Use a new output directory for each capture. Read the PNG only after the screenshot command succeeds.
 
 ```bash
 PREVIEW_DIR=$(mktemp -d) &&
-  officecli view "$FILE" screenshot --grid auto -o "$PREVIEW_DIR/sheet.png" &&
-  test -s "$PREVIEW_DIR/sheet.png"
+  officecli view "$FILE" screenshot --grid auto -o "$PREVIEW_DIR/sheet.png"
 ```
 
 ### Delivery Gate (run before handing off — any failure = REJECT, do NOT deliver)

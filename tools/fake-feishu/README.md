@@ -74,3 +74,9 @@ in memory; a restart gives an empty platform.
 - `lib/` — standalone server (`Standalone`, `EventHub`, `AdminRouter` under
   `/sim/v1`) and the CLI.
 - `run` — builds the escript when needed and executes it.
+
+Run `mix test` in this tool for the standalone platform tests. The real SDK
+WebSocket and CLI round trip is in
+`app/control_plane/integration/fake_feishu_standalone_e2e_test.exs`. Run it from
+`app/control_plane`. The standalone escript depends only on the frame codec
+and its HTTP server libraries.

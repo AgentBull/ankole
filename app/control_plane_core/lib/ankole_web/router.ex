@@ -61,10 +61,13 @@ defmodule AnkoleWeb.Router do
     plug :put_data_context
   end
 
+  pipeline :ai_gateway_json do
+    plug :accepts, ["json", "event-stream"]
+  end
+
   pipeline :ai_gateway_api do
     # Runtime AI calls are stateless HTTP requests authenticated as an Agent,
     # an authorized OIDC Human.
-    plug :accepts, ["json", "event-stream"]
     plug :put_api_spec
     plug :oidc_cors
     plug :require_ai_gateway_access_token
@@ -575,11 +578,16 @@ defmodule AnkoleWeb.Router do
   scope "/api/v1/ai-gateway", AnkoleWeb do
     pipe_through :ai_gateway_api
 
+    get "/files/:file_id/content", AIGatewayFilesController, :content
+  end
+
+  scope "/api/v1/ai-gateway", AnkoleWeb do
+    pipe_through [:ai_gateway_json, :ai_gateway_api]
+
     options "/*path", AIGatewayController, :options
     get "/models", AIGatewayController, :models
     get "/files", AIGatewayFilesController, :index
     post "/files", AIGatewayFilesController, :create
-    get "/files/:file_id/content", AIGatewayFilesController, :content
     get "/files/:file_id", AIGatewayFilesController, :show
     delete "/files/:file_id", AIGatewayFilesController, :delete
     get "/responses", AIGatewayWebSocketController, :responses

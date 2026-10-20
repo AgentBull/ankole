@@ -16,6 +16,7 @@ defmodule FeishuOpenAPIBusinessE2E do
     Logger.configure(level: :info)
 
     env = load_env!()
+    {:ok, _supervisor} = FeishuOpenAPI.Supervisor.start_link([])
     ensure_seen_store!()
 
     config = %{

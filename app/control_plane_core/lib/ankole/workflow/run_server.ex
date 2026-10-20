@@ -274,15 +274,23 @@ defmodule Ankole.Workflow.RunServer do
     Repo.transact(fn repo ->
       case repo.get(Run, run_id) do
         %Run{status: "running"} = run ->
-          calls =
-            AgentCall
-            |> where([call], call.run_id == ^run.id)
-            |> order_by([call], asc: call.call_seq)
-            |> repo.all()
+          with :ok <- Ankole.Principals.WorkAccess.check_in_tx(repo, run),
+               {:ok, program} <- Program.source(run) do
+            calls =
+              AgentCall
+              |> where([call], call.run_id == ^run.id)
+              |> order_by([call], asc: call.call_seq)
+              |> repo.all()
 
-          with {:ok, program} <- Program.source(run) do
             {memo, memo_length} = Program.memo_prefix(calls)
             {:ok, %{program: program, memo: memo, memo_length: memo_length}}
+          else
+            {:error, :human_access_revoked} ->
+              run = Workflow.revoke_run_in_tx(repo, run)
+              {:ok, {:terminal, run.status}}
+
+            {:error, _reason} = error ->
+              error
           end
 
         %Run{cleanup_completed_at: nil} = run ->

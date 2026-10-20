@@ -31,12 +31,24 @@
       "path": "app/website"
     },
     {
-      "name": "./libs/feishu_openapi",
-      "path": "libs/feishu_openapi"
+      "name": "./libs/ankole-editor",
+      "path": "libs/ankole-editor"
+    },
+    {
+      "name": "./libs/applet-sdk",
+      "path": "libs/applet-sdk"
     },
     {
       "name": "./libs/uikit",
       "path": "libs/uikit"
+    },
+    {
+      "name": "./plugins/lark_adapter",
+      "path": "plugins/lark_adapter"
+    },
+    {
+      "name": "./tools/deploy/cloudflare/agent-workers",
+      "path": "tools/deploy/cloudflare/agent-workers"
     },
     {
       "name": "./tools/devkit",
