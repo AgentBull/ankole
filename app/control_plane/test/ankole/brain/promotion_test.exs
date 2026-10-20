@@ -59,7 +59,15 @@ defmodule Ankole.Brain.PromotionTest do
     test "tag promotion does not retype canonical Agents", %{human: human} do
       %{principal: agent} = agent_fixture(%{owner_principal_uid: human.uid})
       slug = "agents/" <> agent.uid
-      {:ok, _tag} = Links.add_tag(slug, "research")
+
+      {:ok, _tag} =
+        Ankole.Repo.insert(%Ankole.Brain.Schemas.Tag{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
+          object_slug: slug,
+          tag: "research",
+          created_at: DateTime.utc_now(:microsecond)
+        })
+
       suggestion = pending_suggestion("new_type", "research")
 
       assert {:ok, %{migrated: 0}} =
@@ -85,7 +93,13 @@ defmodule Ankole.Brain.PromotionTest do
 
       # The migration target carries every slug-referencing row kind at once:
       # a tag (the selection join), a claim, a timeline, and a link.
-      {:ok, _tag} = Links.add_tag("notes/reconciliation-q2", "reconciliation")
+      {:ok, _tag} =
+        Ankole.Repo.insert(%Ankole.Brain.Schemas.Tag{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
+          object_slug: "notes/reconciliation-q2",
+          tag: "reconciliation",
+          created_at: DateTime.utc_now(:microsecond)
+        })
 
       {:ok, _fact} =
         Claims.write_fact(

@@ -20,7 +20,7 @@ export function fieldValue(record: DatabaseRecord, field: DatabaseField): Value 
 }
 
 /** PostgreSQL C collation compares Unicode scalar values in UTF-8 order. */
-export function compareValues(a: Value, b: Value): number {
+function compareValues(a: Value, b: Value): number {
   if (a === b) return 0
   if (a === null) return 1
   if (b === null) return -1
@@ -123,7 +123,7 @@ function jsonbContains(value: unknown, contained: unknown): boolean {
   return isEqual(value, contained)
 }
 
-export function filterRecords(records: DatabaseRecord[], fields: DatabaseField[], filter?: Filter) {
+function filterRecords(records: DatabaseRecord[], fields: DatabaseField[], filter?: Filter) {
   if (!filter?.conditions.length) return records
   const byID = new Map(fields.map(field => [field.id, field]))
   return records.filter(record => {

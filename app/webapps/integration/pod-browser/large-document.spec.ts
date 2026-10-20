@@ -1,17 +1,12 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext } from '@playwright/test'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  owner: { uid: string; cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
+import { state } from './fixtures'
+import { expect, test } from '@playwright/test'
 
 test('a valid large Chinese document crosses the real OT socket and reads back unchanged', async ({ browser }) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)
   const page = await context.newPage()
   try {
-    await page.goto(state.base_url + '/')
+    await page.goto(`${state.base_url}/`)
     const result = await page.evaluate(async owner => {
       const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content
       const headers = {

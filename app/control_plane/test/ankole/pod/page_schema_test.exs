@@ -1,7 +1,7 @@
 defmodule Ankole.Pod.PageSchemaTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Pod.{DbField, DbRecord, DbSyncBinding, DbTable, DbView}
+  alias Ankole.Pod.{DbField, DbRecord, DbTable, DbView}
   alias Ankole.Pod.{Page, PageChange, PageContent, PageUserState}
 
   @schemas [
@@ -12,8 +12,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     DbTable,
     DbField,
     DbView,
-    DbRecord,
-    DbSyncBinding
+    DbRecord
   ]
   @author "ankole:019a2b00-0000-7000-8000-000000000001:principal/system"
 
@@ -41,7 +40,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     refute PageContent.changeset(content, %{plain_text: nil}).valid?
   end
 
-  test "all nine schemas require a tenant context for reads and writes" do
+  test "all Page and Database schemas require a tenant context for reads and writes" do
     Repo.without_tenant(fn ->
       for schema <- @schemas do
         assert_raise Ankole.TenantContextMissing, fn -> Repo.all(schema) end
@@ -238,7 +237,7 @@ defmodule Ankole.Pod.PageSchemaTest do
     end
   end
 
-  test "field names, the primary field, and external record ids are unique" do
+  test "field names and the primary field are unique" do
     table = new_table(new_page(%{type: :database}))
     attrs = %{table_id: table.id, name: "Title", position: "a", type: :text, is_primary: true}
     Repo.insert!(DbField.changeset(%DbField{}, attrs))
@@ -252,37 +251,10 @@ defmodule Ankole.Pod.PageSchemaTest do
       DbField.changeset(%DbField{}, %{attrs | name: "Other"}),
       "db_fields_one_primary_index"
     )
-
-    record = Map.put(record_attrs(table.id), :external_id, "issue-1")
-    Repo.insert!(DbRecord.changeset(%DbRecord{}, record))
-    assert_constraint(DbRecord.changeset(%DbRecord{}, record), "db_records_external_index")
   end
 
-  test "a table has one sync binding and the declared view and field types", %{tenant: tenant} do
+  test "accepts the declared view and field types", %{tenant: tenant} do
     table = new_table(new_page(%{type: :database}))
-
-    attrs = %{
-      table_id: table.id,
-      connector: "github_issues",
-      source: %{},
-      field_map: %{},
-      status: :active,
-      created_by: @author,
-      created_at: now()
-    }
-
-    binding = Repo.insert!(DbSyncBinding.changeset(%DbSyncBinding{}, attrs))
-
-    assert_constraint(
-      DbSyncBinding.changeset(%DbSyncBinding{}, attrs),
-      "db_sync_bindings_table_id_key"
-    )
-
-    assert_sql_constraint(
-      "UPDATE db_sync_bindings SET status = 'invalid' WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid",
-      [tenant.id, binding.id],
-      "db_sync_bindings_status_check"
-    )
 
     for type <- Ecto.Enum.values(DbView, :type) do
       view =

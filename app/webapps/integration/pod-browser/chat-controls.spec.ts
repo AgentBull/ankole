@@ -1,17 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { state, request as podRequest } from './fixtures'
+import { expect, test, type Page } from '@playwright/test'
 import { conversationRoute } from './routes'
 
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  chat_controls_conversation_id: string
-  chat_controls_reply_id: string
-  chat_regenerate_conversation_id: string
-  chat_regenerate_reply_id: string
-  chat_failed_conversation_id: string
-  chat_failed_reply_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
 type Detail = {
   conversation: { id: string }
   pendingInputs: { messageID: string; text: string; deliveryMode: string }[]
@@ -24,25 +14,7 @@ type Detail = {
 function request(page: Page, path: string, method: 'DELETE'): Promise<null>
 function request(page: Page, path: string, method?: string, body?: unknown): Promise<Detail>
 async function request(page: Page, path: string, method = 'GET', body?: unknown): Promise<Detail | null> {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content ?? ''
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication'),
-          'x-ankole-pod': meta('ankole-pod'),
-          'x-csrf-token': meta('csrf-token')
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
+  return podRequest(page, path, method, body)
 }
 
 async function mutation(page: Page, id: string, action: string, act: () => Promise<unknown>) {
@@ -75,8 +47,12 @@ test('a touch chat edits, orders, removes and releases real durable pending inpu
     await input.fill(`Initial queue request ${crypto.randomUUID()}`)
     let sends = 0
     page.on('request', request => {
-      if (request.method() === 'POST' && /\/conversations(?:\/[^/]+\/messages)?$/.test(new URL(request.url()).pathname))
+      if (
+        request.method() === 'POST' &&
+        /\/conversations(?:\/[^/]+\/messages)?$/.test(new URL(request.url()).pathname)
+      ) {
         sends++
+      }
     })
     await input.dispatchEvent('keydown', { key: 'Enter', keyCode: 229, isComposing: true })
     expect(sends).toBe(0)
@@ -225,8 +201,9 @@ test('a completed message copies exact code and text, then edits and retries thr
         request.method() === 'POST' &&
         new URL(request.url()).pathname === queuePath &&
         request.postDataJSON().action === 'edit_last'
-      )
+      ) {
         commandIDs.push(request.postDataJSON().commandID)
+      }
     })
     await page.route(`**${queuePath}`, async route => {
       if (route.request().postDataJSON().action !== 'edit_last' || committed) return route.continue()

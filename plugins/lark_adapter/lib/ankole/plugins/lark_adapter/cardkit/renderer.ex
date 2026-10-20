@@ -13,15 +13,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   @soft_bytes 24 * 1_024
   @soft_elements 160
 
-  # Feishu rejects a card whose tables exceed the provider limits
-  # (`230099` with `ErrCode: 11310, card table number over limit`): at most
-  # five table components on one card, at most four Markdown tables in one
-  # rich-text element, and Markdown tables count toward the card total. Typed
-  # table results and answer Markdown tables therefore share the five-table
-  # card budget; overflow typed tables render as Markdown lists so create,
-  # update, and recovery payloads keep their data. `CardChain` packs at most
-  # four answer tables on one page, and the final budget check counts native
-  # and Markdown tables again so no renderer path can pass the provider limit.
+  # CardKit allows five tables per card and four Markdown tables per element.
   @max_tables 5
   @markdown_element_tables 4
   @metadata_element_ids ~w(state receipts plan thought activity meta)
@@ -130,7 +122,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       |> append(trigger_context_element(presentation))
       |> append(answer_element(presentation, mode))
       |> append(interaction_answer_element(presentation))
-      |> append_all(result_elements(presentation))
       |> append_all(action_elements(presentation, mode))
 
     metadata ++ separator_elements(metadata, primary) ++ primary
@@ -289,185 +280,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp interaction_answer_element(_presentation), do: nil
-
-  defp result_elements(%{"results" => results} = presentation) when is_list(results) do
-    native_budget = max(@max_tables - answer_table_count(presentation), 0)
-
-    {rendered, _table_count} =
-      results
-      |> Enum.with_index(1)
-      |> Enum.map_reduce(0, fn
-        {%{"kind" => "table"} = result, index}, table_count
-        when table_count >= native_budget ->
-          {render_table_fallback(result, index), table_count}
-
-        {%{"kind" => "table"} = result, index}, table_count ->
-          {render_result(result, index), table_count + 1}
-
-        {result, index}, table_count ->
-          {render_result(result, index), table_count}
-      end)
-
-    List.flatten(rendered)
-  end
-
-  defp result_elements(_presentation), do: []
-
-  defp answer_table_count(presentation),
-    do: MarkdownSegmenter.count_tables(presentation["answer"] || "")
-
-  defp render_result(%{"kind" => "table"} = result, index) do
-    columns =
-      result["columns"]
-      |> Enum.with_index(1)
-      |> Enum.map(fn {column, column_index} ->
-        %{
-          "name" => "c#{column_index}",
-          "display_name" => column["label"],
-          "data_type" => "text",
-          "width" => "auto"
-        }
-      end)
-
-    rows =
-      Enum.map(result["rows"], fn row ->
-        result["columns"]
-        |> Enum.with_index(1)
-        |> Map.new(fn {column, column_index} ->
-          {"c#{column_index}", row[column["key"]] || ""}
-        end)
-      end)
-
-    [
-      maybe_result_title(result, index),
-      %{
-        "tag" => "table",
-        "element_id" => result_id(index),
-        "columns" => columns,
-        "rows" => rows,
-        "header_style" => %{
-          "bold" => true,
-          "text_align" => "left",
-          "text_size" => "normal",
-          "background_style" => "none",
-          "text_color" => "default",
-          "lines" => 1
-        },
-        "page_size" => max(1, min(length(rows), 10))
-      }
-    ]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp render_result(%{"kind" => "chart"} = result, index) do
-    values =
-      Enum.flat_map(result["series"], fn series ->
-        Enum.map(series["points"], fn point ->
-          %{"series" => series["name"], "label" => point["label"], "value" => point["value"]}
-        end)
-      end)
-
-    chart = %{
-      "tag" => "chart",
-      "element_id" => result_id(index),
-      "aspect_ratio" => "16:9",
-      "color_theme" => "brand",
-      "preview" => true,
-      "chart_spec" => %{
-        "type" => "line",
-        "data" => %{"values" => values},
-        "xField" => "label",
-        "yField" => "value",
-        "seriesField" => "series",
-        "legends" => %{"visible" => length(result["series"]) > 1}
-      }
-    }
-
-    [maybe_result_title(result, index), chart, takeaway_element(result, index)]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp render_result(%{"kind" => "image"} = result, index) do
-    [
-      maybe_result_title(result, index),
-      %{
-        "tag" => "img",
-        "element_id" => result_id(index),
-        "img_key" => result["image_key"],
-        "alt" => %{"tag" => "plain_text", "content" => result["alt"]},
-        "preview" => true
-      },
-      caption_element(result, index)
-    ]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp render_result(%{"kind" => "artifact"} = result, index) do
-    label = result["description"] || "打开文件"
-
-    [
-      %{
-        "tag" => "markdown",
-        "element_id" => result_id(index),
-        "content" =>
-          "**#{escape_inline(result["name"])}**\n\n[#{escape_inline(label)}](#{escape_link_destination(result["url"])})"
-      }
-    ]
-  end
-
-  defp render_result(%{"kind" => "metrics"} = result, index) do
-    columns =
-      Enum.map(result["metrics"], fn metric ->
-        %{
-          "tag" => "column",
-          "width" => "weighted",
-          "weight" => 1,
-          "elements" => [
-            %{
-              "tag" => "markdown",
-              "content" =>
-                "**#{escape_inline(metric["value"])}**\n#{escape_inline(metric["label"])}"
-            }
-          ]
-        }
-      end)
-
-    [
-      maybe_result_title(result, index),
-      %{"tag" => "column_set", "element_id" => result_id(index), "columns" => columns}
-    ]
-    |> Enum.reject(&is_nil/1)
-  end
-
-  defp render_result(_result, _index), do: []
-
-  defp render_table_fallback(result, index) do
-    content =
-      case result["rows"] do
-        [] ->
-          Enum.map_join(result["columns"], " · ", fn column ->
-            "**#{escape_markdown_text(column["label"])}**"
-          end)
-
-        rows ->
-          Enum.map_join(rows, "\n", fn row ->
-            cells =
-              Enum.map_join(result["columns"], " · ", fn column ->
-                label = escape_markdown_text(column["label"])
-                value = escape_markdown_text(row[column["key"]] || "")
-                "**#{label}**: #{value}"
-              end)
-
-            "- #{cells}"
-          end)
-      end
-
-    [
-      maybe_result_title(result, index),
-      %{"tag" => "markdown", "element_id" => result_id(index), "content" => content}
-    ]
-    |> Enum.reject(&is_nil/1)
-  end
 
   defp receipts_element(%{"receipts" => receipts}) when is_list(receipts) and receipts != [] do
     content =
@@ -838,28 +650,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     end
   end
 
-  defp maybe_result_title(%{"title" => title}, index) when is_binary(title) and title != "" do
-    %{
-      "tag" => "markdown",
-      "element_id" => "rtitle#{index}",
-      "content" => "**#{escape_inline(title)}**"
-    }
-  end
-
-  defp maybe_result_title(_result, _index), do: nil
-
-  defp takeaway_element(%{"takeaway" => text}, index) when is_binary(text) and text != "" do
-    %{"tag" => "markdown", "element_id" => "rtake#{index}", "content" => text}
-  end
-
-  defp takeaway_element(_result, _index), do: nil
-
-  defp caption_element(%{"caption" => text}, index) when is_binary(text) and text != "" do
-    %{"tag" => "markdown", "element_id" => "rcap#{index}", "content" => text}
-  end
-
-  defp caption_element(_result, _index), do: nil
-
   defp plan_window(items) do
     current_index = Enum.find_index(items, &(&1["status"] == "in_progress")) || 0
     start_index = max(current_index - 1, 0)
@@ -900,7 +690,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp degrade_card(card, _mode) do
     optional_groups = [
       ["thought", "activity"],
-      :typed_results,
       ["plan", "receipts"]
     ]
 
@@ -922,7 +711,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
 
     byte_size(Ankole.JSON.encode!(card)) <= @soft_bytes and
       count_elements(card) <= @soft_elements and
-      count_tag(card, "table") + Enum.sum(markdown_tables) <= @max_tables and
+      Enum.sum(markdown_tables) <= @max_tables and
       Enum.all?(markdown_tables, &(&1 <= @markdown_element_tables))
   end
 
@@ -948,13 +737,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
       Enum.reject(elements, fn element ->
         id = element["element_id"] || ""
 
-        case group do
-          :typed_results ->
-            String.starts_with?(id, ["result", "rtitle", "rtake", "rcap"])
-
-          ids when is_list(ids) ->
-            id in ids
-        end
+        id in group
       end)
 
     card
@@ -1011,16 +794,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   end
 
   defp count_elements(_value), do: 0
-
-  defp count_tag(value, tag) when is_list(value),
-    do: Enum.reduce(value, 0, &(count_tag(&1, tag) + &2))
-
-  defp count_tag(value, tag) when is_map(value) do
-    own = if value["tag"] == tag, do: 1, else: 0
-    own + Enum.reduce(Map.values(value), 0, &(count_tag(&1, tag) + &2))
-  end
-
-  defp count_tag(_value, _tag), do: 0
 
   defp index_elements(elements) do
     Map.new(elements, fn element -> {element["element_id"], element} end)
@@ -1096,8 +869,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
   defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
   defp present_text?(_value), do: false
 
-  defp result_id(index), do: "result#{index}"
-
   defp button_type("primary"), do: "primary_filled"
   defp button_type("danger"), do: "danger"
   defp button_type(_style), do: "default"
@@ -1145,13 +916,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
     end)
   end
 
-  defp escape_link_destination(value) do
-    value
-    |> to_string()
-    |> String.replace("(", "&#40;")
-    |> String.replace(")", "&#41;")
-  end
-
   defp truncate(text, max_chars) do
     if String.length(text) <= max_chars do
       text
@@ -1190,7 +954,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.Renderer do
             |> Map.delete("plan")
             |> Map.delete("thought")
             |> Map.put("activities", %{})
-            |> Map.put("results", [])
             |> Map.put("receipts", [])
             |> Map.put("actions", [])
             |> Map.delete("interaction_answer")

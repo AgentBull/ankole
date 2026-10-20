@@ -24,7 +24,7 @@ defmodule FakeFeishu.MixProject do
     [
       {:bandit, "~> 1.12"},
       {:websock_adapter, "~> 0.6"},
-      {:feishu_openapi, path: "../../libs/feishu_openapi"}
+      {:feishu_protocol, path: "../../libs/feishu_protocol"}
     ]
   end
 end

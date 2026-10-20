@@ -357,11 +357,6 @@ defmodule Ankole.Conversations.LifecycleTest do
 
       assert Signal.provider_message_ids(event) == [event.provider_message_id]
 
-      assert Signal.withdrawal_provider_message_ids(event) == [
-               event.provider_message_id,
-               "quoted-entry"
-             ]
-
       refute message_snapshot(
                conversation_id: event.conversation_id,
                provider_message_id: "quoted-entry"
@@ -667,7 +662,7 @@ defmodule Ankole.Conversations.LifecycleTest do
       binding_fixture(agent.uid, "bot", :ignore)
 
       assert {:error, changeset} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "bad-payload",

@@ -71,7 +71,6 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
       |> add_activities(Map.get(presentation, "activities", %{}))
       |> add_thought(MapHelpers.optional_text(presentation, "thought"))
       |> add_reply_body(presentation)
-      |> add_results(MapHelpers.fetch_list(presentation, "results"))
       |> add_receipts(MapHelpers.fetch_list(presentation, "receipts"))
       |> add_interaction_result(presentation)
       |> add_presentation_actions(presentation)
@@ -196,57 +195,6 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
     add_body(blocks, text)
   end
 
-  defp add_results(blocks, results) do
-    Enum.reduce(results, blocks, fn result, acc -> add_result(acc, result) end)
-  end
-
-  defp add_result(blocks, %{"kind" => "artifact", "name" => name, "url" => url} = result) do
-    description = MapHelpers.optional_text(result, "description")
-    add_body(blocks, join_text(["**:paperclip: [#{escape_label(name)}](#{url})**", description]))
-  end
-
-  defp add_result(blocks, %{"kind" => "image"} = result) do
-    label = MapHelpers.optional_text(result, "caption") || Map.get(result, "alt") || "Image"
-    add_body(blocks, ":frame_with_picture: #{label}")
-  end
-
-  defp add_result(blocks, %{"kind" => "table"} = result) do
-    add_body(blocks, render_table(result))
-  end
-
-  defp add_result(blocks, %{"kind" => "chart"} = result) do
-    title = MapHelpers.optional_text(result, "title") || "Chart"
-    takeaway = MapHelpers.optional_text(result, "takeaway")
-    add_body(blocks, join_text(["*:bar_chart: #{title}*", takeaway]))
-  end
-
-  defp add_result(blocks, %{"kind" => "metrics"} = result) do
-    metrics =
-      result
-      |> MapHelpers.fetch_list("metrics")
-      |> Enum.map_join("  •  ", fn metric ->
-        "*#{Map.get(metric, "label", "")}:* #{Map.get(metric, "value", "")}#{Map.get(metric, "unit", "")}"
-      end)
-
-    add_body(blocks, metrics)
-  end
-
-  defp add_result(blocks, _result), do: blocks
-
-  defp render_table(%{"columns" => columns, "rows" => rows})
-       when is_list(columns) and is_list(rows) do
-    header = Enum.map_join(columns, " | ", &Map.get(&1, "label", ""))
-
-    body =
-      Enum.map_join(rows, "\n", fn row ->
-        Enum.map_join(columns, " | ", fn column -> to_string(Map.get(row, column["key"], "")) end)
-      end)
-
-    "```\n" <> join_text([header, body]) <> "\n```"
-  end
-
-  defp render_table(_result), do: nil
-
   defp add_receipts(blocks, receipts) do
     text =
       receipts
@@ -255,7 +203,7 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
         ":white_check_mark: #{Map.get(receipt, "summary", "")}#{scope}"
       end)
 
-    add_body(blocks, blank_to_nil(text))
+    add_body(blocks, Ankole.Attrs.optional_text(text))
   end
 
   defp add_interaction_result(blocks, %{"interaction_status" => "answered"} = presentation) do
@@ -422,17 +370,6 @@ defmodule Ankole.Plugins.SlackAdapter.BlockKit do
     do: %{"type" => "section", "text" => %{"type" => "mrkdwn", "text" => text}}
 
   defp join_text(parts), do: parts |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join("\n")
-
-  defp blank_to_nil(text) when is_binary(text) do
-    case String.trim(text) do
-      "" -> nil
-      value -> value
-    end
-  end
-
-  defp blank_to_nil(_text), do: nil
-
-  defp escape_label(text), do: text |> to_string() |> String.replace(["<", ">", "|"], "")
 
   defp split_text(text, size) do
     text |> String.graphemes() |> Enum.chunk_every(size) |> Enum.map(&Enum.join/1)

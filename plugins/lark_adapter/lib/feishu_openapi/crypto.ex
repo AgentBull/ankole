@@ -1,0 +1,160 @@
+defmodule FeishuOpenAPI.Crypto do
+  @moduledoc """
+  Crypto primitives used by Feishu/Lark webhooks and card actions.
+
+    * `decrypt/2` — AES-256-CBC with a SHA256-derived key; ciphertext layout is
+      `IV(16) || encrypted_blocks`, PKCS#7 padded. Matches `larkevent.EventDecrypt`.
+    * `event_signature/4` — SHA256 of `timestamp || nonce || encrypt_key || body`,
+      lower-case hex.
+    * `card_signature/4` — SHA1 of `timestamp || nonce || token || body`,
+      lower-case hex.
+    * `verify_event/5` and `verify_card/5` — constant-time signature comparison.
+  """
+
+  @aes_block_size 16
+
+  @doc false
+  @spec signature_headers(map() | list()) ::
+          {String.t() | nil, String.t() | nil, String.t() | nil}
+  def signature_headers(headers) do
+    {
+      header(headers, "x-lark-request-timestamp"),
+      header(headers, "x-lark-request-nonce"),
+      header(headers, "x-lark-signature")
+    }
+  end
+
+  @doc """
+  Decrypt a base64-encoded event/card payload using `secret` as the shared key.
+
+  Returns `{:ok, plaintext_binary}` or `{:error, reason}`.
+  """
+  @spec decrypt(String.t(), String.t()) :: {:ok, binary()} | {:error, atom()}
+  def decrypt(base64, secret) when is_binary(base64) and is_binary(secret) do
+    with {:ok, buf} <- Base.decode64(base64, ignore: :whitespace),
+         :ok <- check_len(buf),
+         <<iv::binary-size(@aes_block_size), ciphertext::binary>> <- buf,
+         :ok <- check_blocksize(ciphertext) do
+      key = :crypto.hash(:sha256, secret)
+      padded = :crypto.crypto_one_time(:aes_256_cbc, key, iv, ciphertext, false)
+      pkcs7_unpad(padded)
+    else
+      :error -> {:error, :invalid_base64}
+      {:error, _} = err -> err
+      _ -> {:error, :malformed_ciphertext}
+    end
+  end
+
+  @doc """
+  SHA256-based event signature (matches `larkevent.Signature`).
+
+      iex> FeishuOpenAPI.Crypto.event_signature("1711111", "abc", "k", "{}")
+      "..."
+  """
+  @spec event_signature(String.t(), String.t(), String.t(), String.t()) :: String.t()
+  def event_signature(timestamp, nonce, encrypt_key, body) do
+    :sha256
+    |> :crypto.hash(timestamp <> nonce <> encrypt_key <> body)
+    |> Base.encode16(case: :lower)
+  end
+
+  @doc """
+  SHA1-based card signature (matches `larkcard.Signature`).
+  """
+  @spec card_signature(String.t(), String.t(), String.t(), String.t()) :: String.t()
+  def card_signature(timestamp, nonce, verification_token, body) do
+    :sha
+    |> :crypto.hash(timestamp <> nonce <> verification_token <> body)
+    |> Base.encode16(case: :lower)
+  end
+
+  @doc """
+  Constant-time verification of an event signature.
+
+  Returns `:ok` or `{:error, :bad_signature}`.
+  """
+  @spec verify_event(String.t(), String.t(), String.t(), String.t(), String.t()) ::
+          :ok | {:error, :bad_signature}
+  def verify_event(timestamp, nonce, encrypt_key, body, received) do
+    if secure_equal?(event_signature(timestamp, nonce, encrypt_key, body), received),
+      do: :ok,
+      else: {:error, :bad_signature}
+  end
+
+  @doc "Constant-time verification of a card signature."
+  @spec verify_card(String.t(), String.t(), String.t(), String.t(), String.t()) ::
+          :ok | {:error, :bad_signature}
+  def verify_card(timestamp, nonce, verification_token, body, received) do
+    if secure_equal?(card_signature(timestamp, nonce, verification_token, body), received),
+      do: :ok,
+      else: {:error, :bad_signature}
+  end
+
+  @doc "Constant-time verification of a webhook verification token."
+  @spec verify_token(term(), String.t()) :: :ok | {:error, :bad_verification_token}
+  def verify_token(received, expected) do
+    if secure_equal?(received, expected),
+      do: :ok,
+      else: {:error, :bad_verification_token}
+  end
+
+  defp header(headers, target) when is_map(headers) do
+    Enum.find_value(headers, fn {k, v} ->
+      if String.downcase(to_string(k)) == target, do: normalize_header_value(v)
+    end)
+  end
+
+  defp header(headers, target) when is_list(headers) do
+    Enum.find_value(headers, fn
+      {k, v} when is_binary(k) or is_atom(k) ->
+        if String.downcase(to_string(k)) == target, do: normalize_header_value(v)
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp normalize_header_value([v | _]), do: v
+  defp normalize_header_value(v) when is_binary(v), do: v
+  defp normalize_header_value(_), do: nil
+
+  defp check_len(buf) when byte_size(buf) < @aes_block_size, do: {:error, :cipher_too_short}
+  defp check_len(_), do: :ok
+
+  defp check_blocksize(ct) when rem(byte_size(ct), @aes_block_size) != 0,
+    do: {:error, :not_block_aligned}
+
+  defp check_blocksize(_), do: :ok
+
+  defp pkcs7_unpad(bin) when is_binary(bin) and byte_size(bin) > 0 do
+    pad = :binary.last(bin)
+
+    cond do
+      pad in 1..@aes_block_size and byte_size(bin) >= pad ->
+        stripped_size = byte_size(bin) - pad
+        <<stripped::binary-size(^stripped_size), padding::binary-size(^pad)>> = bin
+
+        if padding == :binary.copy(<<pad>>, pad) do
+          {:ok, stripped}
+        else
+          {:error, :invalid_padding}
+        end
+
+      true ->
+        {:error, :invalid_padding}
+    end
+  end
+
+  defp pkcs7_unpad(_bin), do: {:error, :invalid_padding}
+
+  defp secure_equal?(a, b) when is_binary(a) and is_binary(b) do
+    # A length mismatch skips `hash_equals` and leaks the length. Hex signatures accept that.
+    if byte_size(a) == byte_size(b) do
+      :crypto.hash_equals(a, b)
+    else
+      false
+    end
+  end
+
+  defp secure_equal?(_a, _b), do: false
+end

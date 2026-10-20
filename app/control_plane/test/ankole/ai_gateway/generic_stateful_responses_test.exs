@@ -8,8 +8,6 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
   import Ankole.PrincipalsFixtures
   import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.AIGateway
   alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.Schemas.Message
@@ -17,7 +15,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "a takeover immediately reclaims a generating Response after admission (G6)" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "force-recovery")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "force-recovery")
 
     {:ok, live} =
       start_response_run(%{subject_uid: subject.uid, conversation_id: conversation.id})
@@ -32,7 +30,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     caller_metadata = %{"usage" => "caller-value", "model" => "caller-model", "tag" => "kept"}
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(subject.uid, "generic-events")
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, "generic-events")
 
     assert :ok = Events.subscribe(subject.uid, conversation.id)
 
@@ -74,7 +72,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     %{principal: subject} = human_fixture()
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(subject.uid, "generic-tool-journal")
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, "generic-tool-journal")
 
     {:ok, response} =
       start_response_run(%{
@@ -120,7 +118,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "orphan reconciliation depends only on Response status and heartbeat time" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "generic-orphan")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "generic-orphan")
 
     {:ok, live} =
       start_response_run(%{
@@ -155,9 +153,9 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
     %{principal: subject} = human_fixture()
     %{principal: other_subject} = human_fixture()
 
-    {:ok, selected} = Conversations.ensure_conversation(subject.uid, "selected")
+    {:ok, selected} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "selected")
 
-    {:ok, _other} = Conversations.ensure_conversation(other_subject.uid, "selected")
+    {:ok, _other} = Ankole.AIGatewayCase.ensure_conversation(other_subject.uid, "selected")
 
     assert [conversation] =
              AIGateway.list_active_conversations(Repo,
@@ -172,7 +170,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "visible suffix deletion detaches non-complete descendants" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "suffix-detach")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "suffix-detach")
 
     {:ok, anchor} =
       start_response_run(%{
@@ -209,7 +207,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "visible suffix retraction preserves audit rows and resumes from the predecessor" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "suffix-retract")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "suffix-retract")
 
     {:ok, predecessor} =
       start_response_run(%{
@@ -267,7 +265,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "facade publishes a generic terminal event after an in-transaction failure" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "facade-publish")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "facade-publish")
     assert :ok = Ankole.AIGateway.Events.subscribe(subject.uid, conversation.id)
 
     {:ok, response} =
@@ -305,7 +303,7 @@ defmodule Ankole.AIGateway.GenericStatefulResponsesTest do
 
   test "heartbeat replaces only upstream progress and terminal failures keep it" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "stream-progress")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "stream-progress")
     caller = %{"tag" => "kept", "upstream_progress" => "caller-owned"}
 
     {:ok, response} =

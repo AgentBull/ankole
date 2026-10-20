@@ -1,13 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext } from '@playwright/test'
+import { state } from './fixtures'
+import { expect, test } from '@playwright/test'
 import { conversationRoute } from './routes'
 import type { ConversationDetail } from '../../pod/api'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  history_conversation_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
 
 test('a long chat restores its reading anchor and bottom intent after switching chats', async ({
   browser
@@ -74,8 +68,10 @@ test('a labeled network growth fixture preserves reading, then follows after Jum
   const page = await context.newPage()
   const id = state.history_conversation_id
   const detailPath = `/.internal-apis/pod/conversations/${id}`
+  const eventsPath = `${detailPath}/events`
   const fixtureIDs = [crypto.randomUUID(), crypto.randomUUID()]
   let growth = 0
+  let stopEvents = false
   try {
     // Keep the real API response. Only appended assistant content is a network fixture.
     await page.route(
@@ -105,14 +101,18 @@ test('a labeled network growth fixture preserves reading, then follows after Jum
     )
     // A finite SSE fixture reconnects and exercises the production detail reload path.
     await page.route(
-      url => url.pathname === `${detailPath}/events`,
+      url => url.pathname === eventsPath,
       route =>
-        route.fulfill({
-          status: 200,
-          contentType: 'text/event-stream',
-          headers: { 'cache-control': 'no-cache' },
-          body: 'retry: 1000\nevent: message\ndata: {}\n\n'
-        })
+        route.fulfill(
+          stopEvents
+            ? { status: 204 }
+            : {
+                status: 200,
+                contentType: 'text/event-stream',
+                headers: { 'cache-control': 'no-cache' },
+                body: 'retry: 1000\nevent: message\ndata: {}\n\n'
+              }
+        )
     )
     await page.goto(conversationRoute(id))
     const scroll = page.locator('.pod-chat-history-scroll')
@@ -140,7 +140,15 @@ test('a labeled network growth fixture preserves reading, then follows after Jum
     growth = 2
     await expect(page.getByRole('heading', { name: 'Network growth fixture 2', exact: true })).toHaveCount(1)
     await expect.poll(bottomGap).toBeLessThan(2)
+    // End the finite SSE fixture before removing handlers for its detail reloads.
+    const stopped = page.waitForResponse(
+      response => new URL(response.url()).pathname === eventsPath && response.status() === 204
+    )
+    stopEvents = true
+    await stopped
   } finally {
+    // Finish response transforms before closing the request context.
+    await page.unrouteAll({ behavior: 'wait' })
     await context.close()
   }
 })

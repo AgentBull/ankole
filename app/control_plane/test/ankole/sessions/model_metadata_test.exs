@@ -7,7 +7,6 @@ defmodule Ankole.Sessions.ModelMetadataTest do
 
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream
@@ -42,7 +41,7 @@ defmodule Ankole.Sessions.ModelMetadataTest do
         model: "gpt-5.5"
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, "profile-metadata")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, "profile-metadata")
     %{agent: agent, conversation: conversation}
   end
 

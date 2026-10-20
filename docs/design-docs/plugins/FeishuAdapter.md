@@ -27,7 +27,7 @@ observation and delivery route, not the owner of the platform room.
 | Signal configuration | `signals.lark.binding_configs.<binding-digest>` |
 | Identity adapter ID | `lark` |
 | Identity configuration | `principals.identity_providers.lark.<id>` |
-| Provider library | `libs/feishu_openapi` |
+| Provider library | `plugins/lark_adapter/lib/feishu_openapi` |
 
 The signal adapter supports `addressed_only`, `observe_all`, and
 `may_intervene`.
@@ -284,11 +284,8 @@ The card is shared in a group, so every member who can see the card can also see
 the submitted answer. A superseded card removes the controls without showing an
 answer.
 
-The renderer aims to stay below 24 KiB and 160 elements. Native table
-components and answer Markdown tables share one budget of five tables per
-card, and one Markdown element holds at most four tables, because Feishu
-counts both forms against its card limits. Table results above the budget
-render as Markdown rows without discarding their labels or values. It splits
+The renderer aims to stay below 24 KiB and 160 elements. A card holds at most
+five Markdown tables, and one Markdown element holds at most four. It splits
 Markdown into source pages of about 12 KiB with at most four answer tables,
 without changing the stored Markdown. Page boundaries depend only on the
 answer prefix, so a growing answer never moves a sealed boundary.
@@ -445,4 +442,4 @@ The implementation sources are:
 
 - `plugins/lark_adapter/lib/ankole/plugins/lark_adapter.ex`
 - `plugins/lark_adapter/lib/ankole/plugins/lark_adapter/`
-- `libs/feishu_openapi/`
+- `plugins/lark_adapter/lib/feishu_openapi/`

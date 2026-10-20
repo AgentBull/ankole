@@ -543,7 +543,7 @@ defmodule Ankole.RepoTenancyTest do
   end
 
   defp tenant_schemas do
-    for schema <- Application.spec(:ankole, :modules),
+    for schema <- Ankole.TestModules.all(),
         Code.ensure_loaded?(schema),
         function_exported?(schema, :__tenancy__, 0),
         schema.__tenancy__() == :tenant,

@@ -9,7 +9,7 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    {:ok, true} = Ankole.Setup.Config.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     original = Application.fetch_env!(:ankole, AnkoleWeb.Endpoint)
     configured = Keyword.put(original, :url, host: "ankole.localhost", port: 4002)
     Application.put_env(:ankole, AnkoleWeb.Endpoint, configured)
@@ -115,6 +115,85 @@ defmodule AnkoleWeb.PodIdentitySelectionTest do
     assert deleted.path == "/"
     assert deleted.max_age == 0
     assert {:ok, _} = BrowserSessions.get_authentication(ctx.b_ref)
+  end
+
+  test "the session lists proved accounts across tenants and activates one for its Pod", ctx do
+    foreign = Ankole.DataCase.create_tenant()
+
+    {signed, c_ref, c} =
+      Repo.with_tenant(foreign.id, fn ->
+        c = human_fixture(%{display_name: "Foreign account"}).principal
+        {conn, ref} = login(ctx.signed, c)
+        {conn, ref, c}
+      end)
+
+    pinned = BrowserSessions.encode_reference(ctx.a_ref)
+
+    shell =
+      signed
+      |> put_req_header("accept", "text/html")
+      |> put_req_header("x-ankole-authentication", pinned)
+      |> get(pod_url(ctx.host, "/"))
+
+    [_, csrf] = Regex.run(~r/name="csrf-token" content="([^"]+)"/, shell.resp_body)
+
+    session =
+      shell
+      |> recycle()
+      |> put_req_header("accept", "application/json")
+      |> put_req_header("x-ankole-authentication", pinned)
+      |> get(pod_url(ctx.host, "/.internal-apis/session"))
+      |> AnkoleWeb.InternalAPIContract.json_response(200)
+
+    assert session["displayName"] == "First account"
+    assert session["tenant"]["id"] == ctx.a.tenant_id
+    assert session["consoleURL"] == nil
+
+    assert Enum.sort(Enum.map(session["accounts"], &{&1["tenant"]["id"], &1["displayName"]})) ==
+             Enum.sort([
+               {ctx.a.tenant_id, "First account"},
+               {ctx.a.tenant_id, "Second account"},
+               {foreign.id, "Foreign account"}
+             ])
+
+    foreign_account = Enum.find(session["accounts"], &(&1["principalUID"] == c.uid))
+    assert foreign_account["podURL"] == "http://#{foreign.slug}.ankole.localhost:4002/"
+    assert foreign_account["authenticationRef"] == BrowserSessions.encode_reference(c_ref)
+
+    activate = fn ref ->
+      shell
+      |> recycle()
+      |> put_req_header("accept", "application/json")
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("x-ankole-authentication", pinned)
+      |> put_req_header("x-csrf-token", csrf)
+      |> put_req_header("origin", "http://#{ctx.host}:4002")
+      |> put(pod_url(ctx.host, "/.internal-apis/sessions/active"), %{authenticationRef: ref})
+    end
+
+    activated = activate.(foreign_account["authenticationRef"])
+    assert json_response(activated, 200) == %{"podURL" => foreign_account["podURL"]}
+    assert BrowserSessions.current_reference(WebSession.browser_reference(activated)) == c_ref
+
+    unknown =
+      activate.(
+        BrowserSessions.encode_reference(%{"id" => Ecto.UUID.generate(), "revision" => 1})
+      )
+
+    assert json_response(unknown, 401) == %{"error" => "invalid_authentication"}
+  end
+
+  test "the session gives the Console URL only to a site administrator", ctx do
+    Repo.put_tenant_id(ctx.a.tenant_id)
+    {:ok, _} = first_site_admin_fixture(ctx.a.uid)
+
+    session =
+      ctx.signed
+      |> put_req_header("x-ankole-authentication", BrowserSessions.encode_reference(ctx.a_ref))
+      |> get(pod_url(ctx.host, "/.internal-apis/session"))
+      |> AnkoleWeb.InternalAPIContract.json_response(200)
+
+    assert session["consoleURL"] == "http://ankole.localhost:4002/site-admin-console"
   end
 
   test "a chooser cannot use another tenant's proof or a revoked account", ctx do

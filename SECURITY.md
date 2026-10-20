@@ -8,7 +8,7 @@ Ankole is a complete, self-hostable AgentOS in production. Its public APIs do no
 
 | Version | Supported          |
 | ------- | ------------------ |
-| >=0.50    | :white_check_mark: |
+| >=1.0    | :white_check_mark: |
 
 
 ### How severity is determined

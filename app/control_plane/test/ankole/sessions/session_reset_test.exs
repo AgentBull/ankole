@@ -6,7 +6,6 @@ defmodule Ankole.Sessions.SessionResetTest do
   alias Ankole.Sessions.Run
   alias Ankole.Schedule
   alias Ankole.Sessions.SessionReset
-  alias Ankole.Sessions.Workspaces
 
   setup {Ankole.SessionsCase, :use_mock_signal_provider_plugin}
 
@@ -15,11 +14,13 @@ defmodule Ankole.Sessions.SessionResetTest do
       %{principal: agent} = agent_fixture()
       session_id = "manual-session:daily-reset"
 
-      assert {:ok, "Asia/Shanghai"} = SystemConfig.put_timezone("Asia/Shanghai")
-      assert {:ok, _workspace} = Workspaces.ensure(agent.uid, session_id)
+      assert {:ok, "Asia/Shanghai"} =
+               Ankole.AppConfigure.put_tenant_by_key("system.timezone", "Asia/Shanghai")
+
+      assert {:ok, _workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
 
       assert {:ok, conversation} =
-               Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, session_id)
+               Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
 
       Repo.update_all(
         from(stored in Conversation, where: stored.id == ^conversation.id),
@@ -61,13 +62,10 @@ defmodule Ankole.Sessions.SessionResetTest do
       %{principal: agent} = agent_fixture()
       session_id = Ankole.BackgroundAgentJobs.job_session_id(1000)
 
-      assert {:ok, _workspace} = Workspaces.ensure(agent.uid, session_id)
+      assert {:ok, _workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
 
       assert {:ok, conversation} =
-               Ankole.AIGateway.Conversations.ensure_conversation(
-                 agent.uid,
-                 session_id
-               )
+               Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
 
       Repo.update_all(
         from(stored in Conversation, where: stored.id == ^conversation.id),
@@ -86,7 +84,7 @@ defmodule Ankole.Sessions.SessionResetTest do
       conversation_key = "stateful-responses-api:#{Ecto.UUID.generate()}"
 
       assert {:ok, conversation} =
-               Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, conversation_key)
+               Ankole.AIGatewayCase.ensure_conversation(agent.uid, conversation_key)
 
       Repo.update_all(
         from(stored in Conversation, where: stored.id == ^conversation.id),
@@ -104,11 +102,13 @@ defmodule Ankole.Sessions.SessionResetTest do
       %{principal: agent} = agent_fixture()
       session_id = "manual-session:daily-reset-job"
 
-      assert {:ok, "Asia/Shanghai"} = SystemConfig.put_timezone("Asia/Shanghai")
-      assert {:ok, _workspace} = Workspaces.ensure(agent.uid, session_id)
+      assert {:ok, "Asia/Shanghai"} =
+               Ankole.AppConfigure.put_tenant_by_key("system.timezone", "Asia/Shanghai")
+
+      assert {:ok, _workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
 
       assert {:ok, conversation} =
-               Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, session_id)
+               Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
 
       Repo.update_all(
         from(stored in Conversation, where: stored.id == ^conversation.id),
@@ -138,11 +138,13 @@ defmodule Ankole.Sessions.SessionResetTest do
       %{principal: agent} = agent_fixture()
       session_id = "manual-session:daily-reset-custom-time"
 
-      assert {:ok, "Asia/Shanghai"} = SystemConfig.put_timezone("Asia/Shanghai")
-      assert {:ok, _workspace} = Workspaces.ensure(agent.uid, session_id)
+      assert {:ok, "Asia/Shanghai"} =
+               Ankole.AppConfigure.put_tenant_by_key("system.timezone", "Asia/Shanghai")
+
+      assert {:ok, _workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
 
       assert {:ok, conversation} =
-               Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, session_id)
+               Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
 
       Repo.update_all(
         from(stored in Conversation, where: stored.id == ^conversation.id),

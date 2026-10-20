@@ -5,7 +5,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN do
 
   use Ankole.AIGateway.ProviderDSL
 
-  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.UniversalAIRequest
 
   provider "alibaba_cn" do
@@ -38,15 +37,5 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.AlibabaCN do
     ctx
     |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
     |> UniversalAIRequest.bearer_auth()
-  end
-
-  @impl true
-  def prepare_connection_check(ctx) when is_map(ctx) do
-    headers =
-      ctx
-      |> UniversalAIRequest.raw_headers()
-      |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
-
-    ProviderConnectionCheck.get(ctx, "models", headers: headers)
   end
 end

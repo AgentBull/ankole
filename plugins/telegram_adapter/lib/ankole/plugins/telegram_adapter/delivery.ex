@@ -1,8 +1,10 @@
 defmodule Ankole.Plugins.TelegramAdapter.Delivery do
+  import Ankole.Conversations.Delivery.Adapter, only: [combine_results: 2]
   @moduledoc false
 
   @behaviour Ankole.Conversations.Delivery.Adapter
 
+  alias Ankole.Attrs
   alias Ankole.Signals.Bindings
   alias Ankole.Plugins.MapHelpers
 
@@ -182,7 +184,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
     field = if image_attachment?(attachment), do: "photo", else: "document"
     method = if field == "photo", do: "sendPhoto", else: "sendDocument"
     base = send_body(channel, nil) |> Map.delete("text")
-    base = maybe_put(base, "caption", blank_to_nil(caption))
+    base = maybe_put(base, "caption", Attrs.optional_text(caption))
     base = maybe_reply(base, reply_id(intent))
 
     case MapHelpers.optional_text(attachment, "provider_file_id") do
@@ -270,19 +272,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
 
   defp normalize_call_result(result), do: result
 
-  defp combine_results(results, intent) do
-    first = List.first(results) || %{}
-
-    %{
-      created_provider_message_id: first[:created_provider_message_id],
-      provider_thread_id: intent.provider_thread_id,
-      messages: results,
-      raw_payload: %{"messages" => Enum.map(results, & &1[:raw_payload])},
-      payload: intent.payload
-    }
-    |> MapHelpers.compact_map()
-  end
-
   defp provider_time(seconds) when is_integer(seconds), do: DateTime.from_unix!(seconds)
   defp provider_time(_), do: nil
 
@@ -332,16 +321,12 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
   defp message_id(value), do: integer_value(value)
 
   @doc false
-  def integer_value(value) when is_integer(value), do: {:ok, value}
-
-  def integer_value(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> {:ok, integer}
-      _invalid -> {:error, :invalid_telegram_message_id}
+  def integer_value(value) do
+    case Attrs.integer_value(value) do
+      nil -> {:error, :invalid_telegram_message_id}
+      integer -> {:ok, integer}
     end
   end
-
-  def integer_value(_value), do: {:error, :invalid_telegram_message_id}
 
   defp split_caption(text) do
     graphemes = String.graphemes(to_string(text))
@@ -375,15 +360,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
   defp integer_text(value) when is_integer(value), do: Integer.to_string(value)
   defp integer_text(value) when is_binary(value), do: value
   defp integer_text(_value), do: nil
-
-  defp blank_to_nil(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      text -> text
-    end
-  end
-
-  defp blank_to_nil(_value), do: nil
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)

@@ -5,6 +5,8 @@ defmodule Ankole.Plugins.LarkAdapter do
 
   @behaviour Ankole.Plugins.Plugin
 
+  import Ankole.Plugins.Spec, only: [field: 5]
+
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
@@ -102,6 +104,7 @@ defmodule Ankole.Plugins.LarkAdapter do
   def children do
     # Shared plugin processes start once and use provider app config as runtime keys.
     [
+      FeishuOpenAPI.Supervisor,
       {Registry, keys: :unique, name: Ankole.Plugins.LarkAdapter.ConnectionRegistry},
       {DynamicSupervisor,
        name: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
@@ -302,18 +305,6 @@ defmodule Ankole.Plugins.LarkAdapter do
         advanced: true
       )
     ]
-  end
-
-  defp field(path, label, description, type, opts) do
-    opts
-    |> Map.new()
-    |> Map.put_new(:advanced, false)
-    |> Map.merge(%{
-      path: path,
-      label: label,
-      description: description,
-      type: Atom.to_string(type)
-    })
   end
 
   defp option(value, label), do: %{value: value, label: label}

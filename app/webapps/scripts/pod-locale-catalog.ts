@@ -16,7 +16,7 @@ export function podLocaleCatalogPlugin(directory: string): Plugin {
     transform(code, id) {
       const [file = '', query] = id.replaceAll('\\', '/').split('?')
       if (
-        file.startsWith(directory.replaceAll('\\', '/') + '/') &&
+        file.startsWith(`${directory.replaceAll('\\', '/')}/`) &&
         file.endsWith('.json') &&
         new URLSearchParams(query).has('pod')
       ) {

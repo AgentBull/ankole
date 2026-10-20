@@ -276,7 +276,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
       |> then(&Ankole.Conversations.Delivery.PreviewState.get(&1).checkpoint["presentation"])
 
     assert {:ok, _intent} =
-             Ankole.Conversations.Delivery.commit(%{
+             Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: agent.uid,
                binding_name: "mock",
                outbound_key: "clarify-projection",
@@ -330,7 +330,7 @@ defmodule Ankole.Conversations.Delivery.ReplyInteractionsTest do
       assert checkpoint["presentation"]["interaction_status"] == "pending"
 
       assert {:ok, _} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "mock",
                  outbound_key: "preserved-clarification",

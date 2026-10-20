@@ -4,8 +4,6 @@ defmodule Ankole.Sessions.PresentationTest do
 
   import Ankole.FilesFixtures, only: [sent_attachment_fixture: 4]
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.Conversations.Conversation, as: PublicConversation
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Run
@@ -999,7 +997,7 @@ defmodule Ankole.Sessions.PresentationTest do
   defp start_response(subject_uid, event, opts \\ []) do
     conversation_key = Keyword.get(opts, :conversation_key, event.session_id)
     signal_id = Keyword.get(opts, :signal_id, event.id)
-    {:ok, conversation} = Conversations.ensure_conversation(subject_uid, conversation_key)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject_uid, conversation_key)
 
     {:ok, run} =
       start_response_run(%{

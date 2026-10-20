@@ -41,7 +41,7 @@ defmodule Ankole.Plugins.EmailAdapter.Address do
     end
     |> Enum.flat_map(fn %{address: address, name: name} ->
       case normalize(address) do
-        {:ok, normalized} -> [%{address: normalized, name: presence(name)}]
+        {:ok, normalized} -> [%{address: normalized, name: Ankole.Attrs.optional_text(name)}]
         :error -> []
       end
     end)
@@ -59,7 +59,7 @@ defmodule Ankole.Plugins.EmailAdapter.Address do
   @doc "Formats one mailbox for a header value; `mimemail` encodes non-ASCII names."
   @spec format(mailbox()) :: String.t()
   def format(%{address: address, name: name}) do
-    case presence(name) do
+    case Ankole.Attrs.optional_text(name) do
       nil -> address
       name -> "#{quote_name(name)} <#{address}>"
     end
@@ -94,13 +94,4 @@ defmodule Ankole.Plugins.EmailAdapter.Address do
       do: name,
       else: "\"" <> String.replace(name, ~r/["\\]/, "") <> "\""
   end
-
-  defp presence(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp presence(_value), do: nil
 end

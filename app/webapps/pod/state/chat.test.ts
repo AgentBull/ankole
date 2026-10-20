@@ -53,8 +53,9 @@ test('composer, retry and message actions share command eligibility without bloc
     const policy = chatCommandPolicy({ ...ready, ...state })
     expect(policy.canSubmit).toBe(false)
     expect(policy.canRetryLast).toBe(false)
-    for (const action of ['edit', 'edit_last', 'regenerate', 'stop', 'resume'] as const)
+    for (const action of ['edit', 'edit_last', 'regenerate', 'stop', 'resume'] as const) {
       expect(policy.canQueue(action)).toBe(false)
+    }
   }
   const saving = chatCommandPolicy({ ...ready, modelSaving: true })
   expect(saving.canSubmit).toBe(false)

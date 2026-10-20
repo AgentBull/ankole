@@ -179,12 +179,6 @@ defmodule Ankole.Plugins.EmailAdapter.Imap.Client do
     end
   end
 
-  @spec logout(t()) :: :ok
-  def logout(%__MODULE__{} = client) do
-    _result = command(client, "LOGOUT")
-    close(client)
-  end
-
   @spec close(t()) :: :ok
   def close(%__MODULE__{socket: socket, transport: transport}) do
     _result = transport.close(socket)

@@ -16,7 +16,7 @@ Read [Plugins](../Plugins.md) for the common Plugin rules. Read
 | Plugin declaration | `principals.identity_provider` |
 | Adapter ID | `google-workspace` |
 | Configuration key | `principals.identity_providers.google-workspace.<id>` |
-| Provider library | `libs/google_openapi` |
+| Provider library | `plugins/google_workspace_adapter/lib/google_openapi` |
 
 The adapter declares these capabilities:
 
@@ -98,4 +98,4 @@ The implementation sources are:
 
 - `plugins/google_workspace_adapter/lib/ankole/plugins/google_workspace_adapter.ex`
 - `plugins/google_workspace_adapter/lib/ankole/plugins/google_workspace_adapter/`
-- `libs/google_openapi/`
+- `plugins/google_workspace_adapter/lib/google_openapi/`

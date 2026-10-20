@@ -29,7 +29,7 @@ defmodule Ankole.Upgrade202610IntegrationTest do
       end)
 
     provider_id = "upgrade-#{Ecto.UUID.generate()}"
-    idp_key = LarkConfig.identity_config_key(provider_id)
+    idp_key = "principals.identity_providers.lark." <> provider_id
     name = "upgrade-#{Ecto.UUID.generate()}"
     binding_key = TeamsConfig.chat_config_key(name)
     agents = for _ <- 1..2, do: agent_fixture().principal

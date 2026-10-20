@@ -132,7 +132,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
       %{signal: input} = emit_addressed_signal(agent.uid, "bot", group_entry(%{explicit: true}))
 
       {:ok, intent} =
-        Ankole.Conversations.Delivery.commit(%{
+        Ankole.SignalsFixtures.commit_delivery(%{
           agent_uid: agent.uid,
           binding_name: "bot",
           outbound_key: "ack",
@@ -177,7 +177,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
       %{signal: input} = emit_addressed_signal(agent.uid, "bot", group_entry(%{explicit: true}))
 
       {:ok, intent} =
-        Ankole.Conversations.Delivery.commit(%{
+        Ankole.SignalsFixtures.commit_delivery(%{
           agent_uid: agent.uid,
           binding_name: "bot",
           outbound_key: "expired",
@@ -212,7 +212,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
                )
 
       assert {:ok, _failed} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "post-failed",
@@ -239,7 +239,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
              )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "post-ok",
@@ -278,7 +278,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "post-observe-sending",
@@ -322,7 +322,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "post-materialized-payload",
@@ -397,7 +397,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "post-without-provider-id",
@@ -437,7 +437,7 @@ defmodule Ankole.Conversations.Delivery.MirrorTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "post-mirror-fails-after-send",

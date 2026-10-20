@@ -29,7 +29,7 @@ defmodule Ankole.Ecto.PodSpacePolicyMigrationTest do
 
     existing =
       Repo.with_tenant(policy.id, fn ->
-        {:ok, group} = Access.ensure_space()
+        {:ok, group} = Access.space_group()
 
         {:ok, grant} =
           Ankole.AuthZ.create_permission_grant(%{

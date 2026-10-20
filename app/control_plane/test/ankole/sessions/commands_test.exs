@@ -7,7 +7,6 @@ defmodule Ankole.Sessions.CommandsTest do
   alias Ankole.Sessions.Model
   alias Ankole.Sessions.Run
   alias Ankole.AIGateway.CompactionArtifacts
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AgentWorkers.AgentWorker
 
@@ -183,7 +182,7 @@ defmodule Ankole.Sessions.CommandsTest do
                })
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.uid,
           Ankole.Sessions.Key.conversation(
             Ankole.ExternalConversationsFixtures.external_conversation_id("lark:chat:group-a")
@@ -373,7 +372,7 @@ defmodule Ankole.Sessions.CommandsTest do
                })
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.uid,
           Ankole.Sessions.Key.conversation(
             Ankole.ExternalConversationsFixtures.external_conversation_id("lark:chat:group-a")
@@ -477,7 +476,7 @@ defmodule Ankole.Sessions.CommandsTest do
       initial_message_count = Repo.aggregate(Message, :count)
 
       {:ok, _conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.uid,
           Ankole.Sessions.Key.conversation(
             Ankole.ExternalConversationsFixtures.external_conversation_id("lark:chat:group-a")
@@ -594,10 +593,17 @@ defmodule Ankole.Sessions.CommandsTest do
   # not the row floor.
   defp compact_below(tail_rows) do
     merged = Map.put(CompactionPolicy.config(), "tail_rows", tail_rows)
-    assert {:ok, _config} = CompactionPolicy.put_config(merged)
+
+    assert {:ok, _config} =
+             Ankole.AppConfigure.put_global(
+               Ankole.AIGateway.CompactionPolicy.config_definition(),
+               merged
+             )
 
     on_exit(fn ->
-      _result = CompactionPolicy.delete_config()
+      _result =
+        Ankole.AppConfigure.delete_global(Ankole.AIGateway.CompactionPolicy.config_definition())
+
       :ok
     end)
   end

@@ -1,0 +1,1221 @@
+defmodule Ankole.AIGateway.ToolSearch do
+  @moduledoc """
+  Self-implemented OpenAI tool search and deferred loading.
+
+  AIGateway implements the official `tool_search` tool type, the
+  `defer_loading` tool marker for every downstream provider. It coordinates
+  loaded tools with `ProgrammaticToolCalling`, which owns the PTC declaration,
+  history, and job semantics. Responses providers keep native namespace
+  containers and namespaced call items; adapters for single-name protocols own
+  any required terminal alias.
+
+  Two search execution modes exist and one request declares one of them:
+
+  - `"client"`: the caller owns the searchable catalog. The model call becomes a
+    public `tool_search_call` item with a string `call_id`, the caller answers
+    with a `tool_search_output` item on the next request.
+  - `"server"`: the request declares the catalog as `defer_loading: true` tools.
+    AIGateway hides them from the provider, searches them itself, and loads the
+    matching subset inside the same response (`call_id: null`).
+
+  Tool Search never runs inside a program. Deferred tools join program bindings
+  only after loading.
+  """
+
+  alias Ankole.AIGateway.HostedTools.Brain
+  alias Ankole.AIGateway.ProgrammaticToolCalling, as: PTC
+  alias Ankole.AIGateway.ResponseItems
+  alias Ankole.AIGateway.ToolContract
+  alias Ankole.AIGateway.ToolContract.Descriptor
+  alias Ankole.AIGateway.ToolSearch.Index
+
+  @default_tool_name "tool_search"
+  @default_result_limit 8
+  @max_result_limit 50
+  @max_search_path_bytes 256
+  @search_context_budget_bytes 8_192
+  @catalog_listing_budget_bytes 8_192
+  @server_call_id_prefix "ts_srv_"
+
+  defmodule Plan do
+    @moduledoc false
+
+    defstruct execution: nil,
+              tool_name: nil,
+              synthesized_tool: nil,
+              catalog: [],
+              search_context: "",
+              contracts: [],
+              loaded_identities: MapSet.new(),
+              ptc: %PTC.Plan{},
+              brain: nil
+
+    @type t :: %__MODULE__{
+            execution: :server | :client | nil,
+            tool_name: String.t() | nil,
+            synthesized_tool: map() | nil,
+            catalog: [Descriptor.t()],
+            search_context: String.t(),
+            contracts: [Descriptor.t()],
+            loaded_identities: MapSet.t({String.t() | nil, String.t()}),
+            ptc: PTC.Plan.t(),
+            brain: Ankole.AIGateway.HostedTools.Brain.Plan.t() | nil
+          }
+  end
+
+  @doc """
+  Rewrites one Responses request into a provider-safe request plus a plan.
+
+  Requests without a `tool_search` declaration, without `defer_loading` tools,
+  without PTC surface, and without history that needs provider projection pass
+  through unchanged with a `nil` plan. Invalid declarations fail loudly instead
+  of reaching a provider that cannot serve them.
+  """
+  @spec plan(map(), keyword()) :: {:ok, map(), Plan.t() | nil} | {:error, term()}
+  def plan(request, opts \\ [])
+
+  def plan(%{} = request, opts) when is_list(opts) do
+    brain = Keyword.get(opts, :brain)
+
+    if Keyword.get(opts, :native_tools?, false),
+      do: plan_native(request, brain),
+      else: plan_local(request, brain)
+  end
+
+  # A first-party Responses provider owns Tool Search and PTC natively, so only
+  # the hosted Brain tool, which AIGateway executes on every provider, needs a
+  # local plan there. Public Brain history always replays as function pairs.
+  defp plan_native(request, nil), do: {:ok, Brain.project_history(request), nil}
+
+  defp plan_native(request, %Brain.Plan{} = brain) do
+    tools = list_tools(request)
+
+    with :ok <- ensure_no_collision(tools, brain_collision_names(brain)) do
+      provider_request =
+        request
+        |> Brain.project_history()
+        |> put_tools(tools ++ Brain.function_specs(brain))
+
+      {:ok, provider_request, %Plan{brain: brain}}
+    end
+  end
+
+  defp plan_local(request, brain) do
+    tools = list_tools(request)
+
+    with {:ok, declaration, plain_tools} <- split_tool_search_declaration(tools),
+         {:ok, ptc, plain_tools} <- PTC.split_declaration(plain_tools),
+         {contract_specs, passthrough_tools} = split_contract_tools(plain_tools),
+         :ok <- validate_passthrough_tools(passthrough_tools),
+         tool_name = declared_tool_name(declaration),
+         {:ok, contracts} <-
+           ToolContract.normalize(contract_specs,
+             reserved_names: reserved_names(tool_name, brain)
+           ) do
+      deferred = Enum.filter(contracts, & &1.deferred?)
+      declared_search? = not is_nil(declaration) or deferred != []
+      history = ResponseItems.analyze_history(Map.get(request, "input"))
+
+      search_managed? =
+        declared_search? or settled_search_history?(history) or client_search_history?(history)
+
+      projection_required? =
+        settled_program_history?(history) or brain_history?(history) or
+          Enum.any?(contracts, fn contract ->
+            contract.deferred? or contract.allowed_callers != ["direct"]
+          end)
+
+      with :ok <-
+             validate_managed_history(
+               history,
+               search_managed?,
+               ptc
+             ),
+           :ok <- validate_history_error(history) do
+        if not search_managed? and not PTC.enabled?(ptc) and not projection_required? and
+             is_nil(brain) do
+          {:ok, request, nil}
+        else
+          build_plan(
+            request,
+            declaration,
+            contracts,
+            passthrough_tools,
+            ptc,
+            history,
+            brain
+          )
+        end
+      end
+    end
+  end
+
+  @doc "Returns whether a composite tool plan requires ResponseStream ownership."
+  @spec response_stream_required?(Plan.t() | nil) :: boolean()
+  def response_stream_required?(%Plan{execution: execution, ptc: ptc, brain: brain}) do
+    execution in [:server, :client] or PTC.response_stream_required?(ptc) or
+      not is_nil(brain)
+  end
+
+  def response_stream_required?(_plan), do: false
+
+  @doc """
+  Resolves the official hosted Tool Search `paths` selection.
+
+  A root function path loads that function. A namespace path searches only
+  within that namespace using the immutable request context captured by the
+  plan, matching OpenAI's behavior of returning a relevant subset. Unknown
+  paths fail closed and a multi-path selection is committed atomically.
+  """
+  @spec search_paths(Plan.t(), [String.t()]) :: {:ok, [Descriptor.t()]} | {:error, term()}
+  def search_paths(%Plan{} = plan, paths) when is_list(paths) do
+    catalog = unloaded_catalog(plan)
+
+    with :ok <- ensure_known_search_paths(plan.catalog, paths) do
+      loaded =
+        paths
+        |> Enum.flat_map(&resolve_search_path(plan, catalog, &1))
+        |> Enum.uniq_by(&ToolContract.identity/1)
+
+      if length(loaded) <= @max_result_limit do
+        {:ok, loaded}
+      else
+        {:error, {:tool_search_result_limit_exceeded, length(loaded), @max_result_limit}}
+      end
+    end
+  end
+
+  @doc """
+  Returns whether an output item is a call of the synthesized search tool.
+  """
+  @spec search_call_item?(Plan.t() | nil, map()) :: boolean()
+  def search_call_item?(%Plan{tool_name: tool_name}, %{"type" => "function_call", "name" => name}),
+      do: name == tool_name
+
+  def search_call_item?(_plan, _item), do: false
+
+  @doc """
+  Rewrites one provider `function_call` output item into the public
+  `tool_search_call` item shape.
+  """
+  @spec public_search_call(Plan.t(), map()) :: map()
+  def public_search_call(%Plan{} = plan, %{} = item) do
+    %{
+      "type" => "tool_search_call",
+      "id" => ResponseItems.public_item_id(item, "ts_call"),
+      "call_id" => public_search_call_id(plan, item),
+      "status" => Map.get(item, "status", "completed"),
+      "execution" => Atom.to_string(plan.execution),
+      "arguments" => strict_arguments(Map.get(item, "arguments"))
+    }
+  end
+
+  @doc """
+  Builds the public `tool_search_output` item for one executed server search.
+  """
+  @spec public_search_output(Plan.t(), map(), [Descriptor.t()]) :: map()
+  def public_search_output(%Plan{execution: :server}, %{} = call_item, loaded_tools) do
+    %{
+      "type" => "tool_search_output",
+      "id" =>
+        ResponseItems.public_item_id(%{"call_id" => Map.get(call_item, "call_id")}, "ts_out"),
+      "call_id" => nil,
+      "status" => "completed",
+      "execution" => "server",
+      "tools" => public_tool_specs(loaded_tools)
+    }
+  end
+
+  @doc """
+  Builds the downstream `function_call_output` that answers one search call.
+  """
+  @spec downstream_search_output(map(), [Descriptor.t()]) :: map()
+  def downstream_search_output(%{} = call_item, loaded_tools) do
+    %{
+      "type" => "function_call_output",
+      "call_id" => Map.get(call_item, "call_id"),
+      "output" => render_search_result_text(loaded_tools)
+    }
+  end
+
+  @doc """
+  Merges freshly loaded tools into the plan and returns the updated downstream
+  tools array for the next server round.
+  """
+  @spec load_tools(Plan.t(), [map()], [Descriptor.t()]) ::
+          {:ok, Plan.t(), [map()]} | {:error, term()}
+  def load_tools(%Plan{} = plan, downstream_tools, loaded_tools) do
+    loaded =
+      Enum.reject(
+        loaded_tools,
+        &MapSet.member?(plan.loaded_identities, ToolContract.identity(&1))
+      )
+
+    merge_loaded_tools(plan, downstream_tools, loaded)
+  end
+
+  defp merge_loaded_tools(plan, downstream_tools, []), do: {:ok, plan, downstream_tools}
+
+  defp merge_loaded_tools(plan, downstream_tools, loaded) do
+    {direct, program_bindings} = PTC.partition_tools(loaded, plan.ptc)
+
+    with {:ok, ptc} <- PTC.load_bindings(plan.ptc, program_bindings) do
+      plan = %{
+        plan
+        | contracts: merge_contracts(plan.contracts, loaded),
+          loaded_identities:
+            Enum.into(Enum.map(loaded, &ToolContract.identity/1), plan.loaded_identities),
+          ptc: ptc
+      }
+
+      downstream_tools =
+        downstream_tools
+        |> Enum.reject(&root_tool_named?(&1, PTC.tool_name()))
+        |> merge_response_tools(ToolContract.response_specs(direct))
+        |> PTC.append_provider_tool(ptc)
+
+      {:ok, plan, downstream_tools}
+    end
+  end
+
+  @doc false
+  @spec list_tools(map()) :: [map()]
+  def list_tools(%{} = request) do
+    case additional_tools_carrier(request) do
+      nil -> list_of_maps(Map.get(request, "tools"))
+      {_index, item} -> list_of_maps(Map.get(item, "tools"))
+    end
+  end
+
+  @doc false
+  @spec put_tools(map(), [map()]) :: map()
+  def put_tools(%{} = request, tools) when is_list(tools) do
+    case additional_tools_carrier(request) do
+      nil ->
+        Map.put(request, "tools", tools)
+
+      {index, item} ->
+        input =
+          request
+          |> Map.get("input")
+          |> List.replace_at(index, Map.put(item, "tools", tools))
+
+        request
+        |> Map.put("input", input)
+        |> Map.put("tools", nil)
+    end
+  end
+
+  defp build_plan(
+         request,
+         declaration,
+         contracts,
+         passthrough_tools,
+         ptc,
+         history,
+         brain
+       ) do
+    deferred = Enum.filter(contracts, & &1.deferred?)
+    remaining_tools = Enum.reject(contracts, & &1.deferred?)
+    execution = execution_mode(declaration, deferred)
+    tool_name = declared_tool_name(declaration)
+    reserved_names = reserved_names(tool_name, brain)
+
+    with :ok <- validate_search_execution_contract(declaration, execution),
+         :ok <- validate_search_history(history),
+         {:ok, loaded_spec_groups, client_loaded_spec_groups, server_loaded_spec_groups} <-
+           collect_loaded_spec_groups(history),
+         {:ok, loaded_tools, batches} <-
+           validate_loaded_history(loaded_spec_groups, contracts, reserved_names),
+         {:ok, client_loaded_tools, _client_batches} <-
+           validate_loaded_history(client_loaded_spec_groups, contracts, reserved_names),
+         {:ok, server_loaded_tools, _server_batches} <-
+           validate_loaded_history(server_loaded_spec_groups, contracts, reserved_names),
+         {:ok, input_items} <- rewrite_input_items(history, tool_name, batches) do
+      search_declared? = not is_nil(declaration) or deferred != []
+
+      callable_server_loaded_tools =
+        case {search_declared?, execution} do
+          {true, :server} ->
+            deferred_identities = MapSet.new(deferred, &ToolContract.identity/1)
+
+            Enum.filter(
+              server_loaded_tools,
+              &MapSet.member?(deferred_identities, ToolContract.identity(&1))
+            )
+
+          {_search_declared?, _execution} ->
+            []
+        end
+
+      callable_loaded_tools =
+        merge_contracts(client_loaded_tools, callable_server_loaded_tools)
+
+      {direct_tools, program_bindings} =
+        PTC.partition_tools(remaining_tools ++ callable_loaded_tools, ptc)
+
+      with {:ok, ptc} <- PTC.build_plan(ptc, program_bindings, history),
+           :ok <- ensure_no_collision(passthrough_tools, collision_names(tool_name, ptc, brain)),
+           :ok <- validate_search_surface_paths(deferred, execution) do
+        catalog = deferred
+
+        synthesized =
+          synthesized_search_tool(
+            tool_name,
+            declaration,
+            execution,
+            catalog,
+            callable_loaded_tools
+          )
+
+        plan = %Plan{
+          execution: if(search_declared?, do: execution),
+          tool_name: if(search_declared?, do: tool_name),
+          synthesized_tool: if(search_declared?, do: synthesized),
+          catalog: catalog,
+          search_context: search_context(Map.get(request, "input")),
+          contracts: merge_contracts(contracts, loaded_tools),
+          loaded_identities: MapSet.new(callable_loaded_tools, &ToolContract.identity/1),
+          ptc: ptc,
+          brain: brain
+        }
+
+        provider_tools =
+          passthrough_tools ++
+            ToolContract.response_specs(direct_tools) ++
+            if(search_declared?, do: [synthesized], else: []) ++
+            Brain.function_specs(brain)
+
+        provider_tools = PTC.append_provider_tool(provider_tools, ptc)
+
+        provider_request =
+          request
+          |> put_input(input_items)
+          |> put_tools(provider_tools)
+
+        {:ok, provider_request, plan}
+      end
+    end
+  end
+
+  defp additional_tools_carrier(%{"input" => input}) when is_list(input) do
+    input
+    |> Enum.with_index()
+    |> Enum.find_value(fn
+      {%{"type" => "additional_tools"} = item, index} -> {index, item}
+      {_item, _index} -> nil
+    end)
+  end
+
+  defp additional_tools_carrier(_request), do: nil
+
+  defp split_tool_search_declaration(tools) do
+    case Enum.split_with(tools, &(Map.get(&1, "type") == "tool_search")) do
+      {[], plain} ->
+        {:ok, nil, plain}
+
+      {[declaration], plain} ->
+        with :ok <- validate_tool_search_declaration(declaration) do
+          {:ok, declaration, plain}
+        end
+
+      {_multiple, _plain} ->
+        {:error, {:invalid_tool_search, :duplicate_declaration}}
+    end
+  end
+
+  defp validate_tool_search_declaration(declaration) do
+    cond do
+      Map.get(declaration, "execution") not in [nil, "client", "server"] ->
+        {:error, {:invalid_tool_search, :invalid_execution}}
+
+      Map.has_key?(declaration, "name") and
+          not (is_binary(declaration["name"]) and declaration["name"] != "") ->
+        {:error, {:invalid_tool_search, :invalid_name}}
+
+      Map.has_key?(declaration, "description") and
+          not is_binary(declaration["description"]) ->
+        {:error, {:invalid_tool_search, :invalid_description}}
+
+      Map.has_key?(declaration, "parameters") and not is_map(declaration["parameters"]) ->
+        {:error, {:invalid_tool_search, :invalid_parameters}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_search_execution_contract(
+         %{"parameters" => %{}},
+         :server
+       ),
+       do: {:error, {:invalid_tool_search, :server_custom_parameters_unsupported}}
+
+  defp validate_search_execution_contract(_declaration, _execution), do: :ok
+
+  defp execution_mode(declaration, deferred) do
+    case declaration && Map.get(declaration, "execution") do
+      "server" -> :server
+      "client" -> :client
+      # codex declares tool_search without an execution field and keeps its
+      # catalog local, so an empty declared catalog can only mean client mode.
+      _unspecified when deferred == [] -> :client
+      _unspecified -> :server
+    end
+  end
+
+  defp declared_tool_name(%{"name" => name}) when is_binary(name) and name != "", do: name
+  defp declared_tool_name(_declaration), do: @default_tool_name
+
+  defp reserved_names(tool_name, brain),
+    do: [PTC.tool_name(), tool_name | Brain.reserved_names(brain)]
+
+  defp brain_collision_names(brain),
+    do: Enum.map(Brain.reserved_names(brain), &{&1, :invalid_brain_tool})
+
+  defp collision_names(tool_name, ptc, brain) do
+    program =
+      case PTC.active_tool_name(ptc) do
+        nil -> []
+        name -> [{name, :invalid_program}]
+      end
+
+    [{tool_name, :invalid_tool_search}] ++ program ++ brain_collision_names(brain)
+  end
+
+  defp ensure_no_collision(tools, ordered_names) do
+    Enum.reduce_while(ordered_names, :ok, fn {name, tag}, :ok ->
+      if Enum.any?(tools, &root_tool_named?(&1, name)),
+        do: {:halt, {:error, {tag, {:tool_name_collision, name}}}},
+        else: {:cont, :ok}
+    end)
+  end
+
+  defp brain_history?(%ResponseItems.History{entries: entries}) when is_list(entries),
+    do: Enum.any?(entries, &Brain.history_item?(&1.item))
+
+  defp brain_history?(_history), do: false
+
+  defp validate_search_surface_paths(_deferred, execution) when execution != :server, do: :ok
+
+  defp validate_search_surface_paths(deferred, :server) do
+    root_paths =
+      deferred
+      |> Enum.filter(&is_nil(&1.namespace))
+      |> MapSet.new(& &1.name)
+
+    namespace_paths =
+      deferred
+      |> Enum.filter(&is_binary(&1.namespace))
+      |> MapSet.new(& &1.namespace)
+
+    case root_paths |> MapSet.intersection(namespace_paths) |> Enum.sort() do
+      [] -> :ok
+      [path | _rest] -> {:error, {:invalid_tool_search, {:surface_path_collision, path}}}
+    end
+  end
+
+  defp split_contract_tools(tools) do
+    Enum.split_with(tools, fn
+      %{"type" => type} when type in ["function", "custom", "namespace"] -> true
+      _tool -> false
+    end)
+  end
+
+  defp validate_passthrough_tools(tools) do
+    Enum.reduce_while(tools, :ok, fn
+      %{} = tool, :ok ->
+        if Map.has_key?(tool, "allowed_callers") or Map.get(tool, "defer_loading") == true do
+          {:halt, {:error, {:unsupported_tool_type, Map.get(tool, "type")}}}
+        else
+          {:cont, :ok}
+        end
+
+      tool, :ok ->
+        {:halt, {:error, {:invalid_tool_contract, {:tool_must_be_an_object, tool}}}}
+    end)
+  end
+
+  defp validate_managed_history(
+         %ResponseItems.History{entries: entries} = history,
+         search_managed?,
+         ptc
+       ) do
+    settled_program_history? = settled_program_history?(history)
+
+    Enum.reduce_while(entries, :ok, fn %{item: item}, :ok ->
+      cond do
+        search_history_item?(item) and not search_managed? ->
+          {:halt, {:error, {:invalid_tool_search_history, :declaration_missing}}}
+
+        program_history_item?(item) and not PTC.enabled?(ptc) and
+            not settled_program_history? ->
+          {:halt, {:error, {:invalid_program, :declaration_missing}}}
+
+        true ->
+          {:cont, :ok}
+      end
+    end)
+  end
+
+  defp settled_program_history?(%ResponseItems.History{error: nil, ledger: ledger}) do
+    groups = ResponseItems.program_groups(ledger)
+    groups != [] and Enum.all?(groups, & &1.output)
+  end
+
+  defp settled_program_history?(_history), do: false
+
+  defp settled_search_history?(%ResponseItems.History{error: nil, ledger: ledger}) do
+    pairs = ResponseItems.search_pairs(ledger)
+    pairs != [] and Enum.all?(pairs, & &1.output)
+  end
+
+  defp settled_search_history?(_history), do: false
+
+  defp client_search_history?(%ResponseItems.History{entries: entries}) do
+    search_items =
+      Enum.flat_map(entries, fn
+        %{item: %{"type" => type} = item}
+        when type in ["tool_search_call", "tool_search_output"] ->
+          [item]
+
+        _entry ->
+          []
+      end)
+
+    search_items != [] and
+      Enum.all?(search_items, &(Map.get(&1, "execution") == "client"))
+  end
+
+  defp search_history_item?(%{"type" => type})
+       when type in ["tool_search_call", "tool_search_output"],
+       do: true
+
+  defp search_history_item?(_item), do: false
+
+  defp program_history_item?(%{"type" => type}) when type in ["program", "program_output"],
+    do: true
+
+  defp program_history_item?(%{"caller" => %{"type" => "program"}}), do: true
+  defp program_history_item?(_item), do: false
+
+  defp validate_history_error(%ResponseItems.History{error: nil}), do: :ok
+
+  defp validate_history_error(%ResponseItems.History{error: %{reason: reason, item: item}}) do
+    tag = if search_history_item?(item), do: :invalid_tool_search_history, else: :invalid_program
+    {:error, {tag, reason}}
+  end
+
+  defp validate_search_history(%ResponseItems.History{} = history) do
+    with :ok <- validate_search_entries(history.entries) do
+      case Enum.find(ResponseItems.search_pairs(history.ledger), &is_nil(&1.output)) do
+        nil ->
+          :ok
+
+        %{pair_key: pair_key, call: %{item: item}} ->
+          reason =
+            case pair_key do
+              {:search, :client, call_id} ->
+                {:unanswered_client_search_call, call_id}
+
+              {:search, :server, _ordinal} ->
+                {:unanswered_server_search_call, replay_search_call_id(item, pair_key)}
+            end
+
+          {:error, {:invalid_tool_search_history, reason}}
+      end
+    end
+  end
+
+  defp validate_search_entries(entries) do
+    Enum.reduce_while(entries, :ok, fn
+      %{item: %{"type" => "tool_search_call"} = item}, :ok ->
+        case validate_search_call_for_replay(item) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, {:invalid_tool_search_history, reason}}}
+        end
+
+      %{item: %{"type" => "tool_search_output"} = item}, :ok ->
+        case validate_search_output_for_replay(item) do
+          :ok -> {:cont, :ok}
+          {:error, reason} -> {:halt, {:error, {:invalid_tool_search_history, reason}}}
+        end
+
+      _entry, :ok ->
+        {:cont, :ok}
+    end)
+  end
+
+  defp validate_search_call_for_replay(item) do
+    with :ok <- validate_search_item_caller(item),
+         :ok <- ResponseItems.validate_executable_call(item) do
+      :ok
+    else
+      {:error, {:incomplete_call_item, _type, call_id}} ->
+        {:error, {:incomplete_tool_search_call, call_id}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp collect_loaded_spec_groups(%ResponseItems.History{entries: entries}) do
+    Enum.reduce_while(entries, {:ok, [], [], []}, fn
+      %{item: %{"type" => "tool_search_output"} = item} = entry, {:ok, all, client, server} ->
+        specs = Map.get(item, "tools")
+
+        case validate_loaded_shapes(specs) do
+          :ok ->
+            client = if client_search_output?(entry), do: [specs | client], else: client
+            server = if server_search_output?(entry), do: [specs | server], else: server
+            {:cont, {:ok, [specs | all], client, server}}
+
+          {:error, reason} ->
+            {:halt, {:error, {:invalid_tool_search_history, reason}}}
+        end
+
+      _entry, acc ->
+        {:cont, acc}
+    end)
+    |> case do
+      {:ok, all, client, server} ->
+        {:ok, Enum.reverse(all), Enum.reverse(client), Enum.reverse(server)}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp validate_loaded_shapes(specs) when is_list(specs) do
+    Enum.reduce_while(specs, :ok, fn
+      %{"type" => "namespace", "name" => namespace, "tools" => children}, :ok
+      when is_binary(namespace) and namespace != "" and is_list(children) ->
+        if Enum.all?(children, &is_map/1),
+          do: {:cont, :ok},
+          else: {:halt, {:error, :namespace_children_must_be_objects}}
+
+      %{}, :ok ->
+        {:cont, :ok}
+
+      _invalid, :ok ->
+        {:halt, {:error, :loaded_tools_must_be_objects}}
+    end)
+  end
+
+  defp validate_loaded_shapes(_specs), do: {:error, :loaded_tools_must_be_a_list}
+
+  defp rewrite_input_items(%ResponseItems.History{input: input}, _tool_name, [])
+       when not is_list(input), do: {:ok, input}
+
+  defp rewrite_input_items(%ResponseItems.History{entries: entries}, tool_name, batches) do
+    {items_rev, []} =
+      Enum.reduce(entries, {[], batches}, fn
+        %{item: %{"type" => "tool_search_output"} = item, pair_key: pair_key},
+        {items, [batch | rest]} ->
+          output = %{
+            "type" => "function_call_output",
+            "call_id" => replay_search_call_id(item, pair_key),
+            "output" => render_search_result_text(batch)
+          }
+
+          {[output | items], rest}
+
+        entry, {items, batches} ->
+          case rewrite_input_entry(entry, tool_name) do
+            {:item, item} -> {[item | items], batches}
+            :omit -> {items, batches}
+          end
+      end)
+
+    {:ok, Enum.reverse(items_rev)}
+  end
+
+  defp validate_loaded_history(spec_groups, known, reserved_names) do
+    Enum.reduce_while(spec_groups, {:ok, [], []}, fn specs, {:ok, loaded, batches} ->
+      case ToolContract.validate_loaded(specs,
+             known: known ++ loaded,
+             reserved_names: reserved_names
+           ) do
+        {:ok, batch} -> {:cont, {:ok, merge_contracts(loaded, batch), [batch | batches]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, loaded, batches} -> {:ok, loaded, Enum.reverse(batches)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp client_search_output?(%{
+         item: %{"type" => "tool_search_output", "execution" => "client"}
+       }),
+       do: true
+
+  defp client_search_output?(_entry), do: false
+
+  defp server_search_output?(%{
+         item: %{"type" => "tool_search_output", "execution" => "server"}
+       }),
+       do: true
+
+  defp server_search_output?(_entry), do: false
+
+  defp rewrite_input_entry(
+         %{item: %{"type" => "tool_search_call"} = item, pair_key: pair_key},
+         tool_name
+       ) do
+    call = %{
+      "type" => "function_call",
+      "name" => tool_name,
+      "call_id" => replay_search_call_id(item, pair_key),
+      "arguments" => encode_arguments(Map.get(item, "arguments")),
+      "status" => "completed"
+    }
+
+    {:item, call}
+  end
+
+  defp rewrite_input_entry(%{item: item}, _tool_name) do
+    case Brain.provider_history_item(item) do
+      {:handled, %{} = provider_item} ->
+        {:item, provider_item}
+
+      :unhandled ->
+        case PTC.provider_history_item(item) do
+          {:handled, %{} = provider_item} -> {:item, provider_item}
+          {:handled, nil} -> :omit
+          :unhandled -> {:item, item}
+        end
+    end
+  end
+
+  defp replay_search_call_id(_item, {:search, :client, call_id}), do: call_id
+
+  defp replay_search_call_id(_item, {:search, :server, {:ordinal, ordinal}}),
+    do: "#{@server_call_id_prefix}replay_#{ordinal}"
+
+  defp replay_search_call_id(item, _pair_key), do: Map.get(item, "call_id")
+
+  defp validate_search_item_caller(item) do
+    case Map.get(item, "caller") do
+      nil -> :ok
+      caller -> {:error, {:tool_search_caller_unsupported, caller}}
+    end
+  end
+
+  defp validate_search_output_for_replay(item) do
+    with :ok <- validate_search_item_caller(item),
+         "completed" <- Map.get(item, "status") do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+      nil -> {:error, {:incomplete_tool_search_output, Map.get(item, "call_id")}}
+      status -> {:error, {:incomplete_tool_search_output, Map.get(item, "call_id"), status}}
+    end
+  end
+
+  defp synthesized_search_tool(tool_name, declaration, execution, deferred, loaded_tools) do
+    %{
+      "type" => "function",
+      "name" => tool_name,
+      "description" => search_tool_description(declaration, deferred, loaded_tools),
+      "parameters" => search_parameters(declaration, execution)
+    }
+  end
+
+  defp search_parameters(%{"parameters" => %{} = parameters}, :client), do: parameters
+
+  # Hosted Tool Search selects one or more declared surfaces by path. The
+  # downstream provider only sees a synthesized function, so this schema is
+  # the compatibility boundary that teaches it the native OpenAI wire shape.
+  defp search_parameters(_declaration, :server) do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "paths" => %{
+          "type" => "array",
+          "description" => "Declared root function or namespace paths to load.",
+          "items" => %{
+            "type" => "string",
+            "minLength" => 1,
+            "maxLength" => @max_search_path_bytes
+          },
+          "minItems" => 1,
+          "maxItems" => @max_result_limit,
+          "uniqueItems" => true
+        }
+      },
+      "required" => ["paths"],
+      "additionalProperties" => false
+    }
+  end
+
+  # Codex's client-executed default declaration has no custom schema. Preserve
+  # its query/limit contract; explicit client schemas pass through above.
+  defp search_parameters(_declaration, :client) do
+    %{
+      "type" => "object",
+      "properties" => %{
+        "query" => %{
+          "type" => "string",
+          "description" => "Search text matched against tool names and descriptions."
+        },
+        "limit" => %{
+          "type" => "integer",
+          "description" => "Maximum number of tools to load.",
+          "minimum" => 1,
+          "maximum" => @max_result_limit
+        }
+      },
+      "required" => ["query"],
+      "additionalProperties" => false
+    }
+  end
+
+  defp search_parameters(declaration, _execution), do: search_parameters(declaration, :client)
+
+  defp search_tool_description(declaration, deferred, loaded_tools) do
+    declared = declaration && Map.get(declaration, "description")
+
+    base =
+      if is_binary(declared) and declared != "" do
+        declared
+      else
+        "Searches deferred tool metadata and loads matching tools for the " <>
+          "next model call. Some tools were not provided upfront; use this " <>
+          "tool to discover them before calling them."
+      end
+
+    case searchable_listing(deferred, loaded_tools) do
+      "" -> base
+      listing -> base <> "\n\nSearchable tools:\n" <> listing
+    end
+  end
+
+  # The official hosted mode keeps deferred names and descriptions visible
+  # upfront. A plain-function downstream has no schema-free tool slot, so the
+  # listing rides inside the search tool description under a fixed budget.
+  defp searchable_listing(deferred, loaded_tools) do
+    loaded_identities = MapSet.new(loaded_tools, &ToolContract.identity/1)
+
+    {lines_rev, omitted, _seen, _bytes} =
+      Enum.reduce(deferred, {[], 0, MapSet.new(), 0}, fn tool,
+                                                         {lines, omitted, seen, bytes} = acc ->
+        identity = listing_identity(tool)
+
+        cond do
+          MapSet.member?(loaded_identities, ToolContract.identity(tool)) or
+              MapSet.member?(seen, identity) ->
+            acc
+
+          true ->
+            line = listing_line(tool)
+            cost = byte_size(line) + 1
+            seen = MapSet.put(seen, identity)
+
+            if bytes + cost > @catalog_listing_budget_bytes,
+              do: {lines, omitted + 1, seen, bytes},
+              else: {[line | lines], omitted, seen, bytes + cost}
+        end
+      end)
+
+    lines = Enum.reverse(lines_rev)
+
+    case {lines, omitted} do
+      {[], _omitted} -> ""
+      {lines, 0} -> Enum.join(lines, "\n")
+      {lines, omitted} -> Enum.join(lines, "\n") <> "\n- …#{omitted} more, discover via search"
+    end
+  end
+
+  defp listing_line(%Descriptor{} = tool) do
+    {public_name, description} =
+      if is_binary(tool.namespace),
+        do: {tool.namespace, tool.namespace_description},
+        else: {tool.name, tool.description}
+
+    case description do
+      description when is_binary(description) and description != "" ->
+        "- #{public_name}: #{truncate(description, 160)}"
+
+      _missing ->
+        "- #{public_name}"
+    end
+  end
+
+  defp listing_identity(%Descriptor{} = tool), do: tool.namespace || tool.name
+
+  defp truncate(text, max_bytes) do
+    if byte_size(text) <= max_bytes do
+      text
+    else
+      suffix = "…"
+      truncated = take_graphemes(text, max(max_bytes - byte_size(suffix), 0), [], 0)
+
+      truncated <> suffix
+    end
+  end
+
+  defp take_graphemes(_text, budget, acc, bytes) when bytes >= budget,
+    do: acc |> Enum.reverse() |> IO.iodata_to_binary()
+
+  defp take_graphemes(text, budget, acc, bytes) do
+    case String.next_grapheme(text) do
+      nil ->
+        acc |> Enum.reverse() |> IO.iodata_to_binary()
+
+      {grapheme, rest} ->
+        cost = byte_size(grapheme)
+
+        if bytes + cost > budget,
+          do: acc |> Enum.reverse() |> IO.iodata_to_binary(),
+          else: take_graphemes(rest, budget, [grapheme | acc], bytes + cost)
+    end
+  end
+
+  defp public_search_call_id(%Plan{execution: :client}, item) do
+    case Map.get(item, "call_id") do
+      call_id when is_binary(call_id) and call_id != "" -> call_id
+      _missing -> nil
+    end
+  end
+
+  defp public_search_call_id(%Plan{execution: :server}, _item), do: nil
+
+  defp strict_arguments(arguments) when is_map(arguments), do: arguments
+
+  defp strict_arguments(arguments) when is_binary(arguments) do
+    case Ankole.JSON.decode(arguments) do
+      {:ok, %{} = decoded} -> decoded
+      _invalid -> nil
+    end
+  end
+
+  defp strict_arguments(_arguments), do: nil
+
+  defp encode_arguments(arguments) when is_map(arguments), do: Ankole.JSON.encode!(arguments)
+  defp encode_arguments(arguments) when is_binary(arguments), do: arguments
+  defp encode_arguments(_arguments), do: "{}"
+
+  @doc false
+  @spec parse_search_arguments(Plan.t(), map()) ::
+          {:ok, %{paths: [String.t()]}} | {:error, term()}
+  def parse_search_arguments(%Plan{execution: :server}, %{} = item) do
+    arguments = strict_arguments(Map.get(item, "arguments"))
+
+    case arguments do
+      %{"paths" => paths} = arguments when is_list(paths) and map_size(arguments) == 1 ->
+        validate_search_paths(paths)
+
+      _invalid ->
+        {:error, {:invalid_tool_search_arguments, :invalid_shape}}
+    end
+  end
+
+  defp validate_search_paths(paths) do
+    cond do
+      paths == [] ->
+        {:error, {:invalid_tool_search_arguments, :paths_required}}
+
+      length(paths) > @max_result_limit ->
+        {:error,
+         {:invalid_tool_search_arguments, {:too_many_paths, length(paths), @max_result_limit}}}
+
+      Enum.any?(paths, &(not is_binary(&1) or &1 == "")) ->
+        {:error, {:invalid_tool_search_arguments, :invalid_path}}
+
+      Enum.any?(paths, &(byte_size(&1) > @max_search_path_bytes)) ->
+        {:error, {:invalid_tool_search_arguments, {:path_too_long, @max_search_path_bytes}}}
+
+      length(Enum.uniq(paths)) != length(paths) ->
+        {:error, {:invalid_tool_search_arguments, :duplicate_path}}
+
+      true ->
+        {:ok, %{paths: paths}}
+    end
+  end
+
+  defp unloaded_catalog(%Plan{} = plan) do
+    Enum.reject(plan.catalog, &MapSet.member?(plan.loaded_identities, ToolContract.identity(&1)))
+  end
+
+  defp tools_for_path(catalog, path) do
+    Enum.filter(catalog, fn tool ->
+      namespace = tool.namespace
+
+      cond do
+        is_binary(namespace) and path == namespace -> true
+        is_binary(namespace) -> false
+        true -> path == tool.name
+      end
+    end)
+  end
+
+  defp resolve_search_path(plan, catalog, path) do
+    candidates = tools_for_path(catalog, path)
+
+    if Enum.any?(candidates, &is_binary(&1.namespace)) do
+      case Index.search(candidates, plan.search_context, @default_result_limit) do
+        [] -> candidates
+        ranked -> ranked
+      end
+    else
+      candidates
+    end
+  end
+
+  defp ensure_known_search_paths(catalog, paths) do
+    case Enum.find(paths, &(tools_for_path(catalog, &1) == [])) do
+      nil -> :ok
+      path -> {:error, {:unknown_tool_search_path, path}}
+    end
+  end
+
+  defp search_context(input) do
+    {selected, _bytes} = collect_search_context(input, {[], 0})
+    Enum.join(selected, " ")
+  end
+
+  defp collect_search_context(_value, {selected, bytes})
+       when bytes >= @search_context_budget_bytes,
+       do: {selected, bytes}
+
+  defp collect_search_context(value, {selected, bytes}) when is_binary(value) do
+    value = truncate(value, @search_context_budget_bytes - 1)
+    cost = byte_size(value) + 1
+
+    if bytes + cost > @search_context_budget_bytes,
+      do: {selected, bytes},
+      else: {[value | selected], bytes + cost}
+  end
+
+  defp collect_search_context(value, acc) when is_list(value) do
+    value
+    |> Enum.reverse()
+    |> Enum.reduce_while(acc, fn item, acc ->
+      acc = collect_search_context(item, acc)
+
+      if elem(acc, 1) >= @search_context_budget_bytes,
+        do: {:halt, acc},
+        else: {:cont, acc}
+    end)
+  end
+
+  defp collect_search_context(%{} = value, acc) do
+    ["result", "output", "arguments", "input", "content", "text"]
+    |> Enum.reduce_while(acc, fn key, acc ->
+      acc = collect_search_context(Map.get(value, key), acc)
+
+      if elem(acc, 1) >= @search_context_budget_bytes,
+        do: {:halt, acc},
+        else: {:cont, acc}
+    end)
+  end
+
+  defp collect_search_context(_value, acc), do: acc
+
+  defp render_search_result_text([]), do: Ankole.JSON.encode!(%{"tools" => []})
+
+  defp render_search_result_text(loaded_tools) do
+    Ankole.JSON.encode!(%{
+      "tools" =>
+        Enum.map(loaded_tools, fn tool ->
+          %{"name" => ToolContract.qualified_name(tool)}
+          |> put_nonempty_text("description", tool.description)
+        end)
+    })
+  end
+
+  defp public_tool_specs(tools) do
+    grouped = Enum.group_by(tools, &(&1.namespace || "functions"))
+
+    namespaces =
+      case Map.pop(grouped, "functions") do
+        {nil, remaining} -> Enum.sort_by(remaining, &elem(&1, 0))
+        {children, remaining} -> [{"functions", children} | Enum.sort_by(remaining, &elem(&1, 0))]
+      end
+
+    Enum.map(namespaces, fn {namespace, children} ->
+      description =
+        case Enum.find(children, &(not is_nil(&1.namespace_description))) do
+          nil -> ToolContract.default_namespace_description(namespace)
+          child -> child.namespace_description
+        end
+
+      %{
+        "type" => "namespace",
+        "name" => namespace,
+        "description" => description,
+        "tools" =>
+          Enum.map(children, fn child ->
+            child
+            |> ToolContract.public_spec()
+            |> Map.drop(["namespace", "namespace_description", "__ankole_search_text"])
+            |> Map.put("defer_loading", true)
+          end)
+      }
+    end)
+  end
+
+  defp merge_contracts(existing, loaded) do
+    {order_rev, by_name} = Enum.reduce(existing, {[], %{}}, &merge_contract/2)
+    {order_rev, by_name} = Enum.reduce(loaded, {order_rev, by_name}, &merge_contract/2)
+
+    order_rev
+    |> Enum.reverse()
+    |> Enum.map(&Map.fetch!(by_name, &1))
+  end
+
+  defp merge_contract(descriptor, {order_rev, by_name}) do
+    identity = ToolContract.identity(descriptor)
+    order_rev = if Map.has_key?(by_name, identity), do: order_rev, else: [identity | order_rev]
+    {order_rev, Map.put(by_name, identity, descriptor)}
+  end
+
+  defp merge_response_tools(existing, additions) do
+    Enum.reduce(additions, Enum.reverse(existing), fn
+      %{"type" => "namespace", "name" => namespace, "tools" => added_children} = addition,
+      tools ->
+        case Enum.find_index(tools, &namespace_tool_named?(&1, namespace)) do
+          nil ->
+            [addition | tools]
+
+          index ->
+            List.update_at(tools, index, fn current ->
+              Map.update!(current, "tools", fn children ->
+                (children ++ added_children)
+                |> Enum.uniq_by(&Map.get(&1, "name"))
+              end)
+            end)
+        end
+
+      addition, tools ->
+        [addition | tools]
+    end)
+    |> Enum.reverse()
+  end
+
+  defp namespace_tool_named?(%{"type" => "namespace", "name" => name}, expected),
+    do: name == expected
+
+  defp namespace_tool_named?(_tool, _expected), do: false
+
+  defp root_tool_named?(%{"type" => type, "name" => name}, expected)
+       when type != "namespace",
+       do: name == expected
+
+  defp root_tool_named?(_tool, _expected), do: false
+
+  defp put_nonempty_text(map, _key, nil), do: map
+
+  defp put_nonempty_text(map, key, value) when is_binary(value) and value != "",
+    do: Map.put(map, key, value)
+
+  defp put_nonempty_text(map, _key, _value), do: map
+
+  defp put_input(request, input) when is_list(input), do: Map.put(request, "input", input)
+  defp put_input(request, _input), do: request
+
+  defp list_of_maps(value) when is_list(value), do: Enum.filter(value, &is_map/1)
+  defp list_of_maps(_value), do: []
+end

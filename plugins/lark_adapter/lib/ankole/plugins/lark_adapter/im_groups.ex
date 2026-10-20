@@ -71,11 +71,10 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     end
   end
 
-  @doc false
   @spec enqueue_chat_refresh(AdapterContext.t(), map(), String.t(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue_chat_refresh(%AdapterContext{} = context, _config, chat_id, opts \\ [])
-      when is_binary(chat_id) do
+  defp enqueue_chat_refresh(%AdapterContext{} = context, _config, chat_id, opts)
+       when is_binary(chat_id) do
     %{
       "agent_uid" => String.downcase(context.agent_uid),
       "binding_name" => context.binding_name,

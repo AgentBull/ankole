@@ -11,8 +11,9 @@ test('persisted inline configurations reject malformed domain shapes before a re
     { type: 'grid', sort: [{ field_id: 'name', direction: 'sideways' }] },
     { type: 'missing' },
     []
-  ])
+  ]) {
     expect(parseEmbedView(JSON.stringify(config))).toEqual({ kind: 'invalid' })
+  }
   expect(parseEmbedView('{broken')).toEqual({ kind: 'invalid' })
 })
 

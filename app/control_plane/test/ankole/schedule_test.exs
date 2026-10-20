@@ -2,7 +2,6 @@ defmodule Ankole.ScheduleTest do
   alias Ankole.AIGateway.ResponseCommit
   use Ankole.DataCase, async: false
 
-  alias Ankole.AIGateway.Conversations
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Context
   alias Ankole.Sessions.Run
@@ -1378,7 +1377,7 @@ defmodule Ankole.ScheduleTest do
 
       ensure_execution_conversation = fn ->
         {:ok, conversation} =
-          Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, execution_session_id)
+          Ankole.AIGatewayCase.ensure_conversation(agent.uid, execution_session_id)
 
         conversation
       end
@@ -2029,7 +2028,7 @@ defmodule Ankole.ScheduleTest do
       execution_session_id = Schedule.cron_execution_session_id(schedule.id)
 
       assert {:ok, _conversation} =
-               Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, execution_session_id)
+               Ankole.AIGatewayCase.ensure_conversation(agent.uid, execution_session_id)
 
       assert Schedule.list_cron_runs(schedule.id, 10) == []
       assert schedule.next_fire_at == first_slot
@@ -2338,7 +2337,7 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp ai_message_fixture(agent_uid, session_id \\ "mock:chat:schedule") do
-    {:ok, conversation} = Conversations.ensure_conversation(agent_uid, session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent_uid, session_id)
 
     Repo.insert!(%Message{
       subject_uid: agent_uid,

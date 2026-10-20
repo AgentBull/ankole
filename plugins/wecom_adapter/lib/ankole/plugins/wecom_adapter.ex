@@ -15,6 +15,8 @@ defmodule Ankole.Plugins.WeComAdapter do
 
   @behaviour Ankole.Plugins.Plugin
 
+  import Ankole.Plugins.Spec, only: [field: 5]
+
   alias Ankole.Plugins.WeComAdapter.AIStream
   alias Ankole.Plugins.WeComAdapter.Config
   alias Ankole.Plugins.WeComAdapter.ConnectionReconciler
@@ -85,6 +87,7 @@ defmodule Ankole.Plugins.WeComAdapter do
   @impl true
   def children do
     [
+      WeComOpenAPI.Supervisor,
       {Registry, keys: :unique, name: Ankole.Plugins.WeComAdapter.ConnectionRegistry},
       {DynamicSupervisor,
        name: Ankole.Plugins.WeComAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
@@ -230,18 +233,6 @@ defmodule Ankole.Plugins.WeComAdapter do
         default: true
       )
     ]
-  end
-
-  defp field(path, label, description, type, opts) do
-    opts
-    |> Map.new()
-    |> Map.put_new(:advanced, false)
-    |> Map.merge(%{
-      path: path,
-      label: label,
-      description: description,
-      type: Atom.to_string(type)
-    })
   end
 
   defp option(value, label), do: %{value: value, label: label}

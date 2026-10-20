@@ -20,36 +20,6 @@ defmodule Ankole.Brain.SchemaPacksTest do
     end
   end
 
-  describe "merge validation" do
-    test "every pairwise industry combination merges with general" do
-      industry = SchemaPacks.industry_packs()
-
-      for a <- industry, b <- industry, a < b do
-        assert {:ok, _merged} = SchemaPacks.validate_selection([a, b]),
-               "packs #{a} and #{b} must merge"
-      end
-    end
-
-    test "the full selection merges" do
-      assert {:ok, merged} = SchemaPacks.validate_selection(SchemaPacks.industry_packs())
-
-      # product is declared by consumer and software: subtype union.
-      product = merged.types["product"]
-      assert Enum.sort(product["subtypes"]) == ~w(api app model product_line service sku)
-
-      # thesis is declared identically by pevc and public_markets.
-      assert merged.types["thesis"]["slug_prefix"] == "theses/"
-
-      # market_call is declared identically by pevc and public_markets.
-      assert merged.calibration_domains["market_call"]["aggregator"] == "scalar_brier"
-
-      # subtype extensions land on general types.
-      assert "fund" in merged.types["company"]["subtypes"]
-      assert "earnings" in merged.types["event"]["subtypes"]
-      assert "release" in merged.types["event"]["subtypes"]
-    end
-  end
-
   describe "installation" do
     test "installs general with a selection and materializes rows" do
       assert {:ok, result} = SchemaPacks.install_packs(["pevc"])

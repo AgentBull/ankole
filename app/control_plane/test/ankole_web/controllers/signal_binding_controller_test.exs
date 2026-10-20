@@ -27,7 +27,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     # Saved bindings and identity providers start an asynchronous pass. Wait
@@ -199,7 +199,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
              )
 
     assert {:ok, _intent} =
-             Ankole.Conversations.Delivery.commit(%{
+             Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: agent.uid,
                binding_name: "lark-main",
                outbound_key: "ai-reply:console-failure",
@@ -783,7 +783,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
       })
 
     assert response(conn, 200)
-    config_key = DingTalkConfig.chat_config_key(second_agent.uid)
+    config_key = "signals.dingtalk.bindings." <> second_agent.uid
 
     conn =
       conn
@@ -823,9 +823,9 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     unique = System.unique_integer([:positive])
 
     cases = [
-      {LarkConfig.chat_config_key("missing-#{unique}"),
+      {"signals.lark.bindings." <> "missing-#{unique}",
        %{"appID" => "cli_missing", "appSecret" => "secret"}},
-      {DingTalkConfig.chat_config_key("missing-#{unique}"),
+      {"signals.dingtalk.bindings." <> "missing-#{unique}",
        %{"clientId" => "ding_missing", "clientSecret" => "secret"}}
     ]
 
@@ -867,7 +867,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
     %{principal: lark_agent} = agent_fixture()
     %{principal: dingtalk_agent} = agent_fixture()
     lark_key = LarkConfig.binding_config_key(lark_agent.uid, "lark-main")
-    dingtalk_key = DingTalkConfig.chat_config_key(dingtalk_agent.uid)
+    dingtalk_key = "signals.dingtalk.bindings." <> dingtalk_agent.uid
 
     assert {:ok, _result} =
              Ankole.Signals.Bindings.put_binding(lark_agent.uid, "lark", "lark-main", %{
@@ -1145,7 +1145,7 @@ defmodule AnkoleWeb.SignalBindingControllerTest do
           "provider_id" => provider_id,
           "adapter_id" => "lark",
           "plugin_id" => "lark-adapter",
-          "config_key" => LarkConfig.identity_config_key(provider_id),
+          "config_key" => "principals.identity_providers.lark." <> provider_id,
           "enabled" => true
         },
         identity_config

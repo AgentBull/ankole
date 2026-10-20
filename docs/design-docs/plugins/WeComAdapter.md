@@ -28,7 +28,7 @@ observation and delivery route, not the owner of the platform room.
 | Signal configuration | `signals.wecom.bindings.<agent_uid>` |
 | Identity adapter ID | `wecom` |
 | Identity configuration | `principals.identity_providers.wecom.<id>` |
-| Provider library | `libs/wecom_openapi` |
+| Provider library | `plugins/wecom_adapter/lib/wecom_openapi` |
 
 The signal adapter supports only `addressed_only`. WeCom does not deliver
 unaddressed group messages to the bot.
@@ -188,6 +188,11 @@ stream ID, source slice, open time, and sealed state, plus the pinned reply
 not change. A throttled update keeps the last confirmed source in the ledger.
 A new tail page is not throttled.
 
+`PreviewAdapter.put_thought_lease/4` computes the shared `cleanup_at` field.
+The adapter supplies its lease duration and final-state flag. A final update or
+an update without visible thought removes the deadline. Provider-specific
+stream deadlines and page transitions stay in the adapter.
+
 A turn without a respond anchor cannot stream. Working updates then return a
 non-retryable error and only the final durable delivery falls back to plain
 Markdown sends. The checkpoint records each delivered chunk, so an intent
@@ -228,4 +233,4 @@ The implementation sources are:
 
 - `plugins/wecom_adapter/lib/ankole/plugins/wecom_adapter.ex`
 - `plugins/wecom_adapter/lib/ankole/plugins/wecom_adapter/`
-- `libs/wecom_openapi/`
+- `plugins/wecom_adapter/lib/wecom_openapi/`

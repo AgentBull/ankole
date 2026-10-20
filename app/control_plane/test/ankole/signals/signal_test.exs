@@ -2,7 +2,7 @@ defmodule Ankole.Signals.SignalTest do
   use ExUnit.Case, async: true
   alias Ankole.Signals.Signal
 
-  test "a resolved reply reference is a withdrawal source, not a mirrored source" do
+  test "resolved reply context stays outside provider input provenance" do
     event = %Signal{
       conversation_id: Ecto.UUID.generate(),
       message_id: Ecto.UUID.generate(),
@@ -17,17 +17,15 @@ defmodule Ankole.Signals.SignalTest do
     }
 
     assert Signal.provider_message_ids(event) == ["question"]
-    assert Signal.withdrawal_provider_message_ids(event) == ["question", "quoted"]
     assert Signal.input_provider_message_ids(event) == ["question"]
 
     for resolution <- ["unresolved", "unavailable"] do
       payload = put_in(event.data, ["entry", "reply_to", "resolution"], resolution)
       assert Signal.provider_message_ids(%{event | data: payload}) == ["question"]
-      assert Signal.withdrawal_provider_message_ids(%{event | data: payload}) == ["question"]
     end
   end
 
-  test "only current batched inputs and explicit quotes are withdrawal sources" do
+  test "current batched inputs define provider provenance" do
     event = %Signal{
       conversation_id: Ecto.UUID.generate(),
       message_id: Ecto.UUID.generate(),
@@ -42,7 +40,6 @@ defmodule Ankole.Signals.SignalTest do
 
     assert Signal.input_provider_message_ids(event) == ["question", "batch"]
     assert Signal.provider_message_ids(event) == ["question", "batch"]
-    assert Signal.withdrawal_provider_message_ids(event) == ["question", "batch", "context"]
   end
 
   test "an input removal does not retain its entry or reply as a live source" do
@@ -62,7 +59,6 @@ defmodule Ankole.Signals.SignalTest do
 
     assert Signal.input_provider_message_ids(event) == []
     assert Signal.provider_message_ids(event) == []
-    assert Signal.withdrawal_provider_message_ids(event) == []
   end
 
   test "arbitrary CloudEvent data does not claim provider message provenance" do
@@ -80,7 +76,6 @@ defmodule Ankole.Signals.SignalTest do
 
       assert Signal.input_provider_message_ids(event) == []
       assert Signal.provider_message_ids(event) == []
-      assert Signal.withdrawal_provider_message_ids(event) == []
     end
   end
 

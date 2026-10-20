@@ -11,7 +11,6 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
   alias Ankole.Brain.Dreaming
   alias Ankole.Brain.Forget
   alias Ankole.Brain.LibraryKnowledge
-  alias Ankole.Brain.Links
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Promotion
   alias Ankole.Brain.SchemaPacks
@@ -592,7 +591,15 @@ defmodule Ankole.Brain.LibraryKnowledgeTest do
              )
 
     slug = "lazyload-agent-skills/voice-drafting-method"
-    assert {:ok, _tag} = Links.add_tag(slug, "methodology")
+
+    assert {:ok, _tag} =
+             Ankole.Repo.insert(%Ankole.Brain.Schemas.Tag{
+               id: Ankole.Ecto.UUIDv7.autogenerate(),
+               object_slug: slug,
+               tag: "methodology",
+               created_at: DateTime.utc_now(:microsecond)
+             })
+
     methodology = pending_type_suggestion("methodology")
 
     assert {:ok, %{status: :type_created, type: "methodology", migrated: 0}} =

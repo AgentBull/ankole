@@ -12,7 +12,7 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
 
   setup do
     allow_cache_database_access()
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     :ok

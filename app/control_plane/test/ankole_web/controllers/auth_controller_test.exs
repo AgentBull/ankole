@@ -18,7 +18,9 @@ defmodule AnkoleWeb.AuthControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    {:ok, false} = SetupConfig.put_completed(false)
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     :ok
@@ -37,7 +39,8 @@ defmodule AnkoleWeb.AuthControllerTest do
   end
 
   test "OIDC authorization stores state and redirects in one browser response", %{conn: conn} do
-    assert {:ok, true} = SetupConfig.put_completed(true)
+    assert {:ok, true} =
+             Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     assert {:ok, _provider} =
              IdentityProviders.save_provider(
@@ -139,7 +142,8 @@ defmodule AnkoleWeb.AuthControllerTest do
   test "bootstrap OIDC state cannot be replayed as admin login after setup is complete", %{
     conn: conn
   } do
-    assert {:ok, true} = SetupConfig.put_completed(true)
+    assert {:ok, true} =
+             Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     conn =
       conn
@@ -163,7 +167,9 @@ defmodule AnkoleWeb.AuthControllerTest do
       RetryGuard.reset_for_test()
       on_exit(&RetryGuard.reset_for_test/0)
 
-      {:ok, true} = SetupConfig.put_completed(true)
+      {:ok, true} =
+        Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
+
       {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
       :ok
     end
@@ -535,7 +541,8 @@ defmodule AnkoleWeb.AuthControllerTest do
     end
 
     test "sign-in is refused while setup is incomplete", %{conn: conn} do
-      {:ok, false} = SetupConfig.put_completed(false)
+      {:ok, false} =
+        Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
 
       conn =
         conn

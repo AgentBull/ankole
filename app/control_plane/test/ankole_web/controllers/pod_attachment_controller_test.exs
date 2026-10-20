@@ -245,7 +245,7 @@ defmodule AnkoleWeb.PodAttachmentControllerTest do
     tenant: tenant
   } do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    {:ok, true} = Ankole.Setup.Config.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     original = Application.fetch_env!(:ankole, AnkoleWeb.Endpoint)
     configured = Keyword.put(original, :url, host: "ankole.localhost", port: 4002)
     Application.put_env(:ankole, AnkoleWeb.Endpoint, configured)

@@ -227,7 +227,7 @@ add metadata, AppConfigure definitions, adapters, and supervised processes.
 Ankole does not download or load arbitrary plugin code at runtime.
 
 Implementation modules use the `Ankole.Plugins` namespace.
-The compile-time `:control_plane_plugin_modules` list names every Plugin module.
+The host configuration `:control_plane_plugin_modules` list names every Plugin module.
 Each release compiles that complete list. Startup does not read or parse plugin
 source files.
 
@@ -239,10 +239,67 @@ The Registry keeps the active list in memory for the current process.
 
 `ANKOLE_EDITION=foss|saas` selects the source build; the default is `foss`.
 A FOSS build compiles public Plugins and ignores `internals` source and
-migrations. A SaaS build also compiles `internals/control_plane/lib` and selected
-private Plugin source into the same `:ankole` application. Missing private source
-fails the build. There is one Mix project, OTP application, Repo, and migration
+migrations. A SaaS build also compiles `internals/control_plane/lib` into
+`:ankole_core` and includes the selected private Plugin Mix projects. Missing
+private source fails the build. One release has one Repo and one migration
 ledger.
+
+The Mix dependencies have one direction:
+
+```text
+:ankole (assembly and release)
+  -> :ankole_core (domain and web code; no application callback)
+  -> :ankole_<plugin> -> :ankole_core
+                     -> shared libraries when required
+```
+
+`app/control_plane` owns configuration, migrations, deployment commands, test
+support, and the existing application supervisor. `app/control_plane_core`
+owns the public domain and web source. Each `plugins/<name>` directory is a
+local Mix project named `:ankole_<name>`. Private projects use the same name
+rule under `internals/plugins`. The assembly includes these projects at build
+time. They do not depend on the assembly application.
+
+The six provider clients are internal modules of their matching Plugins. Their
+module names and provider error types remain distinct. Plugin applications have
+no application callback. Their caches, token supervisors, and connections start
+as children of the active Plugin cohort, after Repo and AppConfigure are ready.
+The core package does not start a Repo or a Plugin when used as a dependency.
+
+All projects use the host's lockfile and downloaded dependencies. Each direct
+Mix invocation has its own build directory. A host build compiles its selected
+dependencies together. Run a provider client's unit tests from its Plugin
+project; the test helper starts only that client's supervisor.
+
+### Share an implementation only when its contract matches
+
+`im_transport` owns shared JSON body primitives, request-body selection,
+Retry-After parsing, download filename parsing, and WebSocket URL decomposition.
+These functions retain their callers' existing error and empty-value behavior.
+DingTalk and WeCom keep their empty-body mapping. Feishu keeps its URL error and
+filename rules. Response envelopes, error classifications, token state machines,
+and reconnect callbacks remain provider-owned.
+
+`feishu_protocol` owns the Feishu WebSocket frame codec. Both the Lark Plugin
+and `tools/fake-feishu` depend on it; the fake platform does not depend on the
+control plane.
+
+Reuse an existing domain owner for domain operations. Shared Markdown prose
+transformations live in `Ankole.Plugins.MarkdownChunks`; normalized multi-send
+results live in `Conversations.Delivery.Adapter`. Identity phone normalization,
+Plugin fields, configuration helpers, and connection lifecycle contracts keep
+their existing owners. A repeated call to one of these functions is not a
+second implementation.
+
+Before sharing a function, compare its input meaning, nil and empty handling,
+error shape, units, side effects, and recovery ownership. Renderer-specific
+checkpoint keys remain adapter-owned even when two current implementations are
+identical. The Lark string-array validator keeps its different whitespace
+behavior. Shared code must not grow provider-selection branches.
+
+`mix ankole.compile_cycles` checks the assembly and every local Mix dependency.
+CI runs it in test and production environments. A smaller assembly-only xref
+graph is not evidence that the core or Plugin graphs have no compile cycle.
 
 Fixed build composition is separate from `plugins.enabled_ids`. The selected
 HTTP entry, Host policy, site authentication sources, AppConfigure declarations,
@@ -328,6 +385,10 @@ adapter ID, catalog fields, and an `adapter_category`. `Ankole.Signals.Adapters`
 validates the declaration from the active Plugin snapshot. The catalog category
 groups enterprise IM, consumer IM, and Email; it does not grant authority.
 
+`Ankole.Plugins.Spec.field/5` builds the common catalog field shape. Plugins
+supply localized text, defaults, and constraints; the builder only sets the
+shared keys and the default `advanced: false` value.
+
 `observe_module` converts provider events and calls `Ankole.Conversations.Observe`.
 It provides `chat_consumer/2` and the callbacks for its declared inbound
 capabilities. Observation records a shared Conversation, public Message, and
@@ -346,6 +407,11 @@ create public Agent Messages before the provider confirms a send.
 An HTTP provider adapter declares `signals.webhook_handler`. Its handler
 verifies the provider protocol and commits observation before it acknowledges
 the request. Long connections use `Ankole.Plugins.ConnectionLifecycle`.
+Its `start_owner/3` registers single-consumer owners with the tenant and config
+fingerprint; each adapter keeps its own connection state and protocol.
+`Ankole.Conversations.AdapterContext.dispatch_chat/2` selects chat consumers
+and collects their results in binding order. Each adapter still parses its own
+event and supplies its own subject namespace.
 
 The built-in CloudEvents source needs no message-provider Plugin. It reuses
 Signals Bindings and callback Endpoints to select an explicit Agent Session.

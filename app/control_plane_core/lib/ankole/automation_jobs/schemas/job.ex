@@ -1,0 +1,124 @@
+defmodule Ankole.AutomationJobs.Schemas.Job do
+  @moduledoc """
+  Durable definition of one Agent-owned automation script.
+  """
+
+  use Ankole.Schema, tenancy: :tenant
+
+  import Ankole.Ecto.Changeset, only: [normalize_blank: 2]
+  import Ecto.Changeset
+
+  alias Ankole.AutomationJobs.Schemas.Run
+  alias Ankole.Ecto.JSONPayload
+  alias Ankole.Principals.Principal
+  alias Ankole.Signals.Signal
+
+  @primary_key {:id, :id, autogenerate: true}
+  @foreign_key_type :string
+  @timestamps_opts [type: :utc_datetime_usec]
+  @statuses ~w(active cancelled)
+
+  @type t :: %__MODULE__{}
+
+  schema "automation_jobs" do
+    field :authorization_kind, :string, default: "review_required"
+    field :human_uid, Ankole.Ecto.PrincipalKey
+    field :human_access_version, :integer
+
+    belongs_to :agent, Principal,
+      foreign_key: :agent_uid,
+      references: :uid,
+      type: Ankole.Ecto.PrincipalKey
+
+    field :owner_session_id, :string
+
+    belongs_to :source_signal, Signal,
+      foreign_key: :source_signal_id,
+      type: Ecto.UUID
+
+    field :provider_message_id, :string
+    field :source_provenance, :map, default: %{}
+    field :reply_route, :map, default: %{}
+    # Drive folder that holds the script and its `main.ts`.
+    field :drive_prefix, :string
+    # Agent Home directory of a job created before scripts moved into the
+    # drive; the one-time import copies it to `drive_prefix` and clears it.
+    field :legacy_directory_path, :string
+    field :label, :string
+    field :wake_on_failure, :boolean, default: false
+    field :status, :string, default: "active"
+    field :cancelled_at, :utc_datetime_usec
+
+    has_many :runs, Run, foreign_key: :automation_job_id
+
+    timestamps()
+  end
+
+  @doc """
+  Builds a changeset for an automation job.
+  """
+  @spec changeset(t(), map()) :: Ecto.Changeset.t()
+  def changeset(job, attrs) do
+    job
+    |> cast(attrs, [
+      :authorization_kind,
+      :human_uid,
+      :human_access_version,
+      :agent_uid,
+      :owner_session_id,
+      :source_signal_id,
+      :provider_message_id,
+      :source_provenance,
+      :reply_route,
+      :drive_prefix,
+      :label,
+      :wake_on_failure,
+      :status,
+      :cancelled_at
+    ])
+    |> normalize_blank([
+      :agent_uid,
+      :owner_session_id,
+      :provider_message_id,
+      :drive_prefix,
+      :label,
+      :status
+    ])
+    |> validate_required([
+      :agent_uid,
+      :owner_session_id,
+      :source_provenance,
+      :reply_route,
+      :drive_prefix,
+      :label,
+      :wake_on_failure,
+      :status
+    ])
+    |> validate_inclusion(:status, @statuses)
+    |> validate_length(:label, max: 500)
+    |> validate_drive_prefix()
+    |> JSONPayload.validate_map(:source_provenance)
+    |> JSONPayload.validate_map(:reply_route)
+    |> foreign_key_constraint(:agent_uid)
+    |> foreign_key_constraint(:source_signal_id)
+    |> check_constraint(:id, name: :automation_jobs_id_range)
+    |> check_constraint(:status, name: :automation_jobs_status_check)
+    |> check_constraint(:owner_session_id, name: :automation_jobs_owner_session_present)
+    |> check_constraint(:drive_prefix, name: :automation_jobs_drive_prefix_present)
+    |> check_constraint(:label, name: :automation_jobs_label_present)
+    |> check_constraint(:source_provenance,
+      name: :automation_jobs_source_provenance_object
+    )
+    |> check_constraint(:reply_route, name: :automation_jobs_reply_route_object)
+    |> check_constraint(:status, name: :automation_jobs_terminal_time_check)
+  end
+
+  defp validate_drive_prefix(changeset) do
+    validate_change(changeset, :drive_prefix, fn :drive_prefix, prefix ->
+      case Ankole.Files.normalize_path(prefix) do
+        {:ok, _prefix} -> []
+        {:error, _reason} -> [drive_prefix: "must be a drive path"]
+      end
+    end)
+  end
+end

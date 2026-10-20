@@ -24,7 +24,7 @@ defmodule Ankole.JobTest do
       |> Keyword.fetch!(:queues)
 
     workers =
-      Enum.filter(Application.spec(:ankole, :modules), fn module ->
+      Enum.filter(Ankole.TestModules.all(), fn module ->
         Code.ensure_loaded?(module) and function_exported?(module, :__opts__, 0)
       end)
 

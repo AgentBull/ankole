@@ -1,7 +1,6 @@
 defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   alias Ankole.AIGateway.ResponseCommit
   alias Ankole.AIGateway.ResponseChain
-  alias Ankole.AIGateway.CompactionPolicy
   use Ankole.DataCase, async: false
 
   import ExUnit.CaptureLog
@@ -10,8 +9,6 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     only: [start_upstream_server: 1, chat_completion_stream_events: 2, start_response_run: 1]
 
   import Ankole.PrincipalsFixtures
-
-  alias Ankole.AIGateway.Conversations
 
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.Events
@@ -433,7 +430,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-implicit-admission-conflict")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "socket-implicit-admission-conflict")
 
     {:ok, root} =
       start_response_run(%{
@@ -1504,7 +1501,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-native-read-credit")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "socket-native-read-credit")
 
     signal =
       signal_fixture(agent.uid, conversation.conversation_key, "socket-native-read-credit")
@@ -1587,7 +1584,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-issuer-change")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "socket-issuer-change")
 
     {:ok, root} =
       start_response_run(%{
@@ -2646,7 +2643,10 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-conversation-without-actor-event")
+      Ankole.AIGatewayCase.ensure_conversation(
+        agent.uid,
+        "socket-conversation-without-actor-event"
+      )
 
     request =
       Ankole.JSON.encode!(%{
@@ -2697,7 +2697,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-duplicate-actor-event")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "socket-duplicate-actor-event")
 
     signal =
       signal_fixture(agent.uid, conversation.conversation_key, "socket-duplicate-event")
@@ -2873,7 +2873,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-upstream-429")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "socket-upstream-429")
 
     signal =
       signal_fixture(agent.uid, conversation.conversation_key, "socket-event-upstream-429")
@@ -2980,7 +2980,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
              })
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-upstream-large-503")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "socket-upstream-large-503")
 
     signal =
       signal_fixture(
@@ -3062,7 +3062,7 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
     %{principal: agent} = agent_fixture()
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "socket-test-#{session_suffix}")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "socket-test-#{session_suffix}")
 
     signal =
       signal_fixture(
@@ -3377,10 +3377,16 @@ defmodule AnkoleWeb.AIGatewayResponsesSocketTest do
   end
 
   defp with_compaction_config(config) do
-    assert {:ok, _config} = CompactionPolicy.put_config(Map.new(config))
+    assert {:ok, _config} =
+             Ankole.AppConfigure.put_global(
+               Ankole.AIGateway.CompactionPolicy.config_definition(),
+               Map.new(config)
+             )
 
     on_exit(fn ->
-      _result = CompactionPolicy.delete_config()
+      _result =
+        Ankole.AppConfigure.delete_global(Ankole.AIGateway.CompactionPolicy.config_definition())
+
       :ok
     end)
   end

@@ -61,8 +61,15 @@ export type PodViewUpdate = PodViewWrite & {
  * PodPageMove
  */
 export type PodPageMove = {
+  /**
+   * Place the page after this sibling in the destination.
+   */
+  after_id?: string
+  /**
+   * Place the page before this sibling in the destination.
+   */
+  before_id?: string
   parent_id?: string | null
-  position?: string
   private_owner_uid?: string | null
 }
 
@@ -92,9 +99,16 @@ export type JsonValue = unknown
  * BrowserSession
  */
 export type BrowserSession = {
+  accounts?: Array<BrowserAccount>
   authenticated: boolean
+  /**
+   * Present only for a site administrator.
+   */
+  consoleURL?: string | null
+  displayName?: string
   principalUID?: string
   providerID?: string | null
+  tenant?: BrowserTenant
 }
 
 /**
@@ -478,16 +492,7 @@ export type PodActivityItem = {
  */
 export type PodSharing = {
   grants: Array<PodGrant>
-  groups: Array<{
-    id: string
-    name: string
-  }>
   inherit_permissions: boolean
-  members: Array<{
-    display_name: string
-    type: 'human' | 'agent' | 'system'
-    uid: string
-  }>
   sharing_version: string
   subjects: Array<PodSubject>
 }
@@ -952,6 +957,13 @@ export type SetupPlugins = {
 }
 
 /**
+ * BrowserAccountActivated
+ */
+export type BrowserAccountActivated = {
+  podURL: string
+}
+
+/**
  * SetupBrainPackSelection
  */
 export type SetupBrainPackSelection = {
@@ -1065,10 +1077,23 @@ export type PodTableSchema = {
     text_contains_ascii: boolean
   }
   mode: 'local' | 'remote'
-  readonly_field_ids: Array<string>
   table: PodTable
   timezone: string
   views: Array<PodView>
+}
+
+/**
+ * BrowserAccount
+ *
+ * A Pod identity that this browser has proved.
+ */
+export type BrowserAccount = {
+  authenticationRef: string
+  displayName: string
+  podURL: string
+  principalUID: string
+  providerID: string | null
+  tenant: BrowserTenant
 }
 
 /**
@@ -1084,6 +1109,13 @@ export type PodErrorEnvelope = {
  */
 export type PodViewResult = {
   view: PodView
+}
+
+/**
+ * BrowserAccountActivation
+ */
+export type BrowserAccountActivation = {
+  authenticationRef: string
 }
 
 /**
@@ -1121,6 +1153,15 @@ export type PodFilter = {
 export type PodModelProfile = {
   description: string
   name: string
+}
+
+/**
+ * BrowserTenant
+ */
+export type BrowserTenant = {
+  displayName: string
+  id: string
+  slug: string
 }
 
 /**
@@ -1230,7 +1271,6 @@ export type PodRecord = {
   data: {
     [key: string]: Value
   }
-  external_id: string | null
   id: string
   updated_at: string
   updated_by: string
@@ -1276,15 +1316,6 @@ export type SignalAdapterJsonObjectValidation = {
   requiredStringProperties?: Array<string>
   stringPrefixes?: {
     [key: string]: string
-  }
-}
-
-/**
- * PodPageVersions
- */
-export type PodPageVersions = {
-  versions: {
-    [key: string]: number
   }
 }
 
@@ -1472,6 +1503,34 @@ export type UpdateSetupPluginsResponses = {
 }
 
 export type UpdateSetupPluginsResponse = UpdateSetupPluginsResponses[keyof UpdateSetupPluginsResponses]
+
+export type ActivateBrowserAccountData = {
+  /**
+   * Account
+   */
+  body?: BrowserAccountActivation
+  path?: never
+  query?: never
+  url: '/.internal-apis/sessions/active'
+}
+
+export type ActivateBrowserAccountErrors = {
+  /**
+   * Error
+   */
+  default: InternalError
+}
+
+export type ActivateBrowserAccountError = ActivateBrowserAccountErrors[keyof ActivateBrowserAccountErrors]
+
+export type ActivateBrowserAccountResponses = {
+  /**
+   * Activated
+   */
+  200: BrowserAccountActivated
+}
+
+export type ActivateBrowserAccountResponse = ActivateBrowserAccountResponses[keyof ActivateBrowserAccountResponses]
 
 export type PodPageListData = {
   body?: never
@@ -1908,53 +1967,6 @@ export type PodConversationEventsResponses = {
 }
 
 export type PodConversationEventsResponse = PodConversationEventsResponses[keyof PodConversationEventsResponses]
-
-export type PodPageVersionsData = {
-  body?: never
-  path?: never
-  query?: {
-    ids?: Array<string>
-  }
-  url: '/.internal-apis/pod/page-versions'
-}
-
-export type PodPageVersionsErrors = {
-  /**
-   * Error
-   */
-  401: PodErrorEnvelope
-  /**
-   * Error
-   */
-  403: PodErrorEnvelope
-  /**
-   * Error
-   */
-  404: PodErrorEnvelope
-  /**
-   * Error
-   */
-  409: PodErrorEnvelope
-  /**
-   * Error
-   */
-  413: PodErrorEnvelope
-  /**
-   * Error
-   */
-  422: PodErrorEnvelope
-}
-
-export type PodPageVersionsError = PodPageVersionsErrors[keyof PodPageVersionsErrors]
-
-export type PodPageVersionsResponses = {
-  /**
-   * Success
-   */
-  200: PodPageVersions
-}
-
-export type PodPageVersionsResponse = PodPageVersionsResponses[keyof PodPageVersionsResponses]
 
 export type PodDatabaseSchemaData = {
   body?: never

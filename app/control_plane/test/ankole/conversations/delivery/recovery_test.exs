@@ -30,7 +30,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, unknown_seed} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "started-unknown",
@@ -79,7 +79,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
              )
 
       assert {:ok, reconcile_seed} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "started-reconcile",
@@ -134,7 +134,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, seed} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "generic-unknown",
@@ -178,7 +178,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, seed} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "started-invalid-reconcile",
@@ -228,7 +228,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "late-send-error",
@@ -309,7 +309,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, seed} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "late-reconcile-unknown",
@@ -412,7 +412,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, stale_seed} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "stale-sending",
@@ -439,7 +439,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
       schedule_recovery(sending)
 
       assert {:ok, fresh_seed} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "fresh-sending",
@@ -489,7 +489,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "post-retry",
@@ -550,7 +550,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "durable-retry",
@@ -649,7 +649,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "durable-unknown",
@@ -753,7 +753,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "durable-unknown-manual",
@@ -819,7 +819,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "durable-unknown-empty",
@@ -868,7 +868,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "durable-permanent",
@@ -911,7 +911,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "missing-attachment",
@@ -956,7 +956,7 @@ defmodule Ankole.Conversations.Delivery.RecoveryTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "durable-blocked",

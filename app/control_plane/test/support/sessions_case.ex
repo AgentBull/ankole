@@ -8,8 +8,6 @@ defmodule Ankole.SessionsCase do
   import Ecto.Query, warn: false
   import Ankole.SignalsFixtures, only: [delivery_adapter: 2]
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.AIGatewayCase
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ModelMetadata
@@ -34,6 +32,18 @@ defmodule Ankole.SessionsCase do
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Message, as: ConversationMessage
   alias Ankole.Conversations.ExternalMessageRef
+
+  def ensure_workspace(agent_uid, session_id) do
+    Repo.transact(fn repo ->
+      Ankole.Sessions.Workspaces.ensure_in_tx(repo, agent_uid, session_id)
+    end)
+  end
+
+  def effective_worker_env(agent_uid, opts \\ []) do
+    with {:ok, %{operator: operator, binding: binding}} <-
+           Ankole.AgentWorkers.WorkerEnv.effective_env_parts(agent_uid, opts),
+         do: {:ok, Map.merge(operator, binding)}
+  end
 
   using do
     quote do
@@ -98,7 +108,24 @@ defmodule Ankole.SessionsCase do
 
   @doc "Registers a passive Driver boundary fake for a domain unit test."
   def stub_driver(key, owner \\ self()) do
-    pid = spawn(fn -> stub_driver_loop(owner, Process.monitor(owner)) end)
+    caller = self()
+    ready = make_ref()
+
+    pid =
+      spawn(
+        Ankole.Repo.bind_tenant(fn ->
+          :ok = Ankole.Sessions.Events.subscribe_input(key.agent_uid, key.session_id)
+          send(caller, ready)
+          stub_driver_loop(owner, Process.monitor(owner))
+        end)
+      )
+
+    receive do
+      ^ready -> :ok
+    after
+      5_000 -> raise "Driver boundary fake did not subscribe"
+    end
+
     :yes = :global.register_name(Ankole.Sessions.driver_name(key), pid)
     pid
   end
@@ -639,7 +666,7 @@ defmodule Ankole.SessionsCase do
     signal_id = turn_ref.signal_id
     request_items = Keyword.get(opts, :request_items, [])
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent_uid, session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent_uid, session_id)
 
     {:ok, run} =
       AIGatewayCase.start_response_run(%{

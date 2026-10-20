@@ -22,7 +22,7 @@ import {
   setDirection
 } from '../command'
 import { findClusterBreak } from '@marijn/find-cluster-break'
-import { Wordgard } from './editor'
+import type { Wordgard } from './editor'
 import { rangeForClick } from './selection'
 import browser from './browser'
 import { getSelection, scrollableParents, DOMNode, textNodeBefore, textNodeAfter, domIndex } from './dom'

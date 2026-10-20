@@ -39,7 +39,6 @@ can differ between DingTalk releases.
 | `thought` | Markdown, collapsed section | Transient reasoning draft while the turn is working. Streamed on its own key; always blanked at terminal/refresh. Place it in a folded area. |
 | `plan` | text | `执行计划 · completed/total` header, then one `- [ ] item` line per entry |
 | `activity` | text, collapsed section | Running tool activity, one `- … label` line per entry; blanked at terminal |
-| `results` | text | One `- title` line per structured result |
 | `receipts` | text | One `- ✅ summary（scope）` line per side-effect receipt |
 | `actions` | **JSON string** | Interactive controls for the action area (below); empty string when none |
 | `meta` | text | Curated metadata joined with ` · `: why the turn was triggered, the card's place in the chain, recalled-memory and attachment counts, elapsed time |

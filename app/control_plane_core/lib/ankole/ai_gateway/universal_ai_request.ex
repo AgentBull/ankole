@@ -1,0 +1,601 @@
+defmodule Ankole.AIGateway.UniversalAIRequest do
+  @moduledoc """
+  Thin execution adapter from AIGateway to the kernel UniversalAIClient.
+
+  Provider modules prepare the UniversalAIClient spec. This module only executes
+  it. ResponseStream owns the native ready boundary and receives JSON events.
+  """
+
+  alias Ankole.AIGateway.ProviderFailure
+  alias Ankole.AIGateway.RequestContext
+  alias Ankole.Kernel.UniversalAIClient
+
+  @default_timeout_ms 60_000
+  @model_request_timeout_ms 30 * 60 * 1_000
+  @receive_grace_ms 1_000
+  @raw_timeout_ms 15_000
+
+  @enforce_keys [:ctx, :path, :api_resolver]
+  defstruct [
+    :ctx,
+    :path,
+    :api_resolver,
+    method: "POST",
+    upstream: nil,
+    headers: [],
+    provider_options: nil,
+    include_model: true
+  ]
+
+  @typedoc """
+  Provider-owned builder that can be converted into a UniversalAIClient spec.
+  """
+  @type t :: %__MODULE__{
+          ctx: map(),
+          path: binary(),
+          api_resolver: atom(),
+          method: binary(),
+          upstream: atom() | nil,
+          headers: [{binary(), binary()}],
+          provider_options: map() | nil,
+          include_model: boolean()
+        }
+
+  @doc """
+  Returns the first-byte and idle budget of one model request, in milliseconds.
+  """
+  @spec model_request_timeout_ms() :: pos_integer()
+  def model_request_timeout_ms, do: @model_request_timeout_ms
+
+  @doc """
+  Builds a provider-owned request builder for one upstream endpoint.
+
+  Provider modules use this helper to state only the endpoint, upstream shape,
+  headers, and Rust API resolver. The provider does not build a provider body
+  here; UniversalAIClient derives the upstream payload from the original public
+  request and selected resolver.
+  """
+  @spec new(map(), binary(), atom(), keyword()) :: t()
+  def new(ctx, path, api_resolver, opts \\ [])
+      when is_map(ctx) and is_binary(path) and is_atom(api_resolver) do
+    %__MODULE__{
+      ctx: ctx,
+      path: path,
+      api_resolver: api_resolver,
+      method: Keyword.get(opts, :method, "POST"),
+      upstream: Keyword.get(opts, :upstream, capability_upstream(ctx)),
+      headers: setting(ctx, :headers) |> normalize_headers(),
+      include_model: Keyword.get(opts, :include_model, true)
+    }
+  end
+
+  @doc """
+  Converts the builder into the spec consumed by `UniversalAIClient`.
+
+  The resulting spec is intentionally a prepared upstream request. Rust receives
+  URL, method, headers, timeouts, proxy setting, and response context;
+  it does not look back into provider DSL or construct provider-specific auth.
+  """
+  @spec to_spec(t()) :: {:ok, map()} | {:error, term()}
+  def to_spec(%__MODULE__{} = request) do
+    with {:ok, url} <- request_url(request.ctx, request.path, request.upstream) do
+      upstream =
+        %{
+          kind: kernel_upstream_kind(request.upstream),
+          method: request.method,
+          url: url,
+          headers: request.headers,
+          timeout: timeout(request.ctx),
+          transport: setting(request.ctx, :transport) || %{}
+        }
+        |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+      {:ok,
+       %{
+         api_resolver: request.api_resolver,
+         upstream: upstream,
+         response_context:
+           response_context(
+             request.ctx,
+             request.include_model,
+             request.provider_options
+           )
+       }}
+    end
+  end
+
+  @doc """
+  Overrides request-scoped provider options sent to UniversalAIClient.
+
+  Provider modules use this after translating public options into the exact
+  provider-native fields that Rust should merge into the upstream body.
+  """
+  @spec put_provider_options(t(), map()) :: t()
+  def put_provider_options(%__MODULE__{} = request, provider_options)
+      when is_map(provider_options) do
+    %{request | provider_options: provider_options}
+  end
+
+  @doc """
+  Adds or replaces a header while preserving ordered header output.
+
+  `nil` and blank values are no-ops so provider prepare code can compose auth
+  and optional headers without repeating guard code for every optional setting.
+  Provider modules still own semantic validation for required options.
+  """
+  @spec put_header(t() | [{binary(), binary()}], binary(), term()) ::
+          t() | [{binary(), binary()}]
+  def put_header(%__MODULE__{} = request, name, value) do
+    %{request | headers: put_header(request.headers, name, value)}
+  end
+
+  def put_header(headers, _name, nil) when is_list(headers), do: headers
+  def put_header(headers, _name, "") when is_list(headers), do: headers
+
+  def put_header(headers, name, value) when is_list(headers) and is_binary(name) do
+    normalized = String.downcase(name)
+
+    headers =
+      Enum.reject(headers, fn {header, _value} -> String.downcase(header) == normalized end)
+
+    headers ++ [{name, to_string(value)}]
+  end
+
+  @doc """
+  Adds a header only when one with the same case-insensitive name is absent.
+
+  This is useful for provider defaults such as attribution headers: operator or
+  runtime headers can intentionally override them before the provider helper is
+  applied.
+  """
+  @spec put_new_header(t() | [{binary(), binary()}], binary(), term()) ::
+          t() | [{binary(), binary()}]
+  def put_new_header(%__MODULE__{} = request, name, value) do
+    %{request | headers: put_new_header(request.headers, name, value)}
+  end
+
+  def put_new_header(headers, _name, nil) when is_list(headers), do: headers
+  def put_new_header(headers, _name, "") when is_list(headers), do: headers
+
+  def put_new_header(headers, name, value) when is_list(headers) and is_binary(name) do
+    normalized = String.downcase(name)
+
+    case Enum.any?(headers, fn {header, _value} -> String.downcase(header) == normalized end) do
+      true -> headers
+      false -> headers ++ [{name, to_string(value)}]
+    end
+  end
+
+  @doc """
+  Adds a header from a setting only when that header is not already present.
+  """
+  @spec put_new_setting_header(t(), binary(), atom()) :: t()
+  def put_new_setting_header(%__MODULE__{} = request, name, key),
+    do: put_new_header(request, name, setting(request.ctx, key))
+
+  @doc """
+  Adds the caller's identity headers, when the caller sent any.
+
+  The upstream decides what to do with them; AIGateway only stops them from
+  being dropped at the Provider boundary.
+  """
+  @spec put_client_identity_headers(t(), map()) :: t()
+  def put_client_identity_headers(%__MODULE__{} = request, ctx) when is_map(ctx) do
+    ctx
+    |> Map.get(:request_context, %{})
+    |> RequestContext.client_identity_headers()
+    |> Enum.reduce(request, fn {name, value}, request -> put_header(request, name, value) end)
+  end
+
+  @doc """
+  Adds a standard bearer `Authorization` header.
+
+  Passing an atom reads that setting from the context. Passing a binary lets
+  metadata helpers reuse the same header helper after they have
+  already selected a credential value.
+  """
+  @spec bearer_auth(t() | [{binary(), binary()}], atom() | binary() | nil) ::
+          t() | [{binary(), binary()}]
+  def bearer_auth(request_or_headers, credential_or_key \\ :api_key)
+
+  def bearer_auth(%__MODULE__{} = request, key) when is_atom(key) do
+    put_header(request, "authorization", bearer_value(setting(request.ctx, key)))
+  end
+
+  def bearer_auth(%__MODULE__{} = request, credential),
+    do: put_header(request, "authorization", bearer_value(credential))
+
+  def bearer_auth(headers, credential) when is_list(headers),
+    do: put_header(headers, "authorization", bearer_value(credential))
+
+  @doc """
+  Adds a provider-specific API-key header.
+
+  This covers providers such as Anthropic and Azure OpenAI where the credential
+  is not represented as a bearer token.
+  """
+  @spec api_key_header(t() | [{binary(), binary()}], binary(), atom() | binary() | nil) ::
+          t() | [{binary(), binary()}]
+  def api_key_header(request_or_headers, name, credential_or_key \\ :api_key)
+
+  def api_key_header(%__MODULE__{} = request, name, key) when is_atom(key) do
+    put_header(request, name, setting(request.ctx, key))
+  end
+
+  def api_key_header(%__MODULE__{} = request, name, credential),
+    do: put_header(request, name, credential)
+
+  def api_key_header(headers, name, credential) when is_list(headers),
+    do: put_header(headers, name, credential)
+
+  @doc """
+  Reads a provider setting from a `%PrepareContext{}` or map-like metadata context.
+  """
+  @spec setting(map(), atom(), term()) :: term()
+  def setting(ctx, key, default \\ nil) when is_atom(key) do
+    settings = ctx_settings(ctx)
+    Map.get(settings, key, default)
+  end
+
+  @doc """
+  Returns normalized headers for raw provider helper calls.
+
+  Raw calls, such as metadata catalog endpoints, are still executed through the native
+  UniversalAIClient HTTP path. This helper only applies the same operator
+  headers that a model request would see.
+  """
+  @spec raw_headers(map()) :: [{binary(), binary()}]
+  def raw_headers(ctx) when is_map(ctx) do
+    ctx
+    |> raw_connection()
+    |> Map.get("headers", %{})
+    |> normalize_headers()
+  end
+
+  @doc """
+  Performs a raw GET through UniversalAIClient for provider-owned helper APIs.
+
+  Metadata catalog calls use this path. Tests may inject an `http_client`
+  function so they can validate provider URL/header construction without
+  opening real network connections.
+  """
+  @spec raw_get(map(), binary(), keyword()) :: {:ok, map()} | {:error, term()}
+  def raw_get(ctx, path_or_url, opts \\ []) when is_map(ctx) and is_binary(path_or_url) do
+    with {:ok, url} <- raw_url(ctx, path_or_url) do
+      request = %{
+        url: url,
+        headers: Keyword.get(opts, :headers, raw_headers(ctx)),
+        timeout: raw_timeout(ctx),
+        transport: raw_transport(ctx)
+      }
+
+      case Keyword.get(opts, :http_client) || map_get(ctx, :http_client) do
+        http_client when is_function(http_client, 1) ->
+          http_client.(Map.put(request, :timeout_ms, raw_timeout_ms(ctx)))
+
+        http_client when is_function(http_client, 3) ->
+          http_client.(request.url, request.headers, raw_timeout_ms(ctx))
+
+        nil ->
+          UniversalAIClient.raw_get(request)
+      end
+    end
+  end
+
+  @doc """
+  Executes a non-streaming model request through the native UniversalAIClient.
+
+  This keeps streaming and non-streaming calls on the same prepared request
+  contract, connection pool, compression handling, and Rust API resolvers.
+  """
+  @spec request(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def request(spec, opts \\ [])
+
+  def request(%__MODULE__{} = request, opts) do
+    with {:ok, spec} <- to_spec(request) do
+      request(spec, opts)
+    end
+  end
+
+  def request(spec, _opts) when is_map(spec) do
+    with {:ok, response} <- UniversalAIClient.model_request(spec) do
+      normalize_response(response)
+    else
+      {:error, reason} -> {:error, ProviderFailure.from_native(reason)}
+    end
+  end
+
+  def request(_spec, _opts), do: {:error, :invalid_universal_ai_request}
+
+  @doc """
+  Starts a native stream without waiting for the upstream ready boundary.
+
+  The selected receiver owns all native stream messages. This function only
+  validates and starts the native request, so a GenServer can keep its mailbox
+  responsive while the provider connects.
+  """
+  @spec start_stream(map() | t(), receiver: pid()) ::
+          {:ok, UniversalAIClient.stream()} | {:error, term()}
+  def start_stream(spec, opts \\ [])
+
+  def start_stream(%__MODULE__{} = request, opts) do
+    with {:ok, spec} <- to_spec(request) do
+      start_stream(spec, opts)
+    end
+  end
+
+  def start_stream(spec, opts)
+      when is_map(spec) and is_list(opts) do
+    receiver = Keyword.get(opts, :receiver, self())
+
+    if is_pid(receiver) do
+      UniversalAIClient.open(spec, receiver: receiver)
+      |> case do
+        {:ok, stream} -> {:ok, stream}
+        {:error, reason} -> {:error, normalize_stream_error(reason)}
+      end
+    else
+      {:error, :invalid_universal_ai_stream_receiver}
+    end
+  end
+
+  def start_stream(_spec, _opts),
+    do: {:error, :invalid_universal_ai_stream_request}
+
+  # Stream requests use the same logical endpoint as HTTP requests, but
+  # WebSocket upstreams need the URL scheme converted after base URL and query
+  # parameters are resolved.
+  defp request_url(ctx, path, upstream) do
+    with {:ok, url} <- raw_url(ctx, path) do
+      {:ok, websocket_url(url, upstream)}
+    end
+  end
+
+  defp raw_url(_ctx, "https://" <> _rest = url), do: {:ok, url}
+  defp raw_url(_ctx, "http://" <> _rest = url), do: {:ok, url}
+
+  # Absolute URLs let providers call native helper APIs outside their
+  # OpenAI-compatible base URL, such as Google AI Studio's native embeddings and
+  # metadata catalog endpoints.
+  defp raw_url(ctx, path) do
+    case setting(ctx, :base_url) || Map.get(raw_connection(ctx), "base_url") do
+      base_url when is_binary(base_url) and base_url != "" ->
+        url =
+          "#{String.trim_trailing(base_url, "/")}/#{String.trim_leading(path, "/")}"
+          |> append_query_params(setting(ctx, :query_params))
+
+        {:ok, url}
+
+      _base_url ->
+        {:error, :missing_base_url}
+    end
+  end
+
+  # Rust derives the upstream request and normalized response fields from this
+  # projection. Keep the public request separate from provider-native options
+  # so the resolver can filter public control fields without dropping an
+  # explicitly configured provider value with the same wire name.
+  defp response_context(ctx, include_model?, provider_options_override) do
+    model = map_get(ctx, :model) || ""
+
+    %{
+      model: model,
+      request:
+        put_reasoning_source(
+          map_get(ctx, :request) || %{},
+          ctx |> map_get(:provider) |> map_get(:provider_kind),
+          model
+        ),
+      provider_options: provider_options_override || map_get(ctx, :provider_options) || %{},
+      stream: map_get(ctx, :stream?) || false,
+      include_model: include_model?
+    }
+  end
+
+  defp put_reasoning_source(request, provider_type, model_id)
+       when is_map(request) and is_binary(provider_type) and provider_type != "" and
+              is_binary(model_id) and model_id != "" do
+    Map.put(request, "__ankole_reasoning_source", %{
+      "provider_type" => provider_type,
+      "model_id" => model_id
+    })
+  end
+
+  defp put_reasoning_source(request, _provider_type, _model_id), do: request
+
+  defp ctx_settings(%{settings: settings}) when is_map(settings), do: settings
+  defp ctx_settings(%{"settings" => settings}) when is_map(settings), do: atomize_keys(settings)
+
+  defp ctx_settings(ctx) when is_map(ctx) do
+    ctx
+    |> raw_connection()
+    |> atomize_keys()
+  end
+
+  defp capability_upstream(%{capability: %{upstream: upstream}}), do: upstream
+  defp capability_upstream(%{"capability" => %{"upstream" => upstream}}), do: upstream
+  defp capability_upstream(_ctx), do: nil
+
+  defp timeout(ctx) do
+    case capability_timeout_ms(ctx) do
+      nil -> default_timeout(ctx)
+      timeout_ms -> capability_timeout(ctx, timeout_ms)
+    end
+  end
+
+  defp default_timeout(ctx) do
+    case map_get(ctx, :stream?) do
+      true ->
+        %{
+          connect_ms: @default_timeout_ms,
+          first_byte_ms: @model_request_timeout_ms,
+          idle_ms: @model_request_timeout_ms,
+          total_ms: nil
+        }
+
+      _stream? ->
+        %{
+          connect_ms: @default_timeout_ms,
+          first_byte_ms: @model_request_timeout_ms,
+          idle_ms: @model_request_timeout_ms,
+          total_ms: @model_request_timeout_ms
+        }
+    end
+  end
+
+  defp capability_timeout(ctx, timeout_ms) do
+    %{
+      connect_ms: timeout_ms,
+      first_byte_ms: timeout_ms,
+      idle_ms: timeout_ms,
+      total_ms: total_timeout_ms(ctx, timeout_ms)
+    }
+  end
+
+  defp capability_timeout_ms(%{capability: %{timeout_ms: timeout_ms}}), do: timeout_ms
+  defp capability_timeout_ms(%{"capability" => %{"timeout_ms" => timeout_ms}}), do: timeout_ms
+  defp capability_timeout_ms(_ctx), do: nil
+
+  # Model streams intentionally have no total timeout. Streaming and
+  # non-streaming model calls share a wide first-byte/idle budget for
+  # high-thinking models; non-streaming calls also need a total cap because the
+  # response body is collected before it reaches the worker.
+  defp total_timeout_ms(ctx, timeout_ms) do
+    case map_get(ctx, :stream?) do
+      true -> nil
+      _stream? -> timeout_ms
+    end
+  end
+
+  # Raw helper calls are bounded by a total timeout because they are operator
+  # checks or catalog calls, not long-running model streams.
+  defp raw_timeout(ctx) do
+    timeout_ms = raw_timeout_ms(ctx)
+
+    %{
+      connect_ms: timeout_ms,
+      first_byte_ms: timeout_ms,
+      idle_ms: timeout_ms,
+      total_ms: timeout_ms
+    }
+  end
+
+  defp raw_timeout_ms(ctx), do: map_get(ctx, :timeout_ms) || @raw_timeout_ms
+
+  defp raw_transport(ctx), do: Map.get(raw_connection(ctx), "transport", %{})
+  defp raw_connection(ctx), do: map_get(ctx, :connection) || %{}
+
+  defp normalize_headers(headers) when is_map(headers) do
+    Enum.map(headers, fn {name, value} -> {to_string(name), to_string(value)} end)
+  end
+
+  defp normalize_headers(headers) when is_list(headers) do
+    Enum.map(headers, fn {name, value} -> {to_string(name), to_string(value)} end)
+  end
+
+  defp normalize_headers(_headers), do: []
+
+  # Non-streaming JSON requests omit the stream wire kind. The native
+  # `model_request` still uses the API resolver, but it does not need
+  # SSE/EventStream/WebSocket framing metadata.
+  defp kernel_upstream_kind(:sse), do: :http_sse
+  defp kernel_upstream_kind(:eventstream), do: :http_eventstream
+  defp kernel_upstream_kind(:websocket_text), do: :websocket_text
+  defp kernel_upstream_kind(:json), do: nil
+  defp kernel_upstream_kind(nil), do: nil
+
+  # OpenAI websocket mode is configured as an upstream transport choice; provider
+  # code should not have to duplicate ws/wss URL construction.
+  defp websocket_url("https://" <> rest, :websocket_text), do: "wss://" <> rest
+  defp websocket_url("http://" <> rest, :websocket_text), do: "ws://" <> rest
+  defp websocket_url(url, _upstream), do: url
+
+  defp append_query_params(url, params) when is_map(params) and map_size(params) > 0 do
+    separator = if String.contains?(url, "?"), do: "&", else: "?"
+    url <> separator <> URI.encode_query(params)
+  end
+
+  defp append_query_params(url, _params), do: url
+
+  defp bearer_value(nil), do: nil
+  defp bearer_value(""), do: nil
+
+  defp bearer_value(credential) when is_binary(credential) do
+    "Bearer #{String.replace_prefix(credential, "Bearer ", "")}"
+  end
+
+  defp bearer_value(_credential), do: nil
+
+  defp atomize_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_binary(key) -> {String.to_atom(key), value}
+      {key, value} -> {key, value}
+    end)
+  end
+
+  defp atomize_keys(_value), do: %{}
+
+  defp map_get(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp map_get(_value, _key), do: nil
+
+  defp normalize_response(%{"status" => status, "body" => body} = response)
+       when is_integer(status) do
+    {:ok,
+     %{
+       status: status,
+       body: body,
+       headers: Map.get(response, "headers", []),
+       hosted_tool_metadata: Map.get(response, "hosted_tool_metadata")
+     }}
+  end
+
+  defp normalize_response(response), do: {:error, {:invalid_universal_ai_response, response}}
+
+  @doc """
+  Returns the maximum wait for the native ready message.
+
+  Ready means that the provider supplied the first response headers or bytes,
+  so only the first-byte limit and a smaller total limit constrain this wait.
+  The idle limit applies after ready and must not extend the ready wait.
+  """
+  @spec ready_timeout_ms(map()) :: pos_integer()
+  def ready_timeout_ms(spec) when is_map(spec) do
+    timeout = get_in_any(spec, [:upstream, :timeout])
+    first_byte_ms = positive_timeout(timeout, :first_byte_ms) || @default_timeout_ms
+    total_ms = positive_timeout(timeout, :total_ms)
+
+    min_timeout(first_byte_ms, total_ms) + @receive_grace_ms
+  end
+
+  def ready_timeout_ms(_spec), do: @default_timeout_ms + @receive_grace_ms
+
+  defp positive_timeout(timeout, key) when is_map(timeout) do
+    case Map.get(timeout, key) || Map.get(timeout, Atom.to_string(key)) do
+      value when is_integer(value) and value > 0 -> value
+      _value -> nil
+    end
+  end
+
+  defp positive_timeout(_timeout, _key), do: nil
+
+  defp min_timeout(first_byte_ms, nil), do: first_byte_ms
+  defp min_timeout(first_byte_ms, total_ms), do: min(first_byte_ms, total_ms)
+
+  defp get_in_any(map, []), do: map
+
+  defp get_in_any(map, [key | rest]) when is_map(map) do
+    value = Map.get(map, key) || Map.get(map, Atom.to_string(key))
+    get_in_any(value, rest)
+  end
+
+  defp get_in_any(_value, _path), do: nil
+
+  @doc """
+  Normalizes one native stream error into the AIGateway error vocabulary.
+  """
+  @spec normalize_stream_error(term()) :: term()
+  def normalize_stream_error(reason), do: ProviderFailure.from_native(reason)
+end

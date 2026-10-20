@@ -1,41 +1,7 @@
+import { state, request } from './fixtures'
 import { pageRoute, conversationRoute, uuidShorten } from './routes'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Dialog, type Page, type Route } from '@playwright/test'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  tenant_id: string
-  report_id: string
-  database_id: string
-  recovery_conversation_id: string
-  owner: { uid: string; cookies: Parameters<BrowserContext['addCookies']>[0] }
-  member: { uid: string; cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
-
-async function request<T>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const authentication = document.querySelector<HTMLMetaElement>('meta[name="ankole-authentication"]')?.content
-      const tenant = document.querySelector<HTMLMetaElement>('meta[name="ankole-pod"]')?.content
-      const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          ...(authentication ? { 'x-ankole-authentication': authentication } : {}),
-          ...(tenant ? { 'x-ankole-pod': tenant } : {}),
-          ...(csrf ? { 'x-csrf-token': csrf } : {})
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`Pod ${method} ${path}: ${response.status} ${await response.text()}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
-}
+import { writeFileSync } from 'node:fs'
+import { expect, test, type Dialog, type Route } from '@playwright/test'
 
 for (const width of [1440, 390]) {
   test(`a new standalone chat keeps its prompt beside the title at ${width}px`, async ({ browser }) => {

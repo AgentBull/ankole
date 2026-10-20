@@ -168,15 +168,13 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
   defp field(path, label, description, type, opts) do
     {zh_label, zh_description} = Map.fetch!(@zh_fields, path)
 
-    opts
-    |> Map.new()
-    |> Map.put_new(:advanced, false)
-    |> Map.merge(%{
-      path: path,
-      label: %{"default" => label, "zh-Hans-CN" => zh_label},
-      description: %{"default" => description, "zh-Hans-CN" => zh_description},
-      type: Atom.to_string(type)
-    })
+    Ankole.Plugins.Spec.field(
+      path,
+      %{"default" => label, "zh-Hans-CN" => zh_label},
+      %{"default" => description, "zh-Hans-CN" => zh_description},
+      type,
+      opts
+    )
   end
 
   defp required_when(path, value), do: %{path: path, value: value}
@@ -188,4 +186,7 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter do
       message: %{"default" => message, "zh-Hans-CN" => zh_message}
     }
   end
+
+  @impl true
+  def children, do: [GoogleOpenAPI.Supervisor]
 end

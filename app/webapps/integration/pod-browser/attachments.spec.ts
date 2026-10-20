@@ -1,13 +1,9 @@
+import { state, request as podRequest } from './fixtures'
 import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page, type Request } from '@playwright/test'
+import { expect, test, type Page, type Request } from '@playwright/test'
 import { conversationRoute, pageRoute } from './routes'
 import type { ConversationDetail } from '../../common/api/generated/types.gen'
 
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  report_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
 const imageBytes = readFileSync(
   new URL('../../../control_plane/test/fixtures/sessions/rgba.png', import.meta.url)
 ).toString('base64')
@@ -19,26 +15,7 @@ function fileLabel(action: string, name: string): RegExp {
 }
 
 async function request(page: Page, path: string, method = 'GET', body?: unknown): Promise<ConversationDetail> {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content ?? ''
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication'),
-          'x-ankole-pod': meta('ankole-pod'),
-          'x-csrf-token': meta('csrf-token')
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`Attachment test ${method} ${path}: ${response.status}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
+  return podRequest(page, path, method, body)
 }
 
 async function removeConversation(page: Page, id: string | undefined) {
@@ -80,12 +57,13 @@ test('file preparation and an uncertain send retain stable identities through pa
     const composer = panel.locator('.pod-chat-composer')
     await page.route('**/.internal-apis/pod/attachments', async route => {
       uploadIDs.push(uploadID(route.request()))
-      if (uploadIDs.length === 1)
+      if (uploadIDs.length === 1) {
         return route.fulfill({
           status: 503,
           contentType: 'application/json',
           body: JSON.stringify({ error: { code: 'upload_unavailable', message: 'Upload unavailable' } })
         })
+      }
       started.resolve()
       await gate.promise
       await route.continue()
@@ -111,12 +89,13 @@ test('file preparation and an uncertain send retain stable identities through pa
       messageIDs.push(body.messageID)
       const response = await route.fetch()
       id = (await response.json()).conversation.id
-      if (messageIDs.length === 1)
+      if (messageIDs.length === 1) {
         return route.fulfill({
           status: 503,
           contentType: 'application/json',
           body: JSON.stringify({ error: { code: 'message_unavailable', message: 'Message unavailable' } })
         })
+      }
       await route.fulfill({ response })
     })
     await composer.getByRole('button', { name: '发送消息', exact: true }).click()
@@ -155,7 +134,7 @@ test('paste previews a real image, removal clears it, and dropping a file sends 
   try {
     await page.goto('/')
     const composer = page.locator('.pod-chat-composer')
-    await expect(composer.getByRole('textbox', { name: '消息', exact: true })).toBeVisible()
+    await expect(composer.getByRole('textbox', { name: '消息', exact: true })).toBeEditable()
     await composer.evaluate((element, base64) => {
       const bytes = Uint8Array.from(atob(base64), value => value.charCodeAt(0))
       const transfer = new DataTransfer()

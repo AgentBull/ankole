@@ -26,7 +26,7 @@ defmodule Ankole.Pod.AccessReviewTest do
   end
 
   test "reads and repeated tenant scaffolding never restore removed space permissions", ctx do
-    {:ok, group} = Access.ensure_space()
+    {:ok, group} = Access.space_group()
     {:ok, _} = Pages.set_space(ctx.owner.uid, "view")
 
     grant =
@@ -38,8 +38,27 @@ defmodule Ankole.Pod.AccessReviewTest do
 
     {:ok, _} = Ankole.AuthZ.delete_permission_grant(grant.id)
     assert :ok = Ankole.Tenants.ensure_scaffold(ctx.tenant)
+
+    handler = "pod-read-only-#{group.id}"
+    owner = self()
+
+    :telemetry.attach(
+      handler,
+      [:ankole, :repo, :query],
+      fn _, _, metadata, pid ->
+        if self() == pid and String.starts_with?(metadata.query, ["INSERT", "UPDATE", "DELETE"]),
+          do: send(pid, {:read_wrote, metadata.query})
+      end,
+      owner
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
     assert {:ok, []} = Pages.list(ctx.member.uid)
-    assert {:ok, _} = Access.ensure_space()
+    assert {:ok, _} = Pages.space(ctx.owner.uid)
+    refute_receive {:read_wrote, _}
+    :telemetry.detach(handler)
+
     assert {:ok, []} = Ankole.AuthZ.list_group_grants(group.id)
     assert {:error, {:forbidden, "update"}} = Pages.create(ctx.member.uid, %{})
   end
@@ -93,20 +112,14 @@ defmodule Ankole.Pod.AccessReviewTest do
         {:ok, listed} = Pages.list(actor.uid)
         listed_ids = listed |> Enum.map(& &1.id) |> MapSet.new() |> MapSet.intersection(ids)
 
-        for action <- Access.page_actions() do
-          {:ok, visible} = Access.visible_ids(actor.uid, action)
-          actual = MapSet.intersection(MapSet.new(visible), ids)
+        expected =
+          MapSet.new(
+            for page <- pages,
+                {:ok, _} <- [Pages.authorize(actor.uid, page.id, "page_view")],
+                do: page.id
+          )
 
-          expected =
-            MapSet.new(
-              for page <- pages,
-                  {:ok, _} <- [Pages.authorize(actor.uid, page.id, action)],
-                  do: page.id
-            )
-
-          assert actual == expected
-          if action == "page_view", do: assert(listed_ids == expected)
-        end
+        assert listed_ids == expected
 
         for page <- listed, MapSet.member?(ids, page.id) do
           {:ok, detail} = Pages.get(actor.uid, page.id)

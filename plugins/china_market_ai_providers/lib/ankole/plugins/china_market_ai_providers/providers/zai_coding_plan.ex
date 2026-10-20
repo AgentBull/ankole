@@ -5,7 +5,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
 
   use Ankole.AIGateway.ProviderDSL
 
-  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.UniversalAIRequest
 
   @timeout_ms 300_000
@@ -43,19 +42,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.ZaiCodingPlan do
     |> UniversalAIRequest.new("chat/completions", :openai_chat_completions)
     |> put_user_agent(ctx)
     |> UniversalAIRequest.bearer_auth()
-  end
-
-  @impl true
-  def prepare_connection_check(ctx) when is_map(ctx) do
-    ctx = put_effective_base_url(ctx)
-
-    headers =
-      ctx
-      |> UniversalAIRequest.raw_headers()
-      |> put_user_agent(ctx)
-      |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
-
-    ProviderConnectionCheck.get(ctx, "models", headers: headers)
   end
 
   defp put_effective_base_url(%{settings: settings} = ctx) when is_map(settings) do

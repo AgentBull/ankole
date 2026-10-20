@@ -59,7 +59,10 @@ defmodule Ankole.E2E.PodContentBrowser do
     assets = Application.fetch_env!(:ankole, AnkoleWeb.Assets)
     Application.put_env(:ankole, AnkoleWeb.Assets, dev_server: nil)
     on_exit(fn -> Application.put_env(:ankole, AnkoleWeb.Assets, assets) end)
-    assert {:ok, _} = Ankole.Setup.Config.put_completed(true)
+
+    assert {:ok, _} =
+             Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
+
     {:ok, human} = Ankole.Principals.get_principal(uid)
     {:ok, tenant} = Ankole.Tenants.get(Repo.tenant_id!())
     origin = AnkoleWeb.PodURL.origin(%{scheme: :http, port: ctx.server_port}, tenant)

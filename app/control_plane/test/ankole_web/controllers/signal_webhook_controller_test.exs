@@ -4,7 +4,6 @@ defmodule AnkoleWeb.SignalWebhookControllerTest do
   import Ankole.PrincipalsFixtures
   import Ecto.Query
 
-  alias Ankole.Plugins.LineAdapter.Signature
   alias Ankole.Principals.MappingRequests
   alias Ankole.Repo
 
@@ -53,7 +52,10 @@ defmodule AnkoleWeb.SignalWebhookControllerTest do
     signed =
       conn
       |> put_req_header("content-type", "application/json")
-      |> put_req_header("x-line-signature", Signature.sign(body, @line_secret))
+      |> put_req_header(
+        "x-line-signature",
+        Base.encode64(:crypto.mac(:hmac, :sha256, @line_secret, body))
+      )
       |> post(path, body)
 
     assert json_response(signed, 200) == %{}
@@ -72,7 +74,10 @@ defmodule AnkoleWeb.SignalWebhookControllerTest do
     tampered =
       build_conn()
       |> put_req_header("content-type", "application/json")
-      |> put_req_header("x-line-signature", Signature.sign(body, @line_secret))
+      |> put_req_header(
+        "x-line-signature",
+        Base.encode64(:crypto.mac(:hmac, :sha256, @line_secret, body))
+      )
       |> post(path, String.replace(body, "hello", "hacked"))
 
     assert json_response(tampered, 401) == %{"error" => "unauthorized"}

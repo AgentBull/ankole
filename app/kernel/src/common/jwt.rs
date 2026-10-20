@@ -5,23 +5,7 @@ use serde_json::Value;
 
 use crate::common::{KernelError, KernelResult};
 
-pub fn jwt_sign(claims_json: &str, key: &[u8], header_json: &str) -> KernelResult<String> {
-    let claims = decode_json_object(claims_json, "claims")?;
-    let header = jwt_header_from_json(header_json)?;
-
-    encode(&header, &claims, &EncodingKey::from_secret(key))
-        .map_err(|error| KernelError::new(format!("jwt sign failed: {error}")))
-}
-
-pub fn jwt_verify(token: &str, key: &[u8], validation_json: &str) -> KernelResult<String> {
-    let validation = jwt_validation_from_json(validation_json)?;
-
-    decode::<Value>(token, &DecodingKey::from_secret(key), &validation)
-        .map_err(|error| KernelError::new(format!("jwt verify failed: {error}")))
-        .and_then(encode_claims)
-}
-
-/// Only the RS* family is accepted (default RS256). HMAC signing stays on `jwt_sign`.
+/// Only the RS* family is accepted (default RS256).
 pub fn jwt_sign_pem(
     claims_json: &str,
     private_key_pem: &str,
@@ -36,7 +20,7 @@ pub fn jwt_sign_pem(
         .map_err(|error| KernelError::new(format!("jwt sign failed: {error}")))
 }
 
-/// Only the RS* family is accepted. HMAC verification stays on `jwt_verify`.
+/// Only the RS* family is accepted.
 pub fn jwt_verify_jwk(token: &str, jwk_json: &str, validation_json: &str) -> KernelResult<String> {
     let validation = jwt_rsa_validation_from_json(validation_json)?;
     let key = decoding_key_from_rsa_jwk(jwk_json)?;
@@ -74,10 +58,6 @@ fn decode_json_object(input: &str, field: &str) -> KernelResult<Value> {
     }
 }
 
-fn jwt_header_from_json(input: &str) -> KernelResult<Header> {
-    header_from_json(input, parse_hmac_algorithm, Algorithm::HS256)
-}
-
 fn jwt_rsa_header_from_json(input: &str) -> KernelResult<Header> {
     header_from_json(input, parse_rsa_algorithm, Algorithm::RS256)
 }
@@ -105,10 +85,6 @@ fn header_from_json(
     header.x5t_s256 = string_field(&value, &["x5t_s256_cert_thumbprint", "x5t#S256"]);
 
     Ok(header)
-}
-
-fn jwt_validation_from_json(input: &str) -> KernelResult<Validation> {
-    validation_from_json(input, parse_hmac_algorithm, Algorithm::HS256)
 }
 
 fn jwt_rsa_validation_from_json(input: &str) -> KernelResult<Validation> {
@@ -180,17 +156,6 @@ fn algorithms_field(
         None => string_field(value, &["algorithm", "alg"])
             .map(|algorithm| parse_algorithm(&algorithm).map(|algorithm| vec![algorithm]))
             .unwrap_or_else(|| Ok(vec![default_algorithm])),
-    }
-}
-
-fn parse_hmac_algorithm(input: &str) -> KernelResult<Algorithm> {
-    match input {
-        "HS256" => Ok(Algorithm::HS256),
-        "HS384" => Ok(Algorithm::HS384),
-        "HS512" => Ok(Algorithm::HS512),
-        algorithm => Err(KernelError::new(format!(
-            "unsupported jwt algorithm: {algorithm}"
-        ))),
     }
 }
 

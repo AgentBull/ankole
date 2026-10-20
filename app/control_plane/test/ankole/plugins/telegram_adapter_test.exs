@@ -271,10 +271,10 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
       config = %{"botToken" => "100:first-secret"}
 
       assert {:ok, first} = start_connection_owner(ConnectionReconciler, config, [consumer])
-      assert eventually(fn -> ConnectionOwner.status(first).state == :blocked end)
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(first).state == :blocked end)
 
       assert %{blocked_reason: :webhook_configured, bot_id: "77", polling?: false} =
-               ConnectionOwner.status(first)
+               Ankole.SignalsFixtures.owner_status(first)
 
       refute owner_serves?(
                ConnectionReconciler,
@@ -296,7 +296,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
 
       refute second == first
       refute Process.alive?(first)
-      assert eventually(fn -> ConnectionOwner.status(second).state == :blocked end)
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(second).state == :blocked end)
       assert :ok = ConnectionReconciler.stop({"owner-agent", "telegram-main"})
     end
 
@@ -384,15 +384,15 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                  consumer(elem(key, 0), elem(key, 1))
                ])
 
-      assert eventually(fn -> ConnectionOwner.status(owner).state == :blocked end),
-             inspect(ConnectionOwner.status(owner))
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).state == :blocked end),
+             inspect(Ankole.SignalsFixtures.owner_status(owner))
 
       assert %{
                blocked_reason: :authentication_failed,
                last_error: %{error_code: 401}
-             } = ConnectionOwner.status(owner)
+             } = Ankole.SignalsFixtures.owner_status(owner)
 
-      refute inspect(ConnectionOwner.status(owner)) =~ "auth-secret"
+      refute inspect(Ankole.SignalsFixtures.owner_status(owner)) =~ "auth-secret"
       assert :ok = ConnectionReconciler.stop(key)
     end
   end
@@ -949,7 +949,7 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                  consumer(agent.uid, "telegram-disabled", config)
                ])
 
-      assert eventually(fn -> ConnectionOwner.status(owner).state == :blocked end)
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).state == :blocked end)
 
       assert {:ok, _binding} =
                Ankole.Signals.Bindings.disable_binding(agent.uid, "telegram-disabled")

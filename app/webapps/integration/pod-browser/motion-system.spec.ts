@@ -1,13 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext } from '@playwright/test'
+import { state } from './fixtures'
+import { expect, test } from '@playwright/test'
 import { conversationRoute, pageRoute, uuidShorten } from './routes'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  report_id: string
-  history_conversation_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
 
 test('mobile page chat completes its exit before it leaves the page', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 390, height: 844 } })

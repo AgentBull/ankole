@@ -2,8 +2,6 @@ defmodule Ankole.E2E.WaitHelpersTest do
   alias Ankole.AIGateway.ResponseCommit
   use Ankole.SessionsCase
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Run
@@ -19,7 +17,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
     %{agent: agent, signal: signal, turn_ref: turn_ref} =
       start_accepted_turn("latest-final", "Need a final reply.")
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, signal.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, signal.session_id)
 
     old_message = complete_response!(agent.uid, conversation.id, signal.id, "old final")
 
@@ -58,7 +56,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
     %{agent: agent, signal: signal, turn_ref: turn_ref} =
       start_accepted_turn("runtime-event-final", "Need a dispatched final reply.")
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, signal.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, signal.session_id)
 
     committed =
       complete_response!(agent.uid, conversation.id, signal.id, "runtime event final")
@@ -86,7 +84,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
     %{agent: agent, signal: signal, turn_ref: turn_ref} =
       start_accepted_turn("multiple-side-effects", "Need multiple side effects.")
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, signal.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, signal.session_id)
     message = complete_response!(agent.uid, conversation.id, signal.id, "done")
 
     assert {:ok, %{status: :completed}} = complete_turn(turn_ref, message)
@@ -199,7 +197,7 @@ defmodule Ankole.E2E.WaitHelpersTest do
 
   defp insert_side_effect_intent!(signal, message, outbound_key) do
     assert {:ok, %Intent{} = intent} =
-             Ankole.Conversations.Delivery.commit(%{
+             Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: signal.agent_uid,
                binding_name: signal.reply_binding_name,
                outbound_key: outbound_key,

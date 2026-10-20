@@ -164,7 +164,7 @@ defmodule AnkoleWeb.LocalPasswordBusyIntegrationTest do
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok = RetryGuard.reset_for_test()
     on_exit(&RetryGuard.reset_for_test/0)
-    {:ok, true} = Ankole.Setup.Config.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     {:ok, _} = IdentityProviders.save_provider("local-main", "local", %{}, true)
     :ok
   end

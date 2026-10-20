@@ -151,7 +151,7 @@ defmodule Ankole.IdentityProviders.LocalPasswordLifecycleTest do
       assert account.local_credential_status == :active
 
       {:ok, _identity} =
-        Principals.create_external_identity(%{
+        Ankole.PrincipalsFixtures.create_external_identity(%{
           principal_uid: principal.uid,
           provider: "lark",
           external_id: "ou-#{System.unique_integer([:positive])}"

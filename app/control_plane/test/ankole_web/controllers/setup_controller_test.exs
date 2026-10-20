@@ -23,7 +23,10 @@ defmodule AnkoleWeb.SetupControllerTest do
     Cache.clear_for_test()
 
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
-    {:ok, false} = SetupConfig.put_completed(false)
+
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     :ok
@@ -176,7 +179,7 @@ defmodule AnkoleWeb.SetupControllerTest do
           grant.resource_pattern == "**" and grant.action == "read" and grant.condition == "true"
     )
 
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     assert {:ok, %{completed: true, activation_code: nil}} = Bootstrap.initialize()
 
@@ -349,7 +352,9 @@ defmodule AnkoleWeb.SetupControllerTest do
 
     test "cannot run again after setup completes", %{conn: conn} do
       {:ok, _provider} = IdentityProviders.save_provider("local-main", "local", %{}, true)
-      {:ok, true} = SetupConfig.put_completed(true)
+
+      {:ok, true} =
+        Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
       conn =
         conn

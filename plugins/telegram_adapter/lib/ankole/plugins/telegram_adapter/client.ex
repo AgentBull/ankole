@@ -138,9 +138,9 @@ defmodule Ankole.Plugins.TelegramAdapter.Client do
     {:error,
      %Error{
        kind: :api,
-       error_code: integer(Map.get(body, "error_code")) || status,
+       error_code: Ankole.Attrs.integer_value(Map.get(body, "error_code")) || status,
        description: safe_description(Map.get(body, "description"), token),
-       retry_after: integer(Map.get(parameters, "retry_after"))
+       retry_after: Ankole.Attrs.integer_value(Map.get(parameters, "retry_after"))
      }}
   end
 
@@ -149,17 +149,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Client do
 
   defp method_url(client, method), do: "#{client.base_url}/bot#{client.token}/#{method}"
   defp file_url(client, file_path), do: "#{client.base_url}/file/bot#{client.token}/#{file_path}"
-
-  defp integer(value) when is_integer(value), do: value
-
-  defp integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _other -> nil
-    end
-  end
-
-  defp integer(_value), do: nil
 
   defp bounded_text(value) when is_binary(value), do: String.slice(value, 0, 500)
   defp bounded_text(_value), do: nil

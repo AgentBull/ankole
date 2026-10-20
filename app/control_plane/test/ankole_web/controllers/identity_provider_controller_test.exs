@@ -9,7 +9,6 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
   alias Ankole.AppConfigure.Registry
   alias Ankole.AuthZ.Grant
   alias Ankole.IdentityProviders.Jobs.SyncProvider
-  alias Ankole.Plugins.LarkAdapter.Config, as: LarkConfig
   alias Ankole.Repo
   alias Ankole.Setup.Config, as: SetupConfig
 
@@ -18,7 +17,7 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     :ok
@@ -180,7 +179,9 @@ defmodule AnkoleWeb.IdentityProviderControllerTest do
 
     refute conn.resp_body =~ "secret-console"
 
-    assert {:ok, config} = AppConfigure.get_by_key(LarkConfig.identity_config_key("lark-main"))
+    assert {:ok, config} =
+             AppConfigure.get_by_key("principals.identity_providers.lark." <> "lark-main")
+
     assert config["appID"] == "cli_identity_console_renamed"
     assert config["appSecret"] == "secret-console"
   end

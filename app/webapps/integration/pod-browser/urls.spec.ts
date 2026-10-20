@@ -1,15 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext } from '@playwright/test'
+import { state } from './fixtures'
+import { expect, test } from '@playwright/test'
 import { conversationRoute, pageRoute } from './routes'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  tenant_id: string
-  tenant_slug: string
-  report_id: string
-  conversation_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
 
 test('Pod entry, reload and legacy links use the tenant host and short IDs with shared account proofs', async ({
   browser

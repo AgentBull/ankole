@@ -88,11 +88,11 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
     put_headers(%__MODULE__{}, Mime.parse_headers(raw))
   end
 
-  @doc "Strips the `<>` from one Message-ID token and returns nil for an unusable value."
+  # Strips the `<>` from one Message-ID token and returns nil for an unusable value.
   @spec normalize_message_id(String.t() | nil) :: String.t() | nil
-  def normalize_message_id(nil), do: nil
+  defp normalize_message_id(nil), do: nil
 
-  def normalize_message_id(value) when is_binary(value) do
+  defp normalize_message_id(value) when is_binary(value) do
     case message_id_tokens(value) do
       [first | _rest] -> first
       [] -> bare_message_id(value)
@@ -295,10 +295,5 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
 
   defp presence(nil), do: nil
 
-  defp presence(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
+  defp presence(value) when is_binary(value), do: Ankole.Attrs.optional_text(value)
 end

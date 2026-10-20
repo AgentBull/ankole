@@ -878,7 +878,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                )
 
       assert user["id"] == "oid-ada"
-      assert IdentityProvider.normalize_claims(user)["displayName"] == "Ada Lovelace"
+      assert user["displayName"] == "Ada Lovelace"
     end
 
     test "missing group_external_ids preserves memberships while explicit empty clears them" do
@@ -1198,7 +1198,7 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
 
     test "a queued reconciliation reads desired mode after the provider lock" do
       provider_id = "entra-current-#{System.unique_integer([:positive])}"
-      config_key = Config.identity_config_key(provider_id)
+      config_key = "principals.identity_providers.entra-id." <> provider_id
 
       assert {:ok, _} =
                IdentityProviders.save_provider(provider_id, "entra-id", identity_config(), true,
@@ -1581,7 +1581,8 @@ defmodule Ankole.Plugins.Microsoft365AdapterTest do
                  reconcile_realtime?: false
                )
 
-      {:ok, config} = Config.load_identity_config_key(Config.identity_config_key(provider_id))
+      {:ok, config} =
+        Config.load_identity_config_key("principals.identity_providers.entra-id." <> provider_id)
 
       assert {:ok, %{subscriptions: [users_entry | _rest]}} =
                GraphSubscriptions.ensure(provider_id, config)

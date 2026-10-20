@@ -32,7 +32,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   alias WeComOpenAPI.Media
 
   import MapHelpers,
-    only: [collect_results: 1, compact_map: 1, fetch_value: 2, optional_text: 2]
+    only: [compact_map: 1, fetch_value: 2, optional_text: 2]
 
   @managed_action_protocol ReplyPresentation.action_protocol()
   @quote_prefix "> 引用："
@@ -52,14 +52,14 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   @spec handle_message_receive(String.t(), Event.t(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_message_receive(_event_type, %Event{} = event, consumers) do
-    dispatch_chat(consumers, &emit_message_receive(&1, event))
+    AdapterContext.dispatch_chat(consumers, &emit_message_receive(&1, event))
   end
 
   @doc "Handles a template-card event for all chat consumers."
   @spec handle_card_action(String.t(), Event.t(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_card_action(_event_type, %Event{} = event, consumers) do
-    dispatch_chat(consumers, &emit_card_action(&1, event))
+    AdapterContext.dispatch_chat(consumers, &emit_card_action(&1, event))
   end
 
   @doc "Normalizes a message callback without submitting it. Main test seam."
@@ -296,13 +296,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
     "card:#{task_id}:#{operator}:#{:erlang.phash2(value)}"
   end
 
-  defp dispatch_chat(consumers, fun) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fun)
-    |> collect_results()
-  end
-
   defp sender(payload), do: fetch_value(payload, "from") || %{}
 
   defp author(payload, config) do
@@ -337,10 +330,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
       external_id: operator_id
     }
 
-    case AdapterContext.observe_platform_subject(context, attrs) do
-      {:ok, %{principal: principal}} -> {:ok, principal.uid}
-      {:error, _reason} = error -> error
-    end
+    AdapterContext.observe_platform_subject_uid(context, attrs)
   end
 
   defp channel_target(payload) do

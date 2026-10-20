@@ -23,25 +23,25 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   @spec handle_message_receive(String.t(), map(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_message_receive(_event_type, event, consumers) do
-    dispatch_chat(consumers, &emit_message(&1, event))
+    AdapterContext.dispatch_chat(consumers, &emit_message(&1, event))
   end
 
   @spec handle_reaction_created(String.t(), map(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_reaction_created(_event_type, event, consumers) do
-    dispatch_chat(consumers, &emit_reactions(&1, event, :add))
+    AdapterContext.dispatch_chat(consumers, &emit_reactions(&1, event, :add))
   end
 
   @spec handle_reaction_deleted(String.t(), map(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_reaction_deleted(_event_type, event, consumers) do
-    dispatch_chat(consumers, &emit_reactions(&1, event, :remove))
+    AdapterContext.dispatch_chat(consumers, &emit_reactions(&1, event, :remove))
   end
 
   @spec handle_reaction_update(String.t(), map(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_reaction_update(_event_type, event, consumers) do
-    dispatch_chat(consumers, fn consumer ->
+    AdapterContext.dispatch_chat(consumers, fn consumer ->
       with {:ok, removed} <- emit_reactions(consumer, event, :remove),
            {:ok, added} <- emit_reactions(consumer, event, :add) do
         {:ok, %{removed: removed, added: added}}
@@ -52,7 +52,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   @spec handle_card_action(String.t(), map(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_card_action(_event_type, event, consumers) do
-    dispatch_chat(consumers, &emit_action(&1, event))
+    AdapterContext.dispatch_chat(consumers, &emit_action(&1, event))
   end
 
   @doc false
@@ -626,13 +626,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   def provider_conversation_id(bot_id, chat_id, topic_id) do
     base = "telegram:#{bot_id}:chat:#{chat_id}"
     if is_integer(topic_id), do: "#{base}:topic:#{topic_id}", else: base
-  end
-
-  defp dispatch_chat(consumers, fun) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fun)
-    |> MapHelpers.collect_results()
   end
 
   defp material_message?(text, attachments, message) do

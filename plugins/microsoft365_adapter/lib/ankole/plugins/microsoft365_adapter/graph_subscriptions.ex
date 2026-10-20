@@ -26,19 +26,19 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   @subscription_lifetime_days 7
   @renewal_window_hours 48
 
-  @spec resources() :: [String.t()]
-  def resources, do: @resources
+  # Unit tests inspect the same implementation that the production entry uses.
+  if Mix.env() == :test do
+    @doc """
+    Ensures both directory subscriptions exist and are outside the renewal window.
 
-  @doc """
-  Ensures both directory subscriptions exist and are outside the renewal window.
-
-  Each resource persists on its own success, so a later resource's failure (for
-  example a missing Graph permission) cannot orphan an already-created remote
-  subscription. Failed resources are aggregated into one loud error return.
-  """
-  @spec ensure(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def ensure(provider_id, config, opts \\ []) do
-    with_provider_lock(provider_id, fn -> ensure_locked(provider_id, config, opts) end)
+    Each resource persists on its own success, so a later resource's failure (for
+    example a missing Graph permission) cannot orphan an already-created remote
+    subscription. Failed resources are aggregated into one loud error return.
+    """
+    @spec ensure(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
+    def ensure(provider_id, config, opts \\ []) do
+      with_provider_lock(provider_id, fn -> ensure_locked(provider_id, config, opts) end)
+    end
   end
 
   # Desired mode is read after arbitration, rather than by each scheduler before
@@ -369,12 +369,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
 
   defp parse_datetime(nil), do: nil
 
-  defp parse_datetime(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      _error -> nil
-    end
-  end
+  defp parse_datetime(value) when is_binary(value), do: Ankole.Attrs.parse_datetime(value)
 
   defp generate_client_state, do: Ankole.Kernel.generate_key()
 
@@ -392,9 +387,8 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
     end
   end
 
-  @doc false
   @spec notification_url(String.t(), map()) :: String.t()
-  def notification_url(provider_id, config) do
+  defp notification_url(provider_id, config) do
     base = config |> Map.fetch!("publicBaseURL") |> String.trim_trailing("/")
     instance_id = Ankole.Repo.tenant_id!() <> "." <> provider_id
     base <> "/webhooks/v1/entra-id/" <> URI.encode(instance_id) <> "/directory"

@@ -25,7 +25,6 @@ defmodule Ankole.PluginsTest do
   alias Ankole.Plugins.Config
   alias Ankole.Plugins.Registry
   alias Ankole.Plugins.Spec
-  alias Ankole.Setup.Config, as: SetupConfig
 
   import ExUnit.CaptureLog
 
@@ -42,7 +41,7 @@ defmodule Ankole.PluginsTest do
       Cache.clear_for_test()
     end)
 
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     :ok
   end
@@ -54,7 +53,6 @@ defmodule Ankole.PluginsTest do
 
     assert Enum.map(Registry.list_discovered(registry), & &1.id) == ["alpha", "beta"]
     assert Registry.list_active(registry) == []
-    assert Registry.enabled_ids(registry) == []
     refute Registry.active?("alpha", registry)
     refute Registry.active?("beta", registry)
   end
@@ -66,7 +64,6 @@ defmodule Ankole.PluginsTest do
 
     assert Enum.map(Registry.list_discovered(registry), & &1.id) == ["alpha", "beta"]
     assert Enum.map(Registry.list_active(registry), & &1.id) == ["alpha"]
-    assert Registry.enabled_ids(registry) == ["alpha"]
     assert Registry.active?("alpha", registry)
     refute Registry.active?("beta", registry)
 
@@ -82,12 +79,13 @@ defmodule Ankole.PluginsTest do
 
   test "unfinished setup activates every discovered plugin and preserves the next-start policy" do
     assert {:ok, ["alpha"]} = Config.put_enabled_ids(["alpha"])
-    assert {:ok, false} = SetupConfig.put_completed(false)
+
+    assert {:ok, false} =
+             Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
 
     registry = start_registry!()
 
     assert Enum.map(Registry.list_active(registry), & &1.id) == ["alpha", "beta"]
-    assert Registry.enabled_ids(registry) == ["alpha"]
     assert Registry.active?("alpha", registry)
     assert Registry.active?("beta", registry)
 
@@ -99,7 +97,9 @@ defmodule Ankole.PluginsTest do
              "beta-adapter"
            ]
 
-    assert {:ok, true} = SetupConfig.put_completed(true)
+    assert {:ok, true} =
+             Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
+
     AppConfigureRegistry.clear_for_test()
     Cache.clear_for_test()
 

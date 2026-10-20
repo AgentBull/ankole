@@ -97,8 +97,9 @@ async function report() {
     socket.on('framereceived', frame => {
       try {
         const [joinRef, ref, topic, event, payload] = JSON.parse(String(frame.payload))
-        if (joinRef === ref && topic.startsWith('table:') && event === 'phx_reply' && payload.status === 'ok')
+        if (joinRef === ref && topic.startsWith('table:') && event === 'phx_reply' && payload.status === 'ok') {
           joinedTables++
+        }
       } catch {}
     })
   })
@@ -319,7 +320,7 @@ try {
   }
   const result = await actions[state.action]()
   expect(errors).toEqual([])
-  console.log(`Pod browser result: ${JSON.stringify({ ...result, screenshots })}`)
+  process.stdout.write(`Pod browser result: ${JSON.stringify({ ...result, screenshots })}\n`)
 } catch (error) {
   try {
     await capture(`${state.action}-failure`)

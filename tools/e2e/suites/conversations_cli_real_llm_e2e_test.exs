@@ -78,7 +78,7 @@ defmodule Ankole.E2E.ConversationsCLIRealLLMTest do
     draft = "Sales draft #{reference}: customer Arbor; amount 4200; review threshold 4000."
 
     assert {:ok, intent} =
-             Delivery.commit(%{
+             Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: sales.uid,
                binding_name: binding.name,
                outbound_key: reference,

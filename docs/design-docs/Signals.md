@@ -111,8 +111,14 @@ late clarification uses the same declared superseding types. Only a kernel
 The provider-removal lifecycle type is `conversation.message.removed`.
 
 `accept_in_tx/2` returns the accepted Signal as a pending publication fact.
-Its transaction owner calls `Signals.publish_committed/1` after commit. The
-public `accept/1` owns both steps and rejects a caller-owned outer transaction.
+Its outer transaction owner calls `Signals.publish_committed/1` in the same
+process after commit. The public `accept/1` owns both steps and rejects a
+caller-owned outer transaction. Publication sends a Session state notification,
+retains the `ensure_driver/1` startup fast path, and publishes ready Signal IDs
+on the Session input topic. Drivers read the durable input; an observation or
+raw Conversation message cannot create a second input through PubSub.
+The publication guard checks only the current process. A Task cannot be used
+inside the transaction to publish pending facts.
 
 ## Attribution and Runtime Scope
 

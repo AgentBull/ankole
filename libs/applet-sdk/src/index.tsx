@@ -242,8 +242,9 @@ export function useRouteMutation<Data = unknown, Error = globalThis.Error, Conte
   route: MutationRoute,
   options: Omit<UseMutationOptions<Data, Error, RouteVariables, Context>, 'mutationFn'> = {}
 ) {
-  if (!/^(POST|PUT|PATCH|DELETE) \//.test(route))
+  if (!/^(POST|PUT|PATCH|DELETE) \//.test(route)) {
     throw new Error('useRouteMutation requires a POST, PUT, PATCH or DELETE route')
+  }
   const runtime = usePod()
   return useMutation({
     ...options,

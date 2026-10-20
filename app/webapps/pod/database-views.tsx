@@ -77,7 +77,6 @@ export type ViewProps = {
   tableID: string
   tables: DatabaseTable[]
   fields: DatabaseField[]
-  readonlyFieldIDs?: string[]
   records: DatabaseRecord[]
   view: ConfiguredView
   editable: boolean
@@ -168,7 +167,6 @@ function GridView(props: ViewProps) {
                     <Icon aria-hidden="true" />
                     <FieldEditorButton
                       field={field}
-                      readonly={props.readonlyFieldIDs?.includes(field.id)}
                       tableID={props.tableID}
                       pageID={props.pageID}
                       tables={props.tables}
@@ -207,7 +205,6 @@ function GridView(props: ViewProps) {
                         record={record}
                         pageID={props.pageID}
                         editable={props.editable}
-                        readonlyFieldIDs={props.readonlyFieldIDs}
                         update={(data, expected) => props.update(record.id, data, expected)}
                       />
                     </TableCell>
@@ -292,7 +289,6 @@ function RecordCard(props: ViewProps & { record: DatabaseRecord; draggable?: boo
                   record={props.record}
                   pageID={props.pageID}
                   editable={props.editable}
-                  readonlyFieldIDs={props.readonlyFieldIDs}
                   update={(data, expected) => props.update(props.record.id, data, expected)}
                 />
               </div>
@@ -313,9 +309,8 @@ function RecordCard(props: ViewProps & { record: DatabaseRecord; draggable?: boo
 function RecordDeleteButton({
   record,
   fields,
-  remove,
-  readonlyFieldIDs = []
-}: Pick<ViewProps, 'fields' | 'remove' | 'readonlyFieldIDs'> & { record: DatabaseRecord }) {
+  remove
+}: Pick<ViewProps, 'fields' | 'remove'> & { record: DatabaseRecord }) {
   const [deleting, setDeleting] = useState<DatabaseRecord>()
   const open = !!deleting
   const setOpen = (next: boolean) => setDeleting(next ? record : undefined)
@@ -324,7 +319,6 @@ function RecordDeleteButton({
   const cancel = useRef<HTMLButtonElement>(null)
   const [error, setError] = useState<unknown>()
   const primary = fields.find(field => field.is_primary) ?? fields[0]
-  const readonly = readonlyFieldIDs.some(id => Object.hasOwn(record.versions, id))
   return (
     <Dialog
       open={open}
@@ -335,9 +329,8 @@ function RecordDeleteButton({
         variant="ghost"
         size="icon-sm"
         className="pod-database-delete"
-        disabled={readonly}
         data-cell-retained={open ? 'true' : undefined}
-        title={readonly ? t('pod.errors.synced_record_readonly') : t('pod.content.delete')}
+        title={t('pod.content.delete')}
         onClick={() => {
           setError(undefined)
           setOpen(true)
@@ -364,7 +357,7 @@ function RecordDeleteButton({
           <Button
             type="button"
             variant="destructive"
-            disabled={pending || readonly}
+            disabled={pending}
             onClick={() => {
               if (saving.current || !deleting) return
               saving.current = true
@@ -491,14 +484,14 @@ function KanbanColumn({
       <section
         className="w-64 shrink-0 space-y-3 rounded-control bg-muted/40 p-3"
         onDragOver={event => {
-          if (props.editable && writableField(field, props.readonlyFieldIDs)) event.preventDefault()
+          if (props.editable && writableField(field)) event.preventDefault()
         }}
         onDrop={event => {
           event.preventDefault()
           try {
             const dragged = readRecordDrag(event)
             const record = dragged.record
-            if (!record || !props.editable || !writableField(field, props.readonlyFieldIDs)) return
+            if (!record || !props.editable || !writableField(field)) return
             const previous = fieldValue(record, field)
             const next =
               Array.isArray(previous) || field.config.multiple
@@ -525,7 +518,7 @@ function KanbanColumn({
             update={rows.update}
             remove={rows.remove}
             record={record}
-            draggable={props.editable && writableField(field, props.readonlyFieldIDs)}
+            draggable={props.editable && writableField(field)}
             dragFrom={group.value}
           />
         ))}
@@ -598,12 +591,14 @@ function GalleryView(props: ViewProps) {
   )
 }
 
-export function RecordForm(
-  props: Pick<ViewProps, 'fields' | 'pageID' | 'create' | 'readonlyFieldIDs'> & { close(): void }
-) {
+export function RecordForm(props: Pick<ViewProps, 'fields' | 'pageID' | 'create'> & { close(): void }) {
   useSignals()
   const model = useModel(RecordFormModel)
-  console.log('RECORD_FORM', props.fields.map(f => f.id).join(','), JSON.stringify(model.values.value), model.pending.value, String(model.error.value))
+  // Read before the map so React Compiler tracks the signal values in its cache.
+  const values = model.values.value,
+    pending = model.pending.value,
+    generation = model.generation.value
+
   return (
     <form
       className="contents"
@@ -621,15 +616,15 @@ export function RecordForm(
       }}>
       <div className="pod-dialog-body grid gap-5">
         {props.fields
-          .filter(field => writableField(field, props.readonlyFieldIDs))
+          .filter(field => writableField(field))
           .map(field => (
-            <div key={`${field.id}:${model.generation.value}`} className="grid gap-2 text-sm">
+            <div key={`${field.id}:${generation}`} className="grid gap-2 text-sm">
               <span>{field.name}</span>
               <FieldInput
                 pageID={props.pageID}
                 field={field}
-                value={model.values.value[field.id] ?? null}
-                disabled={model.pending.value}
+                value={values[field.id] ?? null}
+                disabled={pending}
                 onPendingChange={active => model.upload(field.id, active)}
                 onChange={value => model.change(field.id, value)}
               />

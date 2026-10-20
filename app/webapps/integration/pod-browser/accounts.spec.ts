@@ -1,15 +1,6 @@
-import { readFileSync } from 'node:fs'
+import { state, type Login } from './fixtures'
 import { expect, test, type Page } from '@playwright/test'
 import { pageRoute } from './routes'
-
-type Login = { uid: string; email: string; password: string }
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  report_id: string
-  owner: Login
-  member: Login
-  other_pod: Login & { base_url: string; page_id: string }
-}
 
 async function login(page: Page, credentials: Login) {
   await page.getByRole('textbox', { name: '邮箱', exact: true }).fill(credentials.email)
@@ -66,7 +57,8 @@ test('real password logins share two Pod accounts while the chooser preserves ea
       cookies.map(cookie => cookie.name).sort()
     )
 
-    await first.getByRole('link', { name: '切换账号', exact: true }).click()
+    await first.getByRole('button', { name: /^账户菜单/ }).click()
+    await first.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
     await expect(first).toHaveURL(url => url.pathname === '/sessions/new' && url.searchParams.has('flow'))
     await first.getByRole('button', { name: /^Browser owner ·/ }).click()
     await expect(first).toHaveURL(original)
@@ -93,20 +85,53 @@ test('the normal chooser switches between two real accounts in one Pod without c
     expect((await identity(first)).principalUID).toBe(state.owner.uid)
 
     await second.goto(original)
-    await second.getByRole('link', { name: '切换账号', exact: true }).click()
+    await second.getByRole('button', { name: /^账户菜单/ }).click()
+    await second.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
     await login(second, state.member)
     await expect(second).toHaveURL(original)
     await expect(second.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
     expect((await identity(second)).principalUID).toBe(state.member.uid)
     expect((await identity(first)).principalUID).toBe(state.owner.uid)
 
-    await first.getByRole('link', { name: '切换账号', exact: true }).click()
+    await first.getByRole('button', { name: /^账户菜单/ }).click()
+    await first.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
     await expect(first.getByRole('button', { name: /^Browser member ·/ })).toBeVisible()
     await first.getByRole('button', { name: /^Browser owner ·/ }).click()
     await expect(first).toHaveURL(original)
     await expect(first.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
     expect((await identity(first)).principalUID).toBe(state.owner.uid)
     expect((await identity(second)).principalUID).toBe(state.member.uid)
+  } finally {
+    await context.close()
+  }
+})
+
+test('the sidebar account menu lists each proved organization and opens another one as its account', async ({
+  browser
+}) => {
+  const context = await browser.newContext()
+  const first = await context.newPage()
+  const second = await context.newPage()
+  try {
+    const original = state.base_url + pageRoute(state.report_id)
+    await first.goto(original)
+    await login(first, state.owner)
+    await expect(first.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
+    await second.goto(state.other_pod.base_url + pageRoute(state.other_pod.page_id))
+    await login(second, state.other_pod)
+    await expect(second.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
+
+    await first.getByRole('button', { name: /^账户菜单/ }).click()
+    const menu = first.getByRole('menu')
+    await expect(menu.locator('[role="menuitem"][aria-current="true"]')).toHaveText(/Browser owner/)
+    const other = menu.getByRole('menuitem', { name: /Other workspace owner/ })
+    await expect(other).toBeVisible()
+    await expect(menu.getByRole('menuitemradio', { name: '浅色', exact: true })).toBeVisible()
+    await expect(menu.getByRole('menuitem', { name: /^退出 .*Browser owner/ })).toBeVisible()
+    await other.click()
+    await expect(first).toHaveURL(url => url.origin === new URL(state.other_pod.base_url).origin)
+    await expect(first.getByRole('button', { name: /^账户菜单/ })).toBeVisible()
+    expect((await identity(first)).principalUID).toBe(state.other_pod.uid)
   } finally {
     await context.close()
   }

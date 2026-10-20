@@ -299,31 +299,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.IdentityProvider do
     end
   end
 
-  @doc false
   @spec directory_user?(map(), map()) :: boolean()
-  def directory_user?(user, config) do
+  defp directory_user?(user, config) do
     include_guests? = get_in(config, ["sync", "includeGuests"]) == true
 
     is_binary(Map.get(user, "id")) and Map.get(user, "accountEnabled") != false and
       (include_guests? or MapHelpers.optional_text(user, "userType") != "Guest")
-  end
-
-  @doc false
-  @spec normalize_claims(map()) :: map()
-  def normalize_claims(user) do
-    # `me.id` is the directory object id — the stable cross-app identity the
-    # chat adapter also uses (aadObjectId). The pairwise OIDC `sub` is never
-    # used as an external id.
-    %{
-      "id" => MapHelpers.optional_text(user, "id"),
-      "displayName" => MapHelpers.optional_text(user, "displayName"),
-      "mail" => MapHelpers.optional_text(user, "mail"),
-      "userPrincipalName" => MapHelpers.optional_text(user, "userPrincipalName"),
-      "jobTitle" => MapHelpers.optional_text(user, "jobTitle"),
-      "mobilePhone" => MapHelpers.optional_text(user, "mobilePhone"),
-      "department" => MapHelpers.optional_text(user, "department")
-    }
-    |> MapHelpers.compact_map()
   end
 
   defp user_id(user) do

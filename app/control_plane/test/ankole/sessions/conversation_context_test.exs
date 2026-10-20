@@ -309,7 +309,8 @@ defmodule Ankole.Sessions.ConversationContextTest do
       config = CompactionPolicy.config()
 
       assert {:ok, _} =
-               CompactionPolicy.put_config(
+               Ankole.AppConfigure.put_global(
+                 Ankole.AIGateway.CompactionPolicy.config_definition(),
                  Map.merge(config, %{
                    "threshold" => 0.5,
                    "max_threshold_tokens" => 10,
@@ -318,7 +319,10 @@ defmodule Ankole.Sessions.ConversationContextTest do
                  })
                )
 
-      on_exit(fn -> CompactionPolicy.delete_config() end)
+      on_exit(fn ->
+        Ankole.AppConfigure.delete_global(Ankole.AIGateway.CompactionPolicy.config_definition())
+      end)
+
       {:ok, mode} = Agent.start_link(fn -> :fail end)
       on_exit(fn -> if Process.alive?(mode), do: Agent.stop(mode) end)
       test_pid = self()

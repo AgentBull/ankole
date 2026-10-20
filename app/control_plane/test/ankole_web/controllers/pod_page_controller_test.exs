@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.PodPageControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import OpenApiSpex.TestAssertions
   alias Ankole.Pod.Pages
   alias Ankole.Repo
 
@@ -54,6 +55,7 @@ defmodule AnkoleWeb.PodPageControllerTest do
       refute Enum.any?(pages, &(&1["id"] == hidden.id))
 
       for page <- pages do
+        assert_schema(page, "PodPage", AnkoleWeb.InternalAPISpec.spec())
         assert page["role"] == Map.fetch!(expected, page["id"])
         assert {:ok, %{role: role}} = Pages.get(uid, page["id"])
         assert page["role"] == role
@@ -166,8 +168,8 @@ defmodule AnkoleWeb.PodPageControllerTest do
     assert Enum.any?(candidates, &(&1["principal_uid"] == agent.uid and &1["kind"] == "agent"))
 
     sharing = subjects |> recycle_api() |> get("/.internal-apis/pod/pages/#{page.id}/sharing")
-    assert %{"members" => members} = json_response(sharing, 200)
-    assert Enum.any?(members, &(&1["uid"] == agent.uid and &1["type"] == "agent"))
+    assert %{"subjects" => subjects} = json_response(sharing, 200)
+    assert Enum.any?(subjects, &(&1["principal_uid"] == agent.uid and &1["kind"] == "agent"))
 
     space = sharing |> recycle_api() |> get("/.internal-apis/pod/space")
 

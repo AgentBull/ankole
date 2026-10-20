@@ -45,9 +45,8 @@ export const fieldTypes: Record<FieldType, string> = {
     return t('pod.content.last_edited_by')
   }
 }
-export const writableField = (field: DatabaseField, readonlyFieldIDs: string[] = []) =>
-  !['formula', 'auto_number', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(field.type) &&
-  !readonlyFieldIDs.includes(field.id)
+export const writableField = (field: DatabaseField) =>
+  !['formula', 'auto_number', 'created_at', 'updated_at', 'created_by', 'updated_by'].includes(field.type)
 export type Option = { id: string; name: string }
 export const fieldOptions = (field: DatabaseField) =>
   (Array.isArray(field.config.options) ? field.config.options : []) as Option[]

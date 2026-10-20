@@ -1,7 +1,11 @@
 import { ChangeSet } from '../doc'
 import { GardState, Transaction } from '../state'
-import { UpdateFlag } from './editor'
-import { Wordgard } from './editor'
+import type { Wordgard } from './editor'
+
+export enum UpdateFlag {
+  Focus = 1,
+  Geometry = 2
+}
 
 export const scrollIntoView = Transaction.Effect.define<ScrollTarget>({ map: (t, ch) => t.map(ch) })
 

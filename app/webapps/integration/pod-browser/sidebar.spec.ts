@@ -1,13 +1,72 @@
+import { state, request } from './fixtures'
 import { listRoute, pageRoute } from './routes'
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  tenant_id: string
-  report_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
+async function create(page: Page, title: string, parentID?: string) {
+  const result = await request<{ page: { id: string } }>(page, '/pages', 'POST', {
+    type: 'doc',
+    title,
+    ...(parentID ? { parent_id: parentID } : {})
+  })
+  return result.page.id
 }
+
+test('a dragged page keeps its new place after reload, undo restores it, and the row menu renames and reorders', async ({
+  browser
+}) => {
+  const context = await browser.newContext({ baseURL: state.base_url, viewport: { width: 1365, height: 900 } })
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  try {
+    await page.goto(pageRoute(state.report_id))
+    const suffix = Date.now().toString(36)
+    const parent = await create(page, `Drag parent ${suffix}`)
+    const [first, second, third] = [`First ${suffix}`, `Second ${suffix}`, `Third ${suffix}`]
+    for (const title of [first, second, third]) await create(page, title, parent)
+    await page.goto(pageRoute(parent))
+    const children = page.locator('.pod-tree-row', { has: page.locator(`a[href="${pageRoute(parent)}"]`) })
+    await expect(children).toHaveCount(1)
+    const titles = () =>
+      page
+        .locator('li', { has: children })
+        .locator('.pod-tree-children > li > .pod-tree-row .pod-tree-link')
+        .allInnerTexts()
+    await expect.poll(titles).toEqual([first, second, third])
+
+    const row = (title: string) => page.locator('.pod-tree-row', { has: page.getByRole('link', { name: title }) })
+    const moved = page.waitForResponse(response => response.url().endsWith('/move') && response.ok())
+    await page.getByRole('link', { name: third, exact: true }).dragTo(row(first), { targetPosition: { x: 60, y: 2 } })
+    await moved
+    await expect.poll(titles).toEqual([third, first, second])
+    await page.reload()
+    await expect.poll(titles).toEqual([third, first, second])
+    await expect(page.getByRole('link', { name: first, exact: true })).toHaveAttribute('draggable', 'true')
+    await expect(page.getByRole('link', { name: second, exact: true })).toHaveAttribute('draggable', 'true')
+    // Keep the target visible before mouse-down so dragTo does not scroll mid-drag.
+    await row(second).scrollIntoViewIfNeeded()
+
+    const again = page.waitForResponse(response => response.url().endsWith('/move') && response.ok())
+    await page.getByRole('link', { name: first, exact: true }).dragTo(row(second), { targetPosition: { x: 60, y: 24 } })
+    await again
+    await expect.poll(titles).toEqual([third, second, first])
+    await page.getByRole('button', { name: '撤销', exact: true }).click()
+    await expect.poll(titles).toEqual([third, first, second])
+
+    await row(second).click({ button: 'right' })
+    await page.getByRole('menuitem', { name: '重命名', exact: true }).click()
+    const field = page.getByRole('textbox', { name: new RegExp(`^重命名 .*${second}`) })
+    await expect(field).toBeFocused()
+    await field.fill(`Renamed ${suffix}`)
+    await field.press('Enter')
+    await expect(page.getByRole('link', { name: `Renamed ${suffix}`, exact: true })).toBeVisible()
+
+    await page.getByRole('button', { name: new RegExp(`^.*${first}.* 的操作$`) }).click()
+    await page.getByRole('menuitem', { name: '上移', exact: true }).click()
+    await expect.poll(titles).toEqual([first, third, `Renamed ${suffix}`])
+  } finally {
+    await context.close()
+  }
+})
 
 test('Search focuses its input and result rows keep native link and keyboard behavior', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: state.base_url })
@@ -59,7 +118,7 @@ test('mobile navigation has touch targets and closes when reopening the current 
     const currentPage = sidebar.locator(`a.pod-tree-link[href*="${pageRoute(state.report_id)}"]`)
     await expect(currentPage).toHaveAttribute('aria-current', 'page')
     await expect(
-      sidebar.locator('.pod-workspace-row').getByRole('button', { name: '新建页面', exact: true })
+      sidebar.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true })
     ).toHaveAttribute('title', '新建页面')
     for (const targets of [sidebar.locator('.pod-nav-link'), sidebar.locator('.pod-tree-link')]) {
       const heights = await targets.evaluateAll(elements =>
@@ -72,7 +131,12 @@ test('mobile navigation has touch targets and closes when reopening the current 
       elements.map(element => {
         const bounds = element.getBoundingClientRect()
         const icon = element.querySelector('svg')!.getBoundingClientRect()
-        return { width: bounds.width, height: bounds.height, iconWidth: icon.width, iconHeight: icon.height }
+        return {
+          width: Number(bounds.width.toFixed(3)),
+          height: Number(bounds.height.toFixed(3)),
+          iconWidth: Number(icon.width.toFixed(3)),
+          iconHeight: Number(icon.height.toFixed(3))
+        }
       })
     )
     expect(toggles.length).toBeGreaterThan(0)

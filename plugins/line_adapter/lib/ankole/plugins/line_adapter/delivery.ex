@@ -49,14 +49,13 @@ defmodule Ankole.Plugins.LineAdapter.Delivery do
     if retry_key_expired?(intent, DateTime.utc_now()), do: :unknown, else: deliver(intent)
   end
 
-  @doc false
   @spec retry_key_expired?(Intent.t(), DateTime.t()) :: boolean()
-  def retry_key_expired?(%Intent{inserted_at: %DateTime{} = inserted_at}, %DateTime{} = now) do
+  defp retry_key_expired?(%Intent{inserted_at: %DateTime{} = inserted_at}, %DateTime{} = now) do
     DateTime.diff(now, inserted_at, :second) >=
       @retry_key_retention_seconds - @retry_key_safety_seconds
   end
 
-  def retry_key_expired?(%Intent{}, _now), do: false
+  defp retry_key_expired?(%Intent{}, _now), do: false
 
   # A retry after the retention window cannot rely on the key to absorb an
   # earlier request that LINE accepted. The row records only its last error,

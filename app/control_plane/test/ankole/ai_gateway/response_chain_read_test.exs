@@ -1,12 +1,12 @@
 defmodule Ankole.AIGateway.ResponseChainReadTest do
   use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
-  alias Ankole.AIGateway.{Conversations, Events, ResponseChain, ResponseItems}
+  alias Ankole.AIGateway.{Events, ResponseChain, ResponseItems}
   alias Ankole.AIGateway.Schemas.Message
 
   setup do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "chain-reads")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "chain-reads")
     %{subject: subject, conversation: conversation}
   end
 
@@ -163,7 +163,7 @@ defmodule Ankole.AIGateway.ResponseChainReadTest do
 
     for old_count <- [1, 100, 1000] do
       {:ok, conversation} =
-        Conversations.ensure_conversation(ctx.subject.uid, "payload-#{old_count}")
+        Ankole.AIGatewayCase.ensure_conversation(ctx.subject.uid, "payload-#{old_count}")
 
       ctx = %{ctx | conversation: conversation}
 

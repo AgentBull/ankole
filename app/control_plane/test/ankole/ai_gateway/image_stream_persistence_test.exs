@@ -8,7 +8,6 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.Artifacts.Image
   alias Ankole.AIGateway.Artifacts.ReferenceBudget
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.ImageStreamPersistence
   alias Ankole.AIGateway.ProviderConfigs
@@ -626,7 +625,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
     agent = agent_fixture()
 
     assert {:ok, conversation} =
-             Conversations.ensure_conversation(agent.principal.uid, "image-ws")
+             Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "image-ws")
 
     assert {:ok, message} =
              start_response_run(%{
@@ -713,7 +712,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistenceTest do
     agent = agent_fixture()
 
     assert {:ok, conversation} =
-             Conversations.ensure_conversation(agent.principal.uid, "image-ws-edit")
+             Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "image-ws-edit")
 
     prior_image_id = "ig_#{UUIDv7.autogenerate()}"
 

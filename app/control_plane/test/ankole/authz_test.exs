@@ -56,13 +56,20 @@ defmodule Ankole.AuthZTest do
                })
 
       assert :ok = AuthZ.authorize(principal.uid, "workspace:default", "read", %{})
-      assert :ok = AuthZ.authorize_permission(principal.uid, "workspace:default:read", %{})
-      assert :ok = AuthZ.authorize_permission(principal.uid, "workspace:project:123:read", %{})
+      assert :ok = Ankole.AuthZ.authorize(principal.uid, "workspace:default", "read", %{})
+      assert :ok = Ankole.AuthZ.authorize(principal.uid, "workspace:project:123", "read", %{})
       assert AuthZ.allowed?(principal.uid, "workspace:default", "read", %{})
       refute AuthZ.allowed?(principal.uid, "workspace:default", "write", %{})
 
-      assert {:error, {:forbidden, "write"}} =
-               AuthZ.authorize_all(principal.uid, "workspace:default", ["read", "write"], %{})
+      assert {:ok, decision} =
+               AuthZ.authorize_all_decision(
+                 principal.uid,
+                 "workspace:default",
+                 ["read", "write"],
+                 %{}
+               )
+
+      assert {:error, {:forbidden, "write"}} = Ankole.AuthZ.Decision.result(decision)
     end
 
     test "actions are exact and request resources cannot be grant patterns" do
@@ -212,7 +219,12 @@ defmodule Ankole.AuthZTest do
                Ankole.PrincipalsFixtures.disable_principal_fixture(principal.uid)
 
       assert {:ok, snapshot} =
-               AuthZ.build_authorization_snapshot(principal.uid, "workspace:default", "read", %{})
+               Ankole.AuthZ.Snapshot.build_authorization_snapshot(
+                 principal.uid,
+                 "workspace:default",
+                 "read",
+                 %{}
+               )
 
       assert snapshot["principal"]["status"] == "disabled"
 

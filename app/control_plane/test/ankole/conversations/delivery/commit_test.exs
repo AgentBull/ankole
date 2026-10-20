@@ -139,7 +139,7 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
                )
 
       assert {:ok, intent} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "webhook",
                  outbound_key: "reply-1",
@@ -179,7 +179,7 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
       assert {:ok, :post} = Ankole.Conversations.Delivery.operation_for_signal(input)
 
       assert {:ok, _} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  conversation_id: input.conversation_id,
@@ -215,7 +215,7 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "degraded-reply",
@@ -252,7 +252,7 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
       binding_fixture(agent.uid, "missing", :ignore, adapter: "missing-adapter")
 
       assert {:ok, _intent} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "missing",
                  outbound_key: "missing-registered-adapter",
@@ -288,7 +288,7 @@ defmodule Ankole.Conversations.Delivery.CommitTest do
                )
 
       assert {:ok, _created} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: "bot",
                  outbound_key: "invalid-adapter-result",

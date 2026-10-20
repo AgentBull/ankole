@@ -33,7 +33,8 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
     event = Repo.one!(Signal)
     key = %{agent_uid: agent.uid, session_id: event.session_id}
-    assert :ok = Conversations.subscribe(id)
+    assert :ok = Conversations.Events.subscribe(id)
+    assert :ok = Ankole.Sessions.Events.subscribe(key.agent_uid, key.session_id)
 
     %{human: human, agent: agent, id: id, event: event, key: key, detail: detail}
   end
@@ -44,8 +45,9 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert run.event.human_uid == context.human.uid
     assert run.event.conversation_id == context.id
     assert Ankole.Sessions.status(context.key).state == :running
-    assert_receive {:conversation_event, id, :status}
-    assert id == context.id
+    assert_receive {:session_event, uid, session, :status}
+    assert uid == context.agent.uid
+    assert session == context.key.session_id
 
     assert Ankole.Sessions.Prompt.Input.text(Signal.envelope(run.event), run.event.type) ==
              "Explain the current project."
@@ -55,6 +57,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
   test "completion commits one public reply and emits message and idle status", context do
     run = context |> prepare() |> respond("The project has one durable owner.")
+    assert_receive {:session_event, _, _, :status}
     assert {:ok, result} = Run.finalize(run)
 
     assert %Message{text: "The project has one durable owner.", kind: :message} =
@@ -70,7 +73,8 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert Ankole.Sessions.status(context.key) == %{state: :idle, retry_at: nil}
     assert Repo.reload!(context.event).completed_at
     assert_receive {:conversation_event, _, :message}
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, {:turn_completed, _, :loop_finished}}
+    refute_received {:session_event, _, _, :status}
     assert {:error, :run_closed} = Run.finalize(run)
     assert Repo.aggregate(Message, :count) == 2
     assert_no_adapter_rows()
@@ -78,12 +82,13 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
   test "silent completion closes its signal without a message event", context do
     run = prepare(context)
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
     assert {:ok, _} = Run.finalize(run, :silent)
     assert Ankole.Sessions.status(context.key).state == :idle
     assert Repo.aggregate(Message, :count) == 1
     refute_receive {:conversation_event, _, :message}
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, {:turn_completed, _, :silent}}
+    refute_received {:session_event, _, _, :status}
     assert_no_adapter_rows()
   end
 
@@ -100,7 +105,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
   test "a retry records its deadline and broadcasts after commit", context do
     run = prepare(context)
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
     assert {:ok, event} = Run.defer_retry(run, %{"code" => "temporary_failure"})
 
     assert Ankole.Sessions.status(context.key) == %{
@@ -108,13 +113,13 @@ defmodule Ankole.Sessions.NativeConversationTest do
              retry_at: event.available_at
            }
 
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
     refute_receive {:conversation_event, _, :message}
   end
 
   test "a retry in a caller transaction publishes only after commit", context do
     run = prepare(context)
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
     error = %{"code" => "temporary_failure"}
     now = DateTime.utc_now(:microsecond)
 
@@ -126,18 +131,21 @@ defmodule Ankole.Sessions.NativeConversationTest do
              Repo.transact(fn repo ->
                assert {:ok, _} = Run.defer_retry_in_tx(repo, run, error, now)
                refute_receive {:conversation_event, _, _}
+               refute_receive {:session_event, _, _, _}
                {:error, :rollback}
              end)
 
     assert Repo.reload!(context.event).available_at == run.event.available_at
     refute_receive {:conversation_event, _, _}
+    refute_receive {:session_event, _, _, _}
 
     assert {:ok, retried} =
              Repo.transact(fn repo -> Run.defer_retry_in_tx(repo, run, error, now) end)
 
     refute_receive {:conversation_event, _, _}
+    refute_receive {:session_event, _, _, _}
     Run.after_finalization({:ok, %{signal: retried, status: :deferred}})
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
 
     assert Ankole.Sessions.status(context.key) == %{
              state: :retrying,
@@ -171,18 +179,20 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
   test "rollback publishes no completion and leaves no public reply", context do
     run = context |> prepare() |> respond("Only committed text is public.")
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
 
     assert {:error, :rollback} =
              Repo.transact(fn repo ->
                assert {:ok, _} = Run.finalize_in_tx(repo, run, :loop_finished, nil)
                refute_receive {:conversation_event, _, _}
+               refute_receive {:session_event, _, _, _}
                {:error, :rollback}
              end)
 
     assert Repo.aggregate(Message, :count) == 1
     assert is_nil(Repo.reload!(context.event).completed_at)
     refute_receive {:conversation_event, _, _}
+    refute_receive {:session_event, _, _, _}
     assert {:ok, _} = Run.finalize(run)
     assert_receive {:conversation_event, _, :message}
     assert_no_adapter_rows()
@@ -240,7 +250,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
   test "inbox authorization publishes a suspended follow-up notice after commit", context do
     prepare(context)
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
     followup = queued_followup(context)
     suspend_tenant()
 
@@ -249,7 +259,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
 
     assert %Message{kind: :notice} = Repo.get_by!(Message, signal_id: followup.id)
     assert_receive {:conversation_event, _, :message}
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
     assert is_nil(Repo.reload!(context.event).completed_at)
     assert_no_adapter_rows()
   end
@@ -257,7 +267,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
   test "injection preserves suspended follow-up effects and suppresses them on rollback",
        context do
     run = prepare(context)
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
     followup = queued_followup(context)
     suspend_tenant()
 
@@ -267,6 +277,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
                         Run.inject_in_tx(repo, run, [followup], DateTime.utc_now(:microsecond))
 
                refute_receive {:conversation_event, _, _}
+               refute_receive {:session_event, _, _, _}
                {:error, :rollback}
              end)
 
@@ -276,7 +287,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
     assert {:ok, []} = Run.inject(run, [followup])
     assert %Message{kind: :notice} = Repo.get_by!(Message, signal_id: followup.id)
     assert_receive {:conversation_event, _, :message}
-    assert_receive {:conversation_event, _, :status}
+    assert_receive {:session_event, _, _, :status}
     assert Repo.reload!(followup).completed_at
     assert is_nil(Repo.reload!(context.event).completed_at)
     assert_no_adapter_rows()

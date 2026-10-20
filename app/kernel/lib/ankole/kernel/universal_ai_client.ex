@@ -110,9 +110,6 @@ defmodule Ankole.Kernel.UniversalAIClient do
   @spec raw_get(binary() | map(), keyword()) :: {:ok, map()} | {:error, error()}
   def raw_get(request, opts \\ []), do: raw_request("GET", request, opts)
 
-  @spec raw_post(binary() | map(), keyword()) :: {:ok, map()} | {:error, error()}
-  def raw_post(request, opts \\ []), do: raw_request("POST", request, opts)
-
   @spec open(map(), open_opts()) :: {:ok, stream()} | {:error, error()}
   def open(spec, opts \\ []) when is_map(spec) and is_list(opts) do
     receiver = Keyword.get(opts, :receiver, self())

@@ -27,7 +27,7 @@ observation and delivery route, not the owner of the platform room.
 | Signal configuration | `signals.dingtalk.bindings.<agent_uid>` |
 | Identity adapter ID | `dingtalk` |
 | Identity configuration | `principals.identity_providers.dingtalk.<id>` |
-| Provider library | `libs/dingtalk_openapi` |
+| Provider library | `plugins/dingtalk_adapter/lib/dingtalk_openapi` |
 
 The signal adapter supports only `addressed_only`. DingTalk does not deliver
 unaddressed group messages to the robot.
@@ -129,6 +129,11 @@ text, `outTrackId`, and sealed state for each page. It also stores the last
 presentation that recovery can render and any thought cleanup deadline. Sealed
 pages do not change. Only the open tail page can receive Markdown updates.
 
+`PreviewAdapter.put_thought_lease/4` computes the shared `cleanup_at` field.
+The adapter supplies its lease duration and final-state flag. A final update or
+an update without visible thought removes the deadline. Provider-specific
+stream deadlines and page transitions stay in the adapter.
+
 Working card updates never send plain text. If the template is missing, the
 provider rejects the content, or an update would change a sealed page, the
 durable final Delivery sends plain text. The checkpoint records each delivered
@@ -180,4 +185,4 @@ The implementation sources are:
 
 - `plugins/dingtalk_adapter/lib/ankole/plugins/dingtalk_adapter.ex`
 - `plugins/dingtalk_adapter/lib/ankole/plugins/dingtalk_adapter/`
-- `libs/dingtalk_openapi/`
+- `plugins/dingtalk_adapter/lib/dingtalk_openapi/`

@@ -128,15 +128,6 @@ message PodRequest {
   bytes params_json = 2;
 }
 
-message PodSyncRequest {
-  string binding_id = 1;
-  string automation_job_run_id = 2;
-  string attempt_id = 3;
-  reserved 4;
-  bytes cursor_json = 5;
-  string records_home_relative_path = 6;
-}
-
 // One file to name at `path`. The control plane pulls `home_relative_path`
 // unless the Agent's drive already holds the content named by `sha256`.
 message FilesCommitUpsert {

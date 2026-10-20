@@ -9,7 +9,10 @@ defmodule AnkoleWeb.SpaControllerTest do
     allow_cache_database_access()
     Cache.clear_for_test()
     :ok = SetupConfig.delete_bootstrap_activation_code()
-    {:ok, false} = SetupConfig.put_completed(false)
+
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     :ok
   end
 
@@ -23,7 +26,7 @@ defmodule AnkoleWeb.SpaControllerTest do
     conn: conn,
     tenant: tenant
   } do
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     conn = get(conn, ~p"/")
 
@@ -37,7 +40,7 @@ defmodule AnkoleWeb.SpaControllerTest do
   end
 
   test "GET /setup redirects home after completion", %{conn: conn} do
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     conn = get(conn, ~p"/setup")
 
@@ -48,7 +51,7 @@ defmodule AnkoleWeb.SpaControllerTest do
     conn: conn,
     tenant: tenant
   } do
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     conn = conn |> Map.put(:host, tenant.slug <> ".ankole.localhost") |> get(~p"/sessions/new")
     next = redirected_to(conn)
@@ -59,7 +62,7 @@ defmodule AnkoleWeb.SpaControllerTest do
   end
 
   test "GET /site-admin-console redirects anonymous users to auth after completion", %{conn: conn} do
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     conn = get(conn, ~p"/site-admin-console/settings")
 
@@ -78,7 +81,7 @@ defmodule AnkoleWeb.SpaControllerTest do
     conn: conn,
     tenant: tenant
   } do
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     path = "/pages/" <> Ankole.Kernel.uuid_shorten(Ankole.Kernel.gen_uuid_v7())
     conn = conn |> Map.put(:host, tenant.slug <> ".ankole.localhost") |> get(path)

@@ -8,7 +8,7 @@ defmodule AnkoleWeb.BrowserAuthenticationsTest do
   setup %{tenant: tenant, conn: conn} do
     allow_cache_database_access()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    {:ok, true} = Ankole.Setup.Config.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     %{principal: a} = human_fixture()
     %{principal: b} = human_fixture()
     {:ok, a: a, b: b, conn: %{conn | host: tenant.slug <> ".ankole.localhost"}}

@@ -206,7 +206,13 @@ defmodule Ankole.PrincipalsFixtures do
         metadata: %{}
       })
 
-    {:ok, identity} = Principals.create_external_identity(attrs)
+    {:ok, identity} = Ankole.PrincipalsFixtures.create_external_identity(attrs)
     identity
+  end
+
+  def create_external_identity(attrs) do
+    %Ankole.Principals.ExternalIdentity{}
+    |> Ankole.Principals.ExternalIdentity.changeset(attrs)
+    |> Ankole.Repo.insert()
   end
 end

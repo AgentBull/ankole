@@ -1,7 +1,7 @@
 import { Shape, Elt, Attributes } from './shape'
 import { type parse } from './parse'
 import { compareDeep, eqArray, none } from './helper'
-import { Node, Plot } from './node'
+import type { Node, Plot } from './node'
 import { SchemaError } from './error'
 
 function remove<T>(arr: readonly T[], index: number) {

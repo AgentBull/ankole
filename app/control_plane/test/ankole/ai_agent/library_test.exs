@@ -264,46 +264,6 @@ defmodule Ankole.AIAgent.LibraryTest do
     assert is_binary(retired["retired_at"])
   end
 
-  test "renders a Skill lesson set atomically through the batch API" do
-    %{principal: agent} = agent_fixture()
-
-    assert {:ok, %{"pdf" => empty_pdf, "xlsx" => empty_xlsx}} =
-             Library.rendered_skill_lessons(agent.uid, ["pdf", "xlsx"])
-
-    refute empty_pdf["has_lessons"]
-    assert empty_pdf["text"] == ""
-    assert empty_pdf["content_hash"] == ""
-    refute empty_xlsx["has_lessons"]
-
-    assert {:ok, _lesson} =
-             Library.create_skill_lesson(
-               agent.uid,
-               "pdf",
-               "Prefer page-by-page verification.",
-               Ankole.ActorRef.from_principal(agent)
-             )
-
-    assert {:ok, %{"pdf" => pdf, "xlsx" => xlsx}} =
-             Library.rendered_skill_lessons(agent.uid, ["pdf", "xlsx"])
-
-    assert pdf["has_lessons"]
-    assert pdf["text"] =~ "Field notes (dated; verify against the current environment):"
-    assert pdf["text"] =~ ", human] Prefer page-by-page verification."
-    assert is_binary(pdf["content_hash"]) and pdf["content_hash"] != ""
-    refute xlsx["has_lessons"]
-
-    assert {:error, :duplicate_skill_name} =
-             Library.rendered_skill_lessons(agent.uid, ["pdf", "pdf"])
-
-    agent.uid
-    |> then(&Repo.get_by!(AgentSkill, agent_uid: &1, skill_name: "xlsx"))
-    |> AgentSkill.changeset(%{enabled_override: false})
-    |> Repo.update!()
-
-    assert {:error, :skill_not_enabled} =
-             Library.rendered_skill_lessons(agent.uid, ["pdf", "xlsx"])
-  end
-
   test "skill lesson writes resolve cold AppConfigure defaults before opening a transaction" do
     %{principal: agent} = agent_fixture()
 
@@ -578,7 +538,6 @@ defmodule Ankole.AIAgent.LibraryTest do
     )
 
     assert {:ok, sources} = SourceReader.read_builtin_skill_sources()
-    catalog_hash = SourceReader.catalog_hash(sources)
     assert Enum.map(sources, & &1.name) == ["public-only", "shadowed"]
 
     shadowed = Enum.find(sources, &(&1.name == "shadowed"))
@@ -599,7 +558,6 @@ defmodule Ankole.AIAgent.LibraryTest do
 
     File.write!(Path.join([internal_skill, "references", "guide.md"]), "changed reference")
     assert {:ok, sources_after_reference_change} = SourceReader.read_builtin_skill_sources()
-    assert SourceReader.catalog_hash(sources_after_reference_change) == catalog_hash
 
     assert Enum.find(sources_after_reference_change, &(&1.name == "shadowed")).source_hash ==
              shadowed.source_hash
@@ -617,7 +575,9 @@ defmodule Ankole.AIAgent.LibraryTest do
     """)
 
     assert {:ok, sources_after_skill_change} = SourceReader.read_builtin_skill_sources()
-    assert SourceReader.catalog_hash(sources_after_skill_change) != catalog_hash
+
+    assert Enum.find(sources_after_skill_change, &(&1.name == "shadowed")).source_hash !=
+             shadowed.source_hash
 
     assert Enum.find(sources_after_skill_change, &(&1.name == "shadowed")).metadata[
              "ankole-runtime"

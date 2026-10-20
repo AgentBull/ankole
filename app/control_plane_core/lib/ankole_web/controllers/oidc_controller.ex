@@ -1,0 +1,589 @@
+defmodule AnkoleWeb.OIDCController do
+  @moduledoc """
+  Serves Ankole's OAuth 2.0 and OpenID Connect protocol endpoints.
+
+  The token endpoint uses the declared OIDC Client credentials. It does not
+  use the browser session.
+  """
+
+  use AnkoleWeb, :controller
+
+  @behaviour Boruta.Oauth.AuthorizeApplication
+  @behaviour Boruta.Oauth.TokenApplication
+  @behaviour Boruta.Openid.UserinfoApplication
+
+  alias Ankole.BrowserSessions
+  alias Ankole.OIDC
+  alias Ankole.OIDC.Boruta.ResourceOwners
+  alias Ankole.OIDC.Client
+  alias Ankole.OIDC.LoginPolicy
+  alias Ankole.OIDC.SigningKey
+  alias Ankole.OIDC.Tokens
+  alias Ankole.TokenSigning
+  alias AnkoleWeb.Session, as: WebSession
+  alias Boruta.Oauth.AuthorizeResponse
+  alias Boruta.Oauth.Error, as: OAuthError
+  alias Boruta.Openid.UserinfoResponse
+
+  @pkce_challenge ~r/\A[A-Za-z0-9_-]{43}\z/
+  @pkce_verifier ~r/\A[A-Za-z0-9._~-]{43,128}\z/
+
+  def discovery(conn, _params) do
+    issuer = TokenSigning.issuer()
+
+    json(conn, %{
+      issuer: issuer,
+      authorization_endpoint: issuer <> "/oauth/authorize",
+      token_endpoint: issuer <> "/oauth/token",
+      introspection_endpoint: issuer <> "/oauth/introspect",
+      introspection_endpoint_auth_methods_supported: ["client_secret_basic"],
+      end_session_endpoint: issuer <> "/oauth/logout",
+      backchannel_logout_supported: true,
+      backchannel_logout_session_supported: true,
+      userinfo_endpoint: issuer <> "/oauth/userinfo",
+      jwks_uri: issuer <> "/.well-known/jwks.json",
+      response_types_supported: ["code"],
+      response_modes_supported: ["query"],
+      grant_types_supported: ["authorization_code", "refresh_token"],
+      subject_types_supported: ["public"],
+      id_token_signing_alg_values_supported: ["RS256"],
+      token_endpoint_auth_methods_supported: ["none", "client_secret_basic"],
+      scopes_supported: Client.supported_scopes(),
+      claims_supported: [
+        "sub",
+        "name",
+        "preferred_username",
+        "picture",
+        "email",
+        "auth_time",
+        "sid"
+      ],
+      code_challenge_methods_supported: ["S256"]
+    })
+  end
+
+  def jwks(conn, _params) do
+    case SigningKey.public_jwk() do
+      {:ok, jwk} -> json(conn, %{keys: [jwk]})
+      {:error, _reason} -> oauth_json_error(conn, 500, "server_error", "signing key unavailable")
+    end
+  end
+
+  def authorize(conn, params) do
+    params = Map.delete(params, "selection_confirmed")
+
+    with {:ok, client, scope} <- validate_authorization_request(params) do
+      continue_authorization(conn, params, client, scope)
+    else
+      {:error, code, description} ->
+        authorization_request_error(conn, params, code, description)
+    end
+  end
+
+  def resume_authorize(conn, %{"flow" => flow}) do
+    result =
+      BrowserSessions.consume_authorization(
+        WebSession.browser_reference(conn),
+        flow,
+        authorization_reference(conn, flow),
+        fn params, auth ->
+          with {:ok, client, scope} <- validate_authorization_request(params),
+               :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]),
+               :ok <- LoginPolicy.completed_authentication_allowed?(auth, params),
+               {:ok, resource_owner} <- ResourceOwners.from_authentication(auth),
+               :ok <- authorize_gateway_scope(client, resource_owner.sub, scope) do
+            {:ok,
+             Boruta.Oauth.authorize(
+               %{conn | query_params: Map.put(params, "scope", scope)},
+               resource_owner,
+               __MODULE__
+             )}
+          end
+        end
+      )
+
+    case result do
+      {:ok, conn} ->
+        conn
+
+      _ ->
+        oauth_json_error(
+          conn,
+          400,
+          "invalid_request",
+          "authorization request expired or no longer allowed"
+        )
+    end
+  end
+
+  def resume_authorize(conn, _params),
+    do: oauth_json_error(conn, 400, "invalid_request", "authorization transaction is required")
+
+  def token(conn, params) do
+    case token_request_kind(conn, params) do
+      {:oidc, client} -> oidc_token(conn, client)
+      {:error, code, description} -> token_json_error(conn, 400, code, description)
+    end
+  end
+
+  def introspect(conn, params) do
+    with {:ok, :basic, client_id} <- request_client_credentials(conn, params),
+         {:ok, %Client{client_type: :confidential} = client} <- put_client_tenant(client_id),
+         :ok <- client_authentication_shape(client, :basic, params),
+         {:ok, request} <- Boruta.Oauth.Request.Introspect.request(conn),
+         {:ok, response} <- Ankole.OIDC.Boruta.Introspection.check(request) do
+      conn |> no_store() |> json(response)
+    else
+      {:error, :temporarily_unavailable} ->
+        oauth_json_error(
+          conn,
+          503,
+          "temporarily_unavailable",
+          "authentication dependency unavailable"
+        )
+
+      {:error, %OAuthError{error: :invalid_request}} ->
+        oauth_json_error(conn, 400, "invalid_request", "token is required")
+
+      _ ->
+        conn
+        |> put_resp_header("www-authenticate", "Basic realm=\"OIDC introspection\"")
+        |> oauth_json_error(401, "invalid_client", "confidential Client authentication required")
+    end
+  end
+
+  def userinfo(conn, _params) do
+    with {:ok, raw_token} <- bearer_token(conn),
+         {:ok, claims} <- Tokens.verify_access(raw_token, Tokens.userinfo_audience()),
+         {:ok, _client} <- put_client_tenant(claims["client_id"]),
+         :ok <- authorize_request_origin(conn, claims["client_id"]) do
+      Boruta.Openid.userinfo(conn, __MODULE__)
+    else
+      {:error, :origin_not_allowed} ->
+        oauth_json_error(conn, 403, "invalid_request", "Origin is not registered for this Client")
+
+      {:error, _reason} ->
+        oauth_json_error(conn, 401, "invalid_token", "access token is invalid")
+    end
+  end
+
+  def options(conn, _params), do: send_resp(conn, 204, "")
+
+  @impl true
+  def authorize_success(conn, response) do
+    redirect(conn, external: AuthorizeResponse.redirect_to_url(response))
+  end
+
+  @impl true
+  def authorize_error(conn, %OAuthError{} = error), do: render_authorize_error(conn, error)
+
+  @impl true
+  def preauthorize_success(conn, _authorization), do: conn
+
+  @impl true
+  def preauthorize_error(conn, %OAuthError{} = error), do: render_authorize_error(conn, error)
+
+  @impl true
+  def token_success(conn, response) do
+    case Ankole.OIDC.Boruta.IdTokens.for_response(response.id_token) do
+      {:ok, id_token} ->
+        token_response(conn, response, id_token)
+
+      {:error, _} ->
+        oauth_json_error(conn, 503, "temporarily_unavailable", "signing key unavailable")
+    end
+  end
+
+  defp token_response(conn, response, id_token) do
+    payload = %{
+      access_token: response.access_token,
+      token_type: response.token_type,
+      expires_in: response.expires_in,
+      scope: response.token.scope
+    }
+
+    payload = maybe_put(payload, :refresh_token, response.refresh_token)
+    payload = maybe_put(payload, :id_token, id_token)
+
+    conn
+    |> no_store()
+    |> json(payload)
+  end
+
+  @impl true
+  def token_error(conn, %OAuthError{} = error) do
+    token_json_error(
+      conn,
+      Plug.Conn.Status.code(error.status),
+      Atom.to_string(error.error),
+      error.error_description
+    )
+  end
+
+  @impl true
+  def userinfo_fetched(conn, response) do
+    conn
+    |> no_store()
+    |> put_resp_content_type(UserinfoResponse.content_type(response))
+    |> send_resp(200, encode_userinfo(UserinfoResponse.payload(response)))
+  end
+
+  @impl true
+  def unauthorized(conn, %OAuthError{} = error) do
+    oauth_json_error(conn, 401, Atom.to_string(error.error), error.error_description)
+  end
+
+  defp continue_authorization(conn, params, client, scope) do
+    params = Map.put(params, "scope", scope)
+
+    case {Ankole.Tenants.accepting_work?(client.tenant_id),
+          current_resource_owner(conn, client, params)} do
+      {false, _} ->
+        redirect_authorization_error(conn, params, "access_denied", "Pod is unavailable")
+
+      {true, {:ok, resource_owner, conn}} ->
+        with :ok <- authorize_gateway_scope(client, resource_owner.sub, scope) do
+          Boruta.Oauth.authorize(%{conn | query_params: params}, resource_owner, __MODULE__)
+        else
+          {:error, reason} ->
+            redirect_authorization_error(conn, params, "access_denied", message(reason))
+        end
+
+      {true, :error} ->
+        if LoginPolicy.silent?(params) do
+          redirect_authorization_error(conn, params, "login_required", "Human login is required")
+        else
+          with {:ok, _providers} <- LoginPolicy.providers(client, params),
+               {:ok, conn, transaction} <-
+                 WebSession.begin_login(
+                   conn,
+                   :oauth,
+                   params,
+                   reauthentication_target(conn, client, params)
+                 ) do
+            redirect(conn, to: "/sessions/new?oauth=1&flow=" <> transaction.id)
+          else
+            {:error, reason} ->
+              redirect_authorization_error(conn, params, "access_denied", message(reason))
+          end
+        end
+    end
+  end
+
+  defp reauthentication_target(conn, client, params) do
+    with true <- LoginPolicy.requires_login?(params),
+         false <- LoginPolicy.select_account?(params),
+         %{} = auth <- WebSession.oauth_session(conn),
+         :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]) do
+      [expected_authentication_id: auth["authentication_id"]]
+    else
+      _ -> []
+    end
+  end
+
+  defp current_resource_owner(conn, client, params) do
+    with %{} = authentication <- WebSession.oauth_session(conn),
+         true <- LoginPolicy.can_reuse?(authentication, params),
+         :ok <- LoginPolicy.authorize_source(client, authentication["provider_id"]),
+         {:ok, resource_owner} <- ResourceOwners.from_authentication(authentication) do
+      {:ok, resource_owner, conn}
+    else
+      _ -> :error
+    end
+  end
+
+  defp authorization_reference(conn, flow) do
+    case WebSession.login_transaction(conn, flow) do
+      {:ok, transaction} -> WebSession.transaction_reference(conn, transaction)
+      _ -> nil
+    end
+  end
+
+  defp validate_authorization_request(params) do
+    with "code" <- params["response_type"],
+         true <- params["response_mode"] in [nil, "query"],
+         false <- Map.has_key?(params, "request"),
+         false <- Map.has_key?(params, "request_uri"),
+         client_id when is_binary(client_id) <- params["client_id"],
+         {:ok, client} <- put_client_tenant(client_id),
+         redirect_uri when is_binary(redirect_uri) <- params["redirect_uri"],
+         true <- redirect_uri in client.redirect_uris,
+         scope when is_binary(scope) <- params["scope"],
+         {:ok, scope} <- validate_scope(scope, client),
+         "S256" <- params["code_challenge_method"],
+         challenge when is_binary(challenge) <- params["code_challenge"],
+         true <- Regex.match?(@pkce_challenge, challenge),
+         true <- optional_string?(params["state"]),
+         true <- optional_string?(params["nonce"]),
+         :ok <- LoginPolicy.validate(params) do
+      {:ok, client, scope}
+    else
+      {:error, :not_found} -> {:error, "invalid_client", "Client is unknown or disabled"}
+      {:error, code, description} -> {:error, code, description}
+      false -> {:error, "invalid_request", "authorization request is not supported"}
+      _invalid -> {:error, "invalid_request", "authorization request is not valid"}
+    end
+  end
+
+  defp validate_scope(scope, client) do
+    scopes = String.split(scope, " ", trim: true)
+
+    cond do
+      scopes == [] ->
+        {:error, "invalid_scope", "scope is required"}
+
+      length(scopes) != length(Enum.uniq(scopes)) ->
+        {:error, "invalid_scope", "scope contains duplicates"}
+
+      "openid" not in scopes ->
+        {:error, "invalid_scope", "openid scope is required"}
+
+      not MapSet.subset?(MapSet.new(scopes), MapSet.new(client.scopes)) ->
+        {:error, "invalid_scope", "Client is not allowed to request this scope"}
+
+      true ->
+        {:ok, Enum.join(scopes, " ")}
+    end
+  end
+
+  defp authorize_gateway_scope(client, principal_uid, scope) do
+    if "ai_gateway.write" in String.split(scope, " ", trim: true) do
+      case OIDC.authorize_ai_gateway(client.id, principal_uid) do
+        {:ok, _client} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp authorization_request_error(conn, params, code, description) do
+    case validated_redirect_uri(params) do
+      {:ok, _client} -> redirect_authorization_error(conn, params, code, description)
+      :error -> oauth_json_error(conn, 400, code, description)
+    end
+  end
+
+  defp validated_redirect_uri(%{"client_id" => client_id, "redirect_uri" => redirect_uri}) do
+    with {:ok, client} <- put_client_tenant(client_id),
+         true <- redirect_uri in client.redirect_uris do
+      {:ok, client}
+    else
+      _invalid -> :error
+    end
+  end
+
+  defp validated_redirect_uri(_params), do: :error
+
+  defp redirect_authorization_error(conn, params, code, description) do
+    query =
+      %{
+        "error" => code,
+        "error_description" => description,
+        "state" => if(is_binary(params["state"]), do: params["state"])
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Enum.sort()
+      |> URI.encode_query()
+
+    redirect(conn, external: append_query(params["redirect_uri"], query))
+  end
+
+  defp render_authorize_error(conn, %OAuthError{redirect_uri: uri} = error)
+       when is_binary(uri) and uri != "" do
+    redirect(conn, external: OAuthError.redirect_to_url(error))
+  end
+
+  defp render_authorize_error(conn, %OAuthError{} = error) do
+    oauth_json_error(
+      conn,
+      Plug.Conn.Status.code(error.status),
+      Atom.to_string(error.error),
+      error.error_description
+    )
+  end
+
+  defp token_request_kind(conn, %{"grant_type" => "refresh_token"} = params) do
+    if oidc_credential_shape?(conn, params) do
+      oidc_client_shape(conn, params)
+    else
+      {:error, "invalid_client", "OIDC Client credentials are required"}
+    end
+  end
+
+  defp token_request_kind(conn, %{"grant_type" => "authorization_code"} = params) do
+    if oidc_credential_shape?(conn, params) do
+      oidc_client_shape(conn, params)
+    else
+      {:error, "invalid_client", "OIDC Client credentials are required"}
+    end
+  end
+
+  defp token_request_kind(_conn, %{"grant_type" => _grant_type}),
+    do: {:error, "unsupported_grant_type", "grant_type is not supported"}
+
+  defp token_request_kind(_conn, _params),
+    do: {:error, "invalid_request", "grant_type is required"}
+
+  defp oidc_client_shape(conn, params) do
+    with {:ok, source, client_id} <- request_client_credentials(conn, params),
+         {:ok, client} <- put_client_tenant(client_id),
+         :ok <- client_authentication_shape(client, source, params),
+         :ok <- validate_grant_request(params),
+         :ok <- authorize_request_origin(conn, client.id) do
+      {:oidc, client}
+    else
+      {:error, :origin_not_allowed} ->
+        {:error, "invalid_request", "Origin is not registered for this Client"}
+
+      {:error, :not_found} ->
+        {:error, "invalid_client", "Client is unknown or disabled"}
+
+      {:error, code, description} ->
+        {:error, code, description}
+    end
+  end
+
+  defp request_client_credentials(conn, params) do
+    case get_req_header(conn, "authorization") do
+      [] ->
+        case params["client_id"] do
+          client_id when is_binary(client_id) and client_id != "" -> {:ok, :public, client_id}
+          _missing -> {:error, "invalid_client", "client_id is required"}
+        end
+
+      [header] ->
+        case Boruta.BasicAuth.decode(header) do
+          {:ok, [client_id, _secret]} when client_id != "" -> {:ok, :basic, client_id}
+          _invalid -> {:error, "invalid_client", "client_secret_basic credentials are invalid"}
+        end
+
+      _multiple ->
+        {:error, "invalid_client", "exactly one Authorization header is required"}
+    end
+  end
+
+  defp client_authentication_shape(%Client{client_type: :public}, :public, params) do
+    if forbidden_oidc_auth_param?(params),
+      do: {:error, "invalid_client", "public Client must use client_id only"},
+      else: :ok
+  end
+
+  defp client_authentication_shape(%Client{client_type: :confidential}, :basic, params) do
+    if Map.has_key?(params, "client_id") or forbidden_oidc_auth_param?(params),
+      do: {:error, "invalid_request", "confidential Client must use client_secret_basic only"},
+      else: :ok
+  end
+
+  defp client_authentication_shape(%Client{client_type: :public}, _source, _params),
+    do: {:error, "invalid_client", "public Client must use client_id only"}
+
+  defp client_authentication_shape(%Client{client_type: :confidential}, _source, _params),
+    do: {:error, "invalid_client", "confidential Client must use client_secret_basic"}
+
+  defp forbidden_oidc_auth_param?(params) do
+    Enum.any?(
+      ["client_secret", "client_assertion", "client_assertion_type"],
+      &Map.has_key?(params, &1)
+    )
+  end
+
+  defp validate_grant_request(%{"grant_type" => "authorization_code"} = params) do
+    case params["code_verifier"] do
+      verifier when is_binary(verifier) ->
+        if Regex.match?(@pkce_verifier, verifier),
+          do: :ok,
+          else: {:error, "invalid_request", "code_verifier is invalid"}
+
+      _missing ->
+        {:error, "invalid_request", "code_verifier is invalid"}
+    end
+  end
+
+  defp validate_grant_request(_params), do: :ok
+
+  defp oidc_credential_shape?(conn, params) do
+    get_req_header(conn, "authorization") != [] or
+      Enum.any?(
+        ["client_id", "client_secret", "client_assertion", "client_assertion_type"],
+        &Map.has_key?(params, &1)
+      )
+  end
+
+  defp oidc_token(conn, _client), do: Boruta.Oauth.token(conn, __MODULE__)
+
+  defp authorize_request_origin(conn, client_id) do
+    case get_req_header(conn, "origin") do
+      [] ->
+        :ok
+
+      [origin] ->
+        if OIDC.origin_allowed?(client_id, origin), do: :ok, else: {:error, :origin_not_allowed}
+
+      _multiple ->
+        {:error, :origin_not_allowed}
+    end
+  end
+
+  # Client IDs are globally unique and select the protocol request's tenant.
+  defp put_client_tenant(client_id) do
+    with {:ok, client} <- Ankole.Repo.across_tenants(fn -> OIDC.get_active_client(client_id) end) do
+      Ankole.Repo.put_tenant_id(client.tenant_id)
+      {:ok, client}
+    end
+  end
+
+  defp bearer_token(conn) do
+    case Boruta.Oauth.BearerToken.extract_token(conn) do
+      {:ok, token} -> {:ok, token}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp append_query(uri, query) do
+    parsed = URI.parse(uri)
+    existing = if parsed.query in [nil, ""], do: query, else: parsed.query <> "&" <> query
+    URI.to_string(%{parsed | query: existing})
+  end
+
+  defp no_store(conn) do
+    conn
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("pragma", "no-cache")
+  end
+
+  defp oauth_json_error(conn, status, code, description) do
+    conn
+    |> no_store()
+    |> put_status(status)
+    |> json(%{error: code, error_description: description})
+  end
+
+  defp token_json_error(conn, _status, "invalid_client", description) do
+    case get_req_header(conn, "authorization") do
+      [] ->
+        oauth_json_error(conn, 400, "invalid_client", description)
+
+      _headers ->
+        # Other schemes need their own challenge protocol; do not reflect request schemes.
+        conn
+        |> put_resp_header("www-authenticate", "Basic realm=\"OIDC token\"")
+        |> oauth_json_error(401, "invalid_client", description)
+    end
+  end
+
+  defp token_json_error(conn, status, code, description),
+    do: oauth_json_error(conn, status, code, description)
+
+  defp encode_userinfo(payload) when is_map(payload), do: Ankole.JSON.encode!(payload)
+  defp encode_userinfo(payload) when is_binary(payload), do: payload
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp optional_string?(nil), do: true
+  defp optional_string?(value), do: is_binary(value)
+
+  defp message(value) when is_binary(value), do: value
+  defp message(value), do: inspect(value)
+end

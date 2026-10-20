@@ -8,7 +8,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
   alias Ankole.Sessions.CodexJob
   alias Ankole.AgentWorkers.WorkerRouteAuth
 
-  @grace_seconds TurnWatchdog.stall_grace_seconds()
+  @grace_seconds 3600
 
   test "a Turn that keeps recording progress is never treated as stalled" do
     %{job: job, agent: agent, checkpoint_at: checkpoint_at} = start_job_turn("live")
@@ -222,7 +222,10 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdogTest do
         "tools_used" => [],
         "files_changed" => []
       },
-      error: %{"code" => TurnWatchdog.stall_code(), "summary" => TurnWatchdog.stall_summary()},
+      error: %{
+        "code" => TurnWatchdog.stall_code(),
+        "summary" => "runtime Turn recorded no durable progress before the stall deadline"
+      },
       started_at: now,
       completed_at: now
     })

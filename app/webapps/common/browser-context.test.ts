@@ -13,6 +13,6 @@ test('Pod browser paths use URL UUIDs without changing durable identity', () => 
   })
   expect(podRouteID(short)).toBe(id)
   expect(podRouteID(id)).toBe(id)
-  expect(podRouteID(short.slice(0, -1) + 'x')).toBeUndefined()
+  expect(podRouteID(`${short.slice(0, -1)}x`)).toBeUndefined()
   expect(podLocation(`/pages/${id}`, { chat: 'new' }).search).toBe('?chat=new')
 })

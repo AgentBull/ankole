@@ -19,7 +19,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   alias Ankole.IdentityProviders.Directory
   alias Ankole.IdentityProviders.DirectoryAccess
   alias Ankole.IdentityProviders.DirectorySync
-  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.IdentityProviders.Phone
   alias Ankole.Logging
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.MapHelpers
@@ -468,24 +468,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.IdentityProvider do
   defp normalized_mobile(user) do
     user
     |> optional_text("mobile")
-    |> phone_candidates()
-    |> Enum.find_value(fn candidate ->
-      case NativeKernel.phone_normalize_e164(candidate) do
-        normalized when is_binary(normalized) -> normalized
-        {:error, _reason} -> nil
-      end
-    end)
-  end
-
-  defp phone_candidates(nil), do: []
-
-  defp phone_candidates(phone) when is_binary(phone) do
-    trimmed = String.trim(phone)
-    digits = String.replace(trimmed, ~r/\D/, "")
-
-    case String.length(digits) == 11 and String.starts_with?(digits, "1") do
-      true -> [trimmed, "+86" <> digits]
-      false -> [trimmed]
-    end
+    |> Phone.normalize_china_mobile()
   end
 end

@@ -5,7 +5,6 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
   import ExUnit.CaptureLog
 
   alias Ankole.AIGateway.Artifacts
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.HostedTools.ImageGeneration
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ResponsesPreparation
@@ -271,7 +270,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
              })
 
     assert {:ok, request, nil} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
                "model" => "primary",
                "input" => "Run one tool.",
                "metadata" => %{"signal_id" => "hosted-websocket-event"},
@@ -1204,7 +1203,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     _provider_id = configure_openrouter_profiles(agent.uid, base_url, "stateful-edit")
 
     assert {:ok, conversation} =
-             Conversations.ensure_conversation(agent.uid, "stateful-image-edit")
+             Ankole.AIGatewayCase.ensure_conversation(agent.uid, "stateful-image-edit")
 
     assert {:ok, message} =
              start_response_run(%{
@@ -1231,7 +1230,7 @@ defmodule Ankole.AIGateway.HostedImageGenerationTest do
     assert {:ok, _message} = ResponseCommit.commit_complete(message, [stored_image])
 
     assert {:ok, prepared, _stateful_context} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(agent.uid, %{
+             StatefulLifecycle.prepare_websocket_request(agent.uid, %{
                "model" => "primary",
                "input" => "change the sky to night",
                "store" => true,

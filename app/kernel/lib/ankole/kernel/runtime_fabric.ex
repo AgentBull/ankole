@@ -19,9 +19,6 @@ defmodule Ankole.Kernel.RuntimeFabric do
     IO.iodata_to_binary(iodata)
   end
 
-  @spec decode_envelope(binary()) :: {:ok, Envelope.t()} | {:error, term()}
-  def decode_envelope(bytes) when is_binary(bytes), do: Envelope.decode(bytes)
-
   @spec seal_and_encode(Envelope.t()) :: binary()
   def seal_and_encode(%Envelope{} = envelope),
     do: encode_envelope(%{envelope | protocol_version: @protocol_version})

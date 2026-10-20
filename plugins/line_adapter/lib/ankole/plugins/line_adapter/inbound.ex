@@ -29,17 +29,17 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
 
   @spec handle_message_receive(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_receive(_event_type, envelope, consumers) do
-    dispatch_chat(consumers, &emit_message(&1, envelope))
+    AdapterContext.dispatch_chat(consumers, &emit_message(&1, envelope))
   end
 
   @spec handle_message_removed(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_removed(_event_type, envelope, consumers) do
-    dispatch_chat(consumers, &emit_removed(&1, envelope))
+    AdapterContext.dispatch_chat(consumers, &emit_removed(&1, envelope))
   end
 
   @spec handle_card_action(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_card_action(_event_type, envelope, consumers) do
-    dispatch_chat(consumers, &emit_action(&1, envelope))
+    AdapterContext.dispatch_chat(consumers, &emit_action(&1, envelope))
   end
 
   @doc false
@@ -542,13 +542,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
       )
 
       false
-  end
-
-  defp dispatch_chat(consumers, fun) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fun)
-    |> MapHelpers.collect_results()
   end
 
   defp material_message?(text, attachments), do: is_binary(text) or attachments != []

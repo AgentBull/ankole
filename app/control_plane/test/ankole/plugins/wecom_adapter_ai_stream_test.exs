@@ -53,7 +53,8 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
     bot_id = "bot-#{System.unique_integer([:positive])}"
     config = %{"botId" => bot_id, "secret" => "secret"}
 
-    {:ok, _config} = AppConfigure.put_global_by_key(Config.chat_config_key(config_id), config)
+    {:ok, _config} =
+      AppConfigure.put_global_by_key("signals.wecom.bindings." <> config_id, config)
 
     %{principal: agent} = agent_fixture()
 
@@ -62,7 +63,7 @@ defmodule Ankole.Plugins.WeComAdapterAIStreamTest do
         agent_uid: agent.uid,
         name: "wecom-stream",
         adapter: "wecom",
-        config_ref: "app-config://#{Config.chat_config_key(config_id)}",
+        config_ref: "app-config://#{"signals.wecom.bindings." <> config_id}",
         filters: %{},
         unaddressed_group_message_policy: :ignore,
         unmatched_sender_policy: :create_standalone

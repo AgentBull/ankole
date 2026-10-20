@@ -123,7 +123,8 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
     end
 
     {:ok, _} =
-      CompactionPolicy.put_config(
+      Ankole.AppConfigure.put_global(
+        Ankole.AIGateway.CompactionPolicy.config_definition(),
         Map.merge(CompactionPolicy.config(), %{
           "threshold" => 0.5,
           "max_threshold_tokens" => 100_000,
@@ -134,7 +135,7 @@ defmodule Ankole.Sessions.CheckpointContextDriverTest do
     on_exit(
       Repo.bind_tenant(fn ->
         RuntimeCase.stop_new_drivers(drivers)
-        CompactionPolicy.delete_config()
+        Ankole.AppConfigure.delete_global(Ankole.AIGateway.CompactionPolicy.config_definition())
 
         Repo.delete_all(
           from(j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid)

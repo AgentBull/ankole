@@ -3,7 +3,6 @@ defmodule Ankole.TenantsTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.{AppConfigure, AuthZ, BrowserSessions, Tenants}
-  alias Ankole.AppConfigure.Schema
   alias Ankole.AuthZ.Group
   alias Ankole.OIDC.Client
   alias Ankole.OIDC.LogoutDelivery
@@ -69,11 +68,11 @@ defmodule Ankole.TenantsTest do
         key: key,
         scope: :tenant,
         encrypted: false,
-        schema: Schema.string(),
+        schema: Ankole.AppConfigure.Schema.non_empty_string(),
         default_value: "default"
       )
 
-    :ok = AppConfigure.register_definitions([definition])
+    :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
     assert {:ok, "site"} = AppConfigure.put_global(definition, "site")
     assert {:ok, "tenant"} = AppConfigure.put_tenant_by_key(key, "tenant")
     assert {:ok, %{value: "tenant", source: :tenant}} = AppConfigure.resolve(definition)

@@ -30,12 +30,14 @@ defmodule Ankole.SystemConfigTest do
     System.put_env("TZ", "Asia/Shanghai")
     clear_app_configure()
 
-    assert {:ok, "America/New_York"} = SystemConfig.put_timezone("America/New_York")
+    assert {:ok, "America/New_York"} =
+             Ankole.AppConfigure.put_tenant_by_key("system.timezone", "America/New_York")
+
     assert {:ok, "America/New_York"} = SystemConfig.timezone()
   end
 
   test "UTC input is normalized to Etc/UTC" do
-    assert {:ok, "Etc/UTC"} = SystemConfig.put_timezone("UTC")
+    assert {:ok, "Etc/UTC"} = Ankole.AppConfigure.put_tenant_by_key("system.timezone", "UTC")
     assert {:ok, "Etc/UTC"} = SystemConfig.timezone()
   end
 

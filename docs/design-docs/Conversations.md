@@ -105,12 +105,18 @@ contain no NUL character, and be nonempty after whitespace is removed from both
 ends. Storage and retry comparison retain the original text. The title uses
 the first nonempty line, up to 80 characters.
 
-The control plane wakes the Driver and publishes conversation events after
-the transaction commits. A rollback publishes no event and leaves no accepted
-message or signal. Public publishing entry points reject an outer transaction.
-A transaction owner uses `create_in_tx/3` or the Human `post_in_tx/4`, retains
-the returned `publications`, and calls `publish_committed/1` after commit.
-The durable EnsureDriver job remains the recovery wakeup path.
+The control plane publishes changes after the transaction commits. A rollback
+publishes no event and leaves no accepted message or signal. A transaction owner
+uses `create_in_tx/3` or the Human `post_in_tx/4` and retains the returned
+`publications` and `session_key`. After the outer transaction succeeds, that same
+process calls `Conversations.Events.publish_committed/1` and publishes one status
+change through `Sessions.Events`. A repeated request with no new publications
+publishes neither event. The durable EnsureDriver job owns the recovery wakeup.
+
+The publication guard rejects a transaction in the calling process. It does not
+prove that the supplied facts committed, and a new Task does not inherit the
+parent's transaction. Transaction code must return publication facts to its
+outer owner; it must not start a Task to publish them.
 
 When a tenant is suspended, admission can reject a queued follow-up while the
 earlier admitted turn continues. The notice and completed follow-up commit
@@ -221,10 +227,12 @@ inactive. CSRF protection rejects an unsafe request without valid proof.
 
 ## SSE and Visible History
 
-The SSE endpoint checks access before it subscribes. It combines the native
-conversation's tenant-scoped PubSub topic with AIGateway events for that
-conversation's Agent and model conversation. The connection sends a `: ping`
-comment every 15 seconds and removes both subscriptions when it closes.
+The SSE endpoint checks access before it subscribes. It subscribes to
+`Conversations.Events` for public message and availability changes,
+`Sessions.Events` for that Agent's execution state and activity, and AIGateway
+for model events. All topics are tenant-scoped. The connection establishes these
+subscriptions before it reads the current Driver snapshot. It sends a `: ping`
+comment every 15 seconds and removes all subscriptions when it closes.
 
 | Event | JSON data | Meaning |
 | --- | --- | --- |
@@ -250,9 +258,14 @@ epoch cannot reopen. Driver loss, retry, and disconnection clear transient
 details and fall back to the durable status. An activity frame never triggers
 a full history read.
 
-Conversation events are published after acceptance, admission, retry,
-completion, or dead-letter commit. Agent disablement, enablement, and permanent
-deletion also publish `status` after commit.
+`Conversations.Events` publishes a message event after a public statement commits.
+Its status event covers Conversation deletion and Agent availability.
+`Sessions.Events` owns acceptance, queue, admission, retry, and terminal state
+notifications. A committed turn publishes one `turn_completed` notification in
+place of a status notification. The SSE connection maps either to the existing
+`status` frame. An external turn completion proves that its Delivery intents
+committed; only provider confirmation creates its public messages. Activity
+events are transient observations and do not establish committed facts.
 
 `signalIDs` comes from the Response's primary input and the steered inputs in
 `session_round_states`. It identifies the durable inputs that the model

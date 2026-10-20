@@ -84,10 +84,6 @@ defmodule Ankole.Plugins.LineAdapter.Config do
     Client.new(channel_access_token(config), Keyword.merge(client_opts, opts))
   end
 
-  @spec channel_id(t() | Runtime.t()) :: String.t()
-  def channel_id(%Runtime{channel_id: value}), do: value
-  def channel_id(config) when is_map(config), do: Map.fetch!(config, "channelId")
-
   @spec channel_secret(t() | Runtime.t()) :: String.t()
   def channel_secret(%Runtime{channel_secret: value}), do: value
   def channel_secret(config) when is_map(config), do: Map.fetch!(config, "channelSecret")

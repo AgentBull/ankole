@@ -6,9 +6,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.AdaptiveCard do
 
   @content_type "application/vnd.microsoft.card.adaptive"
 
-  @spec content_type() :: String.t()
-  def content_type, do: @content_type
-
   @spec action_envelope_version() :: String.t()
   def action_envelope_version, do: ReplyPresentation.action_protocol()
 

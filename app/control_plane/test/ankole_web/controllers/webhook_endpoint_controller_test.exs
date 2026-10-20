@@ -15,7 +15,9 @@ defmodule AnkoleWeb.WebhookEndpointControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    {:ok, false} = SetupConfig.put_completed(false)
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     :ok

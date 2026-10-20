@@ -62,7 +62,7 @@ configured =
 
 Application.put_env(:ankole, AnkoleWeb.Endpoint, configured)
 :ok = AnkoleWeb.Endpoint.config_change([{AnkoleWeb.Endpoint, configured}], [])
-{:ok, _} = Ankole.Setup.Config.put_completed(true)
+{:ok, _} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
 limits = %{
   "local_rows" => 5000,

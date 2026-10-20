@@ -14,7 +14,7 @@ needs_build() {
 
   local newest
   newest="$(find "$TOOL_DIR/lib" "$TOOL_DIR/platform" "$TOOL_DIR/mix.exs" \
-    "$TOOL_DIR/../../libs/feishu_openapi/lib" -type f -newer "$BINARY" -print -quit)"
+    "$TOOL_DIR/../../libs/feishu_protocol/lib" -type f -newer "$BINARY" -print -quit)"
   [[ -n "$newest" ]]
 }
 

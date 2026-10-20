@@ -270,7 +270,7 @@ function TableWorkspace({
   }
   if (schema.error && !schema.data) return <ContentError error={schema.error} retry={() => void schema.refetch()} />
   if (!schema.data) return <p role="status">{t('pod.content.loading_table_schema')}</p>
-  if (!configuration.success || missingView)
+  if (!configuration.success || missingView) {
     return (
       <div role="alert" className="space-y-2 p-4">
         <p>{t('pod.content.cannot_display')}</p>
@@ -286,12 +286,12 @@ function TableWorkspace({
         </Button>
       </div>
     )
+  }
   const props = {
     pageID: page.page.id,
     tableID,
     tables,
     fields: schema.data.fields,
-    readonlyFieldIDs: schema.data.readonly_field_ids ?? [],
     records: records.data?.records ?? [],
     view: effective,
     editable,
@@ -463,7 +463,6 @@ function TableWorkspace({
           <RecordForm
             fields={props.fields}
             pageID={props.pageID}
-            readonlyFieldIDs={props.readonlyFieldIDs}
             close={() => setNewRecord(false)}
             create={async data => {
               newRecordSaving.current = true

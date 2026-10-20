@@ -1311,7 +1311,6 @@ defmodule Ankole.AIGateway.ResponseStreamProgressTest do
 
   import ExUnit.CaptureLog
 
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.CredentialAttempts
   alias Ankole.AIGateway.ProviderFailure
   alias Ankole.AIGateway.Resolver
@@ -1586,7 +1585,7 @@ defmodule Ankole.AIGateway.ResponseStreamProgressTest do
   end
 
   defp progress_response(subject) do
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "progress-test")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "progress-test")
 
     {:ok, response} =
       start_response_run(%{

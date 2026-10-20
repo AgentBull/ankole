@@ -7,7 +7,7 @@ order: 321
 
 为 Ankole 做贡献意味着在第一次编辑前读两份文档，并遵循它们定义的路径。本页是地图：指向权威来源、标出穿过它们的路径、并刻意不复制任一份。若本页与源文档冲突，源文档正确。
 
-先说明最关键的一点：Ankole 的贡献规则不是可选约定——它们由项目的评审流程和门控每次提交的 changelog 规则强制。跳过 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) 或 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) 的贡献会被要求回去读。先读。
+先说明最关键的一点：Ankole 的贡献规则不是可选约定——它们由项目的评审流程和门控每次产品改动提交的 changelog 规则强制。跳过 [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) 或 [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) 的贡献会被要求回去读。先读。
 
 ## 拥有规则的两份文档
 
@@ -34,7 +34,7 @@ order: 321
 第一次编辑前读 `AGENTS.md`。最常出现的规则：
 
 - **范围与授权。** 回答或规划的请求授权只读检查；实现的请求授权编辑。未经批准不扩大范围。
-- **changelog 是版本单元。** 每次提交恰好加一个 `CHANGELOG.md` 版本，该版本描述该提交中每一项保留改动。一个版本不跨提交；一次提交不含多个版本。见下面一节。
+- **changelog 写给用户和运维人员。** 改动产品的提交加一个 `CHANGELOG.md` 版本，记录他们升级后会察觉的变化；只改文档的提交不加版本。见下面一节。
 - **最小正确改动。** 偏好遵循所选方向、保持系统能守契约、并保持可理解的最小改动。一点重复好过增加复杂度的抽象。
 - **Worse is better。** 简洁胜过接口统一或理论完整。简洁赢时，收窄契约或显式拒绝不支持的情形，而非悄悄产出错的结果。
 - **目标保真。** 做要求的任务，不做更便宜的替代。绿测试不是目标；穿过拥有抽象的真实路径才是。
@@ -42,13 +42,11 @@ order: 321
 
 ## changelog 规则
 
-这是门控每次提交的规则，也是大多数贡献第一次搞错的那一条。来自 `AGENTS.md`：
+这是门控每次产品改动提交的规则，也是大多数贡献第一次搞错的那一条。来自 `CONTRIBUTING.md`：
 
-- 每次提交恰好加一个根 `CHANGELOG.md` 版本。
-- 该版本描述该提交中每一项保留的源码、测试、文档、配置、schema、migration、manifest、lockfile 和必需生成文件改动。
-- 一个版本不跨多次提交；一次提交不含多个版本。
-- 版本使用无前导零的 `MAJOR.MINOR.PATCH`。默认增加 `PATCH`。只有当这次提交让用户或运维人员能做到产品此前做不到的事，或者破坏了既有行为、必须有人改配置、改已存数据或改外部调用方时，才增加 `MINOR` 并将 `PATCH` 重置为 `0`。其他变动一律增加 `PATCH`，即使用户立刻能察觉：无论多显眼的 bug 修复、既有能力内的速度或可靠性改进、内部重写、依赖升级、工具链和文档。一次提交同时包含两类变动时增加 `MINOR`，但前提是其中某一项变动自身就够 `MINOR`。只有维护者明确决定时才改变 `MAJOR`。
-- 提交前立即从确切的暂存 diff 准备条目。
+- 只改文档或 changelog 本身的提交不加版本。其他每次提交恰好加一个根 `CHANGELOG.md` 版本，一个版本不跨提交。
+- 版本记录用户或运维人员升级后会察觉的变化：新能力、行为变化、移除、他们可能遇到过的故障的修复，以及必须执行的操作。文档、测试、工具链、依赖和重构不记录；没有这类变化的版本只写一行 `Internal changes only.`
+- 版本使用 `MAJOR.MINOR.PATCH`。默认增加 `PATCH`。`MINOR` 用于产品此前没有的能力，或必须有人动手处理的破坏性变化。`MAJOR` 和预发布后缀由维护者决定。
 
 changelog 是*唯一*的 changelog 和版本单元——没有单独的 release notes 文件。`main` 的运行时镜像构建通过镜像对验证后，工作流会用最新版本标记 control-plane 和 Worker 镜像，并用该版本的 changelog 段落创建不可变的 GitHub Release。把 changelog 当作改动的一部分，不是事后的文书。
 
@@ -65,7 +63,7 @@ changelog 是*唯一*的 changelog 和版本单元——没有单独的 release 
 
 ## 提交 pull request
 
-`CONTRIBUTING.md` 覆盖 PR 步骤。简短形态：PR 的提交遵循 changelog 规则（每次提交一个版本）、改动尊重 `AGENTS.md` 的边界、PR 描述用文档使用的术语说明改了什么和为什么。评审会检查同样的东西。
+`CONTRIBUTING.md` 覆盖 PR 步骤。简短形态：PR 的提交遵循 changelog 规则（每次产品改动提交一个版本）、改动尊重 `AGENTS.md` 的边界、PR 描述用文档使用的术语说明改了什么和为什么。评审会检查同样的东西。
 
 ## 本指南不是什么
 

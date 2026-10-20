@@ -203,6 +203,28 @@ defmodule Ankole.Sessions.DriverTest do
      owner_access_version: owner_access_version}
   end
 
+  test "the durable wakeup recovers input published before subscription and later hints wake the Driver",
+       %{key: key, script: script} do
+    assert :undefined = Ankole.Sessions.driver_pid(key)
+    assert {:ok, first} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    :ok = Ankole.Sessions.Events.publish_input(key.agent_uid, key.session_id, first.id)
+    assert :undefined = Ankole.Sessions.driver_pid(key)
+
+    assert %{failure: 0} = Oban.drain_queue(queue: :conversations, with_scheduled: true)
+    driver = Ankole.Sessions.driver_pid(key)
+    assert is_pid(driver)
+    _ = await_request(key)
+    assert wait_for_completion(first.id).turn_outcome == "loop_finished"
+
+    assert {:ok, second} = Repo.transact(&Ankole.Signals.accept_in_tx(&1, attrs(key)))
+    :ok = Ankole.Sessions.Events.publish_input(key.agent_uid, key.session_id, second.id)
+    :ok = Ankole.Sessions.Events.publish_input(key.agent_uid, key.session_id, second.id)
+    _ = await_request(key)
+    assert wait_for_completion(second.id).turn_outcome == "loop_finished"
+    assert Ankole.Sessions.driver_pid(key) == driver
+    assert Agent.get(script, & &1.requests) == 2
+  end
+
   test("a gateway HTTP 503 preserves the capacity deadline through driver restart", %{
     key: key,
     script: script
@@ -1027,6 +1049,45 @@ defmodule Ankole.Sessions.DriverTest do
     %{key: key, script: script, worker: worker}
   ) do
     {peer, remote} = start_peer!()
+    cold_key = %{key | session_id: key.session_id <> ":cold"}
+    assert :undefined = Ankole.Sessions.driver_pid(cold_key)
+    caller = self()
+
+    claims =
+      for i <- 1..8 do
+        Task.async(fn ->
+          send(caller, {:claim_ready, self()})
+
+          receive do
+            :claim ->
+              Repo.with_tenant(worker.tenant_id, fn ->
+                if rem(i, 2) == 0,
+                  do:
+                    tenant_rpc(remote, worker.tenant_id, Ankole.Sessions, :ensure_driver, [
+                      cold_key
+                    ]),
+                  else: Ankole.Sessions.ensure_driver(cold_key)
+              end)
+          end
+        end)
+      end
+
+    for task <- claims do
+      pid = task.pid
+      assert_receive {:claim_ready, ^pid}, 5_000
+    end
+
+    Enum.each(claims, &send(&1.pid, :claim))
+    results = Task.await_many(claims, 30_000)
+    assert [{:ok, cold_driver} | _] = results
+    assert Enum.all?(results, &(&1 == {:ok, cold_driver}))
+
+    assert :ok =
+             :rpc.call(node(cold_driver), DynamicSupervisor, :terminate_child, [
+               Ankole.Sessions.Drivers,
+               cold_driver
+             ])
+
     definition = Ankole.Sessions.AgentConfig.max_iterations_definition()
     opts = []
 
@@ -1257,7 +1318,7 @@ defmodule Ankole.Sessions.DriverTest do
 
     names = Enum.map(first.body["tools"], &get_in(&1, ["function", "name"]))
     assert Enum.all?(expected, &(&1 in names)), inspect(names)
-    assert Enum.all?(names -- expected, &Ankole.Brain.Tools.read_only?/1)
+    assert Enum.all?(names -- expected, &(&1 in ~w(recall get_page entity whoknows delta)))
 
     assert Enum.map(repair.body["tools"], &get_in(&1, ["function", "name"])) |> Enum.sort() == [
              "sleep",
@@ -3655,7 +3716,6 @@ defmodule Ankole.Sessions.DriverTest do
     assert event.authorization_kind == "human"
     refute context_id in Signal.provider_message_ids(event)
     refute context_id in Signal.input_provider_message_ids(event)
-    if quoted?, do: assert(context_id in Signal.withdrawal_provider_message_ids(event))
 
     key = %{agent_uid: event.agent_uid, session_id: event.session_id}
     {:ok, driver} = Ankole.Sessions.ensure_driver(key)
@@ -3814,23 +3874,6 @@ defmodule Ankole.Sessions.DriverTest do
       end)
 
     %{"binding_name" => "control-plane:test", "conversation_id" => conversation.id}
-  end
-
-  defp cleanup_tenant!(tenant) do
-    assert {:ok, _} = Ankole.Tenants.delete(tenant)
-    job = %Oban.Job{args: %{"tenant_id" => tenant.id}}
-
-    Enum.reduce_while(1..30, nil, fn _, _ ->
-      case Ankole.Tenants.Jobs.Delete.run(job) do
-        :ok -> {:halt, :ok}
-        {:snooze, _} -> {:cont, nil}
-        error -> flunk("Tenant cleanup failed: #{inspect(error)}")
-      end
-    end)
-
-    refute Repo.get(Ankole.Tenants.Tenant, tenant.id)
-
-    Repo.delete_all(from(j in Oban.Job, where: fragment("?->>'tenant_id'", j.args) == ^tenant.id))
   end
 
   defp tool_call(id, name, args) do

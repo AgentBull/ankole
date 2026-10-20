@@ -1,35 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { state, request } from './fixtures'
+import { expect, test } from '@playwright/test'
 import { pageRoute } from './routes'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  report_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
-
-async function request<T>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content ?? ''
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication'),
-          'x-ankole-pod': meta('ankole-pod'),
-          'x-csrf-token': meta('csrf-token')
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`File toolbar ${method} ${path}: ${response.status} ${await response.text()}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
-}
 
 test('keyboard file selection keeps a failed upload, freezes pending work, and leaves download above the real preview', async ({
   browser

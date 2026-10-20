@@ -41,8 +41,9 @@ export class ChatDrafts {
   unconfirmedStandalone() {
     return [...this.models.values()].flatMap(model => {
       const pending = model.pending.value
-      if (model.conversationID.value || !pending || [...this.pageModels.values()].some(models => models.has(model)))
+      if (model.conversationID.value || !pending || [...this.pageModels.values()].some(models => models.has(model))) {
         return []
+      }
       return [{ id: pending.conversationID, model }]
     })
   }

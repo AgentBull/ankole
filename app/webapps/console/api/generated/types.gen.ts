@@ -978,7 +978,7 @@ export type BackgroundActivityAutomationRun = {
   attempt_id: string | null
   attempts: number
   automation_job_id: number
-  definition_status: 'active' | 'cancelled' | 'expired'
+  definition_status: 'active' | 'cancelled'
   error: string | null
   id: number
   inserted_at: string | null
@@ -2537,7 +2537,6 @@ export type AutomationJobItem = {
   cancelled_at?: string | null
   created_at: string
   drive_prefix: string
-  expires_at?: string | null
   id: number
   label: string
   owner_session_id: string
@@ -2546,7 +2545,7 @@ export type AutomationJobItem = {
   runs: Array<AutomationJobRunItem>
   source_provenance: JsonValue
   source_signal_id?: string | null
-  status: 'active' | 'cancelled' | 'expired'
+  status: 'active' | 'cancelled'
   updated_at: string
   wake_on_failure: boolean
 }

@@ -28,7 +28,7 @@ observation and delivery route, not the owner of the platform room.
 | Identity adapter ID | `entra-id` |
 | Identity configuration | `principals.identity_providers.entra-id.<id>` |
 | Subscription state | `principals.entra_id.graph_subscriptions.<id>` |
-| Provider library | `libs/microsoft_openapi` |
+| Provider library | `plugins/microsoft365_adapter/lib/microsoft_openapi` |
 
 The plugin also declares two webhook handlers. `teams` accepts `messages`.
 `entra-id` accepts `directory`.
@@ -163,4 +163,4 @@ The implementation sources are:
 
 - `plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter.ex`
 - `plugins/microsoft365_adapter/lib/ankole/plugins/microsoft365_adapter/`
-- `libs/microsoft_openapi/`
+- `plugins/microsoft365_adapter/lib/microsoft_openapi/`

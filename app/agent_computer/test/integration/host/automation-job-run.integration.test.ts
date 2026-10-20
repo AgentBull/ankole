@@ -8,7 +8,6 @@ import {
 } from '../../../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { removeAbandonedRunDirectories, runAutomationJob } from '../../../src/automation-jobs/run'
 import { WORKER_SHARE_ROOT } from '../../../src/core/agent-home-paths'
-import { jsonBytes, jsonObjectFromBytes } from '../../../src/fabric/envelope_proto'
 import type { RPCRequester } from '../../../src/lanes/rpc_lane'
 import {
   runFixture,
@@ -80,82 +79,6 @@ await emitEvent({ observed: ctx.event.data.value, job_id: ctx.job.id })
     expect(result.error).toContain('main.ts is missing from automation/integration in the drive')
     expect(existsSync(fixture.runDirectory)).toBe(false)
   })
-
-  it('passes sync batches from the script through the existing bridge with the claimed attempt', async () => {
-    const fixture = runFixture(`
-const result = await syncRecords('binding-1', [
-  { external_id: 'issue-42', data: { title: 'Repair the report', state: 'open' } }
-], { page: 2 })
-console.log(JSON.stringify(result))
-`)
-    root = fixture.root
-    const baseRPC = rpcStub(fixture, [])
-    const batches: unknown[] = []
-    const rpc = (async (method, payload, frame, options) => {
-      if (method !== 'pod.sync') return baseRPC(method, payload, frame, options)
-      const sync = payload as {
-        bindingId: string
-        automationJobRunId: string
-        attemptId: string
-        recordsHomeRelativePath: string
-        cursorJson: Uint8Array
-      }
-      batches.push({
-        binding: sync.bindingId,
-        run: sync.automationJobRunId,
-        attempt: sync.attemptId,
-        records: JSON.parse(readFileSync(join(fixture.config.agentHomeRoot, sync.recordsHomeRelativePath), 'utf8')),
-        cursor: jsonObjectFromBytes(sync.cursorJson, 'cursor')
-      })
-      return { bodyJson: jsonBytes({ result: { data_version: 7 } }) }
-    }) as RPCRequester
-    const run = request(fixture, {})
-    const result = await runAutomationJob(run, { config: fixture.config, sdkPath: fixture.sdkPath, rpc })
-    expect(result.status).toBe('succeeded')
-    expect(JSON.parse(result.stdout)).toEqual({ data_version: 7 })
-    expect(batches).toEqual([
-      {
-        binding: 'binding-1',
-        run: run.automationJobRunId,
-        attempt: run.attemptId,
-        records: [{ external_id: 'issue-42', data: { title: 'Repair the report', state: 'open' } }],
-        cursor: { page: 2 }
-      }
-    ])
-    expect(existsSync(fixture.runDirectory)).toBe(false)
-  })
-
-  it('relays one 200-record sync batch larger than a fabric frame and removes its source file', async () => {
-    const fixture = runFixture(`
-const records = Array.from({ length: 200 }, (_, index) => ({ external_id: String(index), data: { text: '完整🐂'.repeat(10_000) } }))
-console.log(JSON.stringify(await syncRecords('binding-large', records)))
-`)
-    root = fixture.root
-    const baseRPC = rpcStub(fixture, [])
-    let source = '',
-      count = 0
-    const rpc = (async (method, payload, frame, options) => {
-      if (method !== 'pod.sync') return baseRPC(method, payload, frame, options)
-      const sync = payload as { recordsHomeRelativePath: string }
-      source = join(fixture.config.agentHomeRoot, sync.recordsHomeRelativePath)
-      const bytes = readFileSync(source)
-      expect(bytes.byteLength).toBeGreaterThan(16 * 1024 * 1024)
-      const records = JSON.parse(bytes.toString('utf8'))
-      expect(records).toHaveLength(200)
-      expect(records[199].external_id).toBe('199')
-      expect(records[199].data.text).toBe('完整🐂'.repeat(10_000))
-      count++
-      return { bodyJson: jsonBytes({ result: { data_version: 8 } }) }
-    }) as RPCRequester
-    const run = request(fixture, {})
-    run.timeoutMs = 20_000
-    const result = await runAutomationJob(run, { config: fixture.config, sdkPath: fixture.sdkPath, rpc })
-    expect(result.status).toBe('succeeded')
-    expect(result.stdout).toContain('"data_version":8')
-    expect(count).toBe(1)
-    expect(existsSync(source)).toBe(false)
-    expect(existsSync(fixture.runDirectory)).toBe(false)
-  }, 30_000)
 
   it('throws on a drive failure during the copy, so the control plane retries the attempt', async () => {
     const fixture = runFixture('console.log("never runs")\n')

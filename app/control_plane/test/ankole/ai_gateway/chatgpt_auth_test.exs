@@ -19,7 +19,7 @@ defmodule Ankole.AIGateway.ChatGPTAuthTest do
       start_upstream_server(fn request ->
         case {request.method, request.path} do
           {:post, "api/accounts/deviceauth/usercode"} ->
-            assert request.body == %{"client_id" => ChatGPTAuth.client_id()}
+            assert request.body == %{"client_id" => "app_EMoamEEZ73f0CkXaXp7hrann"}
 
             {:json, 200,
              %{

@@ -4,7 +4,6 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
   alias Ankole.AIGateway.ResponseChain
   use Ankole.SessionsCase
 
-  alias Ankole.AIGateway.Conversations
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Revisions
   alias Ankole.Sessions.Run
@@ -29,7 +28,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, input.session_id)
 
     first =
       start_and_commit_round!(
@@ -105,7 +104,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, input.session_id)
 
     anchor =
       start_and_commit_round!(
@@ -188,7 +187,8 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, old_input.session_id)
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, old_input.session_id)
 
     old_message =
       start_and_commit_round!(
@@ -263,7 +263,8 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, old_input.session_id)
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, old_input.session_id)
 
     old_message =
       start_and_commit_round!(
@@ -353,7 +354,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, input.session_id)
 
     _answer =
       start_and_commit_round!(
@@ -393,7 +394,8 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, old_input.session_id)
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, old_input.session_id)
 
     old_answer =
       start_and_commit_round!(
@@ -478,7 +480,7 @@ defmodule Ankole.Sessions.MessageLifecycleNoopTest do
         explicit: true
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, input.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, input.session_id)
 
     answer =
       start_and_commit_round!(

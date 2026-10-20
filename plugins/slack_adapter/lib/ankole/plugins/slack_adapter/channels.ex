@@ -20,18 +20,6 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   alias SlackOpenAPI.{Event, Pagination}
 
-  @event_types [
-    "member_joined_channel",
-    "member_left_channel",
-    "channel_rename",
-    "group_rename",
-    "channel_deleted",
-    "channel_archive"
-  ]
-
-  @spec event_types() :: [String.t()]
-  def event_types, do: @event_types
-
   @spec handle_binding_saved(Binding.t(), map()) :: :ok | {:error, term()}
   def handle_binding_saved(%Binding{agent_uid: agent_uid, name: binding_name}, _config) do
     case ChannelSync.enqueue_binding(
@@ -48,7 +36,7 @@ defmodule Ankole.Plugins.SlackAdapter.Channels do
 
   @spec enqueue_channel_refresh(AdapterContext.t(), map(), String.t(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue_channel_refresh(%AdapterContext{} = context, _config, channel_id, opts \\ []) do
+  defp enqueue_channel_refresh(%AdapterContext{} = context, _config, channel_id, opts) do
     %{
       "agent_uid" => String.downcase(context.agent_uid),
       "binding_name" => context.binding_name,

@@ -26,7 +26,10 @@ defmodule Ankole.AgentWorkers.AIGatewayAPIKeyBrokerTest do
     assert :ok = perform_job(ReconcileJob, %{"agent_uid" => agent.uid})
     assert {:ok, response} = request(agent.uid)
     assert response.base_url == "https://gateway.example.test/api/v1/ai-gateway"
-    assert {:ok, claims} = Ankole.AIGateway.Tokens.verify_api_key(response.api_key)
+
+    assert {:ok, claims} =
+             Ankole.TokenSigning.verify(response.api_key, "ankole.ai_gateway", "at+jwt")
+
     assert claims["sub"] == agent.uid
     assert claims["scope"] == "ai_gateway"
   end

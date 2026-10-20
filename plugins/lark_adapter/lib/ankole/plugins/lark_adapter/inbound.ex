@@ -69,7 +69,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @spec handle_message_removed(String.t(), Event.t(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_message_removed(_event_type, %Event{} = event, consumers) do
-    dispatch_chat(consumers, &emit_message_removed(&1, event))
+    AdapterContext.dispatch_chat(consumers, &emit_message_removed(&1, event))
   end
 
   @doc """
@@ -78,7 +78,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @spec handle_reaction_created(String.t(), Event.t(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_reaction_created(_event_type, %Event{} = event, consumers) do
-    dispatch_chat(consumers, &emit_reaction(&1, event, :add))
+    AdapterContext.dispatch_chat(consumers, &emit_reaction(&1, event, :add))
   end
 
   @doc """
@@ -87,7 +87,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @spec handle_reaction_deleted(String.t(), Event.t(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_reaction_deleted(_event_type, %Event{} = event, consumers) do
-    dispatch_chat(consumers, &emit_reaction(&1, event, :remove))
+    AdapterContext.dispatch_chat(consumers, &emit_reaction(&1, event, :remove))
   end
 
   @doc """
@@ -96,24 +96,27 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   @spec handle_card_action(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_card_action(_event_type, %Event{} = event, consumers) do
     action = CardAction.from_payload(event.content || event.raw)
-    dispatch_chat(consumers, &emit_card_action(&1, action, event))
+    AdapterContext.dispatch_chat(consumers, &emit_card_action(&1, action, event))
   end
 
-  @doc """
-  Normalizes a receive event without submitting it. This is the main test seam.
-  """
-  @spec normalize_message_receive(Event.t(), map()) ::
-          {:ok, map()} | {:ignore, atom()} | {:error, term()}
-  def normalize_message_receive(
-        %Event{} = event,
-        %{context: %AdapterContext{}} = consumer
-      ) do
-    with {:ok, input, _message} <- normalize_message_receive_input(event, consumer) do
-      {:ok, input}
+  # Unit tests inspect the same implementation that the production entry uses.
+  if Mix.env() == :test do
+    @doc """
+    Normalizes a receive event without submitting it. This is the main test seam.
+    """
+    @spec normalize_message_receive(Event.t(), map()) ::
+            {:ok, map()} | {:ignore, atom()} | {:error, term()}
+    def normalize_message_receive(
+          %Event{} = event,
+          %{context: %AdapterContext{}} = consumer
+        ) do
+      with {:ok, input, _message} <- normalize_message_receive_input(event, consumer) do
+        {:ok, input}
+      end
     end
-  end
 
-  def normalize_message_receive(_event, _consumer), do: {:error, :invalid_chat_consumer}
+    def normalize_message_receive(_event, _consumer), do: {:error, :invalid_chat_consumer}
+  end
 
   defp normalize_message_receive_input(
          %Event{} = event,
@@ -439,13 +442,6 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       {:error, _reason} = error ->
         error
     end
-  end
-
-  defp dispatch_chat(consumers, fun) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fun)
-    |> collect_results()
   end
 
   defp ignored_sender?(sender, event), do: sender_type(sender, event) in ["bot", "app"]
@@ -1210,10 +1206,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
       }
       |> Ankole.Attrs.maybe_put(:email, operator_identity["email"])
 
-    case AdapterContext.observe_platform_subject(context, attrs) do
-      {:ok, %{principal: principal}} -> {:ok, principal.uid}
-      {:error, _reason} = error -> error
-    end
+    AdapterContext.observe_platform_subject_uid(context, attrs)
   end
 
   defp card_operator_subject(%CardAction{} = action, %Event{} = event) do

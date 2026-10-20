@@ -185,7 +185,7 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
              })
 
     {:ok, conversation} =
-      Ankole.AIGateway.Conversations.ensure_conversation(agent.uid, "trace-test")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "trace-test")
 
     command = "grep -n Total /workspace/sales/src/App.tsx"
     opaque = "ankole-aigateway-opaque-v1:" <> Base.url_encode64(command, padding: false)

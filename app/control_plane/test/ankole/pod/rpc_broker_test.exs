@@ -428,7 +428,7 @@ defmodule Ankole.Pod.RPCBrokerTest do
     bytes = Ankole.Kernel.RuntimeFabric.encode_envelope(envelope)
 
     assert {:ok, %{body: {:turn_start, start}}} =
-             Ankole.Kernel.RuntimeFabric.decode_envelope(bytes)
+             Ankole.RuntimeFabric.V1.Envelope.decode(bytes)
 
     context = Torque.decode!(start.request_context_json)
 

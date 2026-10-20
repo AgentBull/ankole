@@ -6,8 +6,6 @@ defmodule Ankole.Sessions.ModelHistoryTest do
   import Ankole.PrincipalsFixtures
   import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Repo
   alias Ankole.Signals
@@ -16,7 +14,7 @@ defmodule Ankole.Sessions.ModelHistoryTest do
 
   test "run recovery reads model output, recorded calls, without the live Response (G3)" do
     %{principal: subject} = human_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "run-recovery")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "run-recovery")
 
     metadata = %{
       "request_metadata" => %{"signal_id" => "event_1", "loop" => %{"iteration" => 1}}
@@ -78,7 +76,9 @@ defmodule Ankole.Sessions.ModelHistoryTest do
 
   test "exact turn ownership rejects a composite turn" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "composite-replay")
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, "composite-replay")
 
     {:ok, response} =
       start_response(subject.uid, conversation.id, %{
@@ -107,7 +107,9 @@ defmodule Ankole.Sessions.ModelHistoryTest do
 
   test "retracts only the current actor-correlated visible suffix" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retry-retract")
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, "link-retry-retract")
 
     {:ok, predecessor} =
       start_response(subject.uid, conversation.id, %{"signal_id" => "event-before"})
@@ -151,7 +153,7 @@ defmodule Ankole.Sessions.ModelHistoryTest do
 
   test "selects an actor-correlated visible suffix before calling generic deletion" do
     %{principal: subject} = agent_fixture()
-    {:ok, conversation} = Conversations.ensure_conversation(subject.uid, "link-retraction")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(subject.uid, "link-retraction")
 
     {:ok, first} =
       start_response(subject.uid, conversation.id, %{"signal_id" => "event-tail"})

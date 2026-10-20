@@ -1,35 +1,7 @@
+import { state, request } from './fixtures'
 import { pageRoute } from './routes'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page, type Route } from '@playwright/test'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  tenant_id: string
-  owner: { uid: string; cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
-
-async function request<T>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication')!,
-          'x-ankole-pod': meta('ankole-pod')!,
-          'x-csrf-token': meta('csrf-token')!
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`Pod ${method} ${path}: ${response.status}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
-}
+import { writeFileSync } from 'node:fs'
+import { expect, test, type Route } from '@playwright/test'
 
 test('a cold page fetches its data before its lazy module and chat query changes do not refetch it', async ({
   browser

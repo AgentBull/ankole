@@ -1,21 +1,14 @@
+import { state } from './fixtures'
 import { pageRoute, conversationRoute } from './routes'
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
-import { expect, test, type BrowserContext, type CDPSession, type Page } from '@playwright/test'
+import { expect, test, type CDPSession, type Page } from '@playwright/test'
 import type { ConversationDetail, Conversations } from '../../common/api/generated/types.gen'
 
 const outputDirectory = process.env.POD_PERFORMANCE_OUTPUT
 const scenario = process.env.POD_PERFORMANCE_SCENARIO ?? 'load'
 if (!['load', 'early-input', 'without-cn-font'].includes(scenario)) {
   throw new Error(`Unknown performance scenario: ${scenario}`)
-}
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  tenant_id: string
-  report_id: string
-  conversation_id: string
-  agent_uid: string
-  owner: { uid: string; cookies: Parameters<BrowserContext['addCookies']>[0] }
 }
 
 const profiles = [
@@ -168,8 +161,9 @@ async function instrument(page: Page, cdp: CDPSession, profile: (typeof profiles
       }
     }).observe({ type: 'event', buffered: true, durationThreshold: 16 } as PerformanceObserverInit)
     new PerformanceObserver(list => {
-      for (const entry of list.getEntries())
+      for (const entry of list.getEntries()) {
         metrics.longTasks.push({ startTime: entry.startTime, duration: entry.duration })
+      }
     }).observe({ type: 'longtask', buffered: true })
   })
   return resources
@@ -217,7 +211,7 @@ test.describe('Pod laboratory performance measurement', () => {
     await context.addCookies(state.owner.cookies)
     const page = await context.newPage()
     try {
-      await page.goto(state.base_url + '/')
+      await page.goto(`${state.base_url}/`)
       const { conversations } = await podRequest<Conversations>(page, '/conversations')
       const candidates = conversations
         .filter(conversation => conversation.agent.uid === state.agent_uid && conversation.agent.active)
@@ -261,14 +255,14 @@ test.describe('Pod laboratory performance measurement', () => {
     await context.addCookies(state.owner.cookies)
     const page = await context.newPage()
     try {
-      await page.goto(state.base_url + '/')
+      await page.goto(`${state.base_url}/`)
       await podRequest(page, `/pages/${documentID}`, 'DELETE')
     } finally {
       await context.close()
     }
   })
 
-  for (const profile of profiles)
+  for (const profile of profiles) {
     for (const route of ['page', 'chat'] as const) {
       test(`${profile.name} cold ${route}`, async ({ browser }) => {
         test.setTimeout(180_000)
@@ -387,4 +381,5 @@ test.describe('Pod laboratory performance measurement', () => {
         }
       })
     }
+  }
 })

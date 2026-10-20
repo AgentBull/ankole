@@ -7,7 +7,6 @@ import {
   FilesListRequestSchema,
   FilesListResponseSchema,
   PodRequestSchema,
-  PodSyncRequestSchema,
   AIGatewayAPIKeyRequestSchema,
   AIGatewayAPIKeyResponseSchema,
   ActorTurnAbortRequestSchema,
@@ -53,7 +52,6 @@ export type RPCOperation =
 export const rpcOperations = {
   'pod.read': { scope: 'turn', effect: 'read', request: PodRequestSchema, response: JSONPassthroughResponseSchema },
   'pod.write': { scope: 'turn', effect: 'write', request: PodRequestSchema, response: JSONPassthroughResponseSchema },
-  'pod.sync': { scope: 'worker_agent', request: PodSyncRequestSchema, response: JSONPassthroughResponseSchema },
   'session_turn.abort': {
     scope: 'turn',
     effect: 'complete',

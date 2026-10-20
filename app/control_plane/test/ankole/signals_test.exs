@@ -18,6 +18,75 @@ defmodule Ankole.SignalsTest do
     assert Repo.aggregate(Signal, :count) == 0
   end
 
+  test "Session input and state notifications use the tenant and execution target", context do
+    assert {:ok, signal} = accept_in_tx(attrs(context))
+    uid = signal.agent_uid
+    session = signal.session_id
+    id = signal.id
+    :ok = Ankole.Sessions.Events.subscribe(uid, session)
+    :ok = Ankole.Sessions.Events.subscribe_input(uid, session)
+    other = create_tenant()
+
+    Repo.with_tenant(other.id, fn ->
+      :ok = Ankole.Sessions.Events.publish_status(uid, session)
+      :ok = Ankole.Sessions.Events.publish_input(uid, session, id)
+    end)
+
+    :ok = Ankole.Sessions.Events.publish_status(uid, session <> ":other")
+    :ok = Ankole.Sessions.Events.publish_input(uid, session <> ":other", id)
+    refute_receive {:session_event, _, _, _}
+    refute_receive {:inbox, _}
+
+    for publish <- [
+          fn -> Ankole.Sessions.Events.publish_status(uid, session) end,
+          fn -> Ankole.Sessions.Events.publish_input(uid, session, id) end,
+          fn -> Ankole.Sessions.Events.publish_turn_completed(uid, session, id, :silent) end
+        ] do
+      assert_raise ArgumentError, ~r/publish after commit/, fn ->
+        Repo.transact(fn _ -> publish.() end)
+      end
+    end
+
+    refute_received {:session_event, _, _, _}
+    refute_received {:inbox, _}
+    :ok = Ankole.Sessions.Events.publish_status(uid, session)
+    :ok = Ankole.Sessions.Events.publish_input(uid, session, id)
+    assert_receive {:session_event, ^uid, ^session, :status}
+    assert_receive {:inbox, ^id}
+  end
+
+  test "Session topics distinguish targets whose identifiers contain delimiters" do
+    :ok = Ankole.Sessions.Events.subscribe("agent", "nested:state:work")
+    :ok = Ankole.Sessions.Events.publish_status("agent:state:nested", "work")
+    refute_receive {:session_event, _, _, _}
+
+    :ok = Ankole.Sessions.Events.publish_status("agent", "nested:state:work")
+    assert_receive {:session_event, "agent", "nested:state:work", :status}
+
+    :ok = Ankole.Sessions.Events.subscribe_input("agent", "nested:input:work")
+    :ok = Ankole.Sessions.Events.publish_input("agent:input:nested", "work", "other-signal")
+    refute_receive {:inbox, _}
+
+    :ok = Ankole.Sessions.Events.publish_input("agent", "nested:input:work", "own-signal")
+    assert_receive {:inbox, "own-signal"}
+  end
+
+  test "Session input and state channels cannot collide through identifiers" do
+    :ok = Ankole.Sessions.Events.subscribe("agent:input:nested", "work")
+    :ok = Ankole.Sessions.Events.publish_input("agent", "nested:state:work", "input-signal")
+    refute_receive {:inbox, _}
+
+    :ok = Ankole.Sessions.Events.subscribe_input("agent:state:nested", "work")
+    :ok = Ankole.Sessions.Events.publish_status("agent", "nested:input:work")
+    refute_receive {:session_event, _, _, _}
+
+    :ok = Ankole.Sessions.Events.publish_status("agent:input:nested", "work")
+    assert_receive {:session_event, "agent:input:nested", "work", :status}
+
+    :ok = Ankole.Sessions.Events.publish_input("agent:state:nested", "work", "own-signal")
+    assert_receive {:inbox, "own-signal"}
+  end
+
   test "private producer defaults external and cannot come from CloudEvent facts", context do
     attrs =
       attrs(context)
@@ -242,7 +311,9 @@ defmodule Ankole.SignalsTest do
                })
              end)
 
-    :ok = Ankole.Conversations.subscribe(conversation_id)
+    session_id = Ankole.Sessions.Key.conversation(conversation_id)
+    agent_uid = context.agent.uid
+    :ok = Ankole.Sessions.Events.subscribe(agent_uid, session_id)
     future = DateTime.add(DateTime.utc_now(:microsecond), 1, :hour)
 
     attrs =
@@ -255,17 +326,17 @@ defmodule Ankole.SignalsTest do
                {:error, :rollback}
              end)
 
-    refute_receive {:conversation_event, ^conversation_id, _}
+    refute_receive {:session_event, ^agent_uid, ^session_id, _}
     assert {:ok, accepted} = Signals.accept(attrs)
     assert accepted.agent_uid == context.agent.uid
     assert accepted.session_id == "conversation:#{conversation_id}"
     assert is_nil(accepted.reply_binding_name)
-    assert_receive {:conversation_event, ^conversation_id, :status}
+    assert_receive {:session_event, ^agent_uid, ^session_id, :status}
 
     assert :undefined =
              Ankole.Sessions.driver_pid(Map.take(accepted, [:agent_uid, :session_id]))
 
-    :ok = Ankole.Conversations.unsubscribe(conversation_id)
+    :ok = Ankole.Sessions.Events.unsubscribe(agent_uid, session_id)
   end
 
   defp accept_in_tx(attrs), do: Repo.transact(fn repo -> Signals.accept_in_tx(repo, attrs) end)

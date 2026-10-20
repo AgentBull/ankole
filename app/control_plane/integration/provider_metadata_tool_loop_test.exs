@@ -61,7 +61,7 @@ defmodule Ankole.AIGateway.ProviderMetadataToolLoopIntegrationTest do
                  }
                })
 
-      assert {:ok, conversation} = Conversations.ensure_conversation(agent.uid, id)
+      assert {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, id)
 
       run = %Run{
         agent_uid: agent.uid,

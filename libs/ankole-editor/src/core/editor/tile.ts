@@ -121,6 +121,10 @@ export abstract class Tile {
   get isPoint() {
     return (this.flags & TileFlag.Point) > 0
   }
+
+  get isBlocking() {
+    return !this.isText && (this.isNodeOuter || (this.isPoint && this.flags & TileFlag.PointSide))
+  }
   get tag(): Node.Tag | null {
     return null
   }

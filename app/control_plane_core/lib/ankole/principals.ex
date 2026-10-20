@@ -1,0 +1,1162 @@
+defmodule Ankole.Principals do
+  @moduledoc """
+  Principal identity boundary for humans, agents, and external subject bindings.
+  """
+
+  alias Ecto.Adapters.SQL
+  import Ecto.Query, warn: false
+
+  alias Ecto.Changeset
+  alias Ankole.IdentityProviders.LocalPassword
+  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.Logging
+  alias Ankole.PrincipalKey
+  alias Ankole.Principals.Agent
+  alias Ankole.Principals.ExternalIdentity
+  alias Ankole.Principals.HumanUser
+  alias Ankole.Principals.LocalCredential
+  alias Ankole.Principals.MappingRequest
+  alias Ankole.Principals.Principal
+  alias Ankole.AIAgent.Library
+  alias Ankole.Repo
+  alias Ankole.AgentWorkers
+
+  @principal_profile_fields [:display_name, :avatar_url]
+  @human_profile_fields [:email, :mobile, :job_title]
+  @agent_fields [
+    :handle,
+    :type,
+    :role,
+    :options,
+    :owner_principal_uid,
+    :group_memory_disclosure_mode,
+    :created_by
+  ]
+  @provider_format ~r/\A[a-z][a-z0-9_-]*\z/
+
+  @type principal_result :: {:ok, Principal.t()} | {:error, term()}
+
+  @doc """
+  Normalizes a public Principal UID.
+  """
+  @spec normalize_uid(term()) :: {:ok, String.t()} | {:error, :invalid_uid}
+  def normalize_uid(uid), do: PrincipalKey.normalize(uid)
+
+  @doc """
+  Normalizes an email for identity comparison: trimmed, lowercased, and `nil`
+  for a blank or non-binary value. Every email that keys a lookup or a stored
+  profile goes through this one form.
+  """
+  @spec normalize_email(term()) :: String.t() | nil
+  def normalize_email(value) when is_binary(value) do
+    case value |> String.trim() |> String.downcase() do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  def normalize_email(_value), do: nil
+
+  @doc """
+  Looks up a Principal by UID.
+  """
+  @spec get_principal(String.t()) :: principal_result()
+  def get_principal(uid) do
+    with {:ok, normalized_uid} <- normalize_uid(uid) do
+      case Repo.get(Principal, normalized_uid) do
+        %Principal{} = principal -> {:ok, principal}
+        nil -> {:error, :not_found}
+      end
+    end
+  end
+
+  @doc "Resolves a globally unique identity to its tenant at an authenticated entry point."
+  @spec resolve_tenant(String.t()) :: {:ok, String.t()} | {:error, term()}
+  def resolve_tenant(uid) do
+    with {:ok, uid} <- normalize_uid(uid) do
+      tenant_id =
+        Repo.across_tenants(fn ->
+          Repo.one(
+            from principal in Principal,
+              where: principal.uid == ^uid,
+              select: principal.tenant_id
+          )
+        end)
+
+      if tenant_id, do: {:ok, tenant_id}, else: {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Lists active Principals ordered by UID.
+  """
+  @spec list_active_principals() :: [Principal.t()]
+  def list_active_principals do
+    Principal
+    |> where([principal], principal.status == :active)
+    |> order_by([principal], asc: principal.uid)
+    |> Repo.all()
+  end
+
+  @doc """
+  Creates a human Principal and its human profile row in one transaction.
+  """
+  @spec create_human(map()) ::
+          {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}} | {:error, term()}
+  def create_human(attrs) when is_map(attrs) do
+    Repo.transact(fn repo ->
+      with {:ok, principal} <- insert_principal(repo, human_principal_attrs(attrs)),
+           {:ok, human_user} <-
+             insert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)) do
+        {:ok, %{principal: principal, human_user: human_user}}
+      end
+    end)
+  end
+
+  @doc """
+  Updates mutable human profile fields.
+  """
+  @spec update_human(String.t(), map()) ::
+          {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}} | {:error, term()}
+  def update_human(uid, attrs) when is_map(attrs) do
+    Repo.transact(fn repo ->
+      with {:ok, principal} <- fetch_principal_for_update(repo, uid),
+           :ok <- ensure_principal_type(principal, :human),
+           {:ok, principal} <- update_principal_profile(repo, principal, attrs),
+           {:ok, human_user} <-
+             upsert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)) do
+        {:ok, %{principal: principal, human_user: human_user}}
+      end
+    end)
+  end
+
+  @doc """
+  Creates an agent Principal, its agent subtype, and its Worker startup
+  request in one transaction. Reconciliation starts the Worker after commit.
+  """
+  @spec create_agent(map()) ::
+          {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
+  def create_agent(attrs) when is_map(attrs) do
+    with {:ok, _handle} <- required_text(attrs, :handle) do
+      attrs = attrs |> Map.delete("uid") |> Map.put(:uid, NativeKernel.gen_uuid_v7())
+
+      Repo.transact(fn repo ->
+        agent_attrs = take_attrs(attrs, @agent_fields)
+
+        provider_id =
+          Map.get(attrs, :worker_provider_id, Map.get(attrs, "worker_provider_id"))
+
+        with {:ok, provider_id} <-
+               Ankole.AgentWorkers.Providers.select_in_tx(
+                 repo,
+                 provider_id
+               ),
+             :ok <- validate_agent_owner(repo, agent_attrs),
+             :ok <- reject_token_quota_at_creation(agent_attrs),
+             {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
+             {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
+             :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
+             :ok <- AgentWorkers.insert_in_tx(repo, principal.uid, provider_id) do
+          {:ok, %{principal: principal, agent: agent}}
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Loads an agent and its backing Principal.
+  """
+  @spec get_agent(String.t()) ::
+          {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
+  def get_agent(uid) do
+    with {:ok, normalized_uid} <- normalize_uid(uid) do
+      case Repo.one(agent_with_principal_query(normalized_uid)) do
+        %Agent{principal: %Principal{} = principal} = agent ->
+          {:ok, %{principal: principal, agent: agent}}
+
+        nil ->
+          {:error, :not_found}
+      end
+    end
+  end
+
+  @doc """
+  Lists active agent Principals ordered by creation time.
+  """
+  @spec list_active_agents() :: [%{principal: Principal.t(), agent: Agent.t()}]
+  def list_active_agents, do: list_agents(status: :active)
+
+  @doc """
+  Lists agent Principals ordered by creation time.
+
+  `status: :active` keeps only active agents; the default returns disabled
+  agents too, so the Console can show and delete them.
+  """
+  @spec list_agents(keyword()) :: [%{principal: Principal.t(), agent: Agent.t()}]
+  def list_agents(opts \\ []) do
+    Agent
+    |> join(:inner, [agent], principal in assoc(agent, :principal))
+    |> where([_agent, principal], principal.type == :agent)
+    |> filter_agent_status(Keyword.get(opts, :status))
+    |> order_by([agent, _principal], asc: agent.inserted_at)
+    |> preload([_agent, principal], principal: principal)
+    |> Repo.all()
+    |> Enum.map(fn %Agent{principal: principal} = agent ->
+      %{principal: principal, agent: agent}
+    end)
+  end
+
+  defp filter_agent_status(query, :active),
+    do: where(query, [_agent, principal], principal.status == :active)
+
+  defp filter_agent_status(query, nil), do: query
+
+  @doc """
+  Updates mutable agent attributes.
+  """
+  @spec update_agent(String.t(), map()) ::
+          {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
+  def update_agent(uid, attrs) when is_map(attrs) do
+    Repo.transact(fn repo ->
+      agent_attrs = take_attrs(attrs, @agent_fields)
+
+      with {:ok, principal} <- fetch_principal_for_update(repo, uid),
+           :ok <- ensure_principal_type(principal, :agent),
+           :ok <- validate_agent_owner(repo, agent_attrs),
+           {:ok, principal} <- update_principal_profile(repo, principal, attrs),
+           {:ok, agent} <- update_agent_row(repo, principal.uid, agent_attrs) do
+        {:ok, %{principal: principal, agent: agent}}
+      end
+    end)
+  end
+
+  # The AuthZ check takes the admin group lock, and the installation-wide lock
+  # order puts that lock before the principal row lock. Every path that
+  # disables a principal must go through here so the order cannot invert.
+
+  @doc """
+  Re-enables a disabled agent Principal.
+  """
+  @spec enable_agent(String.t()) :: principal_result()
+  def enable_agent(uid) do
+    Repo.transact(fn repo ->
+      with {:ok, principal} <- fetch_principal_for_update(repo, uid),
+           :ok <- ensure_principal_type(principal, :agent),
+           conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
+           {:ok, principal} <-
+             principal |> Principal.status_changeset(%{status: :active}) |> repo.update() do
+        {:ok, {principal, conversation_ids}}
+      end
+    end)
+    |> publish_agent_changes()
+  end
+
+  @doc """
+  Disables an active agent, or deletes an agent that is already disabled.
+
+  Deletion removes the Principal row; the foreign keys cascade the agent's
+  sessions, events, and other owned rows.
+  """
+  @spec delete_agent(String.t()) :: principal_result()
+  def delete_agent(uid) do
+    Repo.transact(fn repo ->
+      with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid, repo),
+           {:ok, principal} <- fetch_principal_for_update(repo, uid),
+           :ok <- ensure_principal_type(principal, :agent),
+           conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
+           {:ok, principal} <- change_agent_status_in_tx(repo, principal) do
+        {:ok, {principal, conversation_ids}}
+      end
+    end)
+    |> publish_agent_changes()
+    |> reconcile_agent_worker()
+  end
+
+  defp change_agent_status_in_tx(repo, principal) do
+    case principal.status do
+      :active ->
+        principal
+        |> Principal.status_changeset(%{status: :disabled})
+        |> repo.update()
+
+      :disabled ->
+        :ok = Ankole.Conversations.delete_for_agent_in_tx(repo, principal.uid)
+
+        :ok = AgentWorkers.mark_deleting_in_tx(repo, principal.uid)
+
+        :ok =
+          Ankole.Signals.Bindings.delete_agent_config_rows_in_tx(repo, principal.uid)
+
+        :ok =
+          Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(
+            repo,
+            principal.uid
+          )
+
+        repo.delete(principal)
+    end
+  end
+
+  defp publish_agent_changes({:ok, {%Principal{} = principal, conversation_ids}}) do
+    unless Repo.in_transaction?() do
+      Repo.with_tenant(principal.tenant_id, fn ->
+        Enum.each(conversation_ids, fn id ->
+          Ankole.Conversations.Events.publish_status(id)
+        end)
+      end)
+    end
+
+    {:ok, principal}
+  end
+
+  defp publish_agent_changes(result), do: result
+
+  # A disabled Agent's Worker stops when it is idle, and a deleted Agent's
+  # Worker objects are deleted; the Worker owner does both after the commit.
+  defp reconcile_agent_worker({:ok, %Principal{uid: uid}} = result) do
+    :ok = AgentWorkers.reconcile(uid)
+    result
+  end
+
+  defp reconcile_agent_worker(result), do: result
+
+  @doc """
+  Creates a human Principal with a generated local initial password.
+
+  The email attribute is required because it is the local sign-in key.
+  """
+  @spec create_local_user(map(), boolean()) ::
+          {:ok,
+           %{principal: Principal.t(), human_user: HumanUser.t(), initial_password: String.t()}}
+          | {:error, term()}
+  def create_local_user(attrs, must_change_password)
+      when is_map(attrs) and is_boolean(must_change_password) do
+    with {:ok, _email} <- required_text(attrs, :email) do
+      initial_password = LocalCredential.generate_initial_password()
+
+      Repo.transact(fn repo ->
+        with {:ok, principal} <- insert_principal(repo, human_principal_attrs(attrs)),
+             {:ok, human_user} <-
+               insert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)),
+             {:ok, _credential} <-
+               LocalPassword.put_in_tx(
+                 repo,
+                 principal.uid,
+                 initial_password,
+                 must_change_password
+               ) do
+          {:ok,
+           %{principal: principal, human_user: human_user, initial_password: initial_password}}
+        end
+      end)
+    end
+  end
+
+  @doc """
+  Lists Principal accounts. Disabled Principals are excluded unless requested.
+  """
+  @spec list_principal_accounts(keyword()) :: [map()]
+  def list_principal_accounts(opts \\ []) do
+    include_disabled = Keyword.get(opts, :include_disabled, false)
+
+    principal_account_query()
+    |> where([principal: principal], ^include_disabled or principal.status == :active)
+    |> Repo.all()
+    |> Enum.map(&finish_principal_account/1)
+  end
+
+  @doc """
+  Loads one Principal with its account facts for the operator console.
+  """
+  @spec get_principal_account(String.t()) :: {:ok, map()} | {:error, term()}
+  def get_principal_account(uid) do
+    with {:ok, normalized_uid} <- normalize_uid(uid) do
+      principal_account_query()
+      |> where([principal: principal], principal.uid == ^normalized_uid)
+      |> Repo.one()
+      |> case do
+        nil -> {:error, :not_found}
+        account -> {:ok, finish_principal_account(account)}
+      end
+    end
+  end
+
+  @doc false
+  @spec bind_external_identity(module(), map()) ::
+          {:ok, ExternalIdentity.t()} | {:error, term()}
+  def bind_external_identity(repo, attrs) when is_map(attrs) do
+    changeset = ExternalIdentity.changeset(%ExternalIdentity{}, attrs)
+
+    with {:ok, normalized} <- Changeset.apply_action(changeset, :validate) do
+      case repo.get_by(ExternalIdentity,
+             provider: normalized.provider,
+             external_id: normalized.external_id
+           ) do
+        %ExternalIdentity{principal_uid: principal_uid} = identity
+        when principal_uid == normalized.principal_uid ->
+          {:ok, identity}
+
+        %ExternalIdentity{} ->
+          {:error, :platform_subject_already_bound}
+
+        nil ->
+          repo.insert(changeset)
+      end
+    end
+  end
+
+  @doc """
+  Upserts a human Principal from a provider-scoped subject.
+
+  A first-seen subject that carries an email or mobile number already held by
+  an existing human Principal binds to that Principal instead of creating a
+  new one, so subjects from different providers converge on one human. Any
+  other first-seen subject gets a new UUIDv7 UID. An email or
+  mobile value owned by a different Principal than the one the subject
+  resolves to is dropped from the profile update with a warning; subjects
+  are never re-pointed automatically.
+
+  When `external_ids` supplies aliases, an existing binding for any candidate
+  wins and every candidate binds to the selected Principal in one transaction.
+  A candidate already bound to another Principal fails the complete write.
+
+  An observation keeps the Principal's existing display name; only
+  `authoritative_profile: true` (directory sync) may replace it.
+  """
+  @spec upsert_platform_subject_human(map()) ::
+          {:ok,
+           %{principal: Principal.t(), human_user: HumanUser.t(), identity: ExternalIdentity.t()}}
+          | {:error, term()}
+  def upsert_platform_subject_human(attrs) when is_map(attrs) do
+    Repo.transact(fn repo ->
+      email = normalized_email_attr(attrs)
+      mobile = normalized_mobile_attr(attrs)
+
+      with {:ok, provider} <- required_provider(attrs, :provider),
+           {:ok, external_id} <- required_text(attrs, :external_id),
+           {:ok, external_ids} <- candidate_external_ids(attrs),
+           {:ok, metadata} <- metadata_attrs(attrs),
+           :ok <- lock_platform_subjects(repo, provider, external_ids),
+           :ok <-
+             Ankole.IdentityProviders.DirectoryAccess.guard_subject(repo, provider, external_ids),
+           :ok <- maybe_lock_human_contact(repo, "principal_human_email", email),
+           :ok <- maybe_lock_human_contact(repo, "principal_human_mobile", mobile),
+           existing_identity <- fetch_platform_subject_by_ids(repo, provider, external_ids),
+           {:ok, selection} <-
+             platform_subject_principal_uid(
+               repo,
+               existing_identity,
+               attrs,
+               external_id,
+               email,
+               mobile
+             ),
+           {:ok, principal} <- upsert_human_principal(repo, selection, attrs),
+           profile_attrs <-
+             drop_conflicting_contacts(
+               repo,
+               provider,
+               principal.uid,
+               take_attrs(attrs, @human_profile_fields)
+             ),
+           {:ok, human_user} <- upsert_human_user(repo, principal.uid, profile_attrs),
+           {:ok, identities} <-
+             upsert_platform_subject_identities(
+               repo,
+               principal,
+               provider,
+               external_ids,
+               metadata
+             ),
+           :ok <- delete_pending_mapping_requests(repo, provider, external_ids) do
+        identity = hd(identities)
+        {:ok, %{principal: principal, human_user: human_user, identity: identity}}
+      end
+    end)
+  end
+
+  @doc """
+  Resolves a provider-scoped subject to an active human Principal.
+  """
+  @spec resolve_platform_subject(String.t(), String.t()) :: principal_result()
+  def resolve_platform_subject(provider, external_id) do
+    with {:ok, provider} <- normalize_provider(provider),
+         {:ok, external_id} <- normalize_required_text(external_id) do
+      provider_subject_principal(provider, external_id)
+      |> active_human_result()
+    end
+  end
+
+  @doc """
+  Matches provider-scoped subject candidates to an existing human Principal.
+
+  This is the read side of `upsert_platform_subject_human/1` with the same
+  ladder: an existing binding for this provider wins, then the owner of the
+  email, then the owner of the mobile number. It never creates or re-points
+  anything; a miss returns `{:error, :not_found}` so the caller decides what an
+  unmatched subject means.
+  """
+  @spec match_platform_subject_human(map()) :: principal_result()
+  def match_platform_subject_human(attrs) when is_map(attrs) do
+    with {:ok, provider} <- required_provider(attrs, :provider),
+         {:ok, external_ids} <- candidate_external_ids(attrs) do
+      email = normalized_email_attr(attrs)
+      mobile = normalized_mobile_attr(attrs)
+
+      case provider_subject_principal_by_ids(provider, external_ids) do
+        nil ->
+          (contact_owner_principal(:email, email) || contact_owner_principal(:mobile, mobile))
+          |> active_human_result()
+
+        provider_match ->
+          active_human_result(provider_match)
+      end
+    end
+  end
+
+  @doc """
+  Resolves a provider-scoped platform subject to its Principal uid.
+
+  This does not require the Principal to be active; it is used for cleanup paths
+  that need to remove stale external memberships even after a user is disabled.
+  """
+  @spec resolve_platform_subject_uid(String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, term()}
+  def resolve_platform_subject_uid(provider, external_id) do
+    with {:ok, provider} <- normalize_provider(provider),
+         {:ok, external_id} <- normalize_required_text(external_id) do
+      case fetch_platform_subject(Repo, provider, external_id) do
+        %ExternalIdentity{principal_uid: principal_uid} -> {:ok, principal_uid}
+        nil -> {:error, :not_found}
+      end
+    end
+  end
+
+  # Every human and agent Principal owns one canonical Brain Object
+  # (people/<uid> or agents/<uid>); the creation transaction keeps that
+  # invariant so holder attribution and recall never miss a subject page.
+  defp insert_principal(repo, attrs) do
+    with {:ok, principal} <-
+           %Principal{}
+           |> Principal.changeset(attrs)
+           |> repo.insert(),
+         :ok <- ensure_canonical_brain_object(repo, principal) do
+      {:ok, principal}
+    end
+  end
+
+  defp ensure_canonical_brain_object(repo, %Principal{type: type} = principal)
+       when type in [:human, :agent] do
+    Ankole.Brain.Objects.ensure_canonical_object_in_tx(
+      repo,
+      principal.uid,
+      type,
+      principal.display_name
+    )
+  end
+
+  defp ensure_canonical_brain_object(_repo, %Principal{}), do: :ok
+
+  defp insert_human_user(repo, principal_uid, attrs) do
+    attrs = Map.put(attrs, :principal_uid, principal_uid)
+
+    %HumanUser{}
+    |> HumanUser.changeset(attrs)
+    |> repo.insert()
+  end
+
+  defp insert_agent(repo, principal_uid, attrs) do
+    attrs = Map.put(attrs, :uid, principal_uid)
+
+    %Agent{}
+    |> Agent.changeset(attrs)
+    |> repo.insert()
+  end
+
+  # The Brain owner read exemption chains through this field: an Agent or
+  # system Principal as owner would extend private-scope reachability in a
+  # way no contract describes, so the owner must be a human. Blank values
+  # fall through to the changeset's required validation.
+  defp validate_agent_owner(repo, attrs) do
+    case Map.get(attrs, :owner_principal_uid) do
+      owner_uid when is_binary(owner_uid) and owner_uid != "" ->
+        case repo.one(from p in Principal, where: p.uid == ^owner_uid, select: p.type) do
+          :human -> :ok
+          nil -> {:error, :agent_owner_not_found}
+          _other_type -> {:error, :agent_owner_must_be_human}
+        end
+
+      _absent_or_blank ->
+        :ok
+    end
+  end
+
+  # The Agent row is locked before the merge, so a token quota or model profile
+  # written while this update waits is merged in, not overwritten. The
+  # Principal row lock above comes first; the owned-option services take only
+  # the Agent row lock, so the two orders cannot deadlock.
+  defp update_agent_row(repo, uid, attrs) do
+    case repo.one(from(agent in Agent, where: agent.uid == ^uid, lock: "FOR UPDATE")) do
+      %Agent{} = agent ->
+        with {:ok, attrs} <- keep_owned_agent_options(agent, attrs) do
+          agent
+          |> Agent.changeset(attrs)
+          |> repo.update()
+        end
+
+      nil ->
+        {:error, :not_agent}
+    end
+  end
+
+  defp update_principal_profile(repo, principal, attrs) do
+    profile_attrs = take_attrs(attrs, @principal_profile_fields)
+
+    case map_size(profile_attrs) do
+      0 ->
+        {:ok, principal}
+
+      _count ->
+        principal
+        |> Principal.profile_changeset(profile_attrs)
+        |> repo.update()
+    end
+  end
+
+  defp upsert_human_principal(repo, {:new, uid}, attrs) do
+    insert_principal(repo, human_principal_attrs(attrs, uid))
+  end
+
+  defp upsert_human_principal(repo, {:selected, uid}, attrs) do
+    case fetch_principal_for_update(repo, uid) do
+      {:ok, %Principal{type: :human} = principal} ->
+        update_principal_profile(repo, principal, observed_profile_attrs(principal, attrs))
+
+      {:ok, %Principal{}} ->
+        {:error, :not_human}
+
+      {:error, :not_found} ->
+        {:error, :principal_not_found}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # A message or roster observation must not rename a person who already has a
+  # display name; only an authoritative source (directory sync) may replace it.
+  # Attrs can carry atom or string keys, so both spellings must be dropped.
+  defp observed_profile_attrs(%Principal{display_name: current}, attrs) do
+    cond do
+      fetch_attr(attrs, :authoritative_profile) == {:ok, true} ->
+        attrs
+
+      is_binary(current) and String.trim(current) != "" ->
+        attrs |> Map.delete(:display_name) |> Map.delete("display_name")
+
+      true ->
+        attrs
+    end
+  end
+
+  defp upsert_human_user(repo, principal_uid, attrs) do
+    case repo.get(HumanUser, principal_uid) do
+      %HumanUser{} = human_user ->
+        human_user
+        |> HumanUser.changeset(attrs)
+        |> repo.update()
+
+      nil ->
+        insert_human_user(repo, principal_uid, attrs)
+    end
+  end
+
+  defp principal_account_query do
+    from principal in Principal,
+      as: :principal,
+      left_join: human_user in assoc(principal, :human_user),
+      left_join: agent in assoc(principal, :agent),
+      left_join: credential in LocalCredential,
+      on: credential.principal_uid == principal.uid,
+      order_by: [asc: principal.uid],
+      select: %{
+        principal: principal,
+        email: human_user.email,
+        handle: agent.handle,
+        has_external_identity:
+          exists(
+            from identity in ExternalIdentity,
+              where: identity.principal_uid == parent_as(:principal).uid,
+              select: 1
+          ),
+        local_credential_must_change: credential.must_change_password
+      }
+  end
+
+  defp finish_principal_account(account) do
+    {must_change, account} = Map.pop(account, :local_credential_must_change)
+
+    local_credential_status =
+      case must_change do
+        nil -> nil
+        true -> :must_change
+        false -> :active
+      end
+
+    Map.put(account, :local_credential_status, local_credential_status)
+  end
+
+  defp upsert_external_identity(repo, attrs) do
+    changeset = ExternalIdentity.changeset(%ExternalIdentity{}, attrs)
+
+    with {:ok, normalized} <- Changeset.apply_action(changeset, :validate) do
+      case repo.get_by(ExternalIdentity,
+             provider: normalized.provider,
+             external_id: normalized.external_id
+           ) do
+        %ExternalIdentity{principal_uid: principal_uid} = identity
+        when principal_uid == normalized.principal_uid ->
+          identity
+          |> ExternalIdentity.changeset(%{metadata: normalized.metadata})
+          |> repo.update()
+
+        %ExternalIdentity{} ->
+          {:error, :platform_subject_already_bound}
+
+        nil ->
+          repo.insert(changeset)
+      end
+    end
+  end
+
+  defp fetch_principal_for_update(repo, uid) do
+    with {:ok, normalized_uid} <- normalize_uid(uid) do
+      case repo.one(
+             from principal in Principal,
+               where: principal.uid == ^normalized_uid,
+               lock: "FOR UPDATE"
+           ) do
+        %Principal{} = principal -> {:ok, principal}
+        nil -> {:error, :not_found}
+      end
+    end
+  end
+
+  defp ensure_principal_type(%Principal{type: type}, type), do: :ok
+  defp ensure_principal_type(%Principal{type: :human}, :agent), do: {:error, :not_agent}
+  defp ensure_principal_type(%Principal{type: :agent}, :human), do: {:error, :not_human}
+
+  defp human_principal_attrs(attrs, uid \\ NativeKernel.gen_uuid_v7()) do
+    attrs
+    |> take_attrs(@principal_profile_fields)
+    |> Map.merge(%{uid: uid, type: :human, status: :active})
+  end
+
+  defp agent_principal_attrs(attrs) do
+    attrs
+    |> take_attrs([:uid | @principal_profile_fields])
+    |> Map.merge(%{type: :agent, status: :active})
+  end
+
+  defp agent_with_principal_query(uid) do
+    Agent
+    |> where([agent], agent.uid == ^uid)
+    |> join(:inner, [agent], principal in assoc(agent, :principal))
+    |> preload([_agent, principal], principal: principal)
+  end
+
+  defp fetch_platform_subject(repo, provider, external_id) do
+    repo.one(
+      from identity in ExternalIdentity,
+        where: identity.provider == ^provider and identity.external_id == ^external_id
+    )
+  end
+
+  defp fetch_platform_subject_by_ids(repo, provider, external_ids) do
+    Enum.find_value(external_ids, &fetch_platform_subject(repo, provider, &1))
+  end
+
+  @doc false
+  @spec lock_platform_subject(module(), String.t(), String.t()) :: :ok | {:error, term()}
+  def lock_platform_subject(repo, provider, external_id)
+      when is_binary(provider) and is_binary(external_id) do
+    advisory_xact_lock(
+      repo,
+      "principal_external_identity:platform_subject:#{Repo.tenant_id!()}:#{provider}:#{external_id}"
+    )
+  end
+
+  defp lock_platform_subjects(repo, provider, external_ids) do
+    external_ids
+    |> Enum.sort()
+    |> Enum.reduce_while(:ok, fn external_id, :ok ->
+      case lock_platform_subject(repo, provider, external_id) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  @doc false
+  @spec delete_pending_mapping_request(module(), String.t(), String.t()) :: :ok
+  def delete_pending_mapping_request(repo, provider, external_id)
+      when is_binary(provider) and is_binary(external_id) do
+    delete_pending_mapping_requests(repo, provider, [external_id])
+  end
+
+  defp delete_pending_mapping_requests(repo, provider, external_ids) do
+    repo.delete_all(
+      from request in MappingRequest,
+        where: request.provider == ^provider and request.external_id in ^external_ids
+    )
+
+    :ok
+  end
+
+  defp maybe_lock_human_contact(_repo, _prefix, nil), do: :ok
+
+  defp maybe_lock_human_contact(repo, prefix, value) do
+    advisory_xact_lock(repo, "#{prefix}:#{Repo.tenant_id!()}:#{value}")
+  end
+
+  defp advisory_xact_lock(repo, lock_key) do
+    case SQL.query(repo, "SELECT pg_advisory_xact_lock(hashtext($1::text))", [lock_key]) do
+      {:ok, _result} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Provider bindings, contact matches, and explicit reviewer selections only
+  # select existing humans. A new external subject gets an opaque UUID.
+  defp platform_subject_principal_uid(
+         _repo,
+         %ExternalIdentity{principal_uid: principal_uid},
+         _attrs,
+         _external_id,
+         _email,
+         _mobile
+       ) do
+    {:ok, {:selected, principal_uid}}
+  end
+
+  defp platform_subject_principal_uid(repo, nil, attrs, external_id, email, mobile) do
+    case human_contact_owner_uid(repo, :email, email) ||
+           human_contact_owner_uid(repo, :mobile, mobile) do
+      nil ->
+        case fetch_attr(attrs, :uid) do
+          {:ok, uid} ->
+            with {:ok, uid} <- normalize_uid(uid), do: {:ok, {:selected, uid}}
+
+          :error ->
+            {:ok, {:new, NativeKernel.gen_uuid_v7()}}
+        end
+
+      owner_uid ->
+        Logging.info(
+          "principals.platform_subject.contact_join",
+          "Platform subject joined an existing principal by email or mobile",
+          %{principal_uid: owner_uid, external_id: external_id}
+        )
+
+        {:ok, {:selected, owner_uid}}
+    end
+  end
+
+  defp human_contact_owner_uid(_repo, _field, nil), do: nil
+
+  defp human_contact_owner_uid(repo, field, value) do
+    contact_owner_uid(repo, field, value)
+  end
+
+  defp normalized_email_attr(attrs) do
+    case fetch_attr(attrs, :email) do
+      {:ok, value} -> normalize_email(value)
+      :error -> nil
+    end
+  end
+
+  defp normalized_mobile_attr(attrs) do
+    case fetch_attr(attrs, :mobile) do
+      {:ok, value} -> normalized_contact_mobile(value)
+      :error -> nil
+    end
+  end
+
+  defp candidate_external_ids(attrs) do
+    listed =
+      case fetch_attr(attrs, :external_ids) do
+        {:ok, ids} when is_list(ids) -> ids
+        _other -> []
+      end
+
+    single =
+      case fetch_attr(attrs, :external_id) do
+        {:ok, id} -> [id]
+        :error -> []
+      end
+
+    normalized =
+      (single ++ listed)
+      |> Enum.flat_map(fn value ->
+        case normalize_required_text(value) do
+          {:ok, id} -> [id]
+          {:error, _reason} -> []
+        end
+      end)
+      |> Enum.uniq()
+
+    case normalized do
+      [] -> {:error, {:missing, :external_id}}
+      ids -> {:ok, ids}
+    end
+  end
+
+  defp provider_subject_principal_by_ids(provider, external_ids) do
+    Enum.find_value(external_ids, fn external_id ->
+      provider_subject_principal(provider, external_id)
+    end)
+  end
+
+  defp contact_owner_principal(_field, nil), do: nil
+
+  defp contact_owner_principal(field, value) do
+    Repo.one(
+      from human_user in HumanUser,
+        join: principal in Principal,
+        on: principal.uid == human_user.principal_uid,
+        where: field(human_user, ^field) == ^value,
+        select: %{principal: principal}
+    )
+  end
+
+  # Unique-owned contact fields are dropped rather than failed on: a unique
+  # violation would abort the whole transaction, and the conflicting field is
+  # the other provider's problem to reconcile, not this subject's.
+  defp drop_conflicting_contacts(repo, provider, principal_uid, profile_attrs) do
+    profile_attrs
+    |> drop_conflicting_contact(
+      repo,
+      provider,
+      principal_uid,
+      :email,
+      &normalize_email/1
+    )
+    |> drop_conflicting_contact(
+      repo,
+      provider,
+      principal_uid,
+      :mobile,
+      &normalized_contact_mobile/1
+    )
+  end
+
+  defp drop_conflicting_contact(profile_attrs, repo, provider, principal_uid, field, normalize) do
+    with {:ok, value} <- Map.fetch(profile_attrs, field),
+         normalized when is_binary(normalized) <- normalize.(value),
+         owner_uid when is_binary(owner_uid) <- contact_owner_uid(repo, field, normalized) do
+      if owner_uid == principal_uid do
+        profile_attrs
+      else
+        Logging.warning(
+          "principals.platform_subject.contact_conflict",
+          "Platform subject contact field dropped: value belongs to another principal",
+          %{
+            field: field,
+            provider: provider,
+            principal_uid: principal_uid,
+            owner_principal_uid: owner_uid
+          }
+        )
+
+        Map.delete(profile_attrs, field)
+      end
+    else
+      _absent_or_unowned -> profile_attrs
+    end
+  end
+
+  defp contact_owner_uid(repo, field, value) do
+    repo.one(
+      from human_user in HumanUser,
+        where: field(human_user, ^field) == ^value,
+        select: human_user.principal_uid
+    )
+  end
+
+  # Mirrors the HumanUser changeset normalization; a value the kernel cannot
+  # normalize is left for the changeset to reject as today.
+  defp normalized_contact_mobile(value) when is_binary(value) do
+    case NativeKernel.phone_normalize_e164(value) do
+      normalized when is_binary(normalized) -> normalized
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp normalized_contact_mobile(_value), do: nil
+
+  defp platform_subject_identity_attrs(
+         principal,
+         provider,
+         external_id,
+         metadata,
+         existing_identity
+       ) do
+    existing_metadata =
+      case existing_identity do
+        %ExternalIdentity{metadata: metadata} when is_map(metadata) -> metadata
+        _identity -> %{}
+      end
+
+    %{
+      principal_uid: principal.uid,
+      provider: provider,
+      external_id: external_id,
+      metadata:
+        existing_metadata
+        |> Map.merge(metadata)
+        |> Map.put("provider", provider)
+        |> Map.put("external_id", external_id)
+    }
+  end
+
+  defp upsert_platform_subject_identities(repo, principal, provider, external_ids, metadata) do
+    external_ids
+    |> Enum.reduce_while({:ok, []}, fn external_id, {:ok, identities} ->
+      attrs =
+        platform_subject_identity_attrs(
+          principal,
+          provider,
+          external_id,
+          metadata,
+          fetch_platform_subject(repo, provider, external_id)
+        )
+
+      case upsert_external_identity(repo, attrs) do
+        {:ok, identity} -> {:cont, {:ok, [identity | identities]}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, identities} -> {:ok, Enum.reverse(identities)}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp provider_subject_principal(provider, external_id) do
+    Repo.one(
+      from identity in ExternalIdentity,
+        join: principal in assoc(identity, :principal),
+        where: identity.provider == ^provider and identity.external_id == ^external_id,
+        select: %{identity: identity, principal: principal}
+    )
+  end
+
+  defp active_human_result(nil), do: {:error, :not_found}
+
+  defp active_human_result(%{principal: %Principal{status: :disabled}}) do
+    {:error, :principal_disabled}
+  end
+
+  defp active_human_result(%{principal: %Principal{type: :agent}}) do
+    {:error, :not_human}
+  end
+
+  defp active_human_result(%{principal: %Principal{type: :human, status: :active} = principal}) do
+    {:ok, principal}
+  end
+
+  defp required_provider(attrs, key) do
+    with {:ok, value} <- required_text(attrs, key) do
+      normalize_provider(value)
+    end
+  end
+
+  defp required_text(attrs, key) do
+    case fetch_attr(attrs, key) do
+      {:ok, value} -> normalize_required_text(value)
+      :error -> {:error, {:missing, key}}
+    end
+  end
+
+  defp normalize_provider(value) do
+    with {:ok, text} <- normalize_required_text(value) do
+      case Regex.match?(@provider_format, text) do
+        true -> {:ok, text}
+        false -> {:error, :invalid_provider}
+      end
+    end
+  end
+
+  defp normalize_required_text(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> {:error, :invalid_text}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp normalize_required_text(_value), do: {:error, :invalid_text}
+
+  defp metadata_attrs(attrs) do
+    case fetch_attr(attrs, :metadata) do
+      {:ok, metadata} when is_map(metadata) -> {:ok, metadata}
+      {:ok, _metadata} -> {:error, :invalid_metadata}
+      :error -> {:ok, %{}}
+    end
+  end
+
+  # These `options["ai_agent"]` keys belong to the model profile and token quota
+  # services and their own routes. A whole-options write keeps their stored
+  # values, so a client that never read them cannot remove a configured profile
+  # or quota.
+  @owned_ai_agent_keys ~w(models provider_hosted token_quota)
+
+  defp keep_owned_agent_options(%Agent{options: stored}, %{options: options} = attrs)
+       when is_map(options) do
+    incoming = ai_agent_options(options)
+    owned = stored |> ai_agent_options() |> Map.take(@owned_ai_agent_keys)
+
+    if Enum.any?(@owned_ai_agent_keys, &Map.has_key?(incoming, &1)) do
+      {:error, :ai_agent_options_not_writable}
+    else
+      ai_agent = Map.merge(incoming, owned)
+
+      options =
+        if map_size(ai_agent) == 0,
+          do: Map.delete(options, "ai_agent"),
+          else: Map.put(options, "ai_agent", ai_agent)
+
+      {:ok, %{attrs | options: options}}
+    end
+  end
+
+  defp keep_owned_agent_options(_agent, attrs), do: {:ok, attrs}
+
+  # A quota is set through its own route after creation, so its validation has
+  # one owner and a new Agent never starts with a shape the quota cannot read.
+  defp reject_token_quota_at_creation(%{options: options}) when is_map(options) do
+    if Map.has_key?(ai_agent_options(options), "token_quota"),
+      do: {:error, :token_quota_not_writable_at_creation},
+      else: :ok
+  end
+
+  defp reject_token_quota_at_creation(_attrs), do: :ok
+
+  defp ai_agent_options(%{"ai_agent" => ai_agent}) when is_map(ai_agent), do: ai_agent
+  defp ai_agent_options(_options), do: %{}
+
+  defp take_attrs(attrs, keys) do
+    Enum.reduce(keys, %{}, fn key, acc ->
+      case fetch_attr(attrs, key) do
+        {:ok, value} -> Map.put(acc, key, value)
+        :error -> acc
+      end
+    end)
+  end
+
+  defp fetch_attr(attrs, key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> {:ok, value}
+      :error -> Map.fetch(attrs, Atom.to_string(key))
+    end
+  end
+end

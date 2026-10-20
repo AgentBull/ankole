@@ -1,47 +1,9 @@
+import { state, requestWithSharingVersion as request } from './fixtures'
 import { pageRoute } from './routes'
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import type { DatabaseField, DatabaseRecord, RecordsResult, TableSchema } from '@ankole/applet-sdk/types'
 
-type Identity = { uid: string; cookies: Parameters<BrowserContext['addCookies']>[0] }
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  tenant_id: string
-  report_id: string
-  owner: Identity
-  member: Identity
-}
 const location = (id: string) => `${state.base_url}${pageRoute(id)}`
-
-async function request<T>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  if (method === 'PUT' && path.endsWith('/sharing')) {
-    const baseline = await request<{ sharing_version: string }>(page, path)
-    body = { ...(body as Record<string, unknown>), sharing_version: baseline.sharing_version }
-  }
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content
-      const authentication = meta('ankole-authentication'),
-        tenant = meta('ankole-pod'),
-        csrf = meta('csrf-token')
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          ...(authentication ? { 'x-ankole-authentication': authentication } : {}),
-          ...(tenant ? { 'x-ankole-pod': tenant } : {}),
-          ...(csrf ? { 'x-csrf-token': csrf } : {})
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`Pod ${method} ${path}: ${response.status} ${await response.text()}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
-}
 
 test('copying a shared database selects an editable destination and opens an independent persisted result', async ({
   browser

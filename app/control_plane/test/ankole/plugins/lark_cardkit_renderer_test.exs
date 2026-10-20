@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
   alias Ankole.Plugins.LarkAdapter.CardKit.Renderer
   alias Ankole.Conversations.Delivery.ReplyPresentation
 
-  test "renders live Markdown, plan, thought, typed results, receipts and actions as CardKit 2.0" do
+  test "renders live Markdown, plan, thought, receipts and actions as CardKit 2.0" do
     presentation =
       ReplyPresentation.new()
       |> ReplyPresentation.append_answer("## 标题\n\n- [链接](https://example.com)\n- `code`")
@@ -20,13 +20,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
           %{"id" => "1", "content" => "分析", "status" => "completed"},
           %{"id" => "2", "content" => "生成", "status" => "in_progress"}
         ]
-      })
-      |> ReplyPresentation.apply_event("result.table", %{
-        "operation_id" => "table",
-        "revision" => 3,
-        "title" => "数据",
-        "columns" => [%{"key" => "x", "label" => "X"}],
-        "rows" => [%{"x" => 1}]
       })
       |> ReplyPresentation.apply_event("effect.receipt", %{
         "operation_id" => "checkback",
@@ -60,7 +53,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert element_index(elements, "plan") < element_index(elements, "thought")
     assert element_index(elements, "thought") < element_index(elements, "separator")
     assert element_index(elements, "separator") < element_index(elements, "answer")
-    assert Enum.any?(elements, &(&1["tag"] == "table"))
 
     receipts = Enum.find(elements, &(&1["element_id"] == "receipts"))
     receipts_text = get_in(receipts, ["elements", Access.at(0), "content"])
@@ -771,38 +763,9 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
            )
   end
 
-  test "escapes parentheses in artifact link destinations without rewriting the URL" do
-    presentation =
-      ReplyPresentation.new()
-      |> ReplyPresentation.apply_event("artifact.available", %{
-        "operation_id" => "artifact",
-        "revision" => 1,
-        "name" => "report.pdf",
-        "description" => "打开报告",
-        "url" => "https://example.com/reports/(draft)/report).pdf"
-      })
-
-    assert {:ok, card} = Renderer.render(presentation, mode: :working)
-
-    artifact =
-      Enum.find(
-        get_in(card, ["body", "elements"]),
-        &String.starts_with?(&1["element_id"], "result")
-      )
-
-    assert artifact["content"] ==
-             "**report.pdf**\n\n[打开报告](https://example.com/reports/&#40;draft&#41;/report&#41;.pdf)"
-  end
-
   test "a sealed page shows only stable content while the tail keeps terminal UX" do
     terminal =
       ReplyPresentation.new()
-      |> ReplyPresentation.apply_event("result.metrics", %{
-        "operation_id" => "metrics",
-        "revision" => 1,
-        "title" => "摘要",
-        "metrics" => [%{"label" => "来源", "value" => "12"}]
-      })
       |> ReplyPresentation.terminal("completed", "第一页\n第二页")
 
     assert {:ok, first} =
@@ -819,7 +782,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
     assert get_in(first_state, ["text", "i18n_content", "zh_cn"]) == "回答继续于下一张卡片"
     assert element_index(first_elements, "state") < element_index(first_elements, "separator")
     assert element_index(first_elements, "separator") < element_index(first_elements, "answer")
-    refute Enum.any?(first_elements, &String.starts_with?(&1["element_id"], "result"))
     refute first["config"]["streaming_mode"]
 
     assert {:ok, tail} =
@@ -832,7 +794,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
              )
 
     tail_elements = get_in(tail, ["body", "elements"])
-    assert Enum.any?(tail_elements, &String.starts_with?(&1["element_id"], "result"))
 
     assert get_in(
              Enum.find(tail_elements, &(&1["element_id"] == "meta")),
@@ -841,88 +802,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     assert element_index(tail_elements, "meta") < element_index(tail_elements, "separator")
     assert element_index(tail_elements, "separator") < element_index(tail_elements, "answer")
-  end
-
-  test "oversized typed detail degrades before the terminal answer" do
-    columns = for index <- 1..8, do: %{"key" => "c#{index}", "label" => "列 #{index}"}
-
-    rows =
-      for row <- 1..20 do
-        Map.new(columns, fn column ->
-          {column["key"], String.duplicate("数据#{row}", 80)}
-        end)
-      end
-
-    terminal =
-      Enum.reduce(1..12, ReplyPresentation.new(), fn index, presentation ->
-        ReplyPresentation.apply_event(presentation, "result.table", %{
-          "operation_id" => "table-#{index}",
-          "revision" => index,
-          "title" => "表格 #{index}",
-          "columns" => columns,
-          "rows" => rows
-        })
-      end)
-      |> ReplyPresentation.terminal("completed", "必须保留的最终结论")
-
-    assert {:ok, card} = Renderer.render(terminal, mode: :terminal)
-    elements = get_in(card, ["body", "elements"])
-    assert Enum.find(elements, &(&1["element_id"] == "answer"))["content"] == "必须保留的最终结论"
-    refute Enum.any?(elements, &(&1["tag"] == "table"))
-  end
-
-  test "more than five table results preserve overflow data without exceeding CardKit limits" do
-    terminal =
-      Enum.reduce(1..6, ReplyPresentation.new(), fn index, presentation ->
-        ReplyPresentation.apply_event(presentation, "result.table", %{
-          "operation_id" => "table-#{index}",
-          "revision" => index,
-          "title" => "表格 #{index}",
-          "columns" => [
-            %{"key" => "symbol", "label" => "Symbol"},
-            %{"key" => "price", "label" => "Price"}
-          ],
-          "rows" => [%{"symbol" => "SYM#{index}", "price" => index}]
-        })
-      end)
-      |> ReplyPresentation.terminal("completed", "六张表的结论")
-
-    assert {:ok, card} = Renderer.render(terminal, mode: :terminal)
-    elements = get_in(card, ["body", "elements"])
-
-    assert Enum.count(elements, &(&1["tag"] == "table")) == 5
-
-    assert Enum.find(elements, &(&1["element_id"] == "result6")) == %{
-             "tag" => "markdown",
-             "element_id" => "result6",
-             "content" => "- **Symbol**: SYM6 · **Price**: 6"
-           }
-  end
-
-  test "answer Markdown tables and typed table results share one card budget" do
-    answer =
-      Enum.map_join(1..4, "\n\n", fn index ->
-        "| 指标#{index} | 值 |\n| --- | --- |\n| a | #{index} |"
-      end)
-
-    terminal =
-      Enum.reduce(1..3, ReplyPresentation.new(), fn index, presentation ->
-        ReplyPresentation.apply_event(presentation, "result.table", %{
-          "operation_id" => "table-#{index}",
-          "revision" => index,
-          "columns" => [%{"key" => "value", "label" => "Value"}],
-          "rows" => [%{"value" => index}]
-        })
-      end)
-      |> ReplyPresentation.terminal("completed", answer)
-
-    assert {:ok, card} = Renderer.render(terminal, mode: :terminal)
-    elements = get_in(card, ["body", "elements"])
-
-    assert Enum.count(elements, &(&1["tag"] == "table")) == 1
-    assert Enum.find(elements, &(&1["element_id"] == "result1"))["tag"] == "table"
-    assert Enum.find(elements, &(&1["element_id"] == "result2"))["tag"] == "markdown"
-    assert Enum.find(elements, &(&1["element_id"] == "result3"))["tag"] == "markdown"
   end
 
   test "an unpaginated answer over the Markdown table budget fails loudly" do
@@ -935,43 +814,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRendererTest do
 
     assert {:error, :cardkit_soft_budget_exceeded} =
              Renderer.render(presentation, mode: :terminal)
-  end
-
-  test "an incremental sixth table uses Markdown instead of adding a provider table" do
-    previous =
-      Enum.reduce(1..5, ReplyPresentation.new(), fn index, presentation ->
-        ReplyPresentation.apply_event(presentation, "result.table", %{
-          "operation_id" => "table-#{index}",
-          "revision" => index,
-          "columns" => [%{"key" => "value", "label" => "Value"}],
-          "rows" => [%{"value" => index}]
-        })
-      end)
-
-    current =
-      ReplyPresentation.apply_event(previous, "result.table", %{
-        "operation_id" => "table-6",
-        "revision" => 6,
-        "columns" => [%{"key" => "value", "label" => "Value"}],
-        "rows" => [%{"value" => 6}]
-      })
-
-    assert {:ok, previous_card} = Renderer.render(previous, mode: :working)
-    assert {:ok, current_card} = Renderer.render(current, mode: :working)
-    actions = Renderer.diff(previous_card, current_card)
-
-    added_elements =
-      actions
-      |> Enum.filter(&(&1["action"] == "add_elements"))
-      |> Enum.flat_map(&(get_in(&1, ["params", "elements"]) || []))
-
-    assert Enum.find(added_elements, &(&1["element_id"] == "result6")) == %{
-             "tag" => "markdown",
-             "element_id" => "result6",
-             "content" => "- **Value**: 6"
-           }
-
-    refute Enum.any?(added_elements, &(&1["tag"] == "table"))
   end
 
   defp element_index(elements, id) do

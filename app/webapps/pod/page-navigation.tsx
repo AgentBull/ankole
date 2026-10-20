@@ -1,7 +1,24 @@
 import { t } from 'i18next'
-import { Button, Dialog, DialogContent, DialogFooter, DialogTitle, Input, toast } from '@ankole/uikit'
+import {
+  Button,
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuTrigger,
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogTitle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+  Input,
+  toast,
+  TreeDropIndicator,
+  useTreeAutoScroll,
+  useTreeItemDrag
+} from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useEffect, useState, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { Link, NavLink, useNavigate, useParams } from 'react-router'
@@ -12,13 +29,19 @@ import {
   RiFolderLine,
   RiHistoryLine,
   RiLockLine,
+  RiMoreFill,
   RiShareLine,
   RiStarLine
 } from '@remixicon/react'
 import { authenticationRef, podID, podLocation, podRouteID } from '../common/browser-context'
+import { requestErrorMessage } from '../common/request-errors'
 import { NavigationModel, type NavigationScope } from './state/navigation'
+import { dropAvailability, dropRequest, positionOrder, rootRequest } from './state/page-move'
 import { contentKeys, pageAPI, pagesQuery, type Page, type PageScope, type PageType } from './content-api'
+import { contentError } from './content-errors'
 import { Choice, ContentError, TextField, typeLabels } from './content-primitives'
+import { PageMenuItems, usePageActions, type PageActions } from './page-actions'
+import { MovePageDialog } from './page-move-dialog'
 import { SpaceSettingsButton } from './space-settings'
 import { PageIcon } from './page-icon'
 
@@ -54,6 +77,26 @@ export const scopeIcons = {
   trash: RiDeleteBinLine
 }
 
+const pageTree = 'pod-pages'
+
+type PageTreeContextValue = {
+  pages: Page[]
+  favorites: Set<string>
+  collapsed: Set<string>
+  actions: PageActions
+  privateOwner?: string
+  togglePage(id: string): void
+  onNavigate?: () => void
+}
+
+const PageTreeContext = createContext<PageTreeContextValue | null>(null)
+
+function usePageTree(): PageTreeContextValue {
+  const value = useContext(PageTreeContext)
+  if (!value) throw new Error('A page row must be inside ContentNavigation.')
+  return value
+}
+
 export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
   useSignals()
   const model = useModel(() => new NavigationModel(podID(), authenticationRef()))
@@ -67,53 +110,87 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
     window.addEventListener('storage', restore)
     return () => window.removeEventListener('storage', restore)
   }, [model])
+  const space = useQuery(pagesQuery('space'))
+  const privatePages = useQuery(pagesQuery('private'))
+  const favorites = useQuery(pagesQuery('favorites'))
+  const pages = useMemo(
+    () => [...(space.data?.pages ?? []), ...(privatePages.data?.pages ?? [])],
+    [space.data, privatePages.data]
+  )
+  const favoriteIDs = useMemo(() => new Set(favorites.data?.pages.map(page => page.id)), [favorites.data])
+  const actions = usePageActions(pages)
+  const autoScroll = useTreeAutoScroll<HTMLElement>(pageTree)
+  const scrollContainer = useCallback(
+    (node: HTMLElement | null) => autoScroll(node?.closest<HTMLElement>('[data-sidebar="content"]') ?? null),
+    [autoScroll]
+  )
+  const tree: PageTreeContextValue = {
+    pages,
+    favorites: favoriteIDs,
+    collapsed: preferences.collapsed,
+    actions,
+    privateOwner: privatePages.data?.principal_uid,
+    togglePage: model.togglePage,
+    onNavigate
+  }
   return (
-    <div className="space-y-5 text-[13px]">
-      <nav aria-label={t('pod.content.page_navigation')} className="space-y-0.5">
-        {(['shared', 'recent', 'favorites', 'trash'] as const).map(scope => {
-          const Icon = scopeIcons[scope]
-          return (
-            <NavLink key={scope} className="pod-nav-link" to={podLocation(`/content/${scope}`)} onClick={onNavigate}>
-              <Icon aria-hidden />
-              <span>{scopeLabels[scope]}</span>
-            </NavLink>
-          )
-        })}
-      </nav>
-      {(['space', 'private'] as const).map(scope => (
-        <NavigationTree
-          key={scope}
-          scope={scope}
-          open={preferences.rootOpen[scope]}
-          collapsed={preferences.collapsed}
-          onToggleRoot={() => model.toggleRoot(scope)}
-          onTogglePage={model.togglePage}
-          onNavigate={onNavigate}
-        />
-      ))}
-    </div>
+    <PageTreeContext value={tree}>
+      <div ref={scrollContainer} className="pod-navigation">
+        <nav aria-label={t('pod.content.page_navigation')} className="pod-nav-places">
+          {(['shared', 'recent', 'favorites', 'trash'] as const).map(scope => {
+            const Icon = scopeIcons[scope]
+            return (
+              <NavLink key={scope} className="pod-nav-link" to={podLocation(`/content/${scope}`)} onClick={onNavigate}>
+                <Icon aria-hidden />
+                <span>{scopeLabels[scope]}</span>
+              </NavLink>
+            )
+          })}
+        </nav>
+        {(['space', 'private'] as const).map(scope => (
+          <NavigationTree
+            key={scope}
+            scope={scope}
+            open={preferences.rootOpen[scope]}
+            onToggleRoot={() => model.toggleRoot(scope)}
+          />
+        ))}
+      </div>
+    </PageTreeContext>
   )
 }
 
 function NavigationTree({
   scope,
   open,
-  collapsed,
-  onToggleRoot,
-  onTogglePage,
-  onNavigate
+  onToggleRoot
 }: {
   scope: NavigationScope
   open: boolean
-  collapsed: Set<string>
   onToggleRoot(): void
-  onTogglePage(id: string): void
-  onNavigate?: () => void
 }) {
+  const { pages: known, actions, privateOwner, onNavigate } = usePageTree()
   const pages = useQuery(pagesQuery(scope))
+  const owner = pages.data?.principal_uid ?? privateOwner
+  const drop = useTreeItemDrag<HTMLElement, HTMLDivElement>({
+    tree: pageTree,
+    id: `root:${scope}`,
+    availability: (sourceID, operation) => {
+      const source = known.find(page => page.id === sourceID)
+      return operation === 'inside' && source && source.role !== 'view' && (scope === 'space' || owner)
+        ? 'available'
+        : 'not-available'
+    },
+    onDrop: ({ source }) => {
+      const page = known.find(candidate => candidate.id === source)
+      if (!page) return
+      actions.move(page, rootRequest(scope, owner))
+      if (!open) onToggleRoot()
+    }
+  })
   return (
-    <section aria-label={scopeLabels[scope]}>
-      <div className="pod-nav-section-heading">
+    <section aria-label={scopeLabels[scope]} className="pod-nav-section">
+      <div ref={drop.targetRef} className="pod-nav-section-heading">
         <button
           type="button"
           className="pod-tree-toggle"
@@ -129,6 +206,7 @@ function NavigationTree({
           {scope === 'space' && <SpaceSettingsButton />}
           <CreatePageButton scope={scope} privateOwner={pages.data?.principal_uid} compact />
         </div>
+        <TreeDropIndicator indication={drop.indication} />
       </div>
       {open &&
         (pages.isPending ? (
@@ -138,28 +216,14 @@ function NavigationTree({
         ) : pages.error ? (
           <ContentError error={pages.error} retry={() => void pages.refetch()} />
         ) : (
-          <PageTree
-            pages={pages.data?.pages ?? []}
-            collapsed={collapsed}
-            onTogglePage={onTogglePage}
-            onNavigate={onNavigate}
-          />
+          <PageTree pages={pages.data?.pages ?? []} />
         ))}
     </section>
   )
 }
 
-export function PageTree({
-  pages,
-  collapsed,
-  onTogglePage,
-  onNavigate
-}: {
-  pages: Page[]
-  collapsed: Set<string>
-  onTogglePage(id: string): void
-  onNavigate?: () => void
-}) {
+function PageTree({ pages }: { pages: Page[] }) {
+  const { collapsed } = usePageTree()
   const { pageID: routePageID } = useParams()
   const pageID = podRouteID(routePageID)
   const ids = new Set(pages.map(page => page.id))
@@ -181,47 +245,193 @@ export function PageTree({
     ancestors.delete(page.id)
     return (
       <li key={page.id} className="min-w-0">
-        <div className="pod-tree-row" data-active={pageID === page.id ? '' : undefined}>
-          {nested.length ? (
-            <button
-              type="button"
-              className="pod-tree-toggle"
-              aria-label={page.title || t('pod.content.untitled')}
-              aria-expanded={open}
-              onClick={() => onTogglePage(page.id)}>
-              <RiArrowRightSLine aria-hidden className={open ? 'rotate-90' : ''} />
-            </button>
-          ) : (
-            <span className="pod-tree-spacer size-5 shrink-0" />
-          )}
-          <Link
-            className="pod-tree-link"
-            to={podLocation(`/pages/${page.id}`)}
-            onClick={onNavigate}
-            aria-current={pageID === page.id ? 'page' : undefined}
-            title={page.title || t('pod.content.untitled')}>
-            <PageIcon page={page} />
-            <span className="truncate">{page.title || t('pod.content.untitled')}</span>
-          </Link>
-          {page.type === 'doc' && page.role !== 'view' && (
-            <span className="pod-row-action">
-              <CreatePageButton parentID={page.id} compact />
-            </span>
-          )}
-        </div>
-        {nested.length > 0 && open && <ul className="pl-3.5">{childNodes}</ul>}
+        <PageTreeRow page={page} hasChildren={nested.length > 0} open={open} active={pageID === page.id} />
+        {nested.length > 0 && open && <ul className="pod-tree-children">{childNodes}</ul>}
       </li>
     )
   }
   return roots.length ? (
-    <ul className="space-y-px">{roots.sort(positionOrder).map(page => branch(page, new Set()))}</ul>
+    <ul className="pod-tree">{roots.sort(positionOrder).map(page => branch(page, new Set()))}</ul>
   ) : (
-    <p className="px-3 py-2 text-xs text-fg-tertiary">{t('pod.content.no_pages_yet')}</p>
+    <p className="pod-tree-empty">{t('pod.content.no_pages_yet')}</p>
   )
 }
 
-export function positionOrder(a: Page, b: Page): number {
-  return a.position === b.position ? (a.id < b.id ? -1 : a.id === b.id ? 0 : 1) : a.position < b.position ? -1 : 1
+function PageTreeRow({
+  page,
+  hasChildren,
+  open,
+  active
+}: {
+  page: Page
+  hasChildren: boolean
+  open: boolean
+  active: boolean
+}) {
+  const { pages, favorites, actions, togglePage, onNavigate } = usePageTree()
+  const [renaming, setRenaming] = useState(false)
+  const [dialog, setDialog] = useState<'create' | 'move'>()
+  const keepFocusInRow = useRef(false)
+  const menuFinalFocus = () => {
+    const restore = !keepFocusInRow.current
+    keepFocusInRow.current = false
+    return restore
+  }
+  const label = page.title || t('pod.content.untitled')
+  const edit = page.role !== 'view'
+  const drag = useTreeItemDrag<HTMLAnchorElement, HTMLDivElement>({
+    tree: pageTree,
+    id: page.id,
+    label,
+    canDrag: edit,
+    availability: (sourceID, operation) =>
+      dropAvailability(
+        pages,
+        pages.find(candidate => candidate.id === sourceID),
+        page,
+        operation
+      ),
+    onDrop: ({ source, operation }) => {
+      const moving = pages.find(candidate => candidate.id === source)
+      if (!moving) return
+      actions.move(moving, dropRequest(page, operation))
+      if (operation === 'inside' && hasChildren && !open) togglePage(page.id)
+    },
+    onRestInside: () => {
+      if (hasChildren && !open) togglePage(page.id)
+    }
+  })
+  const menu = (
+    <PageMenuItems
+      page={page}
+      pages={pages}
+      favorited={favorites.has(page.id)}
+      actions={actions}
+      onRename={() => {
+        keepFocusInRow.current = true
+        setRenaming(true)
+      }}
+      onCreateChild={() => setDialog('create')}
+      onMoveTo={() => setDialog('move')}
+    />
+  )
+  return (
+    <>
+      <ContextMenu>
+        <ContextMenuTrigger
+          ref={drag.targetRef}
+          className="pod-tree-row"
+          data-active={active ? '' : undefined}
+          data-dragging={drag.dragging ? '' : undefined}>
+          {hasChildren ? (
+            <button
+              type="button"
+              className="pod-tree-toggle"
+              aria-label={label}
+              aria-expanded={open}
+              onClick={() => togglePage(page.id)}>
+              <RiArrowRightSLine aria-hidden className={open ? 'rotate-90' : ''} />
+            </button>
+          ) : (
+            <span className="pod-tree-spacer" />
+          )}
+          {renaming ? (
+            <PageRenameField page={page} onDone={() => setRenaming(false)} />
+          ) : (
+            <Link
+              ref={drag.handleRef}
+              className="pod-tree-link"
+              to={podLocation(`/pages/${page.id}`)}
+              onClick={onNavigate}
+              aria-current={active ? 'page' : undefined}
+              title={label}>
+              <PageIcon page={page} />
+              <span className="truncate">{label}</span>
+            </Link>
+          )}
+          {!renaming && (
+            <span className="pod-row-action">
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t('pod.sidebar.page_actions', { title: label })}
+                      title={t('common.more_actions')}
+                    />
+                  }>
+                  <RiMoreFill aria-hidden className="size-4" />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-56" finalFocus={menuFinalFocus}>
+                  {menu}
+                </DropdownMenuContent>
+              </DropdownMenu>
+              {page.type === 'doc' && edit && <CreatePageButton parentID={page.id} compact />}
+            </span>
+          )}
+          <TreeDropIndicator indication={drag.indication} />
+        </ContextMenuTrigger>
+        <ContextMenuContent finalFocus={menuFinalFocus}>{menu}</ContextMenuContent>
+      </ContextMenu>
+      {dialog === 'create' && <CreatePageDialog parentID={page.id} onClose={() => setDialog(undefined)} />}
+      {dialog === 'move' && <MovePageDialog page={page} close={() => setDialog(undefined)} />}
+    </>
+  )
+}
+
+function PageRenameField({ page, onDone }: { page: Page; onDone(): void }) {
+  const client = useQueryClient()
+  const [value, setValue] = useState(page.title)
+  const finished = useRef(false)
+  const finish = () => {
+    finished.current = true
+    onDone()
+  }
+  const rename = useMutation({
+    mutationFn: (title: string) => pageAPI.update(page.id, { title }),
+    onSuccess: async () => {
+      await Promise.all([
+        client.invalidateQueries({ queryKey: contentKeys.lists }),
+        client.invalidateQueries({ queryKey: contentKeys.page(page.id) })
+      ])
+      finish()
+    },
+    onError: error => {
+      finished.current = false
+      toast.error(requestErrorMessage(contentError(error)))
+    }
+  })
+  const submit = () => {
+    if (finished.current || rename.isPending) return
+    const title = value.trim()
+    if (title === page.title) return finish()
+    finished.current = true
+    rename.mutate(title)
+  }
+  return (
+    <input
+      autoFocus
+      className="pod-tree-rename"
+      aria-label={t('pod.sidebar.rename_label', { title: page.title || t('pod.content.untitled') })}
+      value={value}
+      disabled={rename.isPending}
+      placeholder={t('pod.content.untitled')}
+      onFocus={event => event.currentTarget.select()}
+      onChange={event => setValue(event.target.value)}
+      onBlur={submit}
+      onKeyDown={event => {
+        if (event.nativeEvent.isComposing || event.keyCode === 229) return
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          submit()
+        } else if (event.key === 'Escape') {
+          event.preventDefault()
+          finish()
+        }
+      }}
+    />
+  )
 }
 
 type CreatePageOptions = {
@@ -370,8 +580,9 @@ export function ContentListRoute() {
           (event.key !== 'j' && event.key !== 'k') ||
           !(event.target instanceof HTMLElement) ||
           event.target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"]')
-        )
+        ) {
           return
+        }
         const rows = [...event.currentTarget.querySelectorAll<HTMLElement>('[data-pod-list-item]:not([disabled])')]
         const current = rows.indexOf(document.activeElement as HTMLElement)
         if (current < 0 || rows.length < 2) return

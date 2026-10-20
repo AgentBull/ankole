@@ -34,12 +34,40 @@ is not recovery truth. Committing an input also commits an EnsureDriver job.
 Immediate wakeups improve latency after commit; startup and durable recovery
 find accepted work even if the producer dies at that point.
 
+`Sessions.Events` uses the existing `Ankole.PubSub` server. Its input and state
+topics include the tenant, Agent, and Session. It accepts scalar identities and
+encodes the Agent and Session identifiers before it joins the topic fields, so
+delimiters cannot change the target or channel. It does not depend on a Signal
+schema or execution module. Input notifications
+contain an already accepted Signal ID. They do not create work or start a Driver.
+The public wakeup path still calls `ensure_driver/1` before it publishes a ready
+input. Future inputs retain their stored EnsureDriver deadline.
+
+Both Driver types set their tenant context and subscribe to input before their
+initial inbox rebuild. A publication before subscription is found by that rebuild;
+a later publication enters the existing inbox handler. Admission, preparation,
+round recording, and finalization retain their existing postponement rules.
+The handler reads the Signal under its Agent and Session and checks authorization.
+Duplicate notifications cannot change the durable queue order. Lost notifications
+are repaired by EnsureDriver and the existing Reconciler.
+
+State publications occur in the outer transaction owner's process after success.
+The guard only rejects a transaction in that process; it is not proof of commit.
+Transaction code must not start a Task to publish pending facts. Completion
+publishes one `turn_completed` notification with its Signal ID and outcome.
+Transient activity uses a separate publication method and retains its Driver PID,
+epoch, and revision checks. No subscriber commits a reply or sends a Delivery
+because it received a completion notification.
+
 `Sessions.driver_name/1` owns the shared registry identity for ordinary and Job
 drivers. `driver_pid/1` and `active_model_conversation_id/1` are read-only
 locators; neither starts a process nor creates history. External Preview keeps
 its existing checkpoint identity when recovering a completed presentation.
 
-One Driver serializes a Session through a global name. The stored workspace
+Both Driver types register the same global name before initialization.
+`ensure_driver/1` reuses an existing PID and accepts an `already_started` result
+when another caller wins registration. The DynamicSupervisor owns process
+supervision, not Session uniqueness. The stored workspace
 and Driver epoch fence a writer that survives a takeover. Worker commands also
 carry the current incarnation and run reference. Another Agent or Session never
 writes into this Session's model history. Other Sessions can append public

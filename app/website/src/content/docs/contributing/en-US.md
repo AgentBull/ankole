@@ -7,7 +7,7 @@ order: 321
 
 Contributing to Ankole means reading two documents before the first edit, and following the path they define. This page is the map: it points at the authoritative sources, names the path through them, and stops short of duplicating either. If this page and a source document disagree, the source document is right.
 
-The decisive property, stated up front: Ankole's contribution rules are not optional conventions — they are enforced by the project's review process and by the changelog rule that gates every commit. A contribution that skips [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) or [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) will be asked to go back and read them. Read them first.
+The decisive property, stated up front: Ankole's contribution rules are not optional conventions — they are enforced by the project's review process and by the changelog rule that gates every commit that changes the product. A contribution that skips [`AGENTS.md`](https://github.com/AgentBull/ankole/blob/main/AGENTS.md) or [`CONTRIBUTING.md`](https://github.com/AgentBull/ankole/blob/main/CONTRIBUTING.md) will be asked to go back and read them. Read them first.
 
 ## The two documents that own the rules
 
@@ -34,7 +34,7 @@ The setup is not done when the page opens. It is done when a real message round-
 Read `AGENTS.md` before the first edit. The rules that come up most often:
 
 - **Scope and authorization.** A request to answer or plan authorizes read-only inspection; a request to implement authorizes the edits. Do not expand scope without approval.
-- **The changelog is the version unit.** Every commit adds exactly one `CHANGELOG.md` version, and that version describes every retained change in the commit. One version does not span commits; one commit does not contain multiple versions. See the section below.
+- **The changelog is for users and operators.** A commit that changes the product adds one `CHANGELOG.md` version that records what they will notice after the upgrade; a documentation-only commit adds none. See the section below.
 - **Smallest correct change.** Prefer the smallest change that follows the chosen direction, preserves contracts the system can keep, and stays understandable. A little duplication is better than an abstraction that compounds complexity.
 - **Worse is better.** Simplicity beats interface uniformity or theoretical completeness. When simplicity wins, narrow the contract or reject the unsupported case explicitly, rather than silently producing a wrong result.
 - **Objective fidelity.** Do the requested task, not a cheaper proxy. A green test is not the goal; the real path through the owning abstraction is.
@@ -42,13 +42,11 @@ Read `AGENTS.md` before the first edit. The rules that come up most often:
 
 ## The changelog rule
 
-This is the rule that gates every commit, and the one most contributions get wrong on the first try. From `AGENTS.md`:
+This is the rule that gates every commit that changes the product, and the one most contributions get wrong on the first try. From `CONTRIBUTING.md`:
 
-- Every commit adds exactly one root `CHANGELOG.md` version.
-- That version describes every retained source, test, doc, config, schema, migration, manifest, lockfile, and required generated-file change in that commit.
-- One version must not span multiple commits; one commit must not contain multiple versions.
-- Versions use `MAJOR.MINOR.PATCH`, with no leading zeroes. `PATCH` is the default increment. Increment `MINOR` and reset `PATCH` to `0` only when the commit lets a user or an operator do something the product could not do before, or breaks existing behavior so that a person must change configuration, stored data, or an external caller. Every other change increments `PATCH`, even when users see the difference at once: a bug fix however visible, better speed or reliability inside an existing capability, an internal rewrite, a dependency upgrade, tooling, and documentation. Use the minor increment when one commit contains both types, but only when one change qualifies for `MINOR` on its own. Change `MAJOR` only after an explicit maintainer decision.
-- Prepare the entry from the exact staged diff immediately before committing.
+- A commit that changes only documentation or the changelog adds no version. Every other commit adds exactly one root `CHANGELOG.md` version, and one version does not span commits.
+- The version records what a user or an operator notices after the upgrade: a new capability, changed behavior, a removal, a fix they could have met, and any required action. Documentation, tests, tooling, dependencies, and refactors are not recorded; a version without such a change says only `Internal changes only.`
+- Versions use `MAJOR.MINOR.PATCH`. `PATCH` is the default. `MINOR` is for a capability the product did not have before, or for a break that a person must act on. `MAJOR` and pre-release suffixes follow a maintainer decision.
 
 The changelog is the *sole* changelog and version unit — there is no separate release notes file. After a `main` runtime-image build passes image-pair verification, the workflow uses the newest version for the control-plane and Worker image tags and creates the immutable GitHub Release from that exact section. Treat the changelog as part of the change, not as paperwork afterward.
 
@@ -65,7 +63,7 @@ If a required command cannot run in your environment, report the exact command a
 
 ## Submit the pull request
 
-`CONTRIBUTING.md` covers the PR step. The short shape: the PR's commits follow the changelog rule (one version per commit), the change respects the boundaries in `AGENTS.md`, and the PR description says what changed and why in the terms the documents use. The review will check the same things.
+`CONTRIBUTING.md` covers the PR step. The short shape: the PR's commits follow the changelog rule (one version per commit that changes the product), the change respects the boundaries in `AGENTS.md`, and the PR description says what changed and why in the terms the documents use. The review will check the same things.
 
 ## What this guide is not
 

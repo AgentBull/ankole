@@ -1,6 +1,5 @@
 # Ankole Documentation
 
-[简体中文](./README.zh-Hans.md)
 
 Use this page to understand how Ankole works and where each part of the system
 lives. Follow the links when you need the detailed contract for one module.
@@ -201,9 +200,9 @@ and runs Skills without help from a Control Plane Plugin.
 
 ## Where to Change Code
 
-- Add a model provider under `app/control_plane/lib/ankole/ai_gateway/providers/`
+- Add a model provider under `app/control_plane_core/lib/ankole/ai_gateway/providers/`
   or through the `ai_gateway.provider` plugin contract.
-- Add a main Agent tool under `app/control_plane/lib/ankole/sessions/tools/`.
+- Add a main Agent tool under `app/control_plane_core/lib/ankole/sessions/tools/`.
   Add an environment or Codex Job tool under `app/agent_computer/src/tools/`
   and regenerate its declared Worker catalog.
 - Add a message provider through `signals.adapter` with `observe_module` and `deliver_module`.

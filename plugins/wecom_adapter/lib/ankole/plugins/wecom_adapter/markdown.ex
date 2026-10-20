@@ -1,4 +1,6 @@
 defmodule Ankole.Plugins.WeComAdapter.Markdown do
+  import Ankole.Plugins.MarkdownChunks, only: [strip_html_tags: 2, degrade_task_lists: 1]
+
   @moduledoc """
   Deterministic degrade of standard Markdown to WeCom's Markdown subset, plus a
   byte-budget splitter for the 20480-byte message cap.
@@ -20,10 +22,6 @@ defmodule Ankole.Plugins.WeComAdapter.Markdown do
   # Stream/markdown content caps at 20480 bytes; keep a conservative source
   # budget so the status line, quote blocks, and JSON escaping have headroom.
   @default_max_bytes 14_000
-
-  @doc "Source budget used by reply paging."
-  @spec default_max_bytes() :: pos_integer()
-  def default_max_bytes, do: @default_max_bytes
 
   @doc "Degrade standard Markdown into WeCom's supported subset."
   @spec to_wecom(String.t()) :: String.t()
@@ -54,20 +52,6 @@ defmodule Ankole.Plugins.WeComAdapter.Markdown do
     Regex.replace(~r/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/, text, fn _match, alt, url ->
       label = if alt == "", do: "图片", else: "图片: #{alt}"
       "[#{label}](#{url})"
-    end)
-  end
-
-  defp degrade_task_lists(text) do
-    Regex.replace(~r/(^\s*[-*+] )\[[ xX]\]\s+/m, text, "\\1")
-  end
-
-  defp strip_html_tags(text, marker) do
-    Regex.replace(~r/<\/?[a-zA-Z][^>]*>/, text, fn tag ->
-      if is_binary(marker) do
-        String.duplicate(marker, length(:binary.matches(tag, marker)))
-      else
-        ""
-      end
     end)
   end
 end

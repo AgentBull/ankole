@@ -11,6 +11,9 @@ import {
 } from './client'
 import { client } from './client.gen'
 import type {
+  ActivateBrowserAccountData,
+  ActivateBrowserAccountErrors,
+  ActivateBrowserAccountResponses,
   AnkoleWebAuthControllerDeleteSessionData,
   AnkoleWebAuthControllerDeleteSessionResponses,
   BrowserSessionData,
@@ -176,9 +179,6 @@ import type {
   PodPageUserStateData,
   PodPageUserStateErrors,
   PodPageUserStateResponses,
-  PodPageVersionsData,
-  PodPageVersionsErrors,
-  PodPageVersionsResponses,
   PodRealtimeTokenData,
   PodRealtimeTokenErrors,
   PodRealtimeTokenResponses,
@@ -280,6 +280,22 @@ export const updateSetupPlugins = <ThrowOnError extends boolean = true>(
   (options?.client ?? client).put<UpdateSetupPluginsResponses, UpdateSetupPluginsErrors, ThrowOnError, 'data'>({
     responseStyle: 'data',
     url: '/.internal-apis/setup/plugins/enabled',
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options?.headers
+    }
+  })
+
+/**
+ * Make a proved Pod identity the browser default and return its Pod URL
+ */
+export const activateBrowserAccount = <ThrowOnError extends boolean = true>(
+  options?: Options<ActivateBrowserAccountData, ThrowOnError>
+): RequestResult<ActivateBrowserAccountResponses, ActivateBrowserAccountErrors, ThrowOnError, 'data'> =>
+  (options?.client ?? client).put<ActivateBrowserAccountResponses, ActivateBrowserAccountErrors, ThrowOnError, 'data'>({
+    responseStyle: 'data',
+    url: '/.internal-apis/sessions/active',
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -408,18 +424,6 @@ export const podConversationEvents = <ThrowOnError extends boolean = true>(
       ...options
     }
   )
-
-/**
- * podPageVersions
- */
-export const podPageVersions = <ThrowOnError extends boolean = true>(
-  options?: Options<PodPageVersionsData, ThrowOnError>
-): RequestResult<PodPageVersionsResponses, PodPageVersionsErrors, ThrowOnError, 'data'> =>
-  (options?.client ?? client).get<PodPageVersionsResponses, PodPageVersionsErrors, ThrowOnError, 'data'>({
-    responseStyle: 'data',
-    url: '/.internal-apis/pod/page-versions',
-    ...options
-  })
 
 /**
  * podDatabaseSchema

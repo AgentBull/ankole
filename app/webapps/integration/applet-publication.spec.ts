@@ -28,8 +28,9 @@ async function publication(page: Page, mode: 'current' | 'changed' | 'denied') {
       manifests++
       const entries = files.map(({ bytes: _bytes, ...file }) => file)
       // A new publication removed a file after the first manifest was read.
-      if (mode === 'changed' && manifests === 1)
+      if (mode === 'changed' && manifests === 1) {
         entries.push({ path: 'dist/removed.js', sha256: 'old', content_type: 'application/javascript' })
+      }
       return route.fulfill({ json: { page_id: 'publication-fixture', revision: manifests, files: entries } })
     }
     if (mode === 'denied') return route.fulfill({ status: 403, json: { error: 'forbidden' } })

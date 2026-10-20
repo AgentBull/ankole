@@ -95,7 +95,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
              "scope" => "openid profile email offline_access"
            } = token_response
 
-    assert token_response["expires_in"] in 1..Tokens.access_ttl_seconds()
+    assert token_response["expires_in"] in 1..1800
 
     assert {:ok,
             %{
@@ -861,7 +861,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
   test "select_account uses a held proof explicitly and separates two identities for one Client",
        %{conn: conn, tenant: tenant} do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    {:ok, true} = Ankole.Setup.Config.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     a = human_fixture(%{display_name: "Identity A"})
     b = human_fixture(%{display_name: "Identity B"})
     client = create_client!(%{})
@@ -935,7 +935,7 @@ defmodule AnkoleWeb.OIDCControllerTest do
     tenant: tenant
   } do
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    {:ok, true} = Ankole.Setup.Config.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     a = human_fixture()
     b = human_fixture()
     client = create_client!(%{})

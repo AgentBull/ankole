@@ -106,11 +106,11 @@ defmodule Ankole.Signals.WebhookHandlersTest do
     :ok
   end
 
-  test "lists and fetches declared webhook handlers" do
+  test "fetches declared webhook handlers" do
     registry = start_registry!([EchoPlugin])
 
-    assert {:ok, [%Definition{id: "echo", module: EchoHandler} = definition]} =
-             WebhookHandlers.list(registry)
+    assert {:ok, %Definition{id: "echo", module: EchoHandler} = definition} =
+             WebhookHandlers.fetch("echo", registry)
 
     assert definition.kinds == ["events", "validation", "broken"]
     assert {:ok, %Definition{id: "echo"}} = WebhookHandlers.fetch("echo", registry)

@@ -1,7 +1,6 @@
-import { podID, podLocation } from '../common/browser-context'
+import { podLocation } from '../common/browser-context'
 import {
   Button,
-  buttonVariants,
   Dialog,
   DialogContent,
   DialogTitle,
@@ -19,18 +18,14 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
   toast
 } from '@ankole/uikit'
-import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiLogoutBoxRLine, RiSearchLine } from '@remixicon/react'
+import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSearchLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation, useNavigate } from 'react-router'
-import { endPodSession } from '../common/browser-session'
-import { ThemeToggle } from '../common/theme-toggle'
+import { AccountMenu } from './account-menu'
 import { conversationsQuery } from './api'
 import { ContentNavigation, CreatePageButton } from './page-navigation'
 import { contentError } from './content-errors'
@@ -62,31 +57,23 @@ export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNod
 
   return (
     <Sidebar className="pod-sidebar" collapsible="offcanvas" mobileTitle={t('pod.sidebar.title')}>
-      <SidebarHeader className="gap-1 px-2 pt-2 pb-1">
-        <div className="pod-workspace-row">
-          <Link className="pod-workspace-link" to={podLocation('/content/space')} onClick={closeMobile}>
-            <span aria-hidden className="pod-workspace-mark">
-              A
-            </span>
-            <span className="truncate">Ankole</span>
-          </Link>
+      <SidebarHeader className="pod-sidebar-header">
+        <div className="pod-sidebar-top">
+          <button
+            type="button"
+            className="pod-search-slot"
+            aria-keyshortcuts="Meta+K Control+K"
+            onClick={() => {
+              openCommand()
+              closeMobile()
+            }}>
+            <RiSearchLine aria-hidden />
+            <span className="truncate">{t('pod.command.open')}</span>
+            <kbd aria-hidden>{navigator.platform.includes('Mac') ? '⌘K' : 'Ctrl K'}</kbd>
+          </button>
           <CreatePageButton compact />
           <SidebarTrigger label={t('pod.sidebar.collapse')} />
         </div>
-        <button
-          type="button"
-          className="pod-nav-link w-full cursor-pointer text-left"
-          aria-keyshortcuts="Meta+K Control+K"
-          onClick={() => {
-            openCommand()
-            closeMobile()
-          }}>
-          <RiSearchLine aria-hidden />
-          <span>{t('pod.command.open')}</span>
-          <kbd aria-hidden className="ml-auto text-[10px] text-fg-tertiary">
-            {navigator.platform.includes('Mac') ? '⌘ K' : 'Ctrl K'}
-          </kbd>
-        </button>
       </SidebarHeader>
       <Tabs
         value={tab}
@@ -95,7 +82,7 @@ export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNod
           if (value === 'home') void client.invalidateQueries({ queryKey: contentKeys.lists })
         }}
         className="min-h-0 flex-1 gap-0">
-        <div className="px-2 pb-1">
+        <div className="px-2 pb-2">
           <TabsList
             className="pod-sidebar-tabs"
             activateOnFocus
@@ -112,26 +99,16 @@ export function PodSidebar({ accountNavigation }: { accountNavigation?: ReactNod
           </TabsList>
         </div>
         <SidebarContent>
-          <TabsContent value="home" className="px-2 pt-1 text-[13px] leading-5">
+          <TabsContent value="home" className="px-2 pb-3 text-[13px] leading-5">
             <ContentNavigation onNavigate={closeMobile} />
           </TabsContent>
-          <TabsContent value="chat" className="pod-conversations px-2 pt-1 text-[13px] leading-5">
+          <TabsContent value="chat" className="pod-conversations px-2 pb-3 text-[13px] leading-5">
             <ConversationMenu />
           </TabsContent>
         </SidebarContent>
       </Tabs>
-      <SidebarFooter className="flex-row items-center gap-1 px-3 py-2">
-        <div className="min-w-0 flex-1">
-          {accountNavigation ?? (
-            <a
-              className={buttonVariants({ size: 'xs', variant: 'ghost' })}
-              href={`/sessions/new?switch=1&return_to=${encodeURIComponent(location.pathname + location.search + location.hash)}`}>
-              {t('common.switch_account')}
-            </a>
-          )}
-        </div>
-        <ThemeToggle />
-        <SignOutButton />
+      <SidebarFooter className="pod-sidebar-footer">
+        <AccountMenu extra={accountNavigation} />
       </SidebarFooter>
     </Sidebar>
   )
@@ -235,28 +212,5 @@ function ConversationMenu() {
         </DialogContent>
       </Dialog>
     </>
-  )
-}
-
-function SignOutButton() {
-  const { t } = useTranslation()
-  const label = t('pod.sidebar.sign_out')
-  const signOut = useMutation({
-    mutationFn: endPodSession,
-    onSettled: () => {
-      const tenant = podID()
-      window.location.assign(`/sessions/new${tenant ? `?${new URLSearchParams({ tenant_id: tenant })}` : ''}`)
-    }
-  })
-
-  return (
-    <Tooltip>
-      <TooltipTrigger
-        render={<Button aria-label={label} disabled={signOut.isPending} size="icon-sm" type="button" variant="ghost" />}
-        onClick={() => signOut.mutate()}>
-        <RiLogoutBoxRLine aria-hidden />
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
   )
 }

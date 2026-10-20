@@ -1,45 +1,9 @@
+import { state, requestWithSharingVersion as request } from './fixtures'
 import { pageRoute } from './routes'
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import type { DatabaseField, DatabaseView, RecordsResult, TableSchema } from '@ankole/applet-sdk/types'
 
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  tenant_id: string
-  report_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
 const location = (id: string) => `${state.base_url}${pageRoute(id)}`
-
-async function request<T>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  if (method === 'PUT' && path.endsWith('/sharing')) {
-    const baseline = await request<{ sharing_version: string }>(page, path)
-    body = { ...(body as Record<string, unknown>), sharing_version: baseline.sharing_version }
-  }
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content
-      const authentication = meta('ankole-authentication'),
-        tenant = meta('ankole-pod'),
-        csrf = meta('csrf-token')
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          ...(authentication ? { 'x-ankole-authentication': authentication } : {}),
-          ...(tenant ? { 'x-ankole-pod': tenant } : {}),
-          ...(csrf ? { 'x-csrf-token': csrf } : {})
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`Pod ${method} ${path}: ${response.status} ${await response.text()}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
-}
 
 async function database(page: Page, title: string) {
   await page.goto(location(state.report_id))
@@ -117,7 +81,10 @@ test('new-record dialog retains failed answers, freezes a pending submission, an
     })
     await dialog().getByRole('button', { name: '提交记录', exact: true }).click()
     console.log('DIALOGS', await page.getByRole('dialog').count())
-    console.log('INPUTS', await page.locator('input[aria-label="Name"]').evaluateAll(els => els.map(e => (e as HTMLInputElement).value)))
+    console.log(
+      'INPUTS',
+      await page.locator('input[aria-label="Name"]').evaluateAll(els => els.map(e => (e as HTMLInputElement).value))
+    )
     console.log('ROOT VALUE', await page.locator('.pod-database').innerText())
     await expect(name).toHaveValue('First response')
     await expect(dialog().getByText('Temporarily unavailable', { exact: true })).toBeVisible()
@@ -172,7 +139,8 @@ test('new-record dialog retains failed answers, freezes a pending submission, an
     await expect(dialog().getByRole('button', { name: '提交记录', exact: true })).toBeDisabled()
     await expect(dialog().getByText('正在上传附件，请稍候再提交。', { exact: true })).toBeVisible()
     await name.locator('xpath=ancestor::form').dispatchEvent('submit')
-    expect(requests).toBe(2)
+    // One failed request and two successful creates have already been sent.
+    expect(requests).toBe(3)
     uploadGate.resolve()
     await expect(dialog().getByRole('link', { name: 'evidence.txt', exact: true })).toBeVisible()
     await expect(dialog().getByRole('button', { name: '提交记录', exact: true })).toBeEnabled()

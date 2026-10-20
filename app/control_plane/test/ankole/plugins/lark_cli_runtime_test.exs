@@ -198,7 +198,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   test "saving a legacy binding preserves its config and assigns a binding-owned key" do
     %{principal: agent} = agent_fixture()
     legacy_config = lark_config("cli_legacy")
-    legacy_config_key = Config.chat_config_key(agent.uid)
+    legacy_config_key = "signals.lark.bindings." <> agent.uid
     binding_config_key = Config.binding_config_key(agent.uid, "lark-main")
 
     assert {:ok, _stored} = AppConfigure.put_global_by_key(legacy_config_key, legacy_config)
@@ -241,7 +241,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     legacy_agent_uid = "binding:#{digest}"
     insert_legacy_agent!(legacy_agent_uid)
-    legacy_config_key = Config.chat_config_key(legacy_agent_uid)
+    legacy_config_key = "signals.lark.bindings." <> legacy_agent_uid
     legacy_config = lark_config("cli_legacy_collision")
     target_config = lark_config("cli_target_collision")
 
@@ -398,7 +398,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
   test "Lark binding ownership fails closed when an enabled owner's config is unavailable" do
     %{principal: owner} = agent_fixture()
     %{principal: claimant} = agent_fixture()
-    owner_config_key = Config.chat_config_key(owner.uid)
+    owner_config_key = "signals.lark.bindings." <> owner.uid
     claimed_config = lark_config("cli_claimed_while_owner_unknown")
 
     assert {:ok, %Binding{}} =
@@ -555,19 +555,19 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
              )
 
     assert {:ok, primary_env} =
-             WorkerEnv.effective_env(agent.uid, binding_name: "lark-primary")
+             Ankole.SessionsCase.effective_worker_env(agent.uid, binding_name: "lark-primary")
 
     assert primary_env["LARKSUITE_CLI_APP_ID"] == "cli_primary"
     assert primary_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "primary-token"
 
     assert {:ok, secondary_env} =
-             WorkerEnv.effective_env(agent.uid, binding_name: "lark-secondary")
+             Ankole.SessionsCase.effective_worker_env(agent.uid, binding_name: "lark-secondary")
 
     assert secondary_env["LARKSUITE_CLI_APP_ID"] == "cli_secondary"
     assert secondary_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "secondary-token"
 
     for opts <- [[], [binding_name: "unrelated-route"]] do
-      assert {:ok, ambiguous_env} = WorkerEnv.effective_env(agent.uid, opts)
+      assert {:ok, ambiguous_env} = Ankole.SessionsCase.effective_worker_env(agent.uid, opts)
       refute Map.has_key?(ambiguous_env, "LARKSUITE_CLI_APP_ID")
       refute Map.has_key?(ambiguous_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
     end
@@ -594,7 +594,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     assert {:ok, _disabled} = Bindings.disable_binding(agent.uid, "lark-primary")
 
     assert {:ok, disabled_route_env} =
-             WorkerEnv.effective_env(agent.uid, binding_name: "lark-primary")
+             Ankole.SessionsCase.effective_worker_env(agent.uid, binding_name: "lark-primary")
 
     refute Map.has_key?(disabled_route_env, "LARKSUITE_CLI_APP_ID")
     refute Map.has_key?(disabled_route_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
@@ -621,12 +621,14 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
     refute Map.has_key?(disabled_route_vars, "LARKSUITE_CLI_APP_ID")
     refute Map.has_key?(disabled_route_vars, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
 
-    assert {:ok, implicit_env} = WorkerEnv.effective_env(agent.uid)
+    assert {:ok, implicit_env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
     assert implicit_env["LARKSUITE_CLI_APP_ID"] == "cli_secondary"
     assert implicit_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "secondary-token"
 
     assert {:ok, unknown_route_env} =
-             WorkerEnv.effective_env(agent.uid, binding_name: "control-plane-route")
+             Ankole.SessionsCase.effective_worker_env(agent.uid,
+               binding_name: "control-plane-route"
+             )
 
     assert unknown_route_env["LARKSUITE_CLI_APP_ID"] == "cli_secondary"
     assert unknown_route_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "secondary-token"
@@ -642,7 +644,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
              |> Repo.update()
 
     assert {:ok, unavailable_route_env} =
-             WorkerEnv.effective_env(agent.uid, binding_name: "lark-primary")
+             Ankole.SessionsCase.effective_worker_env(agent.uid, binding_name: "lark-primary")
 
     refute Map.has_key?(unavailable_route_env, "LARKSUITE_CLI_APP_ID")
     refute Map.has_key?(unavailable_route_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
@@ -658,7 +660,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
 
     assert {:ok, %{}} = RuntimeEnv.resolve_worker_env(binding)
 
-    assert {:ok, effective_env} = WorkerEnv.effective_env(agent.uid)
+    assert {:ok, effective_env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
     refute Map.has_key?(effective_env, "LARKSUITE_CLI_APP_ID")
     refute Map.has_key?(effective_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")
 
@@ -683,7 +685,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
                "value" => "operator-override"
              })
 
-    assert {:ok, effective_env} = WorkerEnv.effective_env(agent.uid)
+    assert {:ok, effective_env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
     assert effective_env["LARKSUITE_CLI_APP_ID"] == "cli_worker"
     refute Map.has_key?(effective_env, "LARKSUITE_CLI_APP_SECRET")
     assert effective_env["LARKSUITE_CLI_TENANT_ACCESS_TOKEN"] == "tenant-token"
@@ -723,7 +725,7 @@ defmodule Ankole.Plugins.LarkCLIRuntimeTest do
              |> Binding.changeset(%{enabled: false})
              |> Repo.update()
 
-    assert {:ok, effective_env} = WorkerEnv.effective_env(agent.uid)
+    assert {:ok, effective_env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
     assert effective_env["LARKSUITE_CLI_APP_ID"] == "operator-override"
     refute Map.has_key?(effective_env, "LARKSUITE_CLI_APP_SECRET")
     refute Map.has_key?(effective_env, "LARKSUITE_CLI_TENANT_ACCESS_TOKEN")

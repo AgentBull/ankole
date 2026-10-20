@@ -1,5 +1,6 @@
 defmodule AnkoleWeb.PodReviewControllerTest do
   use AnkoleWeb.ConnCase, async: false
+  import OpenApiSpex.TestAssertions
   import Phoenix.ConnTest, except: [json_response: 2]
   import AnkoleWeb.InternalAPIContract, only: [json_response: 2]
   alias Ankole.Pod.{Files, Pages}
@@ -86,6 +87,7 @@ defmodule AnkoleWeb.PodReviewControllerTest do
     agent = Ankole.PrincipalsFixtures.agent_fixture().principal
     {:ok, page} = Pages.create(uid, %{})
     first = get(conn, "/.internal-apis/pod/pages/#{page.id}/sharing")
+    assert_schema(json_response(first, 200), "PodSharing", AnkoleWeb.InternalAPISpec.spec())
     baseline = json_response(first, 200)["sharing_version"]
 
     saved =
@@ -176,13 +178,7 @@ defmodule AnkoleWeb.PodReviewControllerTest do
     {conn, uid} = console_conn_with_principal(conn)
     Repo.put_tenant_id(tenant.id)
     {:ok, page} = Pages.create(uid, %{})
-    malformed = get(conn, "/.internal-apis/pod/page-versions", %{ids: "abc"})
-    assert json_response(malformed, 422)
-
-    malformed =
-      malformed
-      |> recycle_api()
-      |> post("/.internal-apis/pod/versions", %{pages: [], tables: %{}})
+    malformed = post(conn, "/.internal-apis/pod/versions", %{pages: [], tables: %{}})
 
     assert json_response(malformed, 422)
 

@@ -9,12 +9,11 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
   alias GoogleOpenAPI.Client
 
   import Ankole.Plugins.MapHelpers,
-    only: [required_string: 2, optional_boolean: 3, integer_between: 5]
+    only: [string_array: 3, required_string: 2, optional_boolean: 3, integer_between: 5]
 
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.google-workspace\.[A-Za-z0-9_.:-]+\z/
 
   @default_oidc_scopes ["openid", "email", "profile"]
-  @default_namespace "google-workspace-main"
   @domain_pattern ~r/\A[a-z0-9][a-z0-9.-]*\.[a-z]{2,}\z/
 
   @type identity_config :: map()
@@ -33,12 +32,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
       )
     ]
   end
-
-  @spec identity_config_key(String.t()) :: String.t()
-  def identity_config_key(id), do: "principals.identity_providers.google-workspace.#{id}"
-
-  @spec default_namespace() :: String.t()
-  def default_namespace, do: @default_namespace
 
   @spec validate_identity_config(term()) :: {:ok, identity_config()} | {:error, term()}
   def validate_identity_config(value) when is_map(value) do
@@ -76,13 +69,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
   end
 
   def validate_identity_config(_value), do: {:error, :invalid_identity_config}
-
-  @spec load_identity_config_key(String.t()) :: {:ok, identity_config()} | {:error, term()}
-  def load_identity_config_key(key) when is_binary(key) do
-    with {:ok, value} <- AppConfigure.get_by_key(key), do: validate_identity_config(value)
-  end
-
-  def load_identity_config_key(_key), do: {:error, :invalid_config_key}
 
   @doc """
   Builds a provider client from an identity config.
@@ -199,23 +185,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.Config do
 
   defp required_when(map, key, true), do: required_string(map, key)
   defp required_when(map, key, false), do: {:ok, MapHelpers.optional_text(map, key)}
-
-  defp string_array(map, key, default) do
-    case MapHelpers.fetch_value(map, key) do
-      values when is_list(values) ->
-        if Enum.all?(values, &(is_binary(&1) and String.trim(&1) != "")) do
-          {:ok, Enum.map(values, &String.trim/1)}
-        else
-          {:error, {:invalid_string_array, key}}
-        end
-
-      nil ->
-        {:ok, default}
-
-      _value ->
-        {:error, {:invalid_string_array, key}}
-    end
-  end
 
   defp maybe_keyword(keyword, _key, nil), do: keyword
   defp maybe_keyword(keyword, key, value), do: Keyword.put(keyword, key, value)

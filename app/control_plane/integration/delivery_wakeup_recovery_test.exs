@@ -79,7 +79,7 @@ defmodule Ankole.Conversations.DeliveryWakeupRecoveryIntegrationTest do
              end)
 
     assert {:ok, intent} =
-             Delivery.commit(%{
+             Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: agent.uid,
                binding_name: "bot",
                outbound_key: "recover-final-reply",

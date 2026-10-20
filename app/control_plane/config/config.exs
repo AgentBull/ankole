@@ -1,4 +1,5 @@
 import Config
+import_config "../../control_plane_core/config/config.exs"
 
 config :phoenix, :filter_parameters, [
   "password",
@@ -28,15 +29,6 @@ config :ankole, :control_plane_plugin_modules, [
   Ankole.Plugins.TelegramAdapter,
   Ankole.Plugins.WeComAdapter,
   Ankole.Plugins.WhatsAppAdapter
-]
-
-# The Email adapter converts GB2312, GBK, and Windows-1252 mail to UTF-8
-# through these codepagex tables; each extra table adds compile time.
-config :codepagex, :encodings, [
-  :ascii,
-  "ISO8859/8859-1",
-  "VENDORS/MICSFT/WINDOWS/CP1252",
-  "VENDORS/MICSFT/WINDOWS/CP936"
 ]
 
 config :ankole, AnkoleWeb.Endpoint,
@@ -79,16 +71,6 @@ config :logger, :default_handler,
          "runtime" => "beam"
        }
      }}
-
-# Use the local Torque adapter for JSON parsing in Phoenix
-config :phoenix, :json_library, Ankole.JSON
-
-config :mime, :types, %{
-  "text/event-stream" => ["event-stream"]
-}
-
-config :elixir, :time_zone_database, Tzdata.TimeZoneDatabase
-config :tzdata, :autoupdate, :disabled
 
 config :ankole, Oban,
   repo: Ankole.Repo,

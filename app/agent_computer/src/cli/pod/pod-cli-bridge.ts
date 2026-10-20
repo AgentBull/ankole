@@ -17,8 +17,7 @@ const readOperations = [
   'database.tables',
   'database.schema',
   'database.query',
-  'database.aggregate',
-  'sync.list'
+  'database.aggregate'
 ] as const
 const readOperationNames = new Set<string>(readOperations)
 const writeOperations = [
@@ -39,9 +38,7 @@ const writeOperations = [
   'database.update_view',
   'database.delete_view',
   'database.write',
-  'database.copy',
-  'sync.bind',
-  'sync.status'
+  'database.copy'
 ] as const
 const Command = z.object({
   operation: z.enum([...readOperations, ...writeOperations]),

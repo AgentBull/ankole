@@ -123,10 +123,10 @@ defmodule Ankole.E2E.Scenarios.SkillLesson do
 
     [lesson | _rest] = lessons
 
-    assert {:ok, rendered} = Library.rendered_skill_lessons(agent.uid, [lesson.skill_name])
-    assert rendered[lesson.skill_name]["has_lessons"]
-    assert rendered[lesson.skill_name]["text"] =~ "Field notes"
-    assert rendered[lesson.skill_name]["text"] =~ String.slice(lesson.content, 0, 24)
+    assert {:ok, rendered} = Library.skill_view(agent.uid, lesson.skill_name)
+    assert rendered["has_agent_overlay"]
+    assert rendered["content"] =~ "Field notes"
+    assert rendered["content"] =~ String.slice(lesson.content, 0, 24)
 
     review = run_real_lease_review!(agent.uid, lessons)
 

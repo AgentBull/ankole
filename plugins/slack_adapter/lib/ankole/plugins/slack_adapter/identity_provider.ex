@@ -4,7 +4,7 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
 
   alias Ankole.{AuthZ, Logging}
   alias Ankole.IdentityProviders.Directory
-  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.IdentityProviders.Phone
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.SlackAdapter.Config
   alias SlackOpenAPI.{Event, OIDC, Pagination}
@@ -371,31 +371,10 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     do: user |> MapHelpers.fetch_map("profile", %{}) |> MapHelpers.optional_text(key)
 
   defp normalized_mobile(user) do
-    case profile_value(user, "phone") do
-      nil ->
-        nil
-
-      phone ->
-        candidates = [
-          String.trim(phone),
-          phone |> String.replace(~r/\D/, "") |> maybe_china_number()
-        ]
-
-        Enum.find_value(candidates, fn
-          nil ->
-            nil
-
-          candidate ->
-            case NativeKernel.phone_normalize_e164(candidate) do
-              normalized when is_binary(normalized) -> normalized
-              {:error, _reason} -> nil
-            end
-        end)
-    end
+    user
+    |> profile_value("phone")
+    |> Phone.normalize_china_mobile()
   end
-
-  defp maybe_china_number(<<"1", _::binary-size(10)>> = digits), do: "+86" <> digits
-  defp maybe_china_number(_digits), do: nil
 
   defp usergroup_display_name(group, external_id) do
     MapHelpers.optional_text(group, "name") || MapHelpers.optional_text(group, "handle") ||

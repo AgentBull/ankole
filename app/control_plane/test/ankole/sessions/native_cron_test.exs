@@ -119,8 +119,8 @@ defmodule Ankole.Sessions.NativeCronTest do
   end
 
   test "a rejected cron fire publishes a notice to every native target", context do
-    assert :ok = Conversations.subscribe(context.first.id)
-    assert :ok = Conversations.subscribe(context.second.id)
+    assert :ok = Conversations.Events.subscribe(context.first.id)
+    assert :ok = Conversations.Events.subscribe(context.second.id)
     {:ok, signal} = cron_signal(context, [context.first.id, context.second.id])
 
     assert {:ok, result} =

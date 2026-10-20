@@ -1,36 +1,7 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Locator, type Page } from '@playwright/test'
+import { state, request } from './fixtures'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import type { DatabaseField, DatabaseTable, TableSchema } from '@ankole/applet-sdk/types'
 import { pageRoute } from './routes'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  report_id: string
-  owner: { uid: string; cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
-
-async function request<T>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content ?? ''
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication'),
-          'x-ankole-pod': meta('ankole-pod'),
-          'x-csrf-token': meta('csrf-token')
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`${method} ${path}: ${response.status} ${await response.text()}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
-}
 
 async function choose(page: Page, trigger: Locator, option: string) {
   await trigger.click()
@@ -67,7 +38,7 @@ test('sidebar creation focuses its title, keeps failed Chinese text and type, an
   let calls = 0
   try {
     await page.goto(pageRoute(state.report_id))
-    await page.locator('.pod-workspace-row').getByRole('button', { name: '新建页面', exact: true }).click()
+    await page.locator('.pod-sidebar-top').getByRole('button', { name: '新建页面', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: '新建页面', exact: true })
     const title = dialog.getByRole('textbox', { name: '标题', exact: true })
     await expect(title).toBeFocused()
@@ -80,12 +51,13 @@ test('sidebar creation focuses its title, keeps failed Chinese text and type, an
       calls++
       expect(route.request().postDataJSON()).toMatchObject({ title: name, type: 'database' })
       expect(route.request().postDataJSON().parent_id).toBeUndefined()
-      if (calls === 1)
+      if (calls === 1) {
         return route.fulfill({
           status: 503,
           contentType: 'application/json',
           body: JSON.stringify({ error: { code: 'creation_unavailable', message: 'Creation unavailable' } })
         })
+      }
       started.resolve()
       await gate.promise
       const response = await route.fetch()
@@ -217,8 +189,9 @@ test('390px long record and field dialogs scroll their body and keep actions vis
     const { table } = await request<{ table: DatabaseTable }>(page, `/databases/${database.id}/tables`, 'POST', {
       name: 'Mobile records'
     })
-    for (let index = 1; index <= 16; index++)
+    for (let index = 1; index <= 16; index++) {
       await request(page, `/tables/${table.id}/fields`, 'POST', { name: `Property ${index}`, type: 'text', config: {} })
+    }
     await request(page, `/tables/${table.id}/fields`, 'POST', {
       name: 'Assignee',
       type: 'user',

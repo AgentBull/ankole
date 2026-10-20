@@ -40,6 +40,6 @@ for (const name of ['io.k8s.api.core.v1.PodTemplateSpec', 'io.k8s.api.core.v1.Pe
 // Source: apimachinery/pkg/api/resource/quantity.go UnmarshalJSON.
 definitions['io.k8s.apimachinery.pkg.api.resource.Quantity'] = { type: ['string', 'number'] }
 const result = { $comment: `Generated from ${source} by tools/deploy/kubernetes/update-schema.ts.`, definitions }
-const output = resolve(import.meta.dir, '../../../app/control_plane/priv/worker_provider_schemas/kubernetes.json')
+const output = resolve(import.meta.dir, '../../../app/control_plane_core/priv/worker_provider_schemas/kubernetes.json')
 await Bun.write(output, `${JSON.stringify(result, null, 2)}\n`)
 process.stdout.write(`${output}\n`)

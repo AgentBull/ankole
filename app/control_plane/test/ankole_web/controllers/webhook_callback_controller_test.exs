@@ -8,7 +8,6 @@ defmodule AnkoleWeb.WebhookCallbackControllerTest do
 
   alias Ankole.Signals.Signal
   alias Ankole.Signals.Webhooks
-  alias AnkoleWeb.Plugs.WebhookCallbackBodyReader
 
   @token "wh_0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"
 
@@ -64,7 +63,7 @@ defmodule AnkoleWeb.WebhookCallbackControllerTest do
   end
 
   test "callback route rejects a body above the declared limit", %{conn: conn} do
-    body = String.duplicate("x", WebhookCallbackBodyReader.max_body_bytes() + 1)
+    body = String.duplicate("x", 1_048_576 + 1)
 
     conn =
       conn

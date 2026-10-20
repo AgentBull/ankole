@@ -19,14 +19,12 @@ export function DatabaseCell({
   record,
   pageID,
   editable,
-  readonlyFieldIDs = [],
   update
 }: {
   field: DatabaseField
   record: DatabaseRecord
   pageID: string
   editable: boolean
-  readonlyFieldIDs?: string[]
   update(data: RecordData, versions: Versions): Promise<unknown>
 }) {
   const value = fieldValue(record, field)
@@ -37,17 +35,10 @@ export function DatabaseCell({
     pending = model.pending.value
   const save = (next: Value, retry = false) =>
     model.save(field.id, next, record.versions, (value, versions) => update({ [field.id]: value }, versions), retry)
-  if (!editable || !writableField(field, readonlyFieldIDs)) {
+  if (!editable || !writableField(field)) {
     return (
-      <span
-        className="whitespace-pre-wrap"
-        title={
-          readonlyFieldIDs.includes(field.id) ? t('pod.content.externally_synced_fields_are_read_only') : undefined
-        }>
+      <span className="whitespace-pre-wrap">
         <FieldValue field={field} value={value} />
-        {!!readonlyFieldIDs.includes(field.id) && (
-          <span className="sr-only">{t('pod.content.externally_synced_fields_are_read_only')}</span>
-        )}
       </span>
     )
   }

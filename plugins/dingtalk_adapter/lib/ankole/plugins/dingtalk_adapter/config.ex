@@ -20,7 +20,13 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
   alias DingTalkOpenAPI.Client
 
   import Ankole.Plugins.MapHelpers,
-    only: [required_string: 2, optional_string: 3, optional_boolean: 3, integer_between: 5]
+    only: [
+      enum_string: 4,
+      required_string: 2,
+      optional_string: 3,
+      optional_boolean: 3,
+      integer_between: 5
+    ]
 
   @chat_key_pattern ~r/\Asignals\.dingtalk\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.dingtalk\.[A-Za-z0-9_.:-]+\z/
@@ -58,12 +64,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
       )
     ]
   end
-
-  @spec chat_config_key(String.t()) :: String.t()
-  def chat_config_key(id), do: "signals.dingtalk.bindings.#{id}"
-
-  @spec identity_config_key(String.t()) :: String.t()
-  def identity_config_key(id), do: "principals.identity_providers.dingtalk.#{id}"
 
   @doc "Normalizes and validates chat binding configuration loaded from AppConfigure."
   @spec validate_chat_config(term()) :: {:ok, chat_config()} | {:error, term()}
@@ -237,14 +237,5 @@ defmodule Ankole.Plugins.DingTalkAdapter.Config do
           {:halt, {:error, {:dingtalk_binding_config_unavailable, binding.agent_uid, reason}}}
       end
     end)
-  end
-
-  defp enum_string(map, key, values, default) do
-    with {:ok, value} <- optional_string(map, key, default) do
-      case value in values do
-        true -> {:ok, value}
-        false -> {:error, {:invalid_enum, key, values}}
-      end
-    end
   end
 end

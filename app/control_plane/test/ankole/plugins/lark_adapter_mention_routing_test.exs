@@ -520,7 +520,7 @@ defmodule Ankole.Plugins.LarkAdapterMentionRoutingTest do
         agent_uid: agent_uid,
         name: name,
         adapter: "lark",
-        config_ref: "app-config://#{Config.chat_config_key(name)}",
+        config_ref: "app-config://#{"signals.lark.bindings." <> name}",
         filters: %{},
         unaddressed_group_message_policy: policy,
         unmatched_sender_policy: :create_standalone

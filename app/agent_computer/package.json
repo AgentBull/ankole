@@ -25,7 +25,6 @@
   },
   "dependencies": {
     "@agentbull/active-support": "^1.6.0",
-    "@ankole/applet-sdk": "workspace:*",
     "@ankole/block-editor": "workspace:*",
     "@ankole/browser": "workspace:*",
     "@bufbuild/protobuf": "2.16.0",

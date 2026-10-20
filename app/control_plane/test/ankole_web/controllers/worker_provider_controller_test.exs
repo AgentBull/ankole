@@ -21,7 +21,10 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
-    {:ok, false} = SetupConfig.put_completed(false)
+
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     :ok = SetupConfig.delete_bootstrap_activation_code()
     %{providers_before: Repo.all(from p in Provider, order_by: p.provider_id)}
   end
@@ -342,7 +345,7 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     conn: conn,
     providers_before: providers_before
   } do
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     assert conn |> get(~p"/api/v1/site/worker-providers") |> json_response(401)
     assert Repo.all(from p in Provider, order_by: p.provider_id) == providers_before
   end

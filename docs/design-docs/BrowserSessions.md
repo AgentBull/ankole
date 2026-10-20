@@ -58,7 +58,10 @@ The core also accepts `mode: :add` to preserve other authentications. A trusted
 HTTP entry can assign `browser_login_mode: :add` before it calls the public
 Router. This applies to public OAuth continuations as well as private login
 routes. Request parameters cannot set this mode. FOSS does not provide a site
-account product or a multi-Pod account center.
+account product or a multi-Pod account center. `GET /.internal-apis/session`
+lists the Pod identities that this browser group has proved, one for each
+person and tenant. `PUT /.internal-apis/sessions/active` makes one of them the
+browser default. It does not change an open document's pinned identity.
 
 Setup state remains separate. It cannot complete a normal login or replace a
 missing authentication proof.

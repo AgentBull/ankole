@@ -1,43 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page, type Request } from '@playwright/test'
+import { state, requestResponse as request } from './fixtures'
+import { expect, test, type Page, type Request } from '@playwright/test'
 import { pageRoute } from './routes'
-
-type Identity = { cookies: Parameters<BrowserContext['addCookies']>[0] }
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  backend_report_id: string
-  backend_applet_id: string
-  backend_table_id: string
-  backend_stock_field_id: string
-  backend_record_id: string
-  backend_publish_v2_files: unknown[]
-  owner: Identity
-  member: Identity
-  viewer: Identity
-}
-
-async function request(page: Page, path: string, method = 'GET', body?: unknown, revision?: number) {
-  return page.evaluate(
-    async ({ path, method, body, revision }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          'x-csrf-token': meta('csrf-token') ?? '',
-          'x-ankole-authentication': meta('ankole-authentication') ?? '',
-          'x-ankole-pod': meta('ankole-pod') ?? '',
-          ...(revision === undefined ? {} : { 'x-ankole-applet-revision': String(revision) })
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      return { status: response.status, body: response.status === 204 ? null : await response.json() }
-    },
-    { path, method, body, revision }
-  )
-}
 
 test('shared sample reservations use the real backend, retain failed work, and never overdraw competing stock', async ({
   browser
@@ -244,7 +207,7 @@ test('stale Applet recovery cancels an older page read, supports retry, and rele
   await page.routeWebSocket(/.*/, socket => socket.close())
   let id: string | undefined
   try {
-    await control.goto(state.base_url + '/content/private')
+    await control.goto(`${state.base_url}/content/private`)
     const created = await request(control, '/pages', 'POST', {
       type: 'applet',
       parent_id: state.backend_report_id,

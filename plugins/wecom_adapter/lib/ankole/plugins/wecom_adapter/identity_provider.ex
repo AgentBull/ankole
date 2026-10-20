@@ -21,7 +21,7 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
 
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders.Directory
-  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.IdentityProviders.Phone
   alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.WeComAdapter.Config
@@ -257,7 +257,7 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   defp raw_department_id(department) do
     case MapHelpers.fetch_value(department, "id") do
       value when is_integer(value) -> value
-      value when is_binary(value) -> parse_integer(value)
+      value when is_binary(value) -> Ankole.Attrs.integer_value(value)
       _other -> nil
     end
   end
@@ -267,7 +267,7 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   defp department_parent_id(department) do
     case MapHelpers.fetch_value(department, "parentid") do
       value when is_integer(value) and value > 1 -> Integer.to_string(value)
-      value when is_binary(value) -> if parse_integer(value) > 1, do: value
+      value when is_binary(value) -> if Ankole.Attrs.integer_value(value) > 1, do: value
       _other -> nil
     end
   end
@@ -325,31 +325,6 @@ defmodule Ankole.Plugins.WeComAdapter.IdentityProvider do
   defp normalized_mobile(user) do
     user
     |> optional_text("mobile")
-    |> phone_candidates()
-    |> Enum.find_value(fn candidate ->
-      case NativeKernel.phone_normalize_e164(candidate) do
-        normalized when is_binary(normalized) -> normalized
-        {:error, _reason} -> nil
-      end
-    end)
-  end
-
-  defp phone_candidates(nil), do: []
-
-  defp phone_candidates(phone) when is_binary(phone) do
-    trimmed = String.trim(phone)
-    digits = String.replace(trimmed, ~r/\D/, "")
-
-    case String.length(digits) == 11 and String.starts_with?(digits, "1") do
-      true -> [trimmed, "+86" <> digits]
-      false -> [trimmed]
-    end
-  end
-
-  defp parse_integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _other -> nil
-    end
+    |> Phone.normalize_china_mobile()
   end
 end

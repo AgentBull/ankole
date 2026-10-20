@@ -5,8 +5,6 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
 
   import Ankole.FilesFixtures, only: [sent_attachment_fixture: 4]
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Presentation
   alias Ankole.Sessions.Run
@@ -30,7 +28,7 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
         text: "Need the weather."
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, signal.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, signal.session_id)
 
     first_request_items = [
       %{
@@ -131,7 +129,7 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
         text: "Attach the report."
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, signal.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, signal.session_id)
 
     {:ok, first_round} =
       start_response_run(%{
@@ -245,7 +243,7 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
         text: "Create the chart and send it."
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, signal.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, signal.session_id)
 
     {:ok, first_round} =
       start_response_run(%{
@@ -364,7 +362,7 @@ defmodule Ankole.Sessions.AIGatewayMainChainTest do
         text: "Prepare the brief."
       })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, signal.session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, signal.session_id)
 
     {:ok, first_round} =
       start_response_run(%{

@@ -73,11 +73,6 @@ Database parameter shapes:
     datetime values use ISO 8601; user values are arrays of Principal UIDs.
   view type: grid|kanban|gallery
 
-External-ingestion test operations:
-  sync.list         {id: table_id}
-  sync.bind         {id: table_id, connector, source, field_map, automation_job_id}
-  sync.status       {id: binding_id, status: active|paused}
-
 Page access:
   Pass parent_id to pages.create to create a child directly. This requires
   edit access to the parent document. The child inherits its permissions;

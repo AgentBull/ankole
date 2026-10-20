@@ -1,4 +1,5 @@
 defmodule Ankole.Plugins.DiscordAdapter.Delivery do
+  import Ankole.Conversations.Delivery.Adapter, only: [combine_results: 2]
   @moduledoc false
 
   @behaviour Ankole.Conversations.Delivery.Adapter
@@ -251,19 +252,6 @@ defmodule Ankole.Plugins.DiscordAdapter.Delivery do
 
   defp normalize_message_create_result({:error, %Client.Error{} = error} = result) do
     if uncertain?(error), do: :unknown, else: result
-  end
-
-  defp combine_results(results, intent) do
-    first = List.first(results) || %{}
-
-    %{
-      created_provider_message_id: first[:created_provider_message_id],
-      provider_thread_id: intent.provider_thread_id,
-      messages: results,
-      raw_payload: %{"messages" => Enum.map(results, & &1[:raw_payload])},
-      payload: intent.payload
-    }
-    |> MapHelpers.compact_map()
   end
 
   defp request(method, path, body), do: %{method: method, path: path, body: body}

@@ -50,9 +50,6 @@ defmodule Ankole.Pod.MovePermissionsTest do
     {:ok, page} = Pages.create(ctx.owner.uid, %{parent_id: left.id})
     share(ctx.owner, left, %{grants: [%{principal_uid: ctx.viewer.uid, role: "manage"}]})
 
-    assert Access.role(ctx.agent.uid, left) == "edit"
-    assert Access.role(ctx.agent.uid, right) == "edit"
-
     assert {:error, :move_requires_manage} =
              Pages.move(ctx.agent.uid, page.id, %{parent_id: right.id})
 
@@ -166,7 +163,7 @@ defmodule Ankole.Pod.MovePermissionsTest do
   test "equal canonical policies do not discard the space administrator fallback", ctx do
     {:ok, left} = Pages.create(ctx.owner.uid, %{})
     {:ok, right} = Pages.create(ctx.owner.uid, %{})
-    {:ok, all_humans} = Access.ensure_space()
+    {:ok, all_humans} = Access.space_group()
 
     grants = [
       %{principal_uid: ctx.owner.uid, role: "manage"},

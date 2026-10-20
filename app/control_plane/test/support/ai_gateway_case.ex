@@ -13,6 +13,17 @@ defmodule Ankole.AIGatewayCase do
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.Repo
 
+  def ensure_conversation(subject_uid, conversation_key, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    Ankole.AIGateway.Conversations.ensure_conversation_in_tx(
+      repo,
+      subject_uid,
+      conversation_key,
+      Keyword.get(opts, :metadata, %{})
+    )
+  end
+
   using do
     quote do
       use Ankole.DataCase, async: false

@@ -8,7 +8,6 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
   alias Ankole.AppConfigure.Cache, as: AppConfigureCache
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.DingTalkAdapter.AICard
-  alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Repo
 
   alias Ankole.Signals.Signal
@@ -29,7 +28,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
     config_id = "dingtalk-aicard-#{System.unique_integer([:positive])}"
 
     {:ok, _config} =
-      AppConfigure.put_global_by_key(Config.chat_config_key(config_id), chat_config)
+      AppConfigure.put_global_by_key("signals.dingtalk.bindings." <> config_id, chat_config)
 
     %{principal: agent} = agent_fixture()
 
@@ -38,7 +37,7 @@ defmodule Ankole.Plugins.DingTalkAdapterAICardTest do
         agent_uid: agent.uid,
         name: "dingtalk-aicard",
         adapter: "dingtalk",
-        config_ref: "app-config://#{Config.chat_config_key(config_id)}",
+        config_ref: "app-config://#{"signals.dingtalk.bindings." <> config_id}",
         filters: %{},
         unaddressed_group_message_policy: :ignore,
         unmatched_sender_policy: :create_standalone

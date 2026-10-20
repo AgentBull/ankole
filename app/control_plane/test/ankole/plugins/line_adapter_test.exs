@@ -174,7 +174,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
   describe "signature" do
     test "accepts the Base64 HMAC-SHA256 of the exact bytes and nothing else" do
       body = ~s({"destination":"#{@bot_user_id}","events":[]})
-      signature = Signature.sign(body, @channel_secret)
+      signature = Base.encode64(:crypto.mac(:hmac, :sha256, @channel_secret, body))
 
       assert Signature.valid?(body, signature, @channel_secret)
       refute Signature.valid?(body <> " ", signature, @channel_secret)
@@ -299,7 +299,7 @@ defmodule Ankole.Plugins.LineAdapterTest do
       channel_id = "line:#{@bot_user_id}:group:#{@group_id}"
 
       {:ok, row} =
-        Ankole.Conversations.Delivery.commit(%{
+        Ankole.SignalsFixtures.commit_delivery(%{
           agent_uid: agent.uid,
           binding_name: "line-group",
           outbound_key: "earlier-bot-post",
@@ -353,14 +353,14 @@ defmodule Ankole.Plugins.LineAdapterTest do
       end)
 
       {:ok, row} =
-        Ankole.Conversations.Delivery.commit(%{
+        Ankole.SignalsFixtures.commit_delivery(%{
           agent_uid: agent.uid,
           binding_name: "line-split",
           outbound_key: "split-1",
           operation: :post,
           conversation_id: external_conversation_id("line:#{@bot_user_id}:group:#{@group_id}"),
           payload: %{},
-          fallback_visible_text: String.duplicate("A", 5_001)
+          fallback_visible_text: String.duplicate("A", 5001)
         })
 
       assert {:ok, %{status: :sent, created_provider_message_id: "part-one"}} =
@@ -719,7 +719,10 @@ defmodule Ankole.Plugins.LineAdapterTest do
 
       forged = %{
         request
-        | headers: %{"x-line-signature" => Signature.sign("{}", @channel_secret)}
+        | headers: %{
+            "x-line-signature" =>
+              Base.encode64(:crypto.mac(:hmac, :sha256, @channel_secret, "{}"))
+          }
       }
 
       assert {:ok, %{status: 401}} = Webhook.handle_webhook(forged)
@@ -1338,7 +1341,9 @@ defmodule Ankole.Plugins.LineAdapterTest do
       query_params: %{},
       body_params: payload,
       raw_body: body,
-      headers: %{"x-line-signature" => Signature.sign(body, @channel_secret)}
+      headers: %{
+        "x-line-signature" => Base.encode64(:crypto.mac(:hmac, :sha256, @channel_secret, body))
+      }
     }
   end
 

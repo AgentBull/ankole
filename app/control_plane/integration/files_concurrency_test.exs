@@ -93,7 +93,7 @@ defmodule Ankole.FilesConcurrencyIntegrationTest do
 
     writer =
       hold_transaction(fn ->
-        Ankole.Conversations.Delivery.commit(%{
+        Ankole.SignalsFixtures.commit_delivery(%{
           agent_uid: ctx.agent_uid,
           binding_name: "test",
           outbound_key: "race-attachment",

@@ -83,7 +83,9 @@ The Console defaults to `/site-admin-console`. The startup setting
 startup. `/console` returns 404. The configured path is sent only with an
 authenticated administrator response, rather than bundled into public assets.
 Sign-in without a return path opens the Pod at `/pod`. The Pod
-has no Console link and does not receive the Console path.
+session response includes the Console URL only when the current Pod Human is a
+siteadmin. The Pod sidebar then shows a Console link. The Console still
+requires its own Console login.
 
 Console data APIs accept `x-ankole-tenant`; without it they use the operator's
 tenant. `/api/v1/site` APIs manage site resources and ignore that header. An
@@ -126,8 +128,10 @@ retains its one-use handoff for entry without a shared proof.
 Any active Human can sign in through their tenant's existing providers and use
 the Conversation participant contract. No siteadmin gate applies to work entry,
 and work login does not open management APIs. Pod login adds the new work
-authentication to the browser's existing account collection. The sidebar opens
-the existing account chooser without signing out and preserves the return path. See
+authentication to the browser's existing account collection. The sidebar account
+menu lists each proved Pod identity with its tenant. Selecting one makes it the
+browser default and opens its Pod. The menu also opens the existing account
+chooser without signing out and preserves the return path. See
 [Browser Sessions](BrowserSessions.md).
 
 ## Configuration and integrations
@@ -178,7 +182,7 @@ The deletion job processes bounded, idempotent batches; PostgreSQL constraints
 and the final transaction prevent a concurrent write from leaving orphan rows.
 Its table list names child rows before their parents, so each batch deletes rows
 of one table and the cascade foreign keys do not carry bulk data. The Pod content
-tables enter the list as `db_records`, `db_sync_bindings`, `db_views`,
+tables enter the list as `db_records`, `db_views`,
 `db_fields`, `db_tables`, `page_user_states`, `page_changes`, `page_contents`,
 then `pages`.
 Page batches delete leaves first, so a parent cannot cascade through a large

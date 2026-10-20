@@ -9,6 +9,7 @@ defmodule Ankole.Pod.GrantConcurrencyTest do
     tenant: tenant
   } do
     other = create_tenant()
+    provider = worker_provider_fixture()
 
     on_exit(fn ->
       for item <- [tenant, other] do
@@ -25,10 +26,13 @@ defmodule Ankole.Pod.GrantConcurrencyTest do
           Repo.delete!(item)
         end)
       end
+
+      assert {:ok, _} = Ankole.AgentWorkers.Providers.delete(provider.provider_id)
+      refute Repo.get(Ankole.AgentWorkers.Providers.Provider, provider.id)
     end)
 
     owner = human_fixture().principal
-    editor = agent_fixture().principal
+    editor = agent_fixture(%{worker_provider_id: provider.provider_id}).principal
 
     {:ok, _} =
       AuthZ.create_permission_grant(%{

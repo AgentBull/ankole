@@ -1,7 +1,7 @@
 import { batch, createModel, signal } from '@preact/signals-react'
 import type { FieldType, Value } from '@ankole/applet-sdk/types'
 
-export function formatFieldInput(value: Value, type: FieldType) {
+function formatFieldInput(value: Value, type: FieldType) {
   if (value === null) return ''
   if (type !== 'datetime') return String(value)
   const date = new Date(String(value))

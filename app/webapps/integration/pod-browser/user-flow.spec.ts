@@ -1,27 +1,8 @@
+import { state, requestWithSharingVersion as request } from './fixtures'
 import { listRoute, conversationRoute, pageIDFromURL, pageRoute as route } from './routes'
 import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page, type Route } from '@playwright/test'
+import { expect, test, type Page, type Route } from '@playwright/test'
 
-type Identity = { uid: string; cookies: Parameters<BrowserContext['addCookies']>[0] }
-type State = {
-  base_url: string
-  tenant_id: string
-  report_id: string
-  database_id: string
-  table_id: string
-  amount_field_id: string
-  status_field_id: string
-  applet_id: string
-  owner: Identity
-  member: Identity
-  viewer: Identity
-  publish_v2_files: unknown[]
-  conversation_id: string
-  message_id: string
-  chat_text: string
-  chat_attachment_name: string
-}
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as State
 const content = (page: Page) => page.locator('.editor-content')
 
 async function pageAction(page: Page, name: string) {
@@ -58,38 +39,6 @@ async function choose(page: Page, name: string, option: string, parent?: string)
     .getByRole('option', { name: visibleName(option) })
     .click()
   await expect(trigger).toHaveAttribute('aria-expanded', 'false')
-}
-
-async function request<T>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  if (method === 'PUT' && path.endsWith('/sharing')) {
-    const baseline = await request<{ sharing_version: string }>(page, path)
-    body = { ...(body as Record<string, unknown>), sharing_version: baseline.sharing_version }
-  }
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const authentication = document.querySelector<HTMLMetaElement>('meta[name="ankole-authentication"]')?.content
-      const tenant = document.querySelector<HTMLMetaElement>('meta[name="ankole-pod"]')?.content
-      const csrf = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content
-      const init: RequestInit = {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          accept: 'application/json',
-          'content-type': 'application/json',
-          ...(authentication ? { 'x-ankole-authentication': authentication } : {}),
-          ...(tenant ? { 'x-ankole-pod': tenant } : {}),
-          ...(csrf ? { 'x-csrf-token': csrf } : {})
-        }
-      }
-      if (body !== undefined) init.body = JSON.stringify(body)
-      const response = await fetch(`/.internal-apis/pod${path}`, init)
-      if (!response.ok) {
-        throw new Error(`Real Pod API ${method} ${path} failed: ${response.status} ${await response.text()}`)
-      }
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
 }
 
 test('people and Agent-authored content follow the real Pod persistence, permissions and runtime path', async ({

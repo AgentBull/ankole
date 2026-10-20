@@ -1208,7 +1208,7 @@ defmodule Ankole.AIGateway.ObservabilityTest do
 
     for key <- ["trace-unknown", "trace-stale"] do
       assert {:ok, _} =
-               Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: agent.uid,
                  binding_name: event.reply_binding_name,
                  outbound_key: key,

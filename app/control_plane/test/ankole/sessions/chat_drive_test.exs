@@ -151,13 +151,15 @@ defmodule Ankole.Sessions.ChatDriveTest do
           String.replace(conversation_id, "-", "%2D")
         ] do
       assert {:error, {:file_channel_mismatch, ^path}} =
-               Ankole.Conversations.Delivery.commit(Map.put(attrs, :conversation_id, channel_id))
+               Ankole.SignalsFixtures.commit_delivery(
+                 Map.put(attrs, :conversation_id, channel_id)
+               )
     end
 
     assert Repo.aggregate(Intent, :count) == 0
 
     assert {:ok, row} =
-             Ankole.Conversations.Delivery.commit(
+             Ankole.SignalsFixtures.commit_delivery(
                Map.put(attrs, :conversation_id, conversation_id)
              )
 

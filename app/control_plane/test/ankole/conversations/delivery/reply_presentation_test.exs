@@ -4,6 +4,28 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
   alias Ankole.I18n
   alias Ankole.Conversations.Delivery.ReplyPresentation
 
+  test "retired structured results do not enter checkpoints or consume a live revision" do
+    live =
+      ReplyPresentation.new()
+      |> ReplyPresentation.append_answer("Keep this answer")
+      |> ReplyPresentation.apply_event("plan.snapshot", %{
+        "revision" => 2,
+        "items" => [%{"id" => "one", "content" => "Work", "status" => "in_progress"}]
+      })
+
+    for kind <- ~w(result.table result.chart result.image artifact.available result.metrics) do
+      assert ReplyPresentation.apply_event(live, kind, %{"revision" => 99}) == live
+    end
+
+    restored =
+      live
+      |> Map.put("results", [%{"kind" => "table", "rows" => []}])
+      |> ReplyPresentation.checkpoint()
+
+    assert restored == live
+    refute Map.has_key?(restored, "results")
+  end
+
   test "merges live answer and reasoning while excluding reasoning from recovery and terminal truth" do
     presentation =
       ReplyPresentation.new()
@@ -177,20 +199,9 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
     assert ReplyPresentation.terminal_state?(continued)
   end
 
-  test "accepts bounded typed result and interaction projections without provider JSON" do
+  test "accepts bounded interaction projections without provider JSON" do
     presentation =
       ReplyPresentation.new()
-      |> ReplyPresentation.apply_event("result.table", %{
-        "operation_id" => "table-1",
-        "revision" => 1,
-        "title" => "比较",
-        "columns" => [
-          %{"key" => "name", "label" => "名称"},
-          %{"key" => "value", "label" => "数值"}
-        ],
-        "rows" => [%{"name" => "A", "value" => 42}],
-        "card_json" => %{"tag" => "button"}
-      })
       |> ReplyPresentation.apply_event("interaction.request", %{
         "operation_id" => "question-1",
         "revision" => 2,
@@ -209,8 +220,6 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentationTest do
     assert presentation["state"] == "awaiting_input"
     assert presentation["interaction_status"] == "pending"
     refute Map.has_key?(presentation, "thought")
-    assert [%{"kind" => "table"} = table] = presentation["results"]
-    refute Map.has_key?(table, "card_json")
 
     assert [%{"type" => "button", "label" => "全部", "description" => "包含所有当前记录。"}] =
              presentation["actions"]

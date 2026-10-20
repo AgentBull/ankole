@@ -1,7 +1,6 @@
 defmodule Ankole.ApplicationTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Declarations
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.I18n
@@ -21,11 +20,11 @@ defmodule Ankole.ApplicationTest do
 
     assert delivery_index < i18n_catalog_index
 
-    assert {:ok, "Refining the answer…"} =
-             I18n.translate("conversations.delivery.cardkit.refining", %{}, locale: "en-US")
+    assert "Refining the answer…" =
+             I18n.t("conversations.delivery.cardkit.refining", %{}, locale: "en-US")
 
-    assert {:ok, "正在深思熟虑…"} =
-             I18n.translate("conversations.delivery.cardkit.refining", %{}, locale: "zh-Hans-CN")
+    assert "正在深思熟虑…" =
+             I18n.t("conversations.delivery.cardkit.refining", %{}, locale: "zh-Hans-CN")
   end
 
   test "starts Delivery and Sessions before Workflow and Oban before plugin enqueue" do
@@ -75,7 +74,7 @@ defmodule Ankole.ApplicationTest do
     assert Process.whereis(PluginRegistry) == plugin_registry
     assert Process.whereis(Ankole.Plugins.Supervisor) == plugin_supervisor
 
-    actual_keys = MapSet.new(AppConfigure.list_definitions(), & &1.key)
+    actual_keys = MapSet.new(Ankole.AppConfigure.Registry.list_definitions(), & &1.key)
     actual_pattern_ids = MapSet.new(AppConfigureRegistry.list_patterns(), & &1.id)
 
     assert MapSet.subset?(expected_core_keys, actual_keys)
@@ -101,7 +100,7 @@ defmodule Ankole.ApplicationTest do
     {plugin_definitions, plugin_patterns} =
       PluginRegistry.app_config_declarations(new_registry)
 
-    actual_keys = MapSet.new(AppConfigure.list_definitions(), & &1.key)
+    actual_keys = MapSet.new(Ankole.AppConfigure.Registry.list_definitions(), & &1.key)
     actual_pattern_ids = MapSet.new(AppConfigureRegistry.list_patterns(), & &1.id)
 
     assert MapSet.subset?(MapSet.new(plugin_definitions, & &1.key), actual_keys)

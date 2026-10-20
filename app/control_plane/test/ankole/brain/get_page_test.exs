@@ -67,7 +67,14 @@ defmodule Ankole.Brain.GetPageTest do
   end
 
   test "model and admin pages expose persisted tags while retaining page fields", context do
-    assert {:ok, _} = Ankole.Brain.Links.add_tag(context.object.slug, "health")
+    assert {:ok, _} =
+             Ankole.Repo.insert(%Ankole.Brain.Schemas.Tag{
+               id: Ankole.Ecto.UUIDv7.autogenerate(),
+               object_slug: context.object.slug,
+               tag: "health",
+               created_at: DateTime.utc_now(:microsecond)
+             })
+
     assert {:ok, model} = GetPage.get_page(context.member.uid, context.object.slug)
     assert {:ok, admin} = GetPage.get_page_admin(context.object.slug)
 

@@ -8,7 +8,6 @@ defmodule Ankole.Conversations.ObserveTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias Ankole.Sessions.Queue
   alias Ankole.Signals.Signal
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Repo
 
@@ -471,7 +470,7 @@ defmodule Ankole.Conversations.ObserveTest do
         )
 
       assert {:ok, conversation} =
-               Conversations.ensure_conversation(agent.uid, first_event.session_id)
+               Ankole.AIGatewayCase.ensure_conversation(agent.uid, first_event.session_id)
 
       response = complete_actor_response!(agent.uid, conversation.id, first_event.id)
 
@@ -654,7 +653,7 @@ defmodule Ankole.Conversations.ObserveTest do
         end)
 
       session_id = Ankole.Sessions.Key.conversation(room.id)
-      assert {:ok, conversation} = Conversations.ensure_conversation(agent.uid, session_id)
+      assert {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
 
       Repo.insert!(%Message{
         subject_uid: agent.uid,

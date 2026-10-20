@@ -1,12 +1,9 @@
+import { state, request as podRequest } from './fixtures'
 import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import type { ConversationDetail } from '../../common/api/generated/types.gen'
 import { conversationRoute } from './routes'
 
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
 const png = readFileSync(new URL('../../../control_plane/test/fixtures/sessions/rgba.png', import.meta.url))
 
 function fileLabel(action: string, name: string) {
@@ -15,25 +12,7 @@ function fileLabel(action: string, name: string) {
 }
 
 async function request<T = ConversationDetail>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content ?? ''
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        credentials: 'same-origin',
-        headers: {
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication'),
-          'x-ankole-pod': meta('ankole-pod'),
-          'x-csrf-token': meta('csrf-token')
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`Attachment preview ${method} ${path}: ${response.status}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
+  return podRequest(page, path, method, body)
 }
 
 async function clearPending(page: Page, id: string) {
@@ -58,7 +37,7 @@ async function createChat(page: Page) {
     {
       name: 'preview-note.txt',
       mimeType: 'text/plain',
-      buffer: Buffer.from('Preview prefix\n' + 'x'.repeat(200_000) + '\nUNREAD TAIL')
+      buffer: Buffer.from(`Preview prefix\n${'x'.repeat(200_000)}\nUNREAD TAIL`)
     },
     { name: 'preview-image.png', mimeType: 'image/png', buffer: png },
     {
@@ -146,11 +125,12 @@ test('real frozen attachments preview in the same chat with bounded text, escape
         focusGuard: document.activeElement?.getAttribute('data-base-ui-focus-guard'),
         guardType: document.activeElement?.getAttribute('data-type')
       }))
-      if (!tabFocus.withinDialog)
+      if (!tabFocus.withinDialog) {
         await test.info().attach('attachment-preview-tab-focus', {
           body: JSON.stringify(tabFocus),
           contentType: 'application/json'
         })
+      }
       // Base UI moves its inside focus guard back to content on the next animation frame.
       if (!tabFocus.withinDialog) {
         expect(tabFocus.focusGuard).not.toBeNull()

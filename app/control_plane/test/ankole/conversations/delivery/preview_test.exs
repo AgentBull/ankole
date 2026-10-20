@@ -7,8 +7,6 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
   import Ankole.SignalsFixtures
   import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.AIGateway.Events
   alias Ankole.PluginFixtures.MockSignalProvider.Delivery, as: MockSignalProviderDelivery
   alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
@@ -244,7 +242,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{subject: subject, signal: signal} = addressed_signal("metadata-filter")
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(subject.uid, signal.session_id)
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, signal.session_id)
 
     {:ok, root} =
       start_response_run(%{
@@ -1000,7 +998,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{subject: subject, signal: signal} = addressed_signal("dead-letter-recover")
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(subject.uid, signal.session_id)
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, signal.session_id)
 
     checkpoint = %{
       "subject_uid" => subject.uid,
@@ -1121,7 +1119,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{subject: subject, signal: signal} = addressed_signal("terminal-recover")
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(subject.uid, signal.session_id)
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, signal.session_id)
 
     working =
       ReplyPresentation.new(state: "working")
@@ -1216,7 +1214,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{subject: subject, signal: signal} = addressed_signal("blocked-recover")
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(subject.uid, signal.session_id)
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, signal.session_id)
 
     terminal =
       ReplyPresentation.new(state: "working")
@@ -1355,7 +1353,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{subject: subject, signal: signal} = addressed_signal("atom-blocked")
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(subject.uid, signal.session_id)
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, signal.session_id)
 
     terminal =
       ReplyPresentation.new(state: "working")
@@ -1453,7 +1451,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{subject: subject, signal: signal} = addressed_signal("fallback-recover")
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(subject.uid, signal.session_id)
+      Ankole.AIGatewayCase.ensure_conversation(subject.uid, signal.session_id)
 
     terminal =
       ReplyPresentation.new(state: "working")
@@ -1539,7 +1537,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
       addressed_signal("fallback-open-recover")
 
     {:ok, open_conversation} =
-      Conversations.ensure_conversation(open_subject.uid, open_event.session_id)
+      Ankole.AIGatewayCase.ensure_conversation(open_subject.uid, open_event.session_id)
 
     working =
       ReplyPresentation.new(state: "working")
@@ -1726,7 +1724,7 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
   defp start_dispatched_preview(subject_uid, signal) do
     {:ok, conversation} =
-      Conversations.ensure_conversation(subject_uid, signal.session_id)
+      Ankole.AIGatewayCase.ensure_conversation(subject_uid, signal.session_id)
 
     assert :ok =
              Preview.maybe_start_for(signal, subject_uid, conversation.id)

@@ -10,7 +10,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
   alias Ankole.AppConfigure.Registry, as: AppConfigureRegistry
   alias Ankole.Plugins.LarkAdapter.CardKit.CardChain
   alias Ankole.Plugins.LarkAdapter.CardKit.MarkdownSegmenter
-  alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Repo
 
   alias Ankole.Signals.Signal
@@ -122,7 +121,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
     config_id = "cardkit-recovery-#{System.unique_integer([:positive])}"
 
     assert {:ok, _config} =
-             AppConfigure.put_global_by_key(Config.chat_config_key(config_id), %{
+             AppConfigure.put_global_by_key("signals.lark.bindings." <> config_id, %{
                "appID" => "cli_cardkit_test",
                "appSecret" => "secret"
              })
@@ -134,7 +133,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
                agent_uid: agent.uid,
                name: "lark-cardkit",
                adapter: "lark",
-               config_ref: "app-config://#{Config.chat_config_key(config_id)}",
+               config_ref: "app-config://#{"signals.lark.bindings." <> config_id}",
                filters: %{},
                unaddressed_group_message_policy: :ignore,
                unmatched_sender_policy: :create_standalone
@@ -1811,12 +1810,6 @@ defmodule Ankole.Plugins.LarkAdapter.CardKitRecoveryTest do
         "operation_id" => "plan",
         "revision" => 5,
         "items" => [%{"id" => "one", "content" => "Step", "status" => "in_progress"}]
-      })
-      |> ReplyPresentation.apply_event("result.table", %{
-        "operation_id" => "result",
-        "revision" => 6,
-        "columns" => [%{"key" => "x", "label" => "X"}],
-        "rows" => [%{"x" => 1}]
       })
       |> ReplyPresentation.apply_event("interaction.request", %{
         "revision" => 7,

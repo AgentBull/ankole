@@ -34,6 +34,9 @@
   },
   "dependencies": {
     "@agentbull/active-support": "1.6.0",
+    "@atlaskit/pragmatic-drag-and-drop": "4.0.0",
+    "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "3.2.1",
+    "@atlaskit/pragmatic-drag-and-drop-hitbox": "3.0.0",
     "@base-ui/react": "1.9.0",
     "@remixicon/react": "4.9.0",
     "class-variance-authority": "0.7.1",

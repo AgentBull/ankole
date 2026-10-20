@@ -333,7 +333,7 @@ defmodule Ankole.AutomationJobsTest do
     assert succeeded.status == "succeeded"
 
     assert {:error, {:automation_job_not_active, "cancelled"}} =
-             AutomationJobs.validate_bindable_in_tx(Repo, job.id, agent.uid, @now)
+             AutomationJobs.validate_bindable_in_tx(Repo, job.id, agent.uid)
   end
 
   test "a nil owner session lists and reads jobs across every session of one agent" do

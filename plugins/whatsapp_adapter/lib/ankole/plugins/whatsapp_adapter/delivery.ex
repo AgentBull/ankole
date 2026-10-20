@@ -108,10 +108,9 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Delivery do
       else: {:error, :binding_phone_number_mismatch}
   end
 
-  @doc false
   @spec customer_service_window_open(Intent.t(), DateTime.t()) ::
           :ok | {:error, :customer_service_window_closed}
-  def customer_service_window_open(%Intent{} = intent, %DateTime{} = now) do
+  defp customer_service_window_open(%Intent{} = intent, %DateTime{} = now) do
     case newest_inbound_at(intent.conversation_id) do
       nil ->
         :ok

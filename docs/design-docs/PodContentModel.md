@@ -107,7 +107,10 @@ the applet.
 `database`, `applet`, or `file`. Only a document can have child pages. Tables
 and records belong to a Database; they are not pages. Sibling positions use
 PostgreSQL `C` collation. Page moves lock the tenant tree before they check for
-cycles, so concurrent opposite moves cannot create a cycle.
+cycles, so concurrent opposite moves cannot create a cycle. A move names one
+sibling with `after_id` or `before_id`, and the server makes the key under the
+same lock. A sibling outside the destination returns `position_conflict`.
+Without a sibling, the page goes last.
 
 `Ankole.Pod.Access` uses Principal and AuthZ. The actions are `page_view`,
 `page_edit`, and `page_manage`; the roles are `view`, `edit`, and `manage`.
@@ -205,7 +208,7 @@ a selection or an Agent document rewrite leaves the page in the tree.
 ## Database
 
 `Ankole.Pod.Database` owns schemas, record writes, and query transactions.
-`db_tables`, `db_fields`, `db_views`, `db_records`, and `db_sync_bindings` share
+`db_tables`, `db_fields`, `db_views`, and `db_records` share
 their Database page's access and lifecycle. Schema operations do not run DDL.
 A table has one primary field and at most 100,000 records.
 
@@ -489,33 +492,11 @@ the full write payload and saved result, including naming fields and derived
 values; a correct aggregate or success message is insufficient. A workspace
 handler check establishes logic only, not the authenticated Human interaction.
 
-## External test-data ingestion
+## External test data
 
-GitHub Issue reads exercise the shared data-write path in integration tests.
-There is no dedicated GitHub product interface. The existing job and ingestion
-primitives below keep that test boundary separate from collaborative Pod use.
-
-An existing AutomationJob reads the external source through an enabled Skill,
-MCP connector, or its provider API. A table has one `db_sync_bindings` row that
-names the job, source, cursor, and external-property-to-field map. No additional
-polling service owns this work.
-
-The script calls the injected `syncRecords(bindingID, rows, cursorMap)`. The
-existing automation bridge attaches the actual job run and attempt. The control
-plane checks the job owner, live attempt, binding status, WorkAccess, and current
-page edit access. External IDs update the same records. Mapped fields stay
-read-only locally, including while paused or after job cancellation; local custom
-fields are retained. Permanent Agent deletion removes its bindings and keeps
-the table and records. Each affected table advances its version once, and the
-committed schema event makes its formerly mapped fields editable locally.
-The SDK relays a temporary batch file through WorkerFiles and removes it after
-the call. The sync owner derives its transfer budget from the configured record
-bytes, 200 rows, mapped source keys, and external-ID encoding. Ordinary file
-transfers keep their own default limit. Unrelated source properties and redundant
-input still count toward the transfer budget. The RPC acknowledgment contains
-versions and changed IDs; record bytes stay outside the Fabric frame.
-Records, versions, and cursor commit together. Changes are broadcast after
-commit, including reverse-link changes. Scheduling uses the existing job tools.
+Tests can import external data through ordinary Database writes. Pod has no
+sync bindings, source cursors, reserved external IDs, or sync-owned fields.
+All stored records follow the same access and field-version contracts.
 
 ## Verification
 

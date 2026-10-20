@@ -39,7 +39,7 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
     do: channel_prefix(address) <> root_message_id
 
   @spec channel_prefix(String.t()) :: String.t()
-  def channel_prefix(address), do: "email:#{address}:thread:"
+  defp channel_prefix(address), do: "email:#{address}:thread:"
 
   @doc false
   @spec normalize_message_receive(map(), map()) ::
@@ -111,9 +111,9 @@ defmodule Ankole.Plugins.EmailAdapter.Inbound do
 
   def normalize_message_receive(_event, _consumer), do: {:error, :invalid_email_event}
 
-  @doc "Header facts the adapter keeps on every mirrored entry so a reply can address the thread."
+  # Header facts the adapter keeps on every mirrored entry so a reply can address the thread.
   @spec header_payload(Message.t()) :: map()
-  def header_payload(%Message{} = message) do
+  defp header_payload(%Message{} = message) do
     MapHelpers.compact_map(%{
       "message_id" => message.message_id,
       "in_reply_to" => nonempty(message.in_reply_to),

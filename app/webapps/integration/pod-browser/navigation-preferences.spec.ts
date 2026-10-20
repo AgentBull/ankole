@@ -1,39 +1,11 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { state, request } from './fixtures'
+import { expect, test, type Page } from '@playwright/test'
 import { pageRoute } from './routes'
 
-type Identity = { uid: string; email: string; password: string; cookies: Parameters<BrowserContext['addCookies']>[0] }
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  report_id: string
-  owner: Identity
-  member: Identity
-}
 const space = (page: Page) => page.getByRole('region', { name: '空间', exact: true })
 const rootToggle = (page: Page) => space(page).getByRole('button', { name: '空间', exact: true })
 const privateToggle = (page: Page) =>
   page.getByRole('region', { name: 'Private', exact: true }).getByRole('button', { name: 'Private', exact: true })
-
-async function request<T>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)!.content
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        headers: {
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication'),
-          'x-ankole-pod': meta('ankole-pod'),
-          'x-csrf-token': meta('csrf-token')
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`${method} ${path}: ${response.status}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
-}
 
 async function create(page: Page, title: string, attrs: Record<string, unknown> = {}) {
   const result = await request<{ page: { id: string } }>(page, '/pages', 'POST', { type: 'doc', title, ...attrs })
@@ -137,7 +109,8 @@ test('navigation stays with each real document identity and stored branches cann
     await expect(rootToggle(owner)).toHaveAttribute('aria-expanded', 'false')
     await member.goto(pageRoute(state.report_id))
     await expect(rootToggle(member)).toHaveAttribute('aria-expanded', 'false')
-    await member.getByRole('link', { name: '切换账号', exact: true }).click()
+    await member.getByRole('button', { name: /^账户菜单/ }).click()
+    await member.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
     await member.getByRole('textbox', { name: '邮箱', exact: true }).fill(state.member.email)
     await member.getByLabel('密码', { exact: true }).fill(state.member.password)
     const loggedIn = member.waitForResponse(
@@ -167,7 +140,8 @@ test('navigation stays with each real document identity and stored branches cann
     await expect(member.getByRole('textbox', { name: '页面标题', exact: true })).toBeVisible()
     await expect(privateToggle(member)).toHaveAttribute('aria-expanded', 'false')
     await expect(space(member).getByRole('link', { name: title, exact: true })).toHaveCount(0)
-    await owner.getByRole('link', { name: '切换账号', exact: true }).click()
+    await owner.getByRole('button', { name: /^账户菜单/ }).click()
+    await owner.getByRole('menuitem', { name: '切换或添加账户', exact: true }).click()
     await owner.getByRole('button', { name: /^Browser owner ·/ }).click()
     await expect(owner).toHaveURL(state.base_url + pageRoute(state.report_id))
     await expect(rootToggle(owner)).toHaveAttribute('aria-expanded', 'false')

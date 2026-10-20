@@ -13,7 +13,13 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   alias FeishuOpenAPI.Client
 
   import Ankole.Plugins.MapHelpers,
-    only: [required_string: 2, optional_string: 3, optional_boolean: 3, integer_between: 5]
+    only: [
+      enum_string: 4,
+      required_string: 2,
+      optional_string: 3,
+      optional_boolean: 3,
+      integer_between: 5
+    ]
 
   @binding_config_key_pattern ~r/\Asignals\.lark\.binding_configs\.[a-f0-9]{64}\z/
   @legacy_chat_key_pattern ~r/\Asignals\.lark\.bindings\.[A-Za-z0-9_.:-]+\z/
@@ -66,12 +72,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     ]
   end
 
-  @spec chat_config_key(String.t()) :: String.t()
-  @doc """
-  Builds a legacy-compatible AppConfigure key for one chat binding.
-  """
-  def chat_config_key(id), do: "signals.lark.bindings.#{id}"
-
   @doc """
   Builds the stable AppConfigure key owned by one Agent binding.
 
@@ -90,12 +90,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
     "signals.lark.binding_configs.#{id}"
   end
-
-  @spec identity_config_key(String.t()) :: String.t()
-  @doc """
-  Builds the AppConfigure key for one identity-provider instance.
-  """
-  def identity_config_key(id), do: "principals.identity_providers.lark.#{id}"
 
   @doc """
   Normalizes and validates chat binding configuration loaded from AppConfigure.
@@ -266,12 +260,11 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   def domain_base_url("feishu"), do: Client.base_url_for(:feishu)
   def domain_base_url("lark"), do: Client.base_url_for(:lark)
 
-  @doc """
-  Converts stored string config into the atom expected by FeishuOpenAPI.
-  """
+  # Converts stored string config into the atom expected by FeishuOpenAPI.
+  #
   @spec domain_atom(String.t()) :: :feishu | :lark
-  def domain_atom("feishu"), do: :feishu
-  def domain_atom("lark"), do: :lark
+  defp domain_atom("feishu"), do: :feishu
+  defp domain_atom("lark"), do: :lark
 
   defp fetch_runtime_bot_open_id(config) do
     case FeishuOpenAPI.get(client(config), "bot/v3/info") do
@@ -300,15 +293,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
     )
 
     config
-  end
-
-  defp enum_string(map, key, values, default) do
-    with {:ok, value} <- optional_string(map, key, default) do
-      case value in values do
-        true -> {:ok, value}
-        false -> {:error, {:invalid_enum, key, values}}
-      end
-    end
   end
 
   defp string_array(map, key, default) do

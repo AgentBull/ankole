@@ -189,7 +189,7 @@ defmodule Ankole.Sessions.MixedScheduleDeliveryTest do
 
   defp complete_response_items(subject_uid, event, items) do
     {:ok, conversation} =
-      Ankole.AIGateway.Conversations.ensure_conversation(subject_uid, event.session_id)
+      Ankole.AIGatewayCase.ensure_conversation(subject_uid, event.session_id)
 
     {:ok, response_run} =
       start_response_run(%{

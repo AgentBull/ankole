@@ -22,7 +22,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   alias DingTalkOpenAPI.Robot
 
   import MapHelpers,
-    only: [collect_results: 1, compact_map: 1, fetch_value: 2, optional_text: 2]
+    only: [compact_map: 1, fetch_value: 2, optional_text: 2]
 
   @managed_action_protocol ReplyPresentation.action_protocol()
 
@@ -39,13 +39,13 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   @doc "Handles a robot message CALLBACK for all chat consumers."
   @spec handle_message_receive(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_receive(_topic, %Event{} = event, consumers) do
-    dispatch_chat(consumers, &emit_message_receive(&1, event))
+    AdapterContext.dispatch_chat(consumers, &emit_message_receive(&1, event))
   end
 
   @doc "Handles a card action CALLBACK for all chat consumers."
   @spec handle_card_action(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_card_action(_topic, %Event{} = event, consumers) do
-    dispatch_chat(consumers, &emit_card_action(&1, event))
+    AdapterContext.dispatch_chat(consumers, &emit_card_action(&1, event))
   end
 
   @doc "Normalizes a message CALLBACK without submitting it. Main test seam."
@@ -232,13 +232,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
     end
   end
 
-  defp dispatch_chat(consumers, fun) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fun)
-    |> collect_results()
-  end
-
   defp author(payload, config) do
     case optional_text(payload, "senderStaffId") do
       staff_id when is_binary(staff_id) ->
@@ -267,10 +260,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
       external_id: operator_id
     }
 
-    case AdapterContext.observe_platform_subject(context, attrs) do
-      {:ok, %{principal: principal}} -> {:ok, principal.uid}
-      {:error, _reason} = error -> error
-    end
+    AdapterContext.observe_platform_subject_uid(context, attrs)
   end
 
   # Inbound text stays the user's own words. A voice message has no typed text —

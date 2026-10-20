@@ -186,7 +186,6 @@ defmodule Ankole.Plugins.EmailAdapterTest do
 
   alias Ankole.Plugins.EmailAdapter.Authentication
   alias Ankole.Plugins.EmailAdapter.Config
-  alias Ankole.Plugins.EmailAdapter.ConnectionOwner
   alias Ankole.Plugins.EmailAdapter.ConnectionReconciler
   alias Ankole.Plugins.EmailAdapter.ErrorPolicy
   alias Ankole.Plugins.EmailAdapter.Inbound
@@ -835,7 +834,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                MailboxSession.sync(client, 7, fn _event -> flunk("seen mail must not repeat") end)
 
       assert {:ok, client, :timeout} = Client.idle(client, 100)
-      assert :ok = Client.logout(client)
+      assert :ok = Ankole.Plugins.EmailAdapter.Imap.Client.close(client)
     end
 
     test "refuses a literal larger than the client limit before reading it" do
@@ -873,9 +872,12 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       assert {:ok, blocked} =
                start_connection_owner(ConnectionReconciler, validated_config(), [consumer])
 
-      assert eventually(fn -> ConnectionOwner.status(blocked).state == :blocked end)
-      assert %{blocked_reason: :authentication_failed} = ConnectionOwner.status(blocked)
-      refute inspect(ConnectionOwner.status(blocked)) =~ "secret"
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(blocked).state == :blocked end)
+
+      assert %{blocked_reason: :authentication_failed} =
+               Ankole.SignalsFixtures.owner_status(blocked)
+
+      refute inspect(Ankole.SignalsFixtures.owner_status(blocked)) =~ "secret"
 
       rotated = Map.put(validated_config(), "password", "rotated")
 
@@ -891,8 +893,10 @@ defmodule Ankole.Plugins.EmailAdapterTest do
                ])
 
       refute running == blocked
-      assert eventually(fn -> ConnectionOwner.status(running).state == :running end)
-      assert %{uidvalidity: 7, idle?: true, address: @mailbox} = ConnectionOwner.status(running)
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(running).state == :running end)
+
+      assert %{uidvalidity: 7, idle?: true, address: @mailbox} =
+               Ankole.SignalsFixtures.owner_status(running)
 
       FakeImap.add_message(server, 1, raw)
 
@@ -1298,7 +1302,7 @@ defmodule Ankole.Plugins.EmailAdapterTest do
       |> Map.put(:delivery_class, :generic)
       |> Map.put(:idempotency_key, intent.outbound_key)
 
-    with {:ok, _intent} <- Ankole.Conversations.Delivery.commit(attrs) do
+    with {:ok, _intent} <- Ankole.SignalsFixtures.commit_delivery(attrs) do
       Ankole.Conversations.Delivery.dispatch_by_key(
         intent.agent_uid,
         intent.binding_name,

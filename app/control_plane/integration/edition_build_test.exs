@@ -260,6 +260,8 @@ defmodule Ankole.EditionBuildTest do
   defp copy_checkout(checkout) do
     for relative <- [
           "app/control_plane",
+          "app/control_plane_core",
+          "plugins",
           "app/webapps",
           "app/locales",
           "tools/openapi-client-generator"
@@ -269,7 +271,6 @@ defmodule Ankole.EditionBuildTest do
 
     for relative <- [
           "libs",
-          "plugins",
           "node_modules",
           "app/kernel",
           "app/library",

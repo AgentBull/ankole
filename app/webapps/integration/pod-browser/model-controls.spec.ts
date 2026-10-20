@@ -1,11 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { state, request } from './fixtures'
+import { expect, test, type Page } from '@playwright/test'
 import { conversationRoute } from './routes'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
 
 async function choose(page: Page, option: string | RegExp) {
   const trigger = page.getByRole('combobox', { name: '模型', exact: true })
@@ -18,27 +13,6 @@ async function choose(page: Page, option: string | RegExp) {
     .getByRole('option', { name: option })
     .click()
   await expect(trigger).toHaveAttribute('aria-expanded', 'false')
-}
-
-async function request(page: Page, path: string, method = 'GET', body?: unknown) {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)!.content
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        headers: {
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication'),
-          'x-ankole-pod': meta('ankole-pod'),
-          'x-csrf-token': meta('csrf-token')
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`Model fixture ${method} ${path}: ${response.status}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
 }
 
 test('a model choice reaches the first real input, survives reload and a failed change preserves the draft', async ({
@@ -99,8 +73,9 @@ test('a model choice reaches the first real input, survives reload and a failed 
       if (
         request.method() === 'POST' &&
         new URL(request.url()).pathname === `/.internal-apis/pod/conversations/${conversationID}/messages`
-      )
+      ) {
         followups++
+      }
     })
     try {
       await choose(page, '跟随 Agent 默认')
@@ -134,7 +109,9 @@ test('a model choice reaches the first real input, survives reload and a failed 
     await page.unroute(endpoint)
     await page.reload()
     await expect(picker).toHaveText('跟随 Agent 默认')
-    expect((await request(page, `/conversations/${conversationID}/model-profile`)).profile).toBeNull()
+    expect(
+      (await request<{ profile: string | null }>(page, `/conversations/${conversationID}/model-profile`)).profile
+    ).toBeNull()
   } finally {
     await context.close()
   }

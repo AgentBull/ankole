@@ -106,8 +106,9 @@ const runtime: AppletRuntime = {
           )
         })
       }
-      if (routeStatus !== 200)
+      if (routeStatus !== 200) {
         throw new InternalAPIError(routeStatus, 'Fixture route failure', { error: { code: 'fixture_route_failure' } })
+      }
       if (method === 'POST') routeValue++
       return { value: routeValue } as T
     }
@@ -315,17 +316,19 @@ const manualWrite = document.createElement('button')
 manualWrite.textContent = 'Write manual cache data'
 manualWrite.addEventListener('click', () => {
   for (const query of client.getQueryCache().getAll()) {
-    if (query.queryKey.includes('records'))
+    if (query.queryKey.includes('records')) {
       client.setQueryData(query.queryKey, {
         records: [{ ...record, data: { amount: 99 } }],
         data_version: 99,
         complete: true
       })
-    if (query.queryKey.includes('aggregate'))
+    }
+    if (query.queryKey.includes('aggregate')) {
       client.setQueryData(query.queryKey, {
         groups: [{ values: [], metrics: { count: 99 } }],
         data_version: 99
       })
+    }
     if (query.queryKey.includes('GET /orders/:id')) client.setQueryData(query.queryKey, { value: 99 })
   }
 })

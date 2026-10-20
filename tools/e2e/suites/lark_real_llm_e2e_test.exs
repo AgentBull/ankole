@@ -451,7 +451,7 @@ defmodule Ankole.E2E.LarkRealLLME2ETest do
     owner_session_id = "codex-background-direct-real"
 
     assert {:ok, owner_conversation} =
-             Ankole.AIGateway.Conversations.ensure_conversation(ctx.agent.uid, owner_session_id)
+             Ankole.AIGatewayCase.ensure_conversation(ctx.agent.uid, owner_session_id)
 
     marker = "ANKOLE_CODEX_BACKGROUND_DIRECT_REAL_OK"
 

@@ -5,7 +5,6 @@ defmodule Ankole.FunctionComputeWorkerBootstrapIntegrationTest do
   """
   use ExUnit.Case, async: false
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
-  alias Ankole.AgentWorkers.FunctionCompute.Images
   @moduletag timeout: 300_000
   # Needs Docker, Kubernetes, or cloud tooling; see CONTRIBUTING.md.
   @moduletag :external
@@ -201,7 +200,8 @@ defmodule Ankole.FunctionComputeWorkerBootstrapIntegrationTest do
       "bash",
       image,
       "-lc",
-      Images.start_command() <> " & wait; exec sleep infinity"
+      "sudo env ANKOLE_WORKER_BOOTSTRAP=function_compute /usr/local/bin/ankole-worker-entry" <>
+        " & wait; exec sleep infinity"
     ])
   end
 
@@ -211,7 +211,15 @@ defmodule Ankole.FunctionComputeWorkerBootstrapIntegrationTest do
                {_, status} =
                  System.cmd(
                    "docker",
-                   ["exec", "--user", "1000:1000", name, "bash", "-lc", Images.ready_command()],
+                   [
+                     "exec",
+                     "--user",
+                     "1000:1000",
+                     name,
+                     "bash",
+                     "-lc",
+                     "sudo test -f /run/ankole/awaiting-contract"
+                   ],
                    stderr_to_stdout: true
                  )
 

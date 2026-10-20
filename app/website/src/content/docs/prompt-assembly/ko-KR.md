@@ -11,7 +11,7 @@ description: 제어 플레인의 주 Agent 지침과 Codex Job 컨텍스트 구�
 
 Agent의 신원과 문서, 유효한 Skill과 플러그인, 대화 시작 채널과 시간대가 포함됩니다. `SOUL.md`는 행동과 판단을, `MISSION.md`는 책임을 제공합니다. 도메인 소유자가 PostgreSQL에 저장합니다. 환경 도구는 workspace 계약으로 실체화된 런타임 파일을 받습니다.
 
-주 프롬프트의 순서는 신원, SOUL, MISSION, 완료와 권한 지침, 사용 가능한 Job과 Workflow 정책, 기억 안내, 환경과 도구 안내, Skill 목록, 런타임 컨텍스트입니다. 템플릿은 `app/control_plane/priv/sessions/prompts/`, 렌더러는 `app/control_plane/lib/ankole/sessions/prompt.ex`에 있습니다.
+주 프롬프트의 순서는 신원, SOUL, MISSION, 완료와 권한 지침, 사용 가능한 Job과 Workflow 정책, 기억 안내, 환경과 도구 안내, Skill 목록, 런타임 컨텍스트입니다. 템플릿은 `app/control_plane_core/priv/sessions/prompts/`, 렌더러는 `app/control_plane_core/lib/ankole/sessions/prompt.ex`에 있습니다.
 
 목록은 `brain-recall-only: true` Skill을 생략합니다. 유효한 집합에는 남으며 Brain으로 발견하고 `skill_view`로 읽을 수 있습니다. 런타임 접미사에는 Agent, `/workspace`, 현재 Session workspace, 시간대, 대화 시작 시간과 채널이 포함됩니다. Lark adapter는 Lark와 Feishu를 나타내고 domain이 상위 API를 선택합니다.
 

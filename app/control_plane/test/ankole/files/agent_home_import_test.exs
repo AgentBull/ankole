@@ -25,7 +25,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
     write!(home, "user-files/reports/result.txt", "pre-upgrade result")
 
     assert {:ok, intent} =
-             Ankole.Conversations.Delivery.commit(%{
+             Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: uid,
                binding_name: "test",
                outbound_key: "legacy-attachment",
@@ -84,7 +84,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
       end)
 
     assert {:ok, _intent} =
-             Ankole.Conversations.Delivery.commit(%{
+             Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: uid,
                binding_name: "test",
                outbound_key: "repeated-legacy",
@@ -119,7 +119,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
     }
 
     assert {:ok, _intent} =
-             Ankole.Conversations.Delivery.commit(%{
+             Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: uid,
                binding_name: "test",
                outbound_key: "missing-legacy",
@@ -144,7 +144,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
     write!(home, "user-files/queued.txt", "queued bytes")
 
     assert {:ok, _intent} =
-             Ankole.Conversations.Delivery.commit(%{
+             Ankole.SignalsFixtures.commit_delivery(%{
                agent_uid: uid,
                binding_name: "test",
                outbound_key: "waiting-legacy",
@@ -215,7 +215,7 @@ defmodule Ankole.Files.AgentHomeImportTest do
 
       Repo.with_tenant(tenant.id, fn ->
         assert {:ok, _intent} =
-                 Ankole.Conversations.Delivery.commit(%{
+                 Ankole.SignalsFixtures.commit_delivery(%{
                    agent_uid: uid,
                    binding_name: "test",
                    outbound_key: "tenant-attachment",

@@ -8,7 +8,7 @@ defmodule Ankole.EditionFixture.Router do
   scope "/" do
     pipe_through :edition
     get "/edition-fixture", Ankole.EditionFixture.Controller, :show
-    forward "/", AnkoleWeb.Router
+    AnkoleWeb.runtime_forward("/", AnkoleWeb.Router)
   end
 
   defp add_authentications(conn, _opts), do: Plug.Conn.assign(conn, :browser_login_mode, :add)
@@ -38,7 +38,7 @@ defmodule Ankole.EditionFixture.Config do
         key: "fixture.edition",
         scope: :global,
         encrypted: false,
-        schema: Ankole.AppConfigure.Schema.string(),
+        schema: Ankole.AppConfigure.Schema.non_empty_string(),
         default_value: "saas"
       )
     ]

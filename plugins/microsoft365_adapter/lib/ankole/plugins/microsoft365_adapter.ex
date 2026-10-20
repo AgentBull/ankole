@@ -124,6 +124,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
   @impl true
   def children do
     [
+      MicrosoftOpenAPI.Supervisor,
       {Ankole.Plugins.ChannelSync,
        adapter: "teams", worker: Ankole.Plugins.Microsoft365Adapter.Jobs.SyncChannels},
       SubscriptionReconciler
@@ -272,15 +273,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter do
   defp field(path, label, description, type, opts) do
     {zh_label, zh_description} = Map.fetch!(@zh_fields, path)
 
-    opts
-    |> Map.new()
-    |> Map.put_new(:advanced, false)
-    |> Map.merge(%{
-      path: path,
-      label: %{"default" => label, "zh-Hans-CN" => zh_label},
-      description: %{"default" => description, "zh-Hans-CN" => zh_description},
-      type: Atom.to_string(type)
-    })
+    Ankole.Plugins.Spec.field(
+      path,
+      %{"default" => label, "zh-Hans-CN" => zh_label},
+      %{"default" => description, "zh-Hans-CN" => zh_description},
+      type,
+      opts
+    )
   end
 
   defp option(value, label), do: %{value: value, label: label}

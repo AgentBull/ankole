@@ -23,22 +23,22 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
 
   @spec handle_message_receive(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_receive(_event_type, event, consumers) do
-    dispatch_chat(consumers, &emit_message(&1, event))
+    AdapterContext.dispatch_chat(consumers, &emit_message(&1, event))
   end
 
   @spec handle_reaction_created(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_reaction_created(_event_type, event, consumers) do
-    dispatch_chat(consumers, &emit_reaction(&1, event, :add))
+    AdapterContext.dispatch_chat(consumers, &emit_reaction(&1, event, :add))
   end
 
   @spec handle_reaction_deleted(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_reaction_deleted(_event_type, event, consumers) do
-    dispatch_chat(consumers, &emit_reaction(&1, event, :remove))
+    AdapterContext.dispatch_chat(consumers, &emit_reaction(&1, event, :remove))
   end
 
   @spec handle_card_action(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_card_action(_event_type, event, consumers) do
-    dispatch_chat(consumers, &emit_action(&1, event))
+    AdapterContext.dispatch_chat(consumers, &emit_action(&1, event))
   end
 
   @doc false
@@ -397,19 +397,7 @@ defmodule Ankole.Plugins.DiscordAdapter.Inbound do
   defp client_for(_consumer, %{"client" => %Client{} = client}), do: client
   defp client_for(consumer, _event), do: Config.client(consumer.config)
 
-  defp dispatch_chat(consumers, fun) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fun)
-    |> MapHelpers.collect_results()
-  end
-
-  defp iso_time(value) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> datetime
-      _invalid -> nil
-    end
-  end
+  defp iso_time(value) when is_binary(value), do: Ankole.Attrs.parse_datetime(value)
 
   defp iso_time(_value), do: nil
 

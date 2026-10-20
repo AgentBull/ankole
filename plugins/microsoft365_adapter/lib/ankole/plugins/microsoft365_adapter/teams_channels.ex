@@ -48,12 +48,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.TeamsChannels do
 
   @spec enqueue_conversation_refresh(AdapterContext.t(), map(), String.t(), keyword()) ::
           {:ok, Oban.Job.t()} | {:error, term()}
-  def enqueue_conversation_refresh(
-        %AdapterContext{} = context,
-        _config,
-        conversation_id,
-        opts \\ []
-      ) do
+  defp enqueue_conversation_refresh(
+         %AdapterContext{} = context,
+         _config,
+         conversation_id,
+         opts
+       ) do
     %{
       "agent_uid" => String.downcase(context.agent_uid),
       "binding_name" => context.binding_name,

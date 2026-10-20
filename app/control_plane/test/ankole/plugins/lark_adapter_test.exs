@@ -375,7 +375,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_large_file"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -521,7 +521,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_large_file_scope"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -586,7 +586,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_retry_retraction"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -630,7 +630,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_chunk_fallback"})
 
       assert {:ok, _} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -695,7 +695,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_edit_fallback"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -754,7 +754,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_expired_edit_fallback"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -787,7 +787,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_edit_no_fallback"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -823,7 +823,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_native_image"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -871,7 +871,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_missing_worker_attachment"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
 
@@ -955,7 +955,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_reaction_remove"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -1019,7 +1019,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_reaction_absent"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -1056,7 +1056,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config(%{"appID" => "cli_reaction_add"})
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
       put_tenant_token(config)
@@ -1092,7 +1092,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       key = Config.connection_key(config)
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
 
@@ -1113,7 +1113,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       key = Config.connection_key(config)
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
 
@@ -1124,7 +1124,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       rotated = Map.put(config, "appSecret", "rotated-secret")
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), rotated)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, rotated)
 
       assert %{started: 1, stopped: 0, errors: []} =
                ConnectionReconciler.reconcile_once(
@@ -1147,7 +1147,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       key = Config.connection_key(config)
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key(binding_name), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
 
       binding_fixture(agent.uid, binding_name, :ignore)
 
@@ -1196,7 +1196,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       %{principal: agent} = agent_fixture()
       binding_fixture(agent.uid, "lark", :ignore)
       config = chat_config(%{"appID" => "cli_b18"})
-      assert {:ok, _} = AppConfigure.put_global_by_key(Config.chat_config_key("lark"), config)
+      assert {:ok, _} = AppConfigure.put_global_by_key("signals.lark.bindings." <> "lark", config)
       consumer = Inbound.chat_consumer(adapter_context(agent.uid), config)
       principal_count = Repo.aggregate(Principal, :count)
       parent = self()
@@ -2268,7 +2268,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       config = chat_config()
 
       assert {:ok, _config} =
-               AppConfigure.put_global_by_key(Config.chat_config_key("lark"), config)
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> "lark", config)
 
       stub_lark_requests(self(), fn request ->
         assert request.request_path == "/open-apis/contact/v3/users/ou_alice"
@@ -2326,7 +2326,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                    "provider_id" => "feishu",
                    "adapter_id" => "lark",
                    "plugin_id" => "lark-adapter",
-                   "config_key" => Config.identity_config_key("feishu"),
+                   "config_key" => "principals.identity_providers.lark." <> "feishu",
                    "enabled" => true
                  },
                  identity_config
@@ -2888,7 +2888,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert {:ok, _} =
                AppConfigure.put_global_by_key(
-                 Config.chat_config_key("lark-disabled-sync"),
+                 "signals.lark.bindings." <> "lark-disabled-sync",
                  chat_config(%{"appID" => "cli_disabled_sync"})
                )
 
@@ -2942,7 +2942,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
 
       assert {:ok, _} =
                AppConfigure.put_global_by_key(
-                 Config.chat_config_key(binding_name),
+                 "signals.lark.bindings." <> binding_name,
                  chat_config(%{"appID" => "cli_scalar_user_id"})
                )
 
@@ -3079,7 +3079,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
                    "provider_id" => "lark-main",
                    "adapter_id" => "lark",
                    "plugin_id" => "lark-adapter",
-                   "config_key" => Config.identity_config_key("lark-main"),
+                   "config_key" => "principals.identity_providers.lark." <> "lark-main",
                    "enabled" => true
                  },
                  config
@@ -3217,7 +3217,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         "provider_id" => "lark-main",
         "adapter_id" => "lark",
         "plugin_id" => "lark-adapter",
-        "config_key" => Config.identity_config_key("lark-main"),
+        "config_key" => "principals.identity_providers.lark." <> "lark-main",
         "enabled" => true
       }
 
@@ -3306,7 +3306,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         "provider_id" => "lark-main",
         "adapter_id" => "lark",
         "plugin_id" => "lark-adapter",
-        "config_key" => Config.identity_config_key("lark-main"),
+        "config_key" => "principals.identity_providers.lark." <> "lark-main",
         "enabled" => true
       }
 
@@ -3490,7 +3490,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
         agent_uid: agent_uid,
         name: name,
         adapter: "lark",
-        config_ref: "app-config://#{Config.chat_config_key(name)}",
+        config_ref: "app-config://#{"signals.lark.bindings." <> name}",
         filters: %{},
         unaddressed_group_message_policy: policy,
         unmatched_sender_policy: Keyword.get(opts, :unmatched_sender_policy, :create_standalone)

@@ -180,7 +180,7 @@ defmodule Ankole.E2E.LarkWorkflowRealLLME2ETest do
     assert length(vectors) == 2
 
     assert vectors |> hd() |> Pgvector.to_list() |> length() ==
-             BrainEmbeddings.physical_dimensions()
+             4096
 
     assert is_binary(signature)
 

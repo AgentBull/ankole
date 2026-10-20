@@ -12,6 +12,8 @@ defmodule Ankole.Plugins.DingTalkAdapter do
 
   @behaviour Ankole.Plugins.Plugin
 
+  import Ankole.Plugins.Spec, only: [field: 5]
+
   alias Ankole.Plugins.DingTalkAdapter.AICard
   alias Ankole.Plugins.DingTalkAdapter.Config
   alias Ankole.Plugins.DingTalkAdapter.ConnectionReconciler
@@ -83,6 +85,7 @@ defmodule Ankole.Plugins.DingTalkAdapter do
   @impl true
   def children do
     [
+      DingTalkOpenAPI.Supervisor,
       {Registry, keys: :unique, name: Ankole.Plugins.DingTalkAdapter.ConnectionRegistry},
       {DynamicSupervisor,
        name: Ankole.Plugins.DingTalkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
@@ -272,18 +275,6 @@ defmodule Ankole.Plugins.DingTalkAdapter do
         advanced: true
       )
     ]
-  end
-
-  defp field(path, label, description, type, opts) do
-    opts
-    |> Map.new()
-    |> Map.put_new(:advanced, false)
-    |> Map.merge(%{
-      path: path,
-      label: label,
-      description: description,
-      type: Atom.to_string(type)
-    })
   end
 
   defp option(value, label), do: %{value: value, label: label}

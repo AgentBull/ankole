@@ -3,7 +3,6 @@ import { DatabaseCellModel } from './database-cell'
 import { FieldEditorModel } from './field-editor'
 import { FieldInputModel } from './field-input'
 import { TableWorkspaceModel } from './table-workspace'
-import { writableField } from '../database-field-types'
 import type { DatabaseField } from '@ankole/applet-sdk/types'
 
 const field: DatabaseField = { id: 'price', name: 'Price', type: 'number', config: {}, version: 1, is_primary: false }
@@ -75,12 +74,6 @@ test('field definitions are seeded on open and type conversions use a coherent d
   expect(model.baseVersion.value).toBe(3)
   expect(model.type.value).toBe('number')
   expect(model.confirmation.value).toBeUndefined()
-})
-
-test('sync ownership stays beside schema and cannot become persisted field configuration', () => {
-  expect(writableField(field, ['price'])).toBe(false)
-  expect(field.config).toEqual({})
-  expect(writableField(field)).toBe(true)
 })
 
 test('input refetch preserves a dirty string; Escape resets to the current authoritative value', () => {

@@ -1,6 +1,6 @@
 import { textRange, singleRect } from './dom'
 import { ltrAt, WidgetTile, TextTile, Tile } from './tile'
-import { Wordgard } from './editor'
+import type { Wordgard } from './editor'
 
 export class Coords {
   constructor(

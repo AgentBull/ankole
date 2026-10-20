@@ -5,7 +5,6 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.ModelProfiles
-  alias Ankole.AIGateway.ChatGPTAuth
   alias Ankole.AIGateway.CredentialPool
   alias Ankole.AIGateway.ModelMetadata.Cache, as: ModelMetadataCache
   alias Ankole.AIGateway.ProviderConfigs
@@ -21,7 +20,9 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     Cache.clear_for_test()
     ModelMetadataCache.clear_for_test()
 
-    {:ok, false} = SetupConfig.put_completed(false)
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     :ok
@@ -892,7 +893,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert_receive {:chatgpt_auth_request,
                     %{path: "api/accounts/deviceauth/usercode", body: user_code_body}}
 
-    assert user_code_body == %{"client_id" => ChatGPTAuth.client_id()}
+    assert user_code_body == %{"client_id" => "app_EMoamEEZ73f0CkXaXp7hrann"}
 
     assert_receive {:chatgpt_auth_request,
                     %{path: "api/accounts/deviceauth/token", body: poll_body}}
@@ -905,7 +906,7 @@ defmodule AnkoleWeb.AIGatewayProviderControllerTest do
     assert_receive {:chatgpt_auth_request, %{path: "oauth/token", body: exchange_body}}
 
     assert exchange_body == %{
-             "client_id" => ChatGPTAuth.client_id(),
+             "client_id" => "app_EMoamEEZ73f0CkXaXp7hrann",
              "code" => "authorization-code",
              "code_verifier" => verifier,
              "grant_type" => "authorization_code",

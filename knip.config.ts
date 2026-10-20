@@ -12,11 +12,12 @@ const config: KnipConfig = {
   ignoreExportsUsedInFile: true,
   // Mix-only packages have package.json files for workspace scripts, but no TS
   // graph for Knip to analyze.
-  ignoreWorkspaces: ['app/control_plane', 'libs/feishu_openapi'],
+  ignoreWorkspaces: ['app/control_plane', 'plugins/lark_adapter'],
   workspaces: {
     '.': {
       entry: [
         'tools/deploy/kubernetes/update-schema.ts!',
+        'tools/e2e/support/pod_content_browser.mjs!',
         'app/library/agent-plugins/lark/skills/lark-approvals/scripts/profile-setup.ts!'
       ]
     },
@@ -42,7 +43,7 @@ const config: KnipConfig = {
       entry: ['scripts/deploy.ts!']
     },
     'app/webapps': {
-      entry: ['entrypoints/*.tsx!', 'openapi-ts.config.ts!', 'vite.config.ts!'],
+      entry: ['entrypoints/*.tsx!', 'openapi-ts.config.ts!', 'vite.config.ts!', 'playwright.*.config.ts!'],
       project: [
         'auth/**/*.{ts,tsx}!',
         'common/**/*.{ts,tsx}!',
@@ -52,6 +53,9 @@ const config: KnipConfig = {
         'pod/**/*.{ts,tsx}!',
         '*.ts!'
       ]
+    },
+    'app/kernel': {
+      entry: ['src/applet_runtime/bootstrap.js!']
     },
     'libs/uikit': {
       entry: ['src/index.ts!'],

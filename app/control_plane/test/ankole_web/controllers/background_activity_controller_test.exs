@@ -13,7 +13,10 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     allow_cache_database_access()
     Ankole.AppConfigure.Registry.clear_for_test()
     Ankole.AppConfigure.Cache.clear_for_test()
-    {:ok, false} = Ankole.Setup.Config.put_completed(false)
+
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     :ok = Ankole.Setup.Config.delete_bootstrap_activation_code()
     :ok
   end

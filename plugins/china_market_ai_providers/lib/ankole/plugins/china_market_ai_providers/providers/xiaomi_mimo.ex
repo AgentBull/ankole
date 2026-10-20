@@ -5,7 +5,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo do
 
   use Ankole.AIGateway.ProviderDSL
 
-  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.UniversalAIRequest
 
   @anthropic_version "2023-06-01"
@@ -52,23 +51,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.XiaomiMiMo do
     |> maybe_put_beta(ctx.settings[:anthropic_beta])
     |> put_auth(ctx)
     |> UniversalAIRequest.put_provider_options(ctx.provider_options)
-  end
-
-  @impl true
-  def prepare_connection_check(ctx) when is_map(ctx) do
-    ctx = put_effective_base_url(ctx)
-
-    headers =
-      ctx
-      |> UniversalAIRequest.raw_headers()
-      |> UniversalAIRequest.put_new_header(
-        "anthropic-version",
-        ctx.settings[:anthropic_version] || @anthropic_version
-      )
-      |> maybe_put_beta(ctx.settings[:anthropic_beta])
-      |> put_auth(ctx)
-
-    ProviderConnectionCheck.get(ctx, "v1/models", headers: headers)
   end
 
   defp put_effective_base_url(%{settings: settings} = ctx) when is_map(settings) do

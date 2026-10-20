@@ -1,4 +1,4 @@
-import { Tile, TileFlag } from './tile'
+import type { Tile } from './tile'
 
 export type DOMNode = Node
 
@@ -64,7 +64,7 @@ export function isBlockElement(node: Node): boolean {
 
 export function isBlocking(node: Node) {
   const tile = node.wgTile
-  if (tile) return !tile.isText && (tile.isNodeOuter || (tile.isPoint && tile.flags & TileFlag.PointSide))
+  if (tile) return tile.isBlocking
   return node.nodeType == 1 && (node as HTMLElement).contentEditable == 'false'
 }
 

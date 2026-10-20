@@ -172,9 +172,8 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
     end
   end
 
-  @doc false
   @spec directory_user?(map(), map()) :: boolean()
-  def directory_user?(user, config) do
+  defp directory_user?(user, config) do
     include_suspended? = get_in(config, ["sync", "includeSuspended"]) == true
 
     is_binary(Map.get(user, "id")) and
@@ -211,9 +210,8 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
     end
   end
 
-  @doc false
   @spec login_user(map()) :: map()
-  def login_user(claims) do
+  defp login_user(claims) do
     %{
       "id" => MapHelpers.optional_text(claims, "sub"),
       "primaryEmail" => downcased(MapHelpers.optional_text(claims, "email")),

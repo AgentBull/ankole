@@ -61,9 +61,6 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
     }
   end
 
-  @spec status(GenServer.server()) :: map()
-  def status(server), do: GenServer.call(server, :status)
-
   @doc """
   Resolves the live bot client process for a chat config. Outbound paths call
   this per send; a missing or parked connection surfaces as a retryable error.
@@ -124,18 +121,6 @@ defmodule Ankole.Plugins.WeComAdapter.ConnectionOwner do
     with {:ok, state} <- start_client(state) do
       {:ok, state}
     end
-  end
-
-  @impl true
-  def handle_call(:status, _from, state) do
-    {:reply,
-     %{
-       key: state.key,
-       consumer_count: state.consumer_count,
-       ws_pid: state.ws_pid,
-       contended?: not is_nil(state.contended_timer),
-       running?: is_pid(state.ws_pid) and Process.alive?(state.ws_pid)
-     }, state}
   end
 
   @impl true

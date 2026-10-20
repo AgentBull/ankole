@@ -15,11 +15,11 @@ defmodule Ankole.I18nTest do
     allow_cache_database_access()
     Registry.clear_for_test()
     Cache.clear_for_test()
-    :ok = Ankole.I18n.Catalog.reload_locales!()
+    :ok = Ankole.I18n.Catalog.reload_locales()
     put_test_catalogs()
 
     on_exit(fn ->
-      :ok = Ankole.I18n.Catalog.reload_locales!()
+      :ok = Ankole.I18n.Catalog.reload_locales()
     end)
 
     :ok
@@ -52,17 +52,6 @@ defmodule Ankole.I18nTest do
         end)
 
       assert log =~ "i18n missing" or log =~ "i18n_missing"
-    end
-  end
-
-  describe "translate/3" do
-    test "returns {:ok, string} for a valid key" do
-      assert {:ok, "Hello, Dave!"} =
-               I18n.translate("test.greeting", %{"name" => "Dave"}, locale: "en-US")
-    end
-
-    test "returns {:error, _} for a missing key without logging" do
-      assert {:error, %KeyError{}} = I18n.translate("nope.nope", %{})
     end
   end
 
@@ -106,7 +95,11 @@ defmodule Ankole.I18nTest do
       end)
 
       assert I18n.t("test.greeting", %{"name" => "Carol"}) == "你好，Carol！"
-      assert Resolver.language_tag_to_locale(I18n.default_locale()) == "en-US"
+
+      assert Ankole.I18n.Resolver.exact_loaded_locale(
+               I18n.default_locale(),
+               Ankole.I18n.Resolver.loaded()
+             ) == "en-US"
     end
 
     test "put_default_locale/1 persists in the current tenant without replacing the site value",
@@ -138,13 +131,18 @@ defmodule Ankole.I18nTest do
 
       log =
         capture_log([format: "$metadata $message\n", metadata: [:event]], fn ->
-          assert :ok = I18n.reload()
+          assert :ok = Ankole.I18n.Catalog.reload()
           # init loads the release catalog before reading the same persisted row.
           assert {:ok, _state} = Ankole.I18n.Catalog.init([])
         end)
 
       assert log =~ "i18n.catalog.default_unavailable"
-      assert Resolver.language_tag_to_locale(I18n.default_locale()) == "en-US"
+
+      assert Ankole.I18n.Resolver.exact_loaded_locale(
+               I18n.default_locale(),
+               Ankole.I18n.Resolver.loaded()
+             ) == "en-US"
+
       assert Repo.get_by!(schema, scope: "global", key: definition.key).value["value"] == "fr-FR"
       assert {:ok, "en-US"} = AppConfigure.put_global(definition, "en-US")
     end
@@ -152,7 +150,7 @@ defmodule Ankole.I18nTest do
     test "direct AppConfigure writes reject unavailable active defaults before persistence" do
       restore_default_locale = fn ->
         {:ok, "en-US"} = AppConfigure.put_global(Config.default_locale_definition(), "en-US")
-        :ok = I18n.reload()
+        :ok = Ankole.I18n.Catalog.reload()
       end
 
       on_exit(restore_default_locale)
@@ -166,7 +164,7 @@ defmodule Ankole.I18nTest do
       assert {:error, :unavailable_locale} =
                AppConfigure.put_tenant_by_key("i18n.default_locale", "fr-FR")
 
-      assert :ok = I18n.reload()
+      assert :ok = Ankole.I18n.Catalog.reload()
 
       restore_default_locale.()
     end

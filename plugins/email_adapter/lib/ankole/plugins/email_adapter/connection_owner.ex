@@ -35,19 +35,8 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
   ]
 
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts) do
-    key = Keyword.fetch!(opts, :key)
-
-    GenServer.start_link(__MODULE__, opts,
-      name:
-        {:via, Registry,
-         {@registry, key,
-          Ankole.Plugins.ConnectionLifecycle.registry_value(
-            Keyword.fetch!(opts, :config),
-            [Keyword.fetch!(opts, :consumer)]
-          )}}
-    )
-  end
+  def start_link(opts),
+    do: Ankole.Plugins.ConnectionLifecycle.start_owner(__MODULE__, @registry, opts)
 
   def child_spec(opts) do
     %{
@@ -57,9 +46,6 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
       restart: :permanent
     }
   end
-
-  @spec status(GenServer.server()) :: map()
-  def status(server), do: GenServer.call(server, :status)
 
   @impl true
   def format_status(%{state: %__MODULE__{} = state} = status) do
@@ -88,9 +74,6 @@ defmodule Ankole.Plugins.EmailAdapter.ConnectionOwner do
 
   @impl true
   def handle_continue(:connect, state), do: {:noreply, start_session(state)}
-
-  @impl true
-  def handle_call(:status, _from, state), do: {:reply, public_status(state), state}
 
   @impl true
   def handle_info(:connect, %{task: nil} = state), do: {:noreply, start_session(state)}

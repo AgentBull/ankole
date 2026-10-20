@@ -8,7 +8,7 @@ defmodule AnkoleWeb.PodURLTest do
     allow_cache_database_access()
     Ankole.AppConfigure.Cache.clear_for_test()
     :ok = Ankole.DataCase.set_privileged_tenant(tenant)
-    {:ok, true} = Ankole.Setup.Config.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     :ok
   end
 

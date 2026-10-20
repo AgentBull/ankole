@@ -28,12 +28,12 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
 
   @spec handle_message_receive(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_receive(_message_type, envelope, consumers) do
-    dispatch_chat(consumers, &emit_message(&1, envelope))
+    AdapterContext.dispatch_chat(consumers, &emit_message(&1, envelope))
   end
 
   @spec handle_card_action(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_card_action(_message_type, envelope, consumers) do
-    dispatch_chat(consumers, &emit_action(&1, envelope))
+    AdapterContext.dispatch_chat(consumers, &emit_action(&1, envelope))
   end
 
   @doc """
@@ -503,13 +503,6 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
     |> MapHelpers.fetch_list("errors")
     |> Enum.map(fn error -> is_map(error) && error["code"] end)
     |> Enum.filter(&is_integer/1)
-  end
-
-  defp dispatch_chat(consumers, fun) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fun)
-    |> MapHelpers.collect_results()
   end
 
   defp material_message?(text, attachments), do: is_binary(text) or attachments != []

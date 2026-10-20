@@ -28,8 +28,7 @@ Human work. Independent service definitions keep their own authorization.
 - the source Signal and reply route
 - `drive_prefix`, the folder in the Agent's drive that holds the script, and the label
 - `wake_on_failure`
-- an optional expiry time
-- `active`, `cancelled`, or `expired`
+- `active` or `cancelled`
 
 `automation_job_runs` stores one trigger consumption:
 

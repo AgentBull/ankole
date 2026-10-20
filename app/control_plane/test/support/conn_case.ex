@@ -11,7 +11,6 @@ defmodule AnkoleWeb.ConnCase do
   import Phoenix.ConnTest
 
   alias Ankole.PrincipalsFixtures
-  alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
   using do
@@ -55,7 +54,7 @@ defmodule AnkoleWeb.ConnCase do
   end
 
   defp active_admin_conn_in_tenant(conn) do
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
 
     human =
       PrincipalsFixtures.human_fixture(%{uid: PrincipalsFixtures.unique_uid("console-admin")})

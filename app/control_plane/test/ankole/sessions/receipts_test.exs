@@ -9,13 +9,12 @@ defmodule Ankole.Sessions.ReceiptsTest do
   alias Ankole.Sessions.ToolRound
   alias Ankole.Sessions.Tools
 
-  alias Ankole.Sessions.Workspaces
   alias Ankole.Principals.Principal
 
   setup do
     %{principal: agent} = agent_fixture()
     session_id = "receipts:#{System.unique_integer([:positive])}"
-    {:ok, workspace} = Workspaces.ensure(agent.uid, session_id)
+    {:ok, workspace} = Ankole.SessionsCase.ensure_workspace(agent.uid, session_id)
     workspace = Repo.update!(change(workspace, epoch: 1))
 
     {:ok, event} =

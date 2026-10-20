@@ -36,14 +36,16 @@ defmodule AnkoleWeb.NativeActivityTest do
       for key <- ["setup.completed", "tenants.privileged_tenant_id"],
           do: {key, Ankole.AppConfigure.get_global_by_key_in_tx(Repo, key)}
 
-    on_exit(fn ->
+    restore_site_config = fn ->
       for {key, value} <- site_config do
         case value do
           {:ok, value} -> {:ok, _} = Ankole.AppConfigure.put_global_by_key(key, value)
           :error -> :ok = Ankole.AppConfigure.delete_global_by_key(key)
         end
       end
-    end)
+    end
+
+    on_exit(restore_site_config)
 
     Ankole.AppConfigure.Cache.clear_for_test()
     drivers = RuntimeCase.driver_pids()
@@ -69,20 +71,26 @@ defmodule AnkoleWeb.NativeActivityTest do
 
     on_exit(
       Repo.bind_tenant(fn ->
-        RuntimeCase.stop_new_drivers(drivers)
-        WorkerRoute.unregister_local_worker(route)
-        Repo.delete_all(Conversations.Conversation)
+        try do
+          RuntimeCase.stop_new_drivers(drivers)
+          WorkerRoute.unregister_local_worker(route)
+          Repo.delete_all(Conversations.Conversation)
 
-        Repo.delete_all(
-          from j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid
-        )
+          Repo.delete_all(
+            from j in Oban.Job, where: fragment("?->>'agent_uid'", j.args) == ^agent.uid
+          )
 
-        :ok = Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(Repo, agent.uid)
-        Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
+          :ok = Ankole.AgentWorkers.WorkerEnv.delete_agent_rows_in_tx(Repo, agent.uid)
+          Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
 
-        # The provider owner first disables an active row, then deletes it.
-        {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(profile["provider_id"])
-        {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(profile["provider_id"])
+          # The provider owner first disables an active row, then deletes it.
+          {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(profile["provider_id"])
+          {:ok, _} = Ankole.AIGateway.ProviderConfigs.delete_provider(profile["provider_id"])
+        after
+          restore_site_config.()
+        end
+
+        Ankole.DataCase.cleanup_tenant!(tenant)
       end)
     )
 
@@ -92,7 +100,7 @@ defmodule AnkoleWeb.NativeActivityTest do
   test "native POST starts activity before SSE; late joins and reconnect observe capacity, then silent completion fences stale progress",
        %{conn: conn, agent: agent, human_uid: human_uid} do
     id = Ecto.UUID.generate()
-    :ok = Conversations.subscribe(id)
+    :ok = Sessions.Events.subscribe(agent.uid, Sessions.Key.conversation(id))
 
     conn =
       post(conn, ~p"/.internal-apis/pod/conversations", %{
@@ -124,7 +132,7 @@ defmodule AnkoleWeb.NativeActivityTest do
         &(&1.phase && String.ends_with?(&1.phase["label_key"], "computer_busy"))
       )
 
-    assert_receive {:conversation_event, ^id,
+    assert_receive {:session_event, _, _,
                     {:activity, _publisher,
                      %{
                        tools: [
@@ -240,10 +248,11 @@ defmodule AnkoleWeb.NativeActivityTest do
     # Simulate cross-node PubSub forwarding reaching the subscriber after DOWN.
     send(
       stream_pid,
-      {:conversation_event, id, {:activity, driver, %{active | revision: active.revision + 1}}}
+      {:session_event, agent.uid, key.session_id,
+       {:activity, driver, %{active | revision: active.revision + 1}}}
     )
 
-    send(stream_pid, {:conversation_event, id, :status})
+    send(stream_pid, {:session_event, agent.uid, key.session_id, :status})
     send(stream_pid, :continue)
     assert_receive {:stream_frame, ^stream_pid, "event: status\n" <> _}, 1_000
     send(stream_pid, :close)

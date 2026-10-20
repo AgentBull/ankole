@@ -1,6 +1,6 @@
 import type { Plot, Node, Leaf } from './node'
 import { TextOutput } from './text'
-import { Schema } from './schema'
+import type { Schema } from './schema'
 import { ValidationError } from './error'
 
 /**

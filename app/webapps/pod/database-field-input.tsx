@@ -227,7 +227,6 @@ export function FieldInput({
       </div>
     )
   }
-  console.log('FIELD_INPUT', field.id, field.name, JSON.stringify(value), JSON.stringify(draft), model.dirty.value)
   const datetime = field.type === 'datetime'
   const commitText = (input: HTMLInputElement, finishEditing: boolean) => {
     if (unavailable.current) return

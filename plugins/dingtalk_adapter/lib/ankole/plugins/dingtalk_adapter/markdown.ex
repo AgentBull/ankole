@@ -1,4 +1,6 @@
 defmodule Ankole.Plugins.DingTalkAdapter.Markdown do
+  import Ankole.Plugins.MarkdownChunks, only: [strip_html_tags: 2, degrade_task_lists: 1]
+
   @moduledoc """
   Deterministic degrade of standard Markdown to DingTalk's Markdown subset, plus
   a byte-budget splitter for the `msgParam` limit.
@@ -63,19 +65,5 @@ defmodule Ankole.Plugins.DingTalkAdapter.Markdown do
       text,
       fn table -> "```\n" <> String.trim_trailing(table) <> "\n```\n" end
     )
-  end
-
-  defp degrade_task_lists(text) do
-    Regex.replace(~r/(^\s*[-*+] )\[[ xX]\]\s+/m, text, "\\1")
-  end
-
-  defp strip_html_tags(text, marker) do
-    Regex.replace(~r/<\/?[a-zA-Z][^>]*>/, text, fn tag ->
-      if is_binary(marker) do
-        String.duplicate(marker, length(:binary.matches(tag, marker)))
-      else
-        ""
-      end
-    end)
   end
 end

@@ -246,7 +246,7 @@ defmodule Ankole.ConversationsTest do
     assert Ankole.Sessions.status(%{agent_uid: agent.uid, session_id: detail.session_id}).state ==
              :idle
 
-    :ok = Conversations.subscribe(attrs.conversation_id)
+    :ok = Conversations.Events.subscribe(attrs.conversation_id)
     assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
     assert_receive {:conversation_event, id, :status}
     assert id == attrs.conversation_id
@@ -290,7 +290,7 @@ defmodule Ankole.ConversationsTest do
 
     for attrs <- [first, second] do
       assert {:ok, _} = in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, attrs) end)
-      :ok = Conversations.subscribe(attrs.conversation_id)
+      :ok = Conversations.Events.subscribe(attrs.conversation_id)
     end
 
     assert {:error, :rollback} =
@@ -369,7 +369,7 @@ defmodule Ankole.ConversationsTest do
     assert {:ok, original} =
              in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, attrs) end)
 
-    :ok = Conversations.subscribe(attrs.conversation_id)
+    :ok = Conversations.Events.subscribe(attrs.conversation_id)
 
     for text <- [<<0>>, "a" <> <<0>> <> "b"] do
       assert {:error, :invalid_text} =
@@ -436,11 +436,11 @@ defmodule Ankole.ConversationsTest do
     agent: agent
   } do
     attrs = attrs(agent)
-    :ok = Conversations.subscribe(attrs.conversation_id)
+    :ok = Conversations.Events.subscribe(attrs.conversation_id)
 
     assert {:error, :rollback} =
              Repo.transact(fn repo ->
-               assert {:ok, %{publications: [_, _]}} =
+               assert {:ok, %{publications: [_]}} =
                         Conversations.create_in_tx(repo, human.uid, attrs)
 
                refute_received {:conversation_event, _, _}
@@ -554,15 +554,18 @@ defmodule Ankole.ConversationsTest do
   test "PubSub uses the tenant as part of the audience", %{human: human, agent: agent} do
     attrs = attrs(agent)
     assert {:ok, _} = in_tx(fn -> Ankole.ConversationsFixtures.create(human.uid, attrs) end)
-    event = Repo.one!(Signal)
-    :ok = Conversations.subscribe(attrs.conversation_id)
+    :ok = Conversations.Events.subscribe(attrs.conversation_id)
     other_tenant = create_tenant()
-    Repo.with_tenant(other_tenant.id, fn -> Conversations.publish_message(event) end)
+
+    Repo.with_tenant(other_tenant.id, fn ->
+      Ankole.Conversations.Events.publish_message(attrs.conversation_id)
+    end)
+
     refute_receive {:conversation_event, _, _}
-    assert :ok = Conversations.publish_message(event)
+    assert :ok = Ankole.Conversations.Events.publish_message(attrs.conversation_id)
     assert_receive {:conversation_event, id, :message}
     assert id == attrs.conversation_id
-    assert :ok = Conversations.publish_status(event)
+    assert :ok = Conversations.Events.publish_status(attrs.conversation_id)
     assert_receive {:conversation_event, ^id, :status}
   end
 
@@ -581,9 +584,7 @@ defmodule Ankole.ConversationsTest do
             })
           end,
           fn ->
-            Ankole.Conversations.publish_statement(%Message{
-              conversation_id: request.conversation_id
-            })
+            Ankole.Conversations.Events.publish_message(request.conversation_id)
           end
         ] do
       assert_raise ArgumentError, ~r/publish after commit/, fn ->
@@ -596,32 +597,41 @@ defmodule Ankole.ConversationsTest do
 
   test "a transaction owner publishes only its committed facts", %{human: human, agent: agent} do
     request = attrs(agent)
-    :ok = Conversations.subscribe(request.conversation_id)
+    :ok = Conversations.Events.subscribe(request.conversation_id)
+    uid = agent.uid
+    session = Ankole.Sessions.Key.conversation(request.conversation_id)
+    :ok = Ankole.Sessions.Events.subscribe(uid, session)
 
     assert {:error, :aborted} =
              Repo.transact(fn repo ->
-               assert {:ok, %{publications: [_, _]}} =
+               assert {:ok, %{publications: [_]}} =
                         Conversations.create_in_tx(repo, human.uid, request)
 
                refute_received {:conversation_event, _, _}
+               refute_received {:session_event, _, _, _}
                repo.rollback(:aborted)
              end)
 
     refute_received {:conversation_event, _, _}
+    refute_received {:session_event, _, _, _}
     assert Repo.aggregate(Message, :count) == 0
 
-    assert {:ok, %{publications: publications}} =
+    assert {:ok, %{publications: publications, session_key: key}} =
              Repo.transact(fn repo ->
                Conversations.create_in_tx(repo, human.uid, request)
              end)
 
     refute_received {:conversation_event, _, _}
-    assert :ok = Conversations.publish_committed(publications)
+    refute_received {:session_event, _, _, _}
+    assert :ok = Conversations.Events.publish_committed(publications)
+    assert :ok = Ankole.Sessions.Events.publish_status(key.agent_uid, key.session_id)
     id = request.conversation_id
     assert_receive {:conversation_event, ^id, :message}
-    assert_receive {:conversation_event, ^id, :status}
+    assert_receive {:session_event, ^uid, ^session, :status}
+    refute_received {:conversation_event, ^id, :status}
     assert {:ok, _} = Ankole.Conversations.create(human.uid, request)
     refute_received {:conversation_event, _, _}
+    refute_received {:session_event, _, _, _}
   end
 
   test "page conversations retain their identity, discoverability, and Agent context", %{

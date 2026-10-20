@@ -142,7 +142,7 @@ You do not need to learn every runtime before starting. The repository-level Bun
 
 Elixir implementation files use `.ex`; tests, scripts, and configuration often use `.exs`.
 
-Control-plane code lives under `app/control_plane/lib`, tests under `app/control_plane/test`, and migrations under `app/control_plane/priv/repo/migrations`.
+Domain and web code lives under `app/control_plane_core/lib`. The assembly, configuration, tests, and migrations remain under `app/control_plane`. Each control-plane Plugin is a local Mix project under `plugins/`; the matching provider client is part of that project.
 
 Use the root Bun commands in this guide. Run `mix` directly only when a module-specific instruction says to, and then use `app/control_plane` as the working directory.
 
@@ -606,6 +606,14 @@ Use `kit --help` to discover database, service, generation, worker-test, and ana
 
 Start with checks scoped to the files you changed. This makes failures easier to attribute and avoids treating unrelated worktree noise as your regression.
 
+The `Repository checks` workflow runs on pull requests and pushes to `main`.
+It runs the existing Webapps, Applet SDK, editor, and analysis commands. Its
+Control Plane job uses the Ankole PostgreSQL image, checks OpenAPI output, and
+runs the compile-connected cycle check, fast suite, and upgrade check. The
+page-codec job checks the shared XML corpus and generated edit chains in
+TypeScript and Rust. Provider E2E,
+Worker container tests, and browser suites still use their dedicated commands.
+
 | Changed area | Useful first checks |
 | --- | --- |
 | Documentation only | `git diff --check` and link/command inspection |
@@ -613,7 +621,7 @@ Start with checks scoped to the files you changed. This makes failures easier to
 | Agent Computer | `bun run agent-computer:type-check` and `bun run agent-computer:test` |
 | Webapps | `bun run webapps:type-check`, `bun run --filter @ankole/webapps test`, and `bun run webapps:build` |
 | Kernel | `bun run --filter @ankole/kernel lint` and `bun run --filter @ankole/kernel test` |
-| Feishu client | `bun run feishu-openapi:test` |
+| Feishu client | `bun run lark-adapter:test` |
 | Block editor | `bun run --filter @ankole/block-editor type-check`, `bun run --filter @ankole/block-editor test`, and `bun run --filter @ankole/block-editor test:package` |
 | Website | `bun run --filter @ankole/website type-check` and `bun run --filter @ankole/website build` |
 
@@ -625,6 +633,25 @@ Control Plane lint includes Credo and selected ex_slop checks. Fix violations;
 there is no baseline exemption. The nesting limit is 4 and the cyclomatic
 complexity limit is 20. `bun run analyze:unused` checks production files,
 exports, types, and dependencies; tests do not retain dead production code.
+
+After you change compile-time dependencies, run this check from
+`app/control_plane`:
+
+```bash
+MIX_ENV=test ANKOLE_EDITION=foss mix ankole.compile_cycles
+MIX_ENV=prod ANKOLE_EDITION=foss mix ankole.compile_cycles
+```
+
+The command checks the host and every local Mix dependency. It rejects dependency cycles that contain a compile-time dependency.
+Runtime-only cycles remain allowed. CI checks both test and production builds
+of the FOSS edition. Production uses compile-time plug initialization, so a
+test build alone cannot detect all compile dependencies. Endpoint and Router
+use local function plugs for business implementations and keep the standard
+library plug initialization. The private SaaS router uses
+`AnkoleWeb.runtime_forward` to retain Phoenix forwarding and record its target
+as a runtime dependency. Check both environments with `ANKOLE_EDITION=saas`
+when private control plane sources are present. Do not add `--only-direct`:
+it removes indirect paths that can close a compile-connected cycle.
 
 Run the Driver's process and transaction checks separately from the unit suite.
 Use a separate test partition and a resolvable local node name:
@@ -1026,28 +1053,19 @@ proves that production path.
 
 A significant or cross-subsystem change should update or add a document under [`docs/design-docs/`](docs/design-docs/). Explain the chosen contract and ownership boundary, not abandoned drafting alternatives.
 
-The changelog records each commit's changes. It is historical information, not an authority for product behavior or design decisions. Use the current owning design document, authoritative product declaration, or explicit human decision for those contracts.
+### Changelog
 
-### One version per commit
+`CHANGELOG.md` tells the people who run and use Ankole what a release changes for them. It is history, not an authority for product behavior or design; the owning design document or an explicit human decision is.
 
-Every Git commit adds exactly one root `CHANGELOG.md` version that covers every retained change in that commit. A version must not span commits, and a commit must not contain multiple versions. Chat-only work, discarded edits, diagnostics without a retained diff, and temporary `HEY.md` coordination do not allocate versions. A change confined to `internals/` that does not affect FOSS goes only in `internals/CHANGELOG.md`.
+Record only what a user or an operator notices after the upgrade: a new capability, changed behavior, a removal, a fix for a failure that they could have met, and any action that the upgrade requires. Do not record documentation, the website, tests, tooling, dependency updates, refactors, or other internal work. When a version has no such change, its only bullet is `Internal changes only.`
 
-Write the entry when work is complete. Check the staged and unstaged changelog against `HEAD`: if it is modified, add to the newest pending version; otherwise add a new version above the newest one. Keep the entry correct as the retained diff changes. All uncommitted work, including work from other agents, belongs to the same next commit and pending version. Split versions only when deliberately preparing separate commits, with one consecutive version per planned commit.
+A commit that changes only documentation (root `*.md` files, `docs/`, `app/website/`) or the changelog itself adds no version. Every other commit adds exactly one version at the top of the file, because the runtime-image workflow releases the newest version of each `main` push and refuses to reuse a version for another commit. Write the entry when the work is complete. When the changelog already differs from `HEAD`, add to that pending version; all uncommitted work in the worktree goes into the same next commit. A change confined to `internals/` that does not affect FOSS goes only in `internals/CHANGELOG.md`.
 
-Normally use 1–4 concise bullets. Describe the outcomes users observe and any required operator action. Give changes that users do not experience one brief factual bullet. Cover all material changes without file or test inventories or implementation narratives.
+Use the heading `## Version MAJOR.MINOR.PATCH (YYYY-MM-DD)`, newest first, with a few short bullets in plain language.
 
 ### Version selection
 
-Use `MAJOR.MINOR.PATCH` with no leading zeroes. An optional suffix is `-alpha`, `-beta`, or `-rc`, optionally followed by `.N` with an increasing number, such as `1.0.0-rc.1`. Only `alpha` and `beta` mark a pre-release; `rc` is a release candidate and counts as a release.
-
-`PATCH` is the default. Increment `MINOR` and reset `PATCH` to `0` only when a change passes either test:
-
-1. **New capability.** A user or operator can do something the product could not do before. State that capability in the bullet. Making an existing capability correct, faster, more reliable, or easier to understand does not qualify.
-2. **Breaking technical change.** Existing behavior stops working, or a person must change configuration, stored data, or an external caller to retain it. State the required action. A retired option, moved boundary, or renamed field that the upgrade migrates automatically does not qualify.
-
-Every other change increments `PATCH`: bug fixes of any severity or visibility, repairs to match documentation, speed, reliability, limits, defaults, errors, logs, telemetry, layout, internal architecture changes, tooling, dependencies, and documentation. Size and the number of affected subsystems do not determine the increment.
-
-A mixed commit uses `MINOR` only if one change qualifies on its own; `PATCH` changes do not add up to `MINOR`. Use `PATCH` when the `MINOR` case is uncertain. Change `MAJOR` only after an explicit human decision, which also sets any suffix. Until that decision, breaking technical changes use `MINOR`, unlike standard Semantic Versioning.
+Increment `PATCH` by default. Increment `MINOR` and reset `PATCH` to `0` when a user or an operator can do something that the product could not do before, or when existing behavior stops working until a person changes configuration, stored data, or an external caller; the bullet states that capability or action. `MAJOR` and the `-alpha`, `-beta`, and `-rc` suffixes follow an explicit human decision. `alpha` and `beta` publish as pre-releases; `rc` is a release.
 
 ### Runtime image releases
 

@@ -1,6 +1,8 @@
 defmodule AnkoleWeb.PodDatabaseControllerTest do
   use AnkoleWeb.ConnCase, async: false
-  alias Ankole.Pod.{DbSyncBinding, Pages}
+  import OpenApiSpex.TestAssertions
+
+  alias Ankole.Pod.Pages
   alias Ankole.Repo
 
   setup do
@@ -50,6 +52,12 @@ defmodule AnkoleWeb.PodDatabaseControllerTest do
              ]
            } = json_response(written, 200)
 
+    assert_schema(
+      hd(json_response(written, 200)["records"]),
+      "PodRecord",
+      AnkoleWeb.InternalAPISpec.spec()
+    )
+
     assert {:ok, _, _} = DateTime.from_iso8601(timestamp)
     assert author =~ ":principal/#{uid}"
 
@@ -87,58 +95,5 @@ defmodule AnkoleWeb.PodDatabaseControllerTest do
 
     assert %{"records" => [%{"updated_at" => updated}]} = json_response(changed, 200)
     assert {:ok, _, _} = DateTime.from_iso8601(updated)
-  end
-
-  test "paused sync fields remain read-only in schema and reject destructive schema edits", %{
-    conn: conn,
-    tenant: tenant
-  } do
-    {conn, uid} = console_conn_with_principal(conn)
-    Repo.put_tenant_id(tenant.id)
-    {:ok, page} = Pages.create(uid, %{type: "database"})
-    {:ok, table} = Ankole.Pod.Database.create_table(uid, page.id, %{name: "Synced"})
-    field = hd(Ankole.Pod.Database.fields(table.id))
-
-    Repo.insert!(
-      DbSyncBinding.changeset(%DbSyncBinding{}, %{
-        table_id: table.id,
-        connector: "fixture",
-        source: %{},
-        field_map: %{"title" => field.id},
-        status: :paused,
-        created_by: Ankole.ActorRef.from_writer(uid, tenant.id, []),
-        created_at: DateTime.utc_now(:microsecond)
-      })
-    )
-
-    schema = get(conn, "/.internal-apis/pod/tables/#{table.id}")
-
-    assert %{
-             "readonly_field_ids" => [id],
-             "fields" => [%{"type" => "text"}],
-             "timezone" => timezone
-           } = json_response(schema, 200)
-
-    assert id == field.id
-    assert is_binary(timezone)
-
-    changed =
-      schema
-      |> recycle_api()
-      |> patch("/.internal-apis/pod/fields/#{field.id}", %{version: 1, type: "number"})
-
-    assert %{"error" => %{"code" => "synced_field_readonly"}} = json_response(changed, 422)
-
-    renamed =
-      changed
-      |> recycle_api()
-      |> patch("/.internal-apis/pod/fields/#{field.id}", %{version: 1, name: "New title"})
-
-    assert %{"field" => %{"name" => "New title"}} = json_response(renamed, 200)
-
-    deleted =
-      renamed |> recycle_api() |> delete("/.internal-apis/pod/fields/#{field.id}", %{version: 2})
-
-    assert %{"error" => %{"code" => "synced_field_readonly"}} = json_response(deleted, 422)
   end
 end

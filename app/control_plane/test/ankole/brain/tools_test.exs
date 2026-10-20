@@ -70,8 +70,6 @@ defmodule Ankole.Brain.ToolsTest do
     assert Tools.function_specs(["get_page", "recall"]) |> Enum.map(& &1["name"]) ==
              ["recall", "get_page"]
 
-    assert Tools.read_only?("recall")
-    refute Tools.read_only?("remember")
     refute Tools.operation?("delete_everything")
   end
 

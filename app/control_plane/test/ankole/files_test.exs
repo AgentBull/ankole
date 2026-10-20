@@ -474,7 +474,7 @@ defmodule Ankole.FilesTest do
         payload: %{"attachments" => [%{"blob_ref" => sha256, "name" => "report.txt"}]}
       }
 
-      assert {:ok, intent} = Ankole.Conversations.Delivery.commit(attrs)
+      assert {:ok, intent} = Ankole.SignalsFixtures.commit_delivery(attrs)
       {:ok, _} = Files.commit(uid, [], ["report.txt"])
       digest = Base.decode16!(sha256, case: :lower)
 
@@ -496,7 +496,7 @@ defmodule Ankole.FilesTest do
       assert {:ok, 1} = CollectUnreferenced.mark_unreferenced()
       assert CollectUnreferenced.remove_marked(0) == 1
       # Recommitting a completed idempotency key does not require the old bytes.
-      assert {:ok, %{status: :sent}} = Ankole.Conversations.Delivery.commit(attrs)
+      assert {:ok, %{status: :sent}} = Ankole.SignalsFixtures.commit_delivery(attrs)
     end
 
     test "shared external attachments keep their bytes after the receiving Agent is deleted", %{
@@ -555,7 +555,7 @@ defmodule Ankole.FilesTest do
       Repo.update_all(where(Blob, sha256: ^digest), set: [deleting: true])
 
       assert {:error, {:blob_missing, ^sha256}} =
-               Ankole.Conversations.Delivery.commit(%{
+               Ankole.SignalsFixtures.commit_delivery(%{
                  agent_uid: uid,
                  binding_name: "test",
                  outbound_key: "missing",

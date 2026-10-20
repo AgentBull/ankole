@@ -34,7 +34,7 @@ defmodule Ankole.AppConfigureTest do
       end
 
     [changed, deleted, created] = definitions
-    :ok = AppConfigure.register_definitions(definitions)
+    :ok = Ankole.AppConfigure.Registry.register_definitions(definitions)
     on_exit(fn -> Enum.each(definitions, &delete_unboxed_global_row(&1.key)) end)
 
     Sandbox.unboxed_run(Repo, fn ->
@@ -87,7 +87,7 @@ defmodule Ankole.AppConfigureTest do
         end
       )
 
-    :ok = AppConfigure.register_definitions([definition])
+    :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
     on_exit(fn -> delete_unboxed_global_row(definition.key) end)
 
     results =
@@ -109,27 +109,29 @@ defmodule Ankole.AppConfigureTest do
       AppConfigure.define(
         key: key(prefix, "duplicate"),
         encrypted: false,
-        schema: Schema.string()
+        schema: Ankole.AppConfigure.Schema.non_empty_string()
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     definition_key = definition.key
 
     assert {:error, {:duplicate_key, ^definition_key}} =
-             AppConfigure.register_definitions([definition])
+             Ankole.AppConfigure.Registry.register_definitions([definition])
 
     pattern =
       AppConfigure.define_pattern(
         id: key(prefix, "pattern"),
         key_pattern: ~r/\Aduplicate-pattern\.[a-z]+\z/,
         encrypted: false,
-        schema: Schema.string()
+        schema: Ankole.AppConfigure.Schema.non_empty_string()
       )
 
-    assert :ok = AppConfigure.register_patterns([pattern])
+    assert :ok = Ankole.AppConfigure.Registry.register_patterns([pattern])
     pattern_id = pattern.id
-    assert {:error, {:duplicate_pattern, ^pattern_id}} = AppConfigure.register_patterns([pattern])
+
+    assert {:error, {:duplicate_pattern, ^pattern_id}} =
+             Ankole.AppConfigure.Registry.register_patterns([pattern])
   end
 
   test "validates defaults and rejects unknown keys before persistence" do
@@ -137,7 +139,11 @@ defmodule Ankole.AppConfigureTest do
       AppConfigure.define(
         key: "invalid.default",
         encrypted: false,
-        schema: Schema.integer(),
+        schema:
+          Ankole.AppConfigure.Schema.new(fn
+            value when is_integer(value) -> {:ok, value}
+            _value -> {:error, :not_integer}
+          end),
         default_value: "not-an-integer"
       )
     end
@@ -155,7 +161,7 @@ defmodule Ankole.AppConfigureTest do
         default_value: %{"enabled" => false, "limit" => 0}
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     assert {:ok, %{value: %{"enabled" => false, "limit" => 0}, source: :default}} =
              AppConfigure.resolve(definition)
@@ -184,7 +190,7 @@ defmodule Ankole.AppConfigureTest do
         default_value: %{}
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
     assert {:ok, :absent} = Cache.load("global", definition.key)
 
     assert :ok =
@@ -237,7 +243,7 @@ defmodule Ankole.AppConfigureTest do
         default_value: %{}
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     reader =
       Task.async(fn ->
@@ -283,7 +289,7 @@ defmodule Ankole.AppConfigureTest do
         default_value: %{}
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
     test_pid = self()
 
     on_exit(fn -> delete_unboxed_global_row(definition.key) end)
@@ -337,7 +343,7 @@ defmodule Ankole.AppConfigureTest do
         default_value: %{}
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     assert {:ok, first_write} =
              Repo.transact(fn repo ->
@@ -375,7 +381,7 @@ defmodule Ankole.AppConfigureTest do
         default_value: %{"default" => true}
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     assert {:ok, committed_write} =
              Repo.transact(fn repo ->
@@ -407,11 +413,11 @@ defmodule Ankole.AppConfigureTest do
         key: key(prefix, "scoped"),
         encrypted: false,
         scope: :tenant,
-        schema: Schema.string(),
+        schema: Ankole.AppConfigure.Schema.non_empty_string(),
         default_value: "default"
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     assert {:ok, %{value: "default", source: :default, scope: nil}} =
              AppConfigure.resolve(definition)
@@ -437,70 +443,6 @@ defmodule Ankole.AppConfigureTest do
              AppConfigure.resolve(definition)
   end
 
-  test "Agent overrides and warm caches retain encrypted values within their tenant", %{
-    prefix: prefix
-  } do
-    %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
-
-    definition =
-      AppConfigure.define(
-        key: key(prefix, "agent-secret"),
-        scope: :tenant,
-        encrypted: true,
-        schema: Schema.string(),
-        default_value: "default"
-      )
-
-    assert :ok = AppConfigure.register_definitions([definition])
-    assert {:ok, "global"} = AppConfigure.put_global(definition, "global")
-    assert {:ok, "tenant"} = AppConfigure.put_tenant_by_key(definition.key, "tenant")
-    assert {:ok, "agent"} = AppConfigure.put_for_agent(agent.uid, definition, "agent")
-
-    assert {:ok, %{value: "agent", source: :agent}} =
-             AppConfigure.resolve(definition, agent_id: agent.uid)
-
-    row = get_row!("agent:" <> agent.uid, definition.key)
-    assert row.tenant_id == Repo.tenant_id!()
-    assert row.value["type"] == "cipher"
-
-    other = create_tenant()
-    foreign_id = other.id
-    agent_scope = "agent:" <> agent.uid
-    config_key = definition.key
-    Phoenix.PubSub.subscribe(Ankole.PubSub, "app_configure:cache")
-
-    Repo.with_tenant(other.id, fn ->
-      assert :miss = Cache.lookup(agent_scope, config_key)
-      assert {:ok, :absent} = Cache.load(agent_scope, config_key)
-      assert {:ok, :absent} = Cache.refresh(agent_scope, config_key)
-      assert {:ok, :absent} = Cache.lookup(agent_scope, config_key)
-      assert_receive {:invalidate, ^agent_scope, ^config_key, ^foreign_id}
-
-      assert {:error, :agent_not_found} = AppConfigure.resolve(definition, agent_id: agent.uid)
-
-      assert {:error, :agent_not_found} =
-               AppConfigure.put_for_agent(agent.uid, definition, "leak")
-
-      assert {:error, :agent_not_found} = AppConfigure.delete_for_agent(agent.uid, definition)
-    end)
-
-    assert {:ok, {:row, envelope}} = Cache.lookup(agent_scope, config_key)
-    assert envelope == row.value
-
-    assert {:ok, %{value: "agent", source: :agent}} =
-             AppConfigure.resolve(definition, agent_id: agent.uid)
-
-    Cache.clear_for_test()
-
-    assert {:ok, %{value: "agent", source: :agent}} =
-             AppConfigure.resolve(definition, agent_id: agent.uid)
-
-    assert :ok = AppConfigure.delete_for_agent(agent.uid, definition)
-
-    assert {:ok, %{value: "tenant", source: :tenant}} =
-             AppConfigure.resolve(definition, agent_id: agent.uid)
-  end
-
   test "global scope definitions reject tenant overrides", %{prefix: prefix} do
     tenant_scope = "tenant:" <> Repo.tenant_id!()
 
@@ -509,11 +451,11 @@ defmodule Ankole.AppConfigureTest do
         key: key(prefix, "global-only"),
         encrypted: false,
         scope: :global,
-        schema: Schema.string(),
+        schema: Ankole.AppConfigure.Schema.non_empty_string(),
         default_value: "default"
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     assert {:error, {:global_scope_only, _key}} =
              AppConfigure.put_tenant_by_key(definition.key, "tenant")
@@ -534,11 +476,15 @@ defmodule Ankole.AppConfigureTest do
         key: key(prefix, "invalid-tenant-row"),
         encrypted: false,
         scope: :tenant,
-        schema: Schema.integer(),
+        schema:
+          Ankole.AppConfigure.Schema.new(fn
+            value when is_integer(value) -> {:ok, value}
+            _value -> {:error, :not_integer}
+          end),
         default_value: 1
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
     assert {:ok, 2} = AppConfigure.put_global(definition, 2)
 
     insert_row!(tenant_scope, definition.key, %{"type" => "plaintext", "value" => "bad"})
@@ -557,7 +503,7 @@ defmodule Ankole.AppConfigureTest do
         schema: Schema.object()
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     assert {:ok, %{"apiKey" => "secret-api-key"}} =
              AppConfigure.put_global(definition, %{"apiKey" => "secret-api-key"})
@@ -595,7 +541,7 @@ defmodule Ankole.AppConfigureTest do
 
     runtime_key = pattern_prefix <> ".dynamic"
 
-    assert :ok = AppConfigure.register_patterns([pattern])
+    assert :ok = Ankole.AppConfigure.Registry.register_patterns([pattern])
     assert {:ok, %{value: %{}, source: :default}} = AppConfigure.resolve_by_key(runtime_key)
 
     assert {:ok, %{"token" => "runtime-token"}} =
@@ -649,18 +595,6 @@ defmodule Ankole.AppConfigureTest do
              AppConfigure.console_delete(:tenant, missing)
   end
 
-  test "rejects non-JSON Elixir values at the schema boundary", %{prefix: prefix} do
-    definition =
-      AppConfigure.define(
-        key: key(prefix, "json"),
-        encrypted: false,
-        schema: Schema.json_value()
-      )
-
-    assert :ok = AppConfigure.register_definitions([definition])
-    assert {:error, :not_json_value} = AppConfigure.put_global(definition, %{atom_key: "value"})
-  end
-
   test "rejects empty agent scope at the database boundary", %{prefix: prefix} do
     assert {:error, %Postgrex.Error{postgres: %{constraint: "app_configurations_scope_check"}}} =
              Ecto.Adapters.SQL.query(
@@ -686,7 +620,7 @@ defmodule Ankole.AppConfigureTest do
         generator: GeneratedSecret.generator()
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
     assert {:ok, secret} = AppConfigure.generate(definition)
     assert secret =~ ~r/\A[0-9a-f]{64}\z/
     assert :error = AppConfigure.get(definition)

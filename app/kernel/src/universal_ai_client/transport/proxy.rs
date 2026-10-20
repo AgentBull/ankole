@@ -360,8 +360,8 @@ mod tests {
             let address = listener.local_addr().unwrap();
             let server = tokio::spawn(async move {
                 let (mut stream, _) = listener.accept().await.unwrap();
-                let mut request = [0; 4096];
-                stream.read(&mut request).await.unwrap();
+                let request = read_test_header(&mut stream).await;
+                assert!(request.starts_with(b"CONNECT fixture:443 HTTP/1.1\r\n"));
                 stream
                     .write_all(format!("HTTP/1.1 {status} Fixture\r\n\r\ntunnel").as_bytes())
                     .await

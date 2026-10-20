@@ -151,9 +151,7 @@ defmodule Ankole.Pod.WriteFenceIntegrationTest do
                %{path: "src/main.ts", sha256: String.duplicate("0", 64)},
                %{path: "dist/index.html", sha256: String.duplicate("0", 64)}
              ]
-           }},
-          {"sync.bind", %{id: table.id}},
-          {"sync.status", %{id: Ecto.UUID.generate(), status: "paused"}}
+           }}
         ] do
       assert {:error, %{"code" => "run_closed"}} =
                RPCBroker.handle_write(ctx.ref, pod_request(operation, attrs), ctx.ctx),

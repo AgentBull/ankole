@@ -602,6 +602,61 @@
 }
 
 @layer components {
+  /* A drop place is ink and has a shape: a line between rows, or a ring around the new parent. */
+  [data-slot='tree-drop-indicator'] {
+    position: absolute;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  [data-slot='tree-drop-indicator'][data-operation='before'],
+  [data-slot='tree-drop-indicator'][data-operation='after'] {
+    left: var(--tree-drop-indent, 0);
+    right: 0;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--foreground);
+  }
+
+  [data-slot='tree-drop-indicator'][data-operation='before'] {
+    top: -2px;
+  }
+
+  [data-slot='tree-drop-indicator'][data-operation='after'] {
+    bottom: -2px;
+  }
+
+  [data-slot='tree-drop-indicator'][data-operation='inside'] {
+    inset: 0;
+    border-radius: var(--radius-control);
+    box-shadow: inset 0 0 0 2px var(--foreground);
+  }
+
+  @media (forced-colors: active) {
+    [data-slot='tree-drop-indicator'][data-operation='before'],
+    [data-slot='tree-drop-indicator'][data-operation='after'] {
+      background: Highlight;
+    }
+
+    [data-slot='tree-drop-indicator'][data-operation='inside'] {
+      box-shadow: inset 0 0 0 2px Highlight;
+    }
+  }
+
+  /* The moving item is ceramic while it travels over paper. */
+  .ankole-tree-drag-preview {
+    @apply ceramic ceramic-primary;
+    max-width: 240px;
+    overflow: hidden;
+    padding: 4px 10px;
+    color: var(--foreground);
+    font-family: var(--font-family-sans);
+    font-size: 13px;
+    line-height: 20px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .ankole-json-editor {
     --jer-form-border: 1px solid var(--input);
     --jer-form-border-focus: 1px solid var(--ring);

@@ -827,7 +827,7 @@ defmodule Ankole.Pod.DatabaseTest do
   end
 
   test "system timestamps remain canonical UTC when the tenant timezone changes", ctx do
-    {:ok, _} = Ankole.SystemConfig.put_timezone("Asia/Shanghai")
+    {:ok, _} = Ankole.AppConfigure.put_tenant_by_key("system.timezone", "Asia/Shanghai")
     {:ok, created_at} = field(ctx, "Created", "created_at")
 
     {:ok, %{records: [record]}} =

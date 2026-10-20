@@ -52,7 +52,6 @@ export type TableSchema = {
   views: DatabaseView[]
   mode: 'local' | 'remote'
   timezone?: string
-  readonly_field_ids?: string[]
   limits?: { group_count: number; local_bytes?: number }
   local_query?: { text_contains_ascii: boolean; jsonb_compare: boolean }
 }

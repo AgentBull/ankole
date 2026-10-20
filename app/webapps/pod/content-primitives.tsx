@@ -1,12 +1,8 @@
 import { t } from 'i18next'
 import { Button, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
-import type { ReactNode } from 'react'
-import { Link } from 'react-router'
-import { podLocation } from '../common/browser-context'
 import { contentError } from './content-errors'
 import { ErrorBlock } from '../common/error-block'
-import { PageIcon } from './page-icon'
-import type { Page, PageRole, PageType } from './content-api'
+import type { PageRole, PageType } from './content-api'
 
 export const typeLabels: Record<PageType, string> = {
   get doc() {
@@ -63,15 +59,6 @@ export function Choice<T extends string>({
         ))}
       </SelectContent>
     </Select>
-  )
-}
-
-export function PageLink({ page, children }: { page: Page; children?: ReactNode }) {
-  return (
-    <Link className="link inline-flex min-w-0 items-center gap-2" to={podLocation(`/pages/${page.id}`)}>
-      <PageIcon page={page} />
-      <span className="truncate">{children ?? (page.title || t('pod.content.untitled'))}</span>
-    </Link>
   )
 }
 

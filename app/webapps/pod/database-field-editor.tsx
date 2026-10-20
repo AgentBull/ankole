@@ -18,15 +18,13 @@ export function FieldEditorButton({
   pageID,
   tables,
   field,
-  canManage,
-  readonly = false
+  canManage
 }: {
   tableID: string
   pageID: string
   tables: DatabaseTable[]
   field?: DatabaseField
   canManage: boolean
-  readonly?: boolean
 }) {
   useSignals()
   const model = useModel(FieldEditorModel)
@@ -146,13 +144,8 @@ export function FieldEditorButton({
               value={type}
               onChange={setType}
               options={fieldTypes}
-              disabled={pending || readonly}
+              disabled={pending}
             />
-            {readonly && (
-              <p className="text-sm text-fg-tertiary">
-                {t('pod.content.externally_synced_fields_are_read_only_you_can_rename_them')}
-              </p>
-            )}
             {type === 'formula' && (
               <label className="grid gap-2 text-sm">
                 {t('pod.content.formula')}
@@ -170,7 +163,7 @@ export function FieldEditorButton({
                 {options.map((option, index) => (
                   <div className="flex gap-2" key={option.id}>
                     <Input
-                      disabled={pending || readonly}
+                      disabled={pending}
                       aria-label={t('pod.content.option', { value1: index + 1 })}
                       value={option.name}
                       onChange={event =>
@@ -181,7 +174,7 @@ export function FieldEditorButton({
                     />
                     <Button
                       type="button"
-                      disabled={pending || readonly}
+                      disabled={pending}
                       variant="ghost"
                       size="sm"
                       onClick={() => setOptions(options.filter((_, i) => i !== index))}>
@@ -192,7 +185,7 @@ export function FieldEditorButton({
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={pending || readonly}
+                  disabled={pending}
                   size="sm"
                   onClick={() => setOptions([...options, { id: crypto.randomUUID(), name: '' }])}>
                   {t('pod.content.add_option')}
@@ -205,7 +198,7 @@ export function FieldEditorButton({
                   label={t('pod.content.related_table')}
                   value={target}
                   onChange={setTarget}
-                  disabled={pending || readonly}
+                  disabled={pending}
                   options={{
                     '': t('pod.content.choose_a_table'),
                     ...Object.fromEntries(
@@ -214,14 +207,14 @@ export function FieldEditorButton({
                   }}
                 />
                 <label className="flex gap-2 text-sm">
-                  <Checkbox disabled={pending || readonly} checked={bidirectional} onCheckedChange={setBidirectional} />
+                  <Checkbox disabled={pending} checked={bidirectional} onCheckedChange={setBidirectional} />
                   {t('pod.content.create_a_two_way_relation')}
                 </label>
               </>
             )}
             {(type === 'select' || type === 'link') && (
               <label className="flex gap-2 text-sm">
-                <Checkbox disabled={pending || readonly} checked={multiple} onCheckedChange={setMultiple} />
+                <Checkbox disabled={pending} checked={multiple} onCheckedChange={setMultiple} />
                 {t('pod.content.allow_multiple_selections')}
               </label>
             )}
@@ -265,7 +258,7 @@ export function FieldEditorButton({
             <Button
               type="button"
               variant="ghost"
-              disabled={pending || readonly}
+              disabled={pending}
               onClick={() => {
                 if (saving.current) return
                 if (confirmation !== 'delete') confirm('delete')

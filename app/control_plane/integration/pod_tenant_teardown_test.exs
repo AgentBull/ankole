@@ -13,7 +13,6 @@ defmodule Ankole.Pod.TenantTeardownTest do
 
   alias Ankole.Pod.DbField
   alias Ankole.Pod.DbRecord
-  alias Ankole.Pod.DbSyncBinding
   alias Ankole.Pod.DbTable
   alias Ankole.Pod.DbView
   alias Ankole.Pod.Page
@@ -27,7 +26,6 @@ defmodule Ankole.Pod.TenantTeardownTest do
 
   @schemas [
     DbRecord,
-    DbSyncBinding,
     DbView,
     DbField,
     DbTable,
@@ -266,19 +264,6 @@ defmodule Ankole.Pod.TenantTeardownTest do
           created_at: now,
           updated_by: @author,
           updated_at: now
-        })
-      )
-
-      Repo.insert!(
-        %DbSyncBinding{}
-        |> DbSyncBinding.changeset(%{
-          table_id: table.id,
-          connector: "github_issues",
-          source: %{"repo" => "ankole"},
-          field_map: %{},
-          status: :active,
-          created_by: @author,
-          created_at: now
         })
       )
     end)

@@ -8,7 +8,6 @@ defmodule Ankole.Plugins.SlackAdapter.Dispatcher do
   alias SlackOpenAPI.SocketMode.Dispatcher, as: SocketDispatcher
 
   @message_receive_events ["message", "app_mention"]
-  @reaction_events ["reaction_added", "reaction_removed"]
   @channel_events [
     "member_joined_channel",
     "member_left_channel",
@@ -24,15 +23,6 @@ defmodule Ankole.Plugins.SlackAdapter.Dispatcher do
     "subteam_updated",
     "subteam_members_changed"
   ]
-
-  @spec event_types() :: [String.t()]
-  def event_types,
-    do:
-      @message_receive_events ++
-        @reaction_events ++
-        @channel_events ++
-        @contact_events ++
-        ["block_actions"]
 
   @spec build([map()], keyword()) :: SocketDispatcher.t()
   def build(consumers, _opts \\ []) do

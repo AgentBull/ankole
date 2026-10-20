@@ -1,7 +1,7 @@
 defmodule Ankole.AIGateway.FunctionCallReplayTest do
   use Ankole.AIGatewayCase
 
-  alias Ankole.AIGateway.{Conversations, ResponseCommit, ResponseStream}
+  alias Ankole.AIGateway.{ResponseCommit, ResponseStream}
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Sessions.ToolArguments
 
@@ -37,7 +37,7 @@ defmodule Ankole.AIGateway.FunctionCallReplayTest do
                model: "gpt-test"
              })
 
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, "replay-note")
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, "replay-note")
     arguments = "```JSON\n{\"path\":\"/workspace/report.txt\"\n```"
 
     assert {:ok, %{"path" => "/workspace/report.txt"}, :incomplete_container} =

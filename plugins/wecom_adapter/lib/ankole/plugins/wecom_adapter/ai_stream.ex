@@ -39,6 +39,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   alias Ankole.Plugins.WeComAdapter.Delivery
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter
   alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias WeComOpenAPI.Bot
   alias WeComOpenAPI.Error
@@ -360,7 +361,6 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
         join_blocks([
           terminal_state_line(presentation),
           display_answer,
-          render_results(presentation["results"]),
           render_receipts(presentation["receipts"]),
           render_meta(presentation, page)
         ])
@@ -408,12 +408,6 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
   end
 
   defp thought_block(_thought), do: nil
-
-  defp render_results(items) when is_list(items) and items != [] do
-    Enum.map_join(items, "\n", fn item -> "- #{item["title"] || item["kind"] || "result"}" end)
-  end
-
-  defp render_results(_items), do: nil
 
   defp render_receipts(items) when is_list(items) and items != [] do
     Enum.map_join(items, "\n", fn item ->
@@ -500,7 +494,7 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
     |> Map.put("version", @checkpoint_version)
     |> Map.put("presentation", ReplyPresentation.checkpoint(presentation))
     |> put_subject(request)
-    |> put_thought_lease(presentation, final?)
+    |> PreviewAdapter.put_thought_lease(presentation, final?, @thought_lease_seconds)
     |> Map.delete("refresh_pending")
     |> Map.delete("refresh_reason")
   end
@@ -516,24 +510,6 @@ defmodule Ankole.Plugins.WeComAdapter.AIStream do
 
   defp put_text(map, _key, value) when not is_binary(value), do: map
   defp put_text(map, key, value), do: Map.put(map, key, value)
-
-  defp put_thought_lease(checkpoint, presentation, false) do
-    case presentation["thought"] do
-      thought when is_binary(thought) and thought != "" ->
-        deadline =
-          DateTime.utc_now(:microsecond)
-          |> DateTime.add(@thought_lease_seconds, :second)
-          |> DateTime.to_iso8601()
-
-        Map.put(checkpoint, "cleanup_at", deadline)
-
-      _absent ->
-        Map.delete(checkpoint, "cleanup_at")
-    end
-  end
-
-  defp put_thought_lease(checkpoint, _presentation, true),
-    do: Map.delete(checkpoint, "cleanup_at")
 
   defp delivery_result(event, page_records, checkpoint) do
     first_stream_id = page_records |> List.first() |> then(&(&1 && &1["stream_id"]))

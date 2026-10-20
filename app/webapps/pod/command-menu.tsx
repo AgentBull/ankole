@@ -80,8 +80,9 @@ export function PodCommandMenu({
           loop
           vimBindings={false}
           onKeyDownCapture={event => {
-            if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229))
+            if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229)) {
               event.stopPropagation()
+            }
           }}>
           <CommandInput aria-label={label} placeholder={t('pod.command.placeholder')} autoFocus />
           <CommandList label={label}>

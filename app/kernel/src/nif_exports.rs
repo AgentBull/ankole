@@ -738,24 +738,6 @@ pub fn derive_key(
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
-pub fn jwt_sign_nif(claims: Term<'_>, key: Term<'_>, header: Term<'_>) -> NIFResult<String> {
-    let claims = decode_string(claims, "claims")?;
-    let key = decode_binary(key, "key")?;
-    let header = decode_string(header, "header")?;
-
-    common::jwt_sign(&claims, key.as_slice(), &header).map_err(error)
-}
-
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn jwt_verify_nif(token: Term<'_>, key: Term<'_>, validation: Term<'_>) -> NIFResult<String> {
-    let token = decode_string(token, "token")?;
-    let key = decode_binary(key, "key")?;
-    let validation = decode_string(validation, "validation")?;
-
-    common::jwt_verify(&token, key.as_slice(), &validation).map_err(error)
-}
-
-#[rustler::nif(schedule = "DirtyCpu")]
 pub fn jwt_sign_pem_nif(
     claims: Term<'_>,
     private_key_pem: Term<'_>,
@@ -826,15 +808,6 @@ pub fn web_url_facts_nif(url: Term<'_>) -> NIFResult<WebURLFactsNIF> {
 #[rustler::nif]
 pub fn generate_key() -> String {
     common::generate_key()
-}
-
-/// Hashes an Elixir binary with BLAKE3 and returns lowercase hexadecimal text.
-#[rustler::nif(schedule = "DirtyCpu")]
-pub fn generic_hash(data: Term<'_>, salt: Term<'_>) -> NIFResult<String> {
-    let data = decode_binary(data, "data")?;
-    let salt = decode_optional_string(salt, "salt")?;
-
-    common::generic_hash(data.as_slice(), salt.as_deref()).map_err(error)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]

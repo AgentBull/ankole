@@ -3,8 +3,6 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
   alias Ankole.AIGateway.ResponseCommit
   use Ankole.SessionsCase
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.PluginFixtures.MockSignalProvider.Delivery, as: MockDelivery
   alias Ankole.PluginFixtures.MockSignalProvider.ReplyPreview, as: MockReplyPreview
   alias Ankole.PluginFixtures.MockSignalProviderPlugin
@@ -925,7 +923,7 @@ defmodule Ankole.Conversations.Delivery.FinalReplyTest do
              )
 
     assert {:ok, conversation} =
-             Conversations.ensure_conversation(agent.uid, event.session_id)
+             Ankole.AIGatewayCase.ensure_conversation(agent.uid, event.session_id)
 
     assert :ok = Ankole.Sessions.Presentation.start(turn_ref, self())
 

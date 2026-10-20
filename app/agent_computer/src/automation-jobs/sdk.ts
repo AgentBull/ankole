@@ -1,7 +1,4 @@
 import { readFileSync } from 'node:fs'
-import { writeFile, rm } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
-import { resolve } from 'node:path'
 import { requestSocketLineBridge } from '../core/socket-line-client'
 
 const contextFileEnv = 'ANKOLE_RUNTIME_AUTOMATION_JOB_CONTEXT_FILE'
@@ -16,7 +13,6 @@ export type AutomationJobContext = {
 }
 
 const contextValue = readContext()
-const runDirectory = process.cwd()
 
 /**
  * Returns the immutable facts for the current automation job run.
@@ -32,28 +28,6 @@ export async function emitEvent(payload: unknown): Promise<void> {
   const encoded = JSON.stringify({ payload })
   if (encoded === undefined) throw new Error('emitEvent payload must be JSON-serializable')
   await requestBridge(encoded)
-}
-
-/** Upserts an external batch through this binding's current job attempt. */
-export async function syncRecords(
-  bindingID: string,
-  records: { external_id: string; data: Record<string, unknown> }[],
-  cursor?: Record<string, unknown>
-): Promise<Record<string, unknown>> {
-  const path = resolve(runDirectory, `.pod-sync-${randomUUID()}.json`)
-  try {
-    await writeFile(path, JSON.stringify(records), { flag: 'wx' })
-    return await requestBridge(
-      JSON.stringify({
-        operation: 'pod.sync',
-        binding_id: bindingID,
-        records_path: path,
-        ...(cursor === undefined ? {} : { cursor })
-      })
-    )
-  } finally {
-    await rm(path, { force: true })
-  }
 }
 
 async function requestBridge(encoded: string): Promise<Record<string, unknown>> {
@@ -80,9 +54,7 @@ function readContext(): AutomationJobContext {
 declare global {
   var context: () => AutomationJobContext
   var emitEvent: (payload: unknown) => Promise<void>
-  var syncRecords: typeof import('./sdk').syncRecords
 }
 
 globalThis.context = context
 globalThis.emitEvent = emitEvent
-globalThis.syncRecords = syncRecords

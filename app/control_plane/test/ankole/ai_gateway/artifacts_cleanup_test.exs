@@ -6,7 +6,6 @@ defmodule Ankole.AIGateway.ArtifactsCleanupTest do
   import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
   alias Ankole.AIGateway.Artifacts
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.Artifact
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
@@ -25,7 +24,7 @@ defmodule Ankole.AIGateway.ArtifactsCleanupTest do
     set_expiry!(orphaned_id, nil)
 
     assert {:ok, conversation} =
-             Conversations.ensure_conversation(agent.principal.uid, "artifact-cleanup")
+             Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "artifact-cleanup")
 
     assert {:ok, complete_message} =
              start_response_run(%{

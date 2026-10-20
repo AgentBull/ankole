@@ -515,9 +515,11 @@ Each contract row defines:
 - the response message type
 
 Elixir derives the authorization facts and generated message modules from this
-contract. It keeps only the method-to-broker mapping. A compile-time coverage
-check requires the mapping and contract to contain the same methods. Tests
-exercise the real broker functions and compare the generated contract. The control plane encodes and decodes all business payloads
+contract. It keeps the method-to-broker mapping in a runtime function so the
+codec does not compile against broker implementations. Compilation checks the
+scope and message modules. Tests require exact method coverage and exported
+broker functions, and exercise the real brokers against the generated contract.
+The control plane encodes and decodes all business payloads
 in one place. It rejects a broker response struct whose module differs from the
 declared response module. It accepts a plain map only when the declared response
 module is `JSONPassthroughResponse`.

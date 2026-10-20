@@ -58,3 +58,13 @@ config :ankole, AnkoleWeb.Endpoint,
 config :phoenix, :stacktrace_depth, 20
 
 config :phoenix, :plug_init_mode, :runtime
+
+# Reload the packages selected by this source build as well as the host.
+config :ankole, AnkoleWeb.Endpoint,
+  reloadable_apps: [
+    :ankole,
+    :ankole_kernel,
+    :im_transport,
+    :feishu_protocol
+    | for({app, opts} <- Mix.Project.config()[:deps], Keyword.has_key?(opts, :path), do: app)
+  ]

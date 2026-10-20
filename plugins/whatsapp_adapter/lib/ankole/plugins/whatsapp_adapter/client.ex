@@ -151,7 +151,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Client do
      %Error{
        kind: :api,
        status: status,
-       code: integer_value(error["code"]),
+       code: Ankole.Attrs.integer_value(error["code"]),
        message: bounded_text(error["message"])
      }}
   end
@@ -165,17 +165,6 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Client do
       [] -> nil
     end
   end
-
-  defp integer_value(value) when is_integer(value), do: value
-
-  defp integer_value(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _invalid -> nil
-    end
-  end
-
-  defp integer_value(_value), do: nil
 
   defp bounded_text(value) when is_binary(value), do: String.slice(value, 0, 500)
   defp bounded_text(_value), do: nil

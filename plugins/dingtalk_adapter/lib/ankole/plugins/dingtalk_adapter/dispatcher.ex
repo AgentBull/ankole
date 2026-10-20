@@ -31,14 +31,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.Dispatcher do
     "org_remove"
   ]
 
-  @doc "Lists every CALLBACK topic the chat face registers."
-  @spec callback_topics() :: [String.t()]
-  def callback_topics, do: [@message_callback, @card_callback]
-
-  @doc "Lists every contact EVENT type the identity face registers."
-  @spec contact_events() :: [String.t()]
-  def contact_events, do: @contact_events
-
   @doc "Builds a Stream dispatcher wired to the supplied consumers."
   @spec build([map()], keyword()) :: StreamDispatcher.t()
   def build(consumers, _opts \\ []) when is_list(consumers) do

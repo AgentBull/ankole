@@ -6,7 +6,6 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
   import AnkoleWeb.AIGatewayControllerTestHelpers, only: [response_sse_events: 3]
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AuthZ
@@ -415,7 +414,7 @@ defmodule AnkoleWeb.OIDCAIGatewayTest do
       )
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(fixture.human.principal.uid, "oidc-human-store")
+      Ankole.AIGatewayCase.ensure_conversation(fixture.human.principal.uid, "oidc-human-store")
 
     {:ok, response} =
       start_response_run(%{

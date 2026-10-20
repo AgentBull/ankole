@@ -27,7 +27,7 @@ observation and delivery route, not the owner of the platform room.
 | Signal configuration | `signals.slack.bindings.<id>` |
 | Identity adapter ID | `slack` |
 | Identity configuration | `principals.identity_providers.slack.<id>` |
-| Provider library | `libs/slack_openapi` |
+| Provider library | `plugins/slack_adapter/lib/slack_openapi` |
 
 The signal adapter supports all three group modes. They are
 `addressed_only`, `observe_all`, and `may_intervene`.
@@ -205,4 +205,4 @@ The implementation sources are:
 
 - `plugins/slack_adapter/lib/ankole/plugins/slack_adapter.ex`
 - `plugins/slack_adapter/lib/ankole/plugins/slack_adapter/`
-- `libs/slack_openapi/`
+- `plugins/slack_adapter/lib/slack_openapi/`

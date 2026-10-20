@@ -6,16 +6,15 @@ import { InternalAPIError } from '../common/internal-api-client'
 import { contentKeys, fileURL, type PageDetail } from './content-api'
 import { ContentError } from './content-primitives'
 import { podFiles, podFileUpload } from '../common/api/generated/sdk.gen'
-import type { PodFileEntry, PodFileManifest, PodFileWriteResult } from '../common/api/generated/types.gen'
+import type { PodFileEntry, PodFileWriteResult } from '../common/api/generated/types.gen'
 import { usePageRealtime } from './use-page-realtime'
 import { isRealtimeAccessDenied } from './realtime'
 
 export type DriveFile = PodFileEntry
-export type PageFiles = PodFileManifest
 export type UploadedFile = PodFileWriteResult
 const SpreadsheetPreview = lazy(() => import('./file-spreadsheet'))
 const PresentationPreview = lazy(() => import('./file-presentation'))
-export const filesQuery = (id: string) => ({
+const filesQuery = (id: string) => ({
   queryKey: [...contentKeys.page(id), 'files'],
   queryFn: () => podFiles({ path: { id } })
 })

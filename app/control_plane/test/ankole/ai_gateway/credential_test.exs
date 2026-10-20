@@ -21,7 +21,9 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert api_key.token_type == "Bearer"
     assert api_key.expires_in == 30 * 24 * 60 * 60
 
-    assert {:ok, claims} = Tokens.verify_api_key(api_key.api_key)
+    assert {:ok, claims} =
+             Ankole.TokenSigning.verify(api_key.api_key, "ankole.ai_gateway", "at+jwt")
+
     assert claims["aud"] == "ankole.ai_gateway"
     assert claims["scope"] == "ai_gateway"
     assert claims["sub"] == agent.uid
@@ -58,7 +60,10 @@ defmodule Ankole.AIGateway.CredentialTest do
     assert response.scope == "ai_gateway"
     assert response.expires_in == 30 * 24 * 60 * 60
     assert String.ends_with?(response.base_url, "/api/v1/ai-gateway")
-    assert {:ok, claims} = Tokens.verify_api_key(response.api_key)
+
+    assert {:ok, claims} =
+             Ankole.TokenSigning.verify(response.api_key, "ankole.ai_gateway", "at+jwt")
+
     assert claims["sub"] == agent.uid
   end
 

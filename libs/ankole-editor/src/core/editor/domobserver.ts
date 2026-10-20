@@ -1,6 +1,6 @@
 import { GardSelection, Transaction } from '../state'
 import browser from './browser'
-import { Wordgard } from './editor'
+import type { Wordgard } from './editor'
 import { DOMNode, hasSelection, getSelection, DOMSelectionState, SelectionRange, isEquivalentPosition } from './dom'
 import { Tile, WidgetTile } from './tile'
 import { readDOMSelection, selectionFromTouch } from './selection'

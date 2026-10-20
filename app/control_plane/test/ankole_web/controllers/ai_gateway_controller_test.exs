@@ -11,8 +11,6 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
   import AnkoleWeb.AIGatewayControllerTestHelpers
   import ExUnit.CaptureLog
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.AIGateway.ResponseStream.State, as: ResponseStreamState
@@ -221,7 +219,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     }
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "retrieve-response-controller")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "retrieve-response-controller")
 
     {:ok, first} =
       start_response_run(%{
@@ -330,7 +328,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     }
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "retrieve-role-only-input")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "retrieve-role-only-input")
 
     {:ok, message} =
       start_response_run(%{
@@ -361,7 +359,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:ok, intruder_key} = Tokens.mint_for_agent(intruder.uid)
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(owner.uid, "retrieve-response-cross-agent")
+      Ankole.AIGatewayCase.ensure_conversation(owner.uid, "retrieve-response-cross-agent")
 
     {:ok, message} =
       start_response_run(%{
@@ -411,7 +409,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert {:ok, api_key} = Tokens.mint_for_agent(agent.uid)
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "retrieve-response-not-terminal")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "retrieve-response-not-terminal")
 
     {:ok, generating} =
       start_response_run(%{
@@ -2566,7 +2564,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
              })
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "compact-response-controller")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "compact-response-controller")
 
     {:ok, anchor} =
       start_response_run(%{

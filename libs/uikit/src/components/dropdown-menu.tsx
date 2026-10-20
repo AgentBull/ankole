@@ -21,6 +21,9 @@ function DropdownMenuTrigger({ className, ...props }: MenuPrimitive.Trigger.Prop
   )
 }
 
+const menuContentClassName =
+  'ceramic ceramic-primary z-50 max-h-(--available-height) w-(--anchor-width) min-w-40 origin-(--transform-origin) overflow-x-hidden overflow-y-auto p-1 text-popover-foreground outline-none transition-none data-closed:overflow-hidden data-starting-style:opacity-0 data-ending-style:opacity-0'
+
 function DropdownMenuContent({
   align = 'start',
   alignOffset = 0,
@@ -39,10 +42,7 @@ function DropdownMenuContent({
         sideOffset={sideOffset}>
         <MenuPrimitive.Popup
           data-slot="dropdown-menu-content"
-          className={cn(
-            'ceramic ceramic-primary z-50 max-h-(--available-height) w-(--anchor-width) min-w-40 origin-(--transform-origin) overflow-x-hidden overflow-y-auto p-1 text-popover-foreground outline-none transition-none data-closed:overflow-hidden data-starting-style:opacity-0 data-ending-style:opacity-0',
-            className
-          )}
+          className={cn(menuContentClassName, className)}
           {...props}
         />
       </MenuPrimitive.Positioner>
@@ -247,5 +247,6 @@ export {
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
-  DropdownMenuTrigger
+  DropdownMenuTrigger,
+  menuContentClassName
 }

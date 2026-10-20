@@ -6,7 +6,6 @@ defmodule Ankole.AgentWorkers.LocalWorkerRoutes do
 
   use GenServer
 
-  alias Ankole.Kernel.RuntimeFabric
   alias Ankole.Logging
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers.InboundDispatcher
@@ -73,7 +72,7 @@ defmodule Ankole.AgentWorkers.LocalWorkerRoutes do
   end
 
   def local_inbound(route, bytes, worker_id) when is_binary(bytes) do
-    case RuntimeFabric.decode_envelope(bytes) do
+    case Ankole.RuntimeFabric.V1.Envelope.decode(bytes) do
       {:ok, envelope} -> local_inbound(route, envelope, worker_id)
       {:error, reason} -> InboundDispatcher.dispatch({:error, route, reason}, nil, nil)
     end

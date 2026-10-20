@@ -28,6 +28,7 @@ const AccountNavigation = createContext<ReactNode>(null)
 const routeFeedback = { HydrateFallback: PodRouteLoading, ErrorBoundary: PodRouteError }
 const loadChatRoute = async () => ({ Component: (await import('./chat-page')).ChatRoute })
 
+/** `accountNavigation` adds `DropdownMenuItem`s to the sidebar account menu. */
 type PodAppProps = { accountNavigation?: ReactNode }
 
 export function PodApp({ accountNavigation }: PodAppProps = {}) {
@@ -114,8 +115,9 @@ function PodShell() {
         event.shiftKey ||
         !(event.metaKey || event.ctrlKey) ||
         event.key.toLowerCase() !== 'k'
-      )
+      ) {
         return
+      }
       event.preventDefault()
       event.stopPropagation()
       if (commandOpen) setCommandOpen(false)
@@ -131,8 +133,9 @@ function PodShell() {
       !state?.focusComposer ||
       commandOpen ||
       focusedChatLocation.current === location.key
-    )
+    ) {
       return
+    }
     const observer = new MutationObserver(focusComposer)
     function focusComposer() {
       if (document.querySelector('.pod-command-dialog:not([data-closed])')) return

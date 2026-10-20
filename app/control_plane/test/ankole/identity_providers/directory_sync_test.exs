@@ -58,7 +58,7 @@ defmodule Ankole.IdentityProviders.DirectorySyncTest do
     definition =
       AppConfigure.define(key: key, encrypted: true, schema: Ankole.AppConfigure.Schema.object())
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     provider = %{
       "provider_id" => "missing-sync-config",

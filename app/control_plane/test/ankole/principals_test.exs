@@ -716,7 +716,7 @@ defmodule Ankole.PrincipalsTest do
       %{principal: principal} = human_fixture()
 
       assert {:error, changeset} =
-               Principals.create_external_identity(%{
+               Ankole.PrincipalsFixtures.create_external_identity(%{
                  principal_uid: principal.uid,
                  external_id: "ou_bad",
                  metadata: %{}
@@ -729,7 +729,7 @@ defmodule Ankole.PrincipalsTest do
       %{principal: principal} = human_fixture(%{uid: unique_uid("identity-owner")})
 
       assert {:ok, identity} =
-               Principals.create_external_identity(%{
+               Ankole.PrincipalsFixtures.create_external_identity(%{
                  principal_uid: String.upcase(principal.uid),
                  provider: "lark-main",
                  external_id: unique_uid("actor"),

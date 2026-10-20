@@ -80,6 +80,11 @@ The table extends a human Principal with these fields:
 The changeset lowercases email addresses.
 It validates mobile numbers as E.164 values through the native kernel.
 
+DingTalk, Lark, WeCom, and Slack normalize observed phone numbers through
+`Ankole.IdentityProviders.Phone.normalize_china_mobile/1` before this validation.
+That helper tries the supplied number first, then a +86 candidate for an
+11-digit number that starts with 1. Other providers keep their own input rules.
+
 Unique indexes protect non-null email and mobile values.
 
 A human user can also hold a local sign-in password in

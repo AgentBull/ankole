@@ -9,7 +9,6 @@ defmodule Ankole.Sessions.ReplyRouteTest do
   alias Ankole.AutomationJobs.Schemas.Run, as: AutomationRun
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.AIGateway.Conversations
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.Sessions.RunRef
   alias Ankole.Principals.WorkAccess
@@ -95,7 +94,7 @@ defmodule Ankole.Sessions.ReplyRouteTest do
   test "a Workflow task and its delegated Job resolve the same long-lived session" do
     %{principal: agent} = background_agent_fixture()
     source = source!(agent.uid, "workflow-origin")
-    {:ok, _} = Conversations.ensure_conversation(agent.uid, source.session_id)
+    {:ok, _} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, source.session_id)
     task = workflow_task!(source)
     task_source = source!(agent.uid, Ankole.Workflow.task_session_id(task.id))
     delegated = job!(task_source)
@@ -133,7 +132,8 @@ defmodule Ankole.Sessions.ReplyRouteTest do
     assert {:error, :long_lived_reply_owner_not_found} =
              Route.long_lived_owner(agent.uid, parent.dispatch_event.session_id)
 
-    {:ok, loop} = Conversations.ensure_conversation(agent.uid, parent.dispatch_event.session_id)
+    {:ok, loop} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, parent.dispatch_event.session_id)
 
     parent.job
     |> change(

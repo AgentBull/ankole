@@ -64,7 +64,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     %{principal: first_agent} = agent_fixture()
     %{principal: second_agent} = agent_fixture()
     shared_config = dingtalk_config("ding_concurrent_shared")
-    first_config_key = Config.chat_config_key(first_agent.uid)
+    first_config_key = "signals.dingtalk.bindings." <> first_agent.uid
     cache_pid = Process.whereis(AppConfigureCache)
     parent = self()
 
@@ -143,7 +143,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     setup_dingtalk_config_registry()
     %{principal: owner} = agent_fixture()
     %{principal: claimant} = agent_fixture()
-    owner_config_key = Config.chat_config_key(owner.uid)
+    owner_config_key = "signals.dingtalk.bindings." <> owner.uid
     claimed_config = dingtalk_config("ding_claimed_while_owner_unknown")
 
     assert {:ok, %Binding{}} =
@@ -252,7 +252,8 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
     config =
       Map.merge(%{"clientId" => "cli_intent", "clientSecret" => "secret"}, extra_config)
 
-    {:ok, _config} = AppConfigure.put_global_by_key(Config.chat_config_key(config_id), config)
+    {:ok, _config} =
+      AppConfigure.put_global_by_key("signals.dingtalk.bindings." <> config_id, config)
 
     %{principal: agent} = agent_fixture()
 
@@ -261,7 +262,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
         agent_uid: agent.uid,
         name: "dingtalk-intent",
         adapter: "dingtalk",
-        config_ref: "app-config://#{Config.chat_config_key(config_id)}",
+        config_ref: "app-config://#{"signals.dingtalk.bindings." <> config_id}",
         filters: %{},
         unaddressed_group_message_policy: :ignore,
         unmatched_sender_policy: :create_standalone
@@ -640,7 +641,7 @@ defmodule Ankole.Plugins.DingTalkAdapterTest do
       "provider_id" => provider_id,
       "adapter_id" => "dingtalk",
       "plugin_id" => "dingtalk-adapter",
-      "config_key" => Config.identity_config_key(provider_id),
+      "config_key" => "principals.identity_providers.dingtalk." <> provider_id,
       "enabled" => true
     }
 

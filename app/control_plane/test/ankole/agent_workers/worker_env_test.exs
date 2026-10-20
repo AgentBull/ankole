@@ -41,13 +41,13 @@ defmodule Ankole.AgentWorkers.WorkerEnvTest do
     assert {:ok, _item} =
              WorkerEnv.console_put_for_agent(agent.uid, shared, %{"value" => "from-agent"})
 
-    assert {:ok, env} = WorkerEnv.effective_env(agent.uid)
+    assert {:ok, env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
     assert env[plain] == "global-plain"
     assert env[secret] == "s3cret"
     assert env[shared] == "from-agent"
 
     other = agent_fixture()
-    assert {:ok, other_env} = WorkerEnv.effective_env(other.principal.uid)
+    assert {:ok, other_env} = Ankole.SessionsCase.effective_worker_env(other.principal.uid)
     assert other_env[shared] == "from-global"
   end
 
@@ -135,14 +135,14 @@ defmodule Ankole.AgentWorkers.WorkerEnvTest do
 
     assert {:ok, item} = WorkerEnv.console_delete_for_agent(agent.uid, name)
     assert item.source == "global"
-    assert {:ok, env} = WorkerEnv.effective_env(agent.uid)
+    assert {:ok, env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
     assert env[name] == "global"
 
     assert {:error, :not_found} = WorkerEnv.console_delete_for_agent(agent.uid, name)
 
     assert {:ok, deleted} = WorkerEnv.console_delete_global(name)
     assert deleted.present == false
-    assert {:ok, env} = WorkerEnv.effective_env(agent.uid)
+    assert {:ok, env} = Ankole.SessionsCase.effective_worker_env(agent.uid)
     refute Map.has_key?(env, name)
   end
 

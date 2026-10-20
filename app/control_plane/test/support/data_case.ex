@@ -3,6 +3,9 @@ defmodule Ankole.DataCase do
 
   use ExUnit.CaseTemplate
 
+  import Ecto.Query, only: [from: 2]
+  import ExUnit.Assertions
+
   using do
     quote do
       alias Ankole.Repo
@@ -43,6 +46,26 @@ defmodule Ankole.DataCase do
       end)
 
     tenant
+  end
+
+  @doc "Deletes a committed tenant through its lifecycle owner."
+  def cleanup_tenant!(tenant) do
+    assert {:ok, _} = Ankole.Tenants.delete(tenant)
+    job = %Oban.Job{args: %{"tenant_id" => tenant.id}}
+
+    Enum.reduce_while(1..30, nil, fn _, _ ->
+      case Ankole.Tenants.Jobs.Delete.run(job) do
+        :ok -> {:halt, :ok}
+        {:snooze, _} -> {:cont, nil}
+        error -> flunk("Tenant cleanup failed: #{inspect(error)}")
+      end
+    end)
+
+    refute Ankole.Repo.get(Ankole.Tenants.Tenant, tenant.id)
+
+    Ankole.Repo.delete_all(
+      from(j in Oban.Job, where: fragment("?->>'tenant_id'", j.args) == ^tenant.id)
+    )
   end
 
   @doc "Selects the privileged tenant for a serial test of site administration."

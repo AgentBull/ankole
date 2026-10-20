@@ -72,7 +72,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
           adapter: "lark",
           binding: "lark-final",
           channel: "lark:chat:group-a",
-          config_key: &LarkAdapter.Config.chat_config_key/1,
+          config_key: &("signals.lark.bindings." <> &1),
           config: %{"appID" => "cli_a", "appSecret" => "secret"}
         )
 
@@ -85,7 +85,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
           adapter: "dingtalk",
           binding: "dingtalk-final",
           channel: "dingtalk:cidG",
-          config_key: &DingTalkAdapter.Config.chat_config_key/1,
+          config_key: &("signals.dingtalk.bindings." <> &1),
           config: %{"clientId" => "cli", "clientSecret" => "secret", "cardTemplateId" => "tpl-1"}
         )
 
@@ -99,7 +99,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
           adapter: "wecom",
           binding: "wecom-final",
           channel: "wecom:wr-final",
-          config_key: &WeComAdapter.Config.chat_config_key/1,
+          config_key: &("signals.wecom.bindings." <> &1),
           config: %{"botId" => "bot-final", "secret" => "secret"}
         )
 

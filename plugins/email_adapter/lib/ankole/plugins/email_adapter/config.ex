@@ -230,16 +230,6 @@ defmodule Ankole.Plugins.EmailAdapter.Config do
     }
   end
 
-  @doc "Fingerprint of every setting, so any change replaces the mailbox owner."
-  @spec secret_fingerprint(t() | Runtime.t()) :: String.t()
-  def secret_fingerprint(config) do
-    runtime = runtime(config)
-
-    :sha256
-    |> :crypto.hash(:erlang.term_to_binary(Map.from_struct(runtime)))
-    |> Base.encode16(case: :lower)
-  end
-
   @doc """
   Transport options for the IMAP client.
 

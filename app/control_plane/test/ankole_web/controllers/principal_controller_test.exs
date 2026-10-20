@@ -13,7 +13,9 @@ defmodule AnkoleWeb.PrincipalControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    {:ok, false} = SetupConfig.put_completed(false)
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     :ok
@@ -236,7 +238,7 @@ defmodule AnkoleWeb.PrincipalControllerTest do
       %{principal: human} = human_fixture()
 
       {:ok, _identity} =
-        Ankole.Principals.create_external_identity(%{
+        Ankole.PrincipalsFixtures.create_external_identity(%{
           principal_uid: human.uid,
           provider: "lark",
           external_id: "ou-#{System.unique_integer([:positive])}"

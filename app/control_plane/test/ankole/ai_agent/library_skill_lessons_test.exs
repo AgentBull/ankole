@@ -350,8 +350,10 @@ defmodule Ankole.AIAgent.LibrarySkillLessonsTest do
           @context
         )
 
-      assert {:ok, %{"pdf" => %{"has_lessons" => true}}} =
-               Library.rendered_skill_lessons(agent.uid, ["pdf"])
+      assert {:ok, %{"has_agent_overlay" => true, "content" => content}} =
+               Library.skill_view(agent.uid, "pdf")
+
+      assert content =~ lesson.content
 
       # Push review_after past the delivery grace: the maintenance loop died
       # and the fuse must stop delivery.
@@ -362,8 +364,10 @@ defmodule Ankole.AIAgent.LibrarySkillLessonsTest do
         set: [review_after: stale]
       )
 
-      assert {:ok, %{"pdf" => %{"has_lessons" => false, "text" => ""}}} =
-               Library.rendered_skill_lessons(agent.uid, ["pdf"])
+      assert {:ok, %{"has_agent_overlay" => false, "content" => content}} =
+               Library.skill_view(agent.uid, "pdf")
+
+      refute content =~ lesson.content
     end
   end
 end

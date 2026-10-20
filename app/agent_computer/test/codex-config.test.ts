@@ -86,10 +86,10 @@ describe('@ankole/agent-computer Codex config', () => {
   })
 
   it('keeps the CP original Human request separate from workspace instructions', () => {
-    const originalHumanRequest =
-      '<original_human_request>\n' +
-      JSON.stringify({ message_id: 'human-message', text: 'Do not run my reserved step.\nI will do it.' }) +
-      '\n</original_human_request>'
+    const originalHumanRequest = `<original_human_request>\n${JSON.stringify({
+      message_id: 'human-message',
+      text: 'Do not run my reserved step.\nI will do it.'
+    })}\n</original_human_request>`
     const config = codexJobThreadConfig({
       cwd: '/workspace/jobs/1000',
       codexHome: '/workspace/.codex',

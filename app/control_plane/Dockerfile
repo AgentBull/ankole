@@ -60,14 +60,14 @@ COPY app/kernel/package.json ./app/kernel/package.json
 COPY app/webapps/package.json ./app/webapps/package.json
 COPY libs/ankole-editor/package.json ./libs/ankole-editor/package.json
 COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
-COPY libs/feishu_openapi/package.json ./libs/feishu_openapi/package.json
+COPY plugins/lark_adapter/package.json ./plugins/lark_adapter/package.json
 COPY libs/uikit/package.json ./libs/uikit/package.json
 COPY tools/devkit/package.json ./tools/devkit/package.json
 COPY tools/openapi-client-generator/package.json ./tools/openapi-client-generator/package.json
 COPY libs/ankole-editor/patches/mdast-util-to-markdown@2.2.0.patch ./libs/ankole-editor/patches/mdast-util-to-markdown@2.2.0.patch
 
 # The build uses only the workspace packages copied above.
-RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser", "app/control_plane", "app/kernel", "app/webapps", "libs/ankole-editor", "libs/applet-sdk", "libs/feishu_openapi", "libs/uikit", "tools/devkit", "tools/openapi-client-generator"]; await Bun.write("package.json", JSON.stringify(p));'
+RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser", "app/control_plane", "app/kernel", "app/webapps", "libs/ankole-editor", "libs/applet-sdk", "plugins/lark_adapter", "libs/uikit", "tools/devkit", "tools/openapi-client-generator"]; await Bun.write("package.json", JSON.stringify(p));'
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   bun install --no-save
@@ -75,11 +75,13 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 COPY --parents \
   ./app/control_plane/mix.exs \
   ./app/control_plane/mix.lock \
+  ./app/control_plane_core/mix.exs \
+  ./app/control_plane_core/config/config.exs \
+  ./plugins/*/mix.exs \
   ./app/kernel/mix.exs \
   ./app/kernel/Cargo.toml \
   ./app/kernel/Cargo.lock \
   ./libs/*/mix.exs \
-  ./libs/*/mix.lock \
   ./
 
 WORKDIR /repo/app/control_plane
@@ -92,6 +94,8 @@ WORKDIR /repo
 
 COPY tsconfig.json tsconfig.base.json ./
 COPY app/control_plane ./app/control_plane
+COPY app/control_plane_core ./app/control_plane_core
+COPY app/agent_computer/src ./app/agent_computer/src
 COPY app/kernel ./app/kernel
 COPY app/library ./app/library
 COPY app/locales ./app/locales
@@ -102,6 +106,10 @@ COPY --from=ankole-internals / ./internals/
 COPY tools/openapi-client-generator ./tools/openapi-client-generator
 
 WORKDIR /repo/app/control_plane
+
+RUN --mount=type=cache,target=/root/.cache/hex \
+  --mount=type=cache,target=/root/.cache/rebar3 \
+  mix deps.get --only prod
 
 RUN --mount=type=cache,target=/root/.cargo/git \
   --mount=type=cache,target=/root/.cargo/registry \

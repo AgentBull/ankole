@@ -1,5 +1,31 @@
 # Changelog
 
+## Version 2.0.0-alpha.14 (2026-10-20)
+
+- Make each control-plane Plugin a local Mix project and place each provider
+  client in its matching IM Plugin. Keep one release, Repo, and migration ledger.
+  Share matching HTTP and WebSocket primitives without changing provider error,
+  response, token, or reconnect behavior. Keep the Feishu frame codec separate
+  so the fake platform does not load the control plane.
+
+- Remove Control Plane compile-connected cycles by separating pure domain
+  declarations from business modules. Publish committed conversation and Session
+  changes through their own PubSub contracts, with durable input and delivery
+  recovery unchanged. Reject new compile-connected cycles in repository checks.
+- Remove Pod sync bindings. The upgrade keeps imported records and removes
+  sync metadata.
+- Remove Automation Job definition expiry. The upgrade changes expired
+  definitions to cancelled so they cannot become active again.
+- Redesign the Pod sidebar. Search is a field at the top, Home and Chat stay
+  as tabs, and the current page has an ink mark. Drag a page before, after, or
+  into another page, or onto the Space or Private heading. A right-click or
+  the row's "…" button opens page actions, including rename in place and move
+  up or down. Each move and each move to Trash shows an undo action.
+- Add an account menu at the bottom of the sidebar. It lists every
+  organization that this browser is signed in to, switches between them,
+  opens the account chooser, sets the theme, and signs out. A site
+  administrator also gets a link to the Site Console.
+
 ## Version 2.0.0-alpha.13 (2026-10-19)
 
 - Fix Control Plane image builds that failed because the Applet SDK and Block

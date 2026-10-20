@@ -13,9 +13,4 @@ defmodule Ankole.Plugins.LineAdapter.Signature do
   end
 
   def valid?(_raw_body, _header, _channel_secret), do: false
-
-  @spec sign(binary(), String.t()) :: String.t()
-  def sign(raw_body, channel_secret) when is_binary(raw_body) and is_binary(channel_secret) do
-    :hmac |> :crypto.mac(:sha256, channel_secret, raw_body) |> Base.encode64()
-  end
 end

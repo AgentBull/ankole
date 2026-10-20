@@ -38,8 +38,8 @@
     "webapps:type-check": "bun run --filter @ankole/webapps type-check",
     "uikit": "bun run --filter @ankole/uikit",
     "uikit:type-check": "bun run --filter @ankole/uikit type-check",
-    "feishu-openapi": "bun run --filter @ankole/feishu-openapi",
-    "feishu-openapi:test": "bun run --filter @ankole/feishu-openapi test",
+    "lark-adapter": "bun run --filter @ankole/lark-adapter",
+    "lark-adapter:test": "bun run --filter @ankole/lark-adapter test",
     "analyze": "bun run kit analyze all",
     "analyze:smells": "bun run kit analyze smells",
     "analyze:unused": "bun run kit analyze unused",
@@ -47,7 +47,7 @@
     "analyze:cycles": "bun run kit analyze cycles"
   },
   "dependencies": {
-    "turbo": "^2.11.8"
+    "turbo": "^2.11.9"
   },
   "devDependencies": {
     "@types/bun": "1.4.3",

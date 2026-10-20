@@ -28,7 +28,7 @@ import {
   eventHandler,
   eventObserver
 } from './input'
-import { ViewState, scrollIntoView, ScrollTarget } from './viewstate'
+import { ViewState, scrollIntoView, ScrollTarget, UpdateFlag } from './viewstate'
 import browser from './browser'
 import { DOMNode, getRoot, clearScratchRange, scrollRectIntoView } from './dom'
 import { setDOMSelection, moveVertically, moveToLineBoundary } from './selection'
@@ -1471,8 +1471,3 @@ class PluginInstance {
 }
 
 export type AttrSource = Record<string, string | null> | ((wg: Wordgard) => Record<string, string | null>)
-
-export enum UpdateFlag {
-  Focus = 1,
-  Geometry = 2
-}

@@ -132,18 +132,21 @@ export function useChatCommands({
     }
   }
   const editLast = (message: ConversationMessage) => {
-    if (data && policy().canRetryLast)
+    if (data && policy().canRetryLast) {
       model.beginEdit(message.id, message.text, data.queueVersion, 'last', message.attachments.length > 0)
+    }
   }
   const editQueued = (input: ConversationPendingInput) => {
-    if (data && policy().canQueue('edit'))
+    if (data && policy().canQueue('edit')) {
       model.beginEdit(input.messageID, input.text, data.queueVersion, 'queue', input.attachments.length > 0)
+    }
   }
   const useSaved = () => {
     const editing = model.editing.value
     const saved = data && editing && editingText(data, editing)
-    if (data && editing && saved !== undefined && model.rebaseEdit(editing.messageID, saved, data.queueVersion, true))
+    if (data && editing && saved !== undefined && model.rebaseEdit(editing.messageID, saved, data.queueVersion, true)) {
       queue.reset()
+    }
   }
   return {
     ...policy(),

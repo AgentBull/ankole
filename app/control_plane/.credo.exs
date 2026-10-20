@@ -4,7 +4,13 @@
       name: "default",
       files: %{
         included:
-          ["lib/", "../../plugins/*/lib/"] ++
+          [
+            "lib/",
+            "../control_plane_core/lib/",
+            "../../plugins/*/lib/",
+            "../../libs/im_transport/lib/",
+            "../../libs/feishu_protocol/lib/"
+          ] ++
             if(System.get_env("ANKOLE_EDITION") == "saas",
               do: ["../../internals/control_plane/lib/", "../../internals/plugins/*/lib/"],
               else: []

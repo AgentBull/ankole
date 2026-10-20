@@ -6,7 +6,6 @@ defmodule AnkoleWeb.PodControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.Conversations
   alias Ankole.Repo
-  alias Ankole.Setup.Config, as: SetupConfig
   alias AnkoleWeb.Session, as: WebSession
 
   defmodule StreamAdapter do
@@ -38,7 +37,7 @@ defmodule AnkoleWeb.PodControllerTest do
     conn: conn,
     tenant: tenant
   } do
-    {:ok, true} = SetupConfig.put_completed(true)
+    {:ok, true} = Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
     anonymous = get(conn, ~p"/.internal-apis/pod/agents")
 
     assert %{"error" => %{"code" => "unauthorized"}} =
@@ -72,7 +71,9 @@ defmodule AnkoleWeb.PodControllerTest do
 
   test "the API follows the shell setup gate", %{conn: conn} do
     conn = console_conn(conn)
-    {:ok, false} = SetupConfig.put_completed(false)
+
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
 
     conn = get(conn, ~p"/.internal-apis/pod/agents")
 
@@ -375,8 +376,12 @@ defmodule AnkoleWeb.PodControllerTest do
     id = detail.conversation.id
     model_id = detail.model_conversation_id
     native_message = {:conversation_event, id, :message}
-    native_status = {:conversation_event, id, :status}
+    native_status = {:session_event, agent.uid, detail.session_id, :status}
     signal = Repo.get_by!(Ankole.Signals.Signal, session_id: detail.session_id)
+
+    completed =
+      {:session_event, agent.uid, detail.session_id, {:turn_completed, signal.id, :silent}}
+
     response_id = "resp_" <> Ecto.UUID.generate()
 
     gateway = %{
@@ -401,7 +406,7 @@ defmodule AnkoleWeb.PodControllerTest do
       {:ai_gateway_event, :output_text_delta, gateway},
       native_message,
       native_status,
-      native_status
+      completed
     ]
 
     request =
@@ -446,8 +451,12 @@ defmodule AnkoleWeb.PodControllerTest do
     assert_receive ^unrelated_native
     assert_receive ^unrelated_gateway
 
-    :ok = Conversations.publish_message(%{session_id: Ankole.Sessions.Key.conversation(id)})
+    :ok =
+      Ankole.Conversations.Events.publish_message(id)
+
     refute_receive ^native_message
+    :ok = Ankole.Sessions.Events.publish_status(agent.uid, detail.session_id)
+    refute_receive ^native_status
 
     Phoenix.PubSub.local_broadcast(
       Ankole.PubSub,
@@ -464,7 +473,9 @@ defmodule AnkoleWeb.PodControllerTest do
       conn: conn,
       revoked: revoked
     } do
-      {:ok, true} = SetupConfig.put_completed(true)
+      {:ok, true} =
+        Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), true)
+
       human = human_fixture().principal
       human_uid = human.uid
 
@@ -555,7 +566,7 @@ defmodule AnkoleWeb.PodControllerTest do
              owner: self(),
              events: [
                {:ai_gateway_event, :output_text_delta, gateway},
-               {:conversation_event, detail.conversation.id, :status}
+               {:session_event, agent.uid, detail.session_id, :status}
              ],
              chunks_left: 2
            }}

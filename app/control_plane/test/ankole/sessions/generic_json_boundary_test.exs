@@ -12,8 +12,7 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
     Fence,
     ModelHistory,
     Revisions,
-    Run,
-    Workspaces
+    Run
   }
 
   alias Ankole.Sessions.Prompt.Input
@@ -140,7 +139,7 @@ defmodule Ankole.Sessions.GenericJSONBoundaryTest do
         })
       )
 
-    {:ok, workspace} = Workspaces.ensure(c.agent.uid, input.session_id)
+    {:ok, workspace} = Ankole.SessionsCase.ensure_workspace(c.agent.uid, input.session_id)
 
     run = %{
       agent_uid: c.agent.uid,

@@ -42,28 +42,28 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       do: ignored_for_chat(consumers, :ignored_message_changed)
 
   def handle_message_receive(_event_type, %Event{} = event, consumers) do
-    result = dispatch_chat(consumers, &emit_message(&1, event))
+    result = AdapterContext.dispatch_chat(consumers, &emit_message(&1, event))
     maybe_log_missing_sender(event, result)
     result
   end
 
   @spec handle_message_removed(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_removed(_event_type, %Event{} = event, consumers),
-    do: dispatch_chat(consumers, &emit_removed(&1, event))
+    do: AdapterContext.dispatch_chat(consumers, &emit_removed(&1, event))
 
   @spec handle_reaction_created(String.t(), Event.t(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_reaction_created(_event_type, %Event{} = event, consumers),
-    do: dispatch_chat(consumers, &emit_reaction(&1, event, :add))
+    do: AdapterContext.dispatch_chat(consumers, &emit_reaction(&1, event, :add))
 
   @spec handle_reaction_deleted(String.t(), Event.t(), [map()]) ::
           {:ok, list()} | {:error, term()}
   def handle_reaction_deleted(_event_type, %Event{} = event, consumers),
-    do: dispatch_chat(consumers, &emit_reaction(&1, event, :remove))
+    do: AdapterContext.dispatch_chat(consumers, &emit_reaction(&1, event, :remove))
 
   @spec handle_block_action(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_block_action(_event_type, %Event{} = event, consumers),
-    do: dispatch_chat(consumers, &emit_action(&1, event))
+    do: AdapterContext.dispatch_chat(consumers, &emit_action(&1, event))
 
   @doc false
   @spec handle_card_action(String.t(), Event.t(), [map()]) :: {:ok, list()} | {:error, term()}
@@ -310,18 +310,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
 
   defp decode_action_value(value), do: value
 
-  defp dispatch_chat(consumers, fun) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fun)
-    |> MapHelpers.collect_results()
-  end
-
   defp ignored_for_chat(consumers, status) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fn _consumer -> {:ok, %{status: status}} end)
-    |> MapHelpers.collect_results()
+    AdapterContext.dispatch_chat(consumers, fn _consumer -> {:ok, %{status: status}} end)
   end
 
   defp observe_action_operator(%{context: context, config: config}, operator_id) do
@@ -330,10 +320,7 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
       external_id: operator_id
     }
 
-    case AdapterContext.observe_platform_subject(context, attrs) do
-      {:ok, %{principal: principal}} -> {:ok, principal.uid}
-      {:error, _reason} = error -> error
-    end
+    AdapterContext.observe_platform_subject_uid(context, attrs)
   end
 
   defp ignored_sender?(message, config) do

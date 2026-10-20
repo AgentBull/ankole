@@ -56,7 +56,6 @@ defmodule Ankole.Conversations.ExternalTest do
     assert id >= 10_000
     assert ref.author["id"] == "unmapped"
     assert ref.raw_payload == %{"opaque" => true}
-    assert [%{message: ^message, external_ref: ^ref}] = External.list_messages(Repo, c.id)
   end
 
   test "provider redelivery and edits keep the Message UUID, seq, and attachment identity", %{
@@ -171,7 +170,7 @@ defmodule Ankole.Conversations.ExternalTest do
     assert {:ok, later} = observe(c.id, %{provider_message_id: "later", text: "Later"})
     assert later.message.seq > read_watermark
     assert later.message.seq > first.message.seq
-    assert [%{message: %{id: id}}] = External.list_messages(Repo, c.id, after_seq: read_watermark)
+    assert %{message: %{id: id}} = External.get_message(Repo, c.id, "later")
     assert id == later.message.id
     assert Repo.get_by!(Conversation, id: c.id).sequence_high_water == later.message.seq
   end

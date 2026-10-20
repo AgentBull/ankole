@@ -4,7 +4,6 @@ defmodule Ankole.Sessions.SessionWorkspacesTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.Repo
-  alias Ankole.Sessions.Workspaces
   alias Ecto.Adapters.SQL
 
   test "database identity starts at 10000" do
@@ -24,14 +23,14 @@ defmodule Ankole.Sessions.SessionWorkspacesTest do
   test "allocates one stable model-safe ID per Session" do
     %{principal: agent} = agent_fixture()
 
-    assert {:ok, first} = Workspaces.ensure(agent.uid, "manual:first")
+    assert {:ok, first} = Ankole.SessionsCase.ensure_workspace(agent.uid, "manual:first")
     assert first.id >= 10_000
     assert first.id <= 9_007_199_254_740_991
 
-    assert {:ok, repeated} = Workspaces.ensure(agent.uid, "manual:first")
+    assert {:ok, repeated} = Ankole.SessionsCase.ensure_workspace(agent.uid, "manual:first")
     assert repeated.id == first.id
 
-    assert {:ok, second} = Workspaces.ensure(agent.uid, "manual:second")
+    assert {:ok, second} = Ankole.SessionsCase.ensure_workspace(agent.uid, "manual:second")
     assert second.id > first.id
   end
 end

@@ -26,21 +26,6 @@ defmodule Ankole.Plugins.LarkAdapter.Dispatcher do
   ]
 
   @doc """
-  Lists every provider event type the adapter registers.
-  """
-  @spec event_types() :: [String.t()]
-  def event_types do
-    [
-      @message_receive,
-      @message_recalled,
-      @reaction_created,
-      @reaction_deleted,
-      @card_action | @contact_events
-    ]
-    |> Kernel.++(IMGroups.event_types())
-  end
-
-  @doc """
   Builds a FeishuOpenAPI dispatcher wired to the supplied chat and identity consumers.
   """
   @spec build([map()], keyword()) :: FeishuDispatcher.t()

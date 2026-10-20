@@ -1,22 +1,8 @@
 use hashcrew::xxhash::xxh3_128;
 
-use crate::common::KernelResult;
-use crate::common::crypto::parse_hex_32;
-
 /// Change detection only. This is not a security digest or provenance checksum.
 pub fn xxh3_128_hex(input: &[u8]) -> String {
     format!("{:032x}", xxh3_128(input))
-}
-
-/// A salt is a 64-character hex keyed-hash key, so the JS and Elixir APIs share one key form.
-pub fn generic_hash(data: &[u8], salt: Option<&str>) -> KernelResult<String> {
-    match salt {
-        Some(salt) => {
-            let key = parse_hex_32(salt, "salt")?;
-            Ok(blake3::keyed_hash(&key, data).to_hex().to_string())
-        }
-        None => Ok(blake3::hash(data).to_hex().to_string()),
-    }
 }
 
 #[cfg(test)]

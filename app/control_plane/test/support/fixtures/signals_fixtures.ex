@@ -14,6 +14,20 @@ defmodule Ankole.SignalsFixtures do
 
   @base_time ~U[2026-07-02 01:34:05.000000Z]
 
+  def commit_delivery(attrs) do
+    Ankole.Repo.transact(fn repo -> Ankole.Conversations.Delivery.commit_in_tx(repo, attrs) end)
+  end
+
+  def owner_status(server) do
+    {:status, _pid, _module, [_dictionary, _status, _parent, _debug, formatted]} =
+      :sys.get_status(server)
+
+    {_label, state} =
+      formatted |> Keyword.get_values(:data) |> List.flatten() |> List.keyfind(~c"State", 0)
+
+    state
+  end
+
   # Protocol tests construct a supervised owner directly. Reconciliation tests
   # persist bindings and enter through reconcile_once instead.
   def start_connection_owner(module, config, consumers) do
@@ -279,7 +293,7 @@ defmodule Ankole.SignalsFixtures do
       |> Map.put(:agent_uid, agent_uid)
       |> Map.put(:binding_name, binding_name)
 
-    with {:ok, _intent} <- Ankole.Conversations.Delivery.commit(attrs) do
+    with {:ok, _intent} <- Ankole.SignalsFixtures.commit_delivery(attrs) do
       Ankole.Conversations.Delivery.dispatch(
         agent_uid,
         binding_name,

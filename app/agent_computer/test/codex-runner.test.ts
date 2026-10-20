@@ -896,13 +896,10 @@ describe('@ankole/agent-computer Codex job runner', () => {
     const turnUpserts: RecordedTurnUpsert[] = []
     const opts = options(fixture.root, statusUpdates, turnUpserts)
     const update = steerUpdate()
-    const originalRequest =
-      '<original_human_request>\n' +
-      JSON.stringify({
-        message_id: 'new-human-message',
-        text: 'Keep my action reserved for me.\nUse the new language.'
-      }) +
-      '\n</original_human_request>'
+    const originalRequest = `<original_human_request>\n${JSON.stringify({
+      message_id: 'new-human-message',
+      text: 'Keep my action reserved for me.\nUse the new language.'
+    })}\n</original_human_request>`
     Object.assign(update.signal.payload_json, { original_human_request: originalRequest })
     let polled = false
     opts.pollSteering = () => {
@@ -915,7 +912,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       await runCodexJob(turnStart(), opts)
 
       expect(readFileSync(join(codexHomeFor(fixture.root), 'steer-input.txt'), 'utf8')).toBe(
-        originalRequest + '\n\nDelegated message:\nUse the latest operator guidance.'
+        `${originalRequest}\n\nDelegated message:\nUse the latest operator guidance.`
       )
       const eventID = steerUpdate().signal!.signal_id
       expect(

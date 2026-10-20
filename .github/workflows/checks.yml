@@ -1,0 +1,98 @@
+name: Repository checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webapps:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run analyze
+      - run: bun run --filter @ankole/webapps type-check
+      - run: bun run --filter @ankole/webapps test
+      - run: bun run --filter @ankole/applet-sdk type-check
+      - run: bun run --filter @ankole/applet-sdk test
+
+  page-codec:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: rustup toolchain install 1.98.1 --profile minimal
+      - run: rustup default 1.98.1
+      - run: bun run --filter @ankole/block-editor type-check
+      - run: bun run --filter @ankole/block-editor test
+      - run: cargo test --locked --manifest-path app/kernel/Cargo.toml --no-default-features page_document
+      - run: bun run --filter @ankole/block-editor test:rust
+
+  control-plane:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      MIX_ENV: test
+      MIX_TEST_PARTITION: ci
+      ANKOLE_EDITION: foss
+      ANKOLE_SECRET_BASE: repository-checks-only
+      DATABASE_URL: ecto://postgres:repository-checks-only@localhost:5432/ankole_test
+    services:
+      postgres:
+        image: ghcr.io/agentbull/ankole-postgres-for-ankole:main-latest
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: repository-checks-only
+          POSTGRES_DB: ankole_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ankole_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          elixir-version: '1.20.4'
+      - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - run: rustup toolchain install 1.98.1 --profile minimal
+      - run: rustup default 1.98.1
+      - run: bun install --frozen-lockfile
+      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
+        working-directory: app/control_plane
+      - run: bun run --filter @ankole/control-plane lint
+      - run: mix ankole.compile_cycles
+        working-directory: app/control_plane
+      - run: mix ankole.compile_cycles
+        working-directory: app/control_plane
+        env:
+          MIX_ENV: prod
+      - run: mix ankole.openapi.check
+        working-directory: app/control_plane
+      - run: mix test
+        working-directory: app/control_plane
+      - run: mix test integration/subtraction_upgrade_test.exs
+        working-directory: app/control_plane

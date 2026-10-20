@@ -165,8 +165,17 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
   describe "compaction trigger" do
     setup do
       merged = Map.put(CompactionPolicy.config(), "upstream", true)
-      assert {:ok, _config} = CompactionPolicy.put_config(merged)
-      on_exit(fn -> CompactionPolicy.delete_config() end)
+
+      assert {:ok, _config} =
+               Ankole.AppConfigure.put_global(
+                 Ankole.AIGateway.CompactionPolicy.config_definition(),
+                 merged
+               )
+
+      on_exit(fn ->
+        Ankole.AppConfigure.delete_global(Ankole.AIGateway.CompactionPolicy.config_definition())
+      end)
+
       :ok
     end
 

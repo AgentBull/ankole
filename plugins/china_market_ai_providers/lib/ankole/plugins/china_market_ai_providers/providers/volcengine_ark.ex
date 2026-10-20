@@ -5,7 +5,6 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
 
   use Ankole.AIGateway.ProviderDSL
 
-  alias Ankole.AIGateway.ProviderConnectionCheck
   alias Ankole.AIGateway.ReasoningEffort
   alias Ankole.AIGateway.UniversalAIRequest
 
@@ -97,14 +96,4 @@ defmodule Ankole.Plugins.ChinaMarketAIProviders.Providers.VolcengineArk do
 
   @impl true
   def models_metadata_source(_ctx), do: {:ok, {:static, @doubao_metadata}}
-
-  @impl true
-  def prepare_connection_check(ctx) when is_map(ctx) do
-    headers =
-      ctx
-      |> UniversalAIRequest.raw_headers()
-      |> UniversalAIRequest.bearer_auth(ctx.settings[:api_key])
-
-    ProviderConnectionCheck.get(ctx, "models", headers: headers)
-  end
 end

@@ -28,7 +28,7 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
   alias WeComOpenAPI.Corp.Client, as: CorpClient
 
   import Ankole.Plugins.MapHelpers,
-    only: [required_string: 2, optional_string: 3, optional_boolean: 3]
+    only: [enum_string: 4, required_string: 2, optional_string: 3, optional_boolean: 3]
 
   @chat_key_pattern ~r/\Asignals\.wecom\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.wecom\.[A-Za-z0-9_.:-]+\z/
@@ -65,12 +65,6 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
       )
     ]
   end
-
-  @spec chat_config_key(String.t()) :: String.t()
-  def chat_config_key(id), do: "signals.wecom.bindings.#{id}"
-
-  @spec identity_config_key(String.t()) :: String.t()
-  def identity_config_key(id), do: "principals.identity_providers.wecom.#{id}"
 
   @doc "Normalizes and validates chat binding configuration loaded from AppConfigure."
   @spec validate_chat_config(term()) :: {:ok, chat_config()} | {:error, term()}
@@ -167,16 +161,6 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
   defp ensure_sync_has_contacts_secret(true, secret) when is_binary(secret), do: :ok
   defp ensure_sync_has_contacts_secret(true, _missing), do: {:error, :contacts_secret_required}
 
-  @doc "Loads an identity-provider config by its AppConfigure key."
-  @spec load_identity_config_key(String.t()) :: {:ok, identity_config()} | {:error, term()}
-  def load_identity_config_key(key) when is_binary(key) do
-    with {:ok, value} <- AppConfigure.get_by_key(key) do
-      validate_identity_config(value)
-    end
-  end
-
-  def load_identity_config_key(_key), do: {:error, :invalid_config_key}
-
   @doc "Builds the corp REST client for the self-built app secret (login)."
   @spec app_client(identity_config()) :: CorpClient.t()
   def app_client(config) when is_map(config) do
@@ -250,14 +234,5 @@ defmodule Ankole.Plugins.WeComAdapter.Config do
           {:halt, {:error, {:wecom_binding_config_unavailable, binding.agent_uid, reason}}}
       end
     end)
-  end
-
-  defp enum_string(map, key, values, default) do
-    with {:ok, value} <- optional_string(map, key, default) do
-      case value in values do
-        true -> {:ok, value}
-        false -> {:error, {:invalid_enum, key, values}}
-      end
-    end
   end
 end

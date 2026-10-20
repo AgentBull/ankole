@@ -7,7 +7,6 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
   use Ankole.AIGatewayCase
 
   alias Ankole.AIGateway.CompactionArtifacts
-  alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Schemas.CompactionArtifact
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.AIGateway.StatefulLifecycle
@@ -34,7 +33,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     {:ok, _} = Links.add_alias(object.slug, "Wire Format")
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, "checkpoint-#{Ecto.UUID.generate()}")
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "checkpoint-#{Ecto.UUID.generate()}")
 
     event = event!(agent, conversation)
     configure_compaction!(100_000)
@@ -67,7 +66,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     assert {:error,
             {:context_overflow,
              %{reason: "compaction_output_over_budget", truncation: "disabled"}}} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request
              )
@@ -75,7 +74,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     assert Repo.aggregate(CompactionArtifact, :count) == 0
 
     assert {:ok, provider_request, result} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                Map.put(request, "truncation", "auto")
              )
@@ -223,7 +222,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     context = %{context | event: event!(context.agent, context.conversation)}
 
     assert {:ok, next, _} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [text("user", "continue")])
              )
@@ -270,7 +269,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
       |> Map.put("previous_response_id", "resp_#{anchor.id}")
 
     assert {:ok, _, branch} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                branch_request
              )
@@ -300,7 +299,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     _first_journal = tool_round!(context, "first", 160_000)
 
     assert {:ok, second_request, second} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [])
              )
@@ -312,7 +311,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     journal!(context, second.message, "second", 160_000)
 
     assert {:ok, third_request, third} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [])
              )
@@ -324,7 +323,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     journal!(context, third.message, "third", 100)
 
     assert {:ok, fourth_request, fourth} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [])
              )
@@ -345,7 +344,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     provider!(context.agent, fn _ -> flunk("preparation does not dispatch the main provider") end)
 
     assert {:ok, first, started} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [text("user", "Wire Format task")])
              )
@@ -358,7 +357,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
       })
 
     assert {:ok, retried, _} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [text("user", "Wire Format task")])
              )
@@ -386,7 +385,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     literal = "Wire Format: <recalled_memory>USER_LITERAL_TAG: VEGA</recalled_memory>"
 
     assert {:ok, _, opening} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [text("user", literal)])
              )
@@ -395,7 +394,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     fact!(context.agent, "concepts/wire-format", "LATEST_TASK_MEMORY")
 
     assert {:ok, prepared, started} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [text("user", "Wire Format: the current project is VEGA")])
              )
@@ -443,7 +442,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
       |> Map.put("previous_response_id", "resp_#{completed.id}")
 
     assert {:ok, next, continuation} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                next_request
              )
@@ -457,7 +456,12 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
 
   test "upstream checkpoints keep fresh memory separate from provider compaction input and output",
        context do
-    {:ok, _} = CompactionPolicy.put_config(Map.put(CompactionPolicy.config(), "upstream", true))
+    {:ok, _} =
+      Ankole.AppConfigure.put_global(
+        Ankole.AIGateway.CompactionPolicy.config_definition(),
+        Map.put(CompactionPolicy.config(), "upstream", true)
+      )
+
     native_output = [%{"type" => "compaction", "encrypted_content" => "provider-memory-opaque"}]
     owner = self()
 
@@ -472,7 +476,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     tool_round!(context, "memory-native", 160_000)
 
     assert {:ok, prepared, started} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [text("user", "Wire Format: continue")])
              )
@@ -497,7 +501,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     tool_round!(context, "memory-truncate", 160_000)
 
     assert {:ok, prepared, started} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                context
                |> request([text("user", "Wire Format: VEGA")])
@@ -549,7 +553,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     provider!(context.agent, fn _ -> flunk("preparation does not dispatch the main provider") end)
 
     {:ok, plain_conversation} =
-      Conversations.ensure_conversation(context.agent.uid, "plain-opening")
+      Ankole.AIGatewayCase.ensure_conversation(context.agent.uid, "plain-opening")
 
     plain = %{
       context
@@ -558,7 +562,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     }
 
     assert {:ok, _, plain_started} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(plain, [text("user", "Wire Format")])
              )
@@ -569,7 +573,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
     assert {:ok, _} = ResponseCommit.commit_complete(plain_started.message, [])
 
     assert {:ok, _, started} =
-             StatefulLifecycle.prepare_and_start_websocket_provider_request(
+             StatefulLifecycle.prepare_websocket_request(
                context.agent.uid,
                request(context, [text("user", "Wire Format")]),
                oidc_client_id: "memory-client"
@@ -632,7 +636,7 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
 
   defp tool_round!(context, call_id, tokens) do
     {:ok, _, started} =
-      StatefulLifecycle.prepare_and_start_websocket_provider_request(
+      StatefulLifecycle.prepare_websocket_request(
         context.agent.uid,
         request(context, [text("user", "Wire Format task")])
       )
@@ -694,7 +698,8 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
 
   defp configure_compaction!(max_tokens) do
     {:ok, _} =
-      CompactionPolicy.put_config(
+      Ankole.AppConfigure.put_global(
+        Ankole.AIGateway.CompactionPolicy.config_definition(),
         Map.merge(CompactionPolicy.config(), %{
           "threshold" => 0.5,
           "max_threshold_tokens" => max_tokens,
@@ -702,7 +707,9 @@ defmodule Ankole.AIGateway.CheckpointContextTest do
         })
       )
 
-    on_exit(fn -> CompactionPolicy.delete_config() end)
+    on_exit(fn ->
+      Ankole.AppConfigure.delete_global(Ankole.AIGateway.CompactionPolicy.config_definition())
+    end)
   end
 
   defp fact!(agent, slug, claim) do

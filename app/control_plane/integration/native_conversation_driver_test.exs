@@ -88,7 +88,8 @@ defmodule Ankole.Conversations.NativeDriverTest do
 
         Ankole.PrincipalsFixtures.delete_agent_fixture_rows(agent.uid)
         {:ok, _} = ProviderConfigs.delete_provider(profile["provider_id"])
-        Repo.delete!(tenant)
+        {:ok, _} = ProviderConfigs.delete_provider(profile["provider_id"])
+        cleanup_tenant!(tenant)
       end)
     )
 
@@ -180,7 +181,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
     assert Ankole.JSON.encode!(first_request.body["messages"]) =~ "What is six times seven?"
     assert_receive {:native_model_waiting, provider}, 5_000
     assert :ok = Events.subscribe(agent.uid, first_detail.model_conversation_id)
-    assert :ok = Conversations.subscribe(id)
+    assert :ok = Conversations.Events.subscribe(id)
     send(provider, :release_model)
 
     assert_receive {:ai_gateway_event, :output_text_delta,
@@ -612,7 +613,7 @@ defmodule Ankole.Conversations.NativeDriverTest do
 
     _ = await_request()
     _ = wait_for_completion(event_for(input_id).id)
-    assert :ok = Conversations.subscribe(id)
+    assert :ok = Conversations.Events.subscribe(id)
 
     schedule = native_cron(context, id, true)
     assert is_nil(schedule.binding_name)

@@ -8,8 +8,6 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
   import Ankole.PrincipalsFixtures
   import Ecto.Query
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.ResponseStream.State
   alias Ankole.AIGateway.StatefulLifecycle
@@ -22,7 +20,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-tool-results")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-tool-results")
 
       request_items = [
         %{
@@ -53,7 +51,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-touch")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-touch")
 
       {:ok, _message} = start_run(agent, conversation, "event-touch", %{})
 
@@ -65,7 +63,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-2")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-2")
 
       {:ok, first} = start_run(agent, conversation, "event-a")
 
@@ -86,7 +84,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-xor")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-xor")
 
       {:ok, first} = start_run(agent, conversation, "event-xor-a")
       {:ok, first_complete} = ResponseCommit.commit_complete(first, [%{"type" => "message"}])
@@ -103,7 +101,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-3")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-3")
 
       {:ok, incomplete} = start_run(agent, conversation, "event-c")
 
@@ -117,7 +115,10 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-malformed-anchor")
+        Ankole.AIGatewayCase.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-malformed-anchor"
+        )
 
       assert {:error, :invalid_anchor} =
                start_run(agent, conversation, "event-malformed-anchor", %{
@@ -130,7 +131,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       caller = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(owner.principal.uid, "test-conv-cross-agent")
+        Ankole.AIGatewayCase.ensure_conversation(owner.principal.uid, "test-conv-cross-agent")
 
       assert {:error, :invalid_conversation} =
                start_run(caller, conversation, "event-cross-agent")
@@ -140,7 +141,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-implicit-leaf")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-implicit-leaf")
 
       {:ok, root} = start_run(agent, conversation, "event-implicit-leaf-root")
 
@@ -158,7 +159,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.principal.uid,
           "test-conv-implicit-admission"
         )
@@ -231,7 +232,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.principal.uid,
           "test-conv-implicit-head-change"
         )
@@ -270,7 +271,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-tool-journal")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-tool-journal")
 
       {:ok, anchor} = start_run(agent, conversation, "event-tool-journal-anchor")
 
@@ -378,7 +379,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-tool-dedupe")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-tool-dedupe")
 
       {:ok, anchor} = start_run(agent, conversation, "event-tool-dedupe-anchor")
 
@@ -414,7 +415,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-output-value")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-output-value")
 
       {:ok, anchor} = start_run(agent, conversation, "event-output-value-anchor")
 
@@ -455,7 +456,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.principal.uid,
           "test-conv-custom-tool-journal"
         )
@@ -497,7 +498,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.principal.uid,
           "test-conv-custom-tool-mismatch"
         )
@@ -543,7 +544,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-tool-quarantine")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-tool-quarantine")
 
       {:ok, anchor} = start_run(agent, conversation, "event-tool-quarantine-anchor")
 
@@ -595,7 +596,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-incomplete-call")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-incomplete-call")
 
       {:ok, anchor} = start_run(agent, conversation, "event-incomplete-call-anchor")
 
@@ -633,7 +634,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-caller-scope")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-caller-scope")
 
       {:ok, anchor} = start_run(agent, conversation, "event-caller-scope-anchor")
 
@@ -695,7 +696,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.principal.uid,
           "test-conv-invalid-tool-journal"
         )
@@ -717,7 +718,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-4")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-4")
 
       request_items = [
         %{
@@ -748,7 +749,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-terminal-race")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-terminal-race")
 
       {:ok, message} = start_run(agent, conversation, "event-terminal-race")
 
@@ -760,7 +761,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.principal.uid,
           "test-conv-terminal-projection-race"
         )
@@ -818,7 +819,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-5")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-5")
 
       request_items = [
         %{
@@ -852,7 +853,10 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-fail-already-terminal")
+        Ankole.AIGatewayCase.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-fail-already-terminal"
+        )
 
       {:ok, message} = start_run(agent, conversation, "event-fail-already-terminal")
 
@@ -912,7 +916,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-6")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-6")
 
       {:ok, m1} = start_run(agent, conversation, "event-g")
 
@@ -943,7 +947,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-7")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-7")
 
       {:ok, m1} = start_run(agent, conversation, "event-j")
 
@@ -963,7 +967,10 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-generating-anchor")
+        Ankole.AIGatewayCase.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-generating-anchor"
+        )
 
       {:ok, m1} = start_run(agent, conversation, "event-generating-anchor-a")
       {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "done"}])
@@ -983,7 +990,10 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-bad-history-anchor")
+        Ankole.AIGatewayCase.ensure_conversation(
+          agent.principal.uid,
+          "test-conv-bad-history-anchor"
+        )
 
       assert [] =
                ResponseChain.expand_history(conversation.id,
@@ -995,7 +1005,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-compaction-tail")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-compaction-tail")
 
       {:ok, m1} = start_run(agent, conversation, "event-compact-1")
       {:ok, m1} = ResponseCommit.commit_complete(m1, [%{"text" => "one"}])
@@ -1069,7 +1079,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.principal.uid,
           "test-conv-compaction-tool-tail"
         )
@@ -1145,7 +1155,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(
+        Ankole.AIGatewayCase.ensure_conversation(
           agent.principal.uid,
           "test-conv-compaction-current-tool"
         )
@@ -1194,7 +1204,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-8")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-8")
 
       {:ok, m1} = start_run(agent, conversation, "event-l")
 
@@ -1215,7 +1225,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-branch-leaves")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-branch-leaves")
 
       {:ok, root} = start_run(agent, conversation, "event-branch-root")
       {:ok, root} = ResponseCommit.commit_complete(root, [%{"text" => "root"}])
@@ -1254,7 +1264,7 @@ defmodule Ankole.AIGateway.StatefulResponsesTest do
       agent = agent_fixture()
 
       {:ok, conversation} =
-        Conversations.ensure_conversation(agent.principal.uid, "test-conv-9")
+        Ankole.AIGatewayCase.ensure_conversation(agent.principal.uid, "test-conv-9")
 
       assert ResponseChain.latest_visible_leaf(conversation.id) == nil
     end

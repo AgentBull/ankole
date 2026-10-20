@@ -70,7 +70,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.InteractiveCard do
       "thought" => "",
       "plan" => "",
       "activity" => "",
-      "results" => "",
       "receipts" => "",
       "actions" => render_output_actions(output),
       "meta" => ""

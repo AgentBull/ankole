@@ -156,7 +156,7 @@ async function runPreparedJob(
   const contextPath = join(WORKER_SHARE_ROOT, `ankole-aj-context-${randomUUID()}.json`)
 
   try {
-    const emitBridge = startEmitBridge(request, opts.rpc, new Drive({ agentHome: execution.agentHome, rpc: opts.rpc }))
+    const emitBridge = startEmitBridge(request, opts.rpc)
     try {
       writeFileAtomicSync(
         contextPath,
@@ -295,44 +295,19 @@ async function runProcess(
   }
 }
 
-function startEmitBridge(request: AutomationJobRunRequest, rpc: RPCRequester, drive: Drive): SocketLineBridge {
+function startEmitBridge(request: AutomationJobRunRequest, rpc: RPCRequester): SocketLineBridge {
   return startSocketLineBridge({
     socketPath: join(WORKER_SHARE_ROOT, `ankole-aj-emit-${randomUUID()}.sock`),
     maxRequestBytes: emitRequestMaxBytes,
     oversizeError: 'Automation request is too large',
-    handleLine: line => emitLine(line, request, rpc, drive)
+    handleLine: line => emitLine(line, request, rpc)
   })
 }
 
-async function emitLine(
-  line: string,
-  request: AutomationJobRunRequest,
-  rpc: RPCRequester,
-  drive: Drive
-): Promise<unknown> {
+async function emitLine(line: string, request: AutomationJobRunRequest, rpc: RPCRequester): Promise<unknown> {
   const command = JSON.parse(line) as {
     operation?: string
     payload?: unknown
-    binding_id?: string
-    records_path?: unknown
-    cursor?: unknown
-  }
-  if (command.operation === 'pod.sync') {
-    if (typeof command.binding_id !== 'string' || typeof command.records_path !== 'string') {
-      throw new Error('syncRecords requires a binding ID and record file')
-    }
-    const result = await rpc(
-      'pod.sync',
-      {
-        bindingId: command.binding_id,
-        automationJobRunId: request.automationJobRunId,
-        attemptId: request.attemptId,
-        recordsHomeRelativePath: await drive.homeRelativePath(command.records_path),
-        cursorJson: jsonBytes(command.cursor as never)
-      },
-      undefined
-    )
-    return { ok: true, result: jsonObjectFromBytes(result.bodyJson, 'Pod sync response')?.result ?? {} }
   }
   if (command.operation !== undefined) throw new Error('Unknown automation operation')
   if (!Object.prototype.hasOwnProperty.call(command, 'payload')) {

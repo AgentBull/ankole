@@ -105,12 +105,6 @@
     "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
   },
   {
-    "method": "pod.sync",
-    "scope": "worker_agent",
-    "request_type": "ankole.runtime_fabric.v1.PodSyncRequest",
-    "response_type": "ankole.runtime_fabric.v1.JSONPassthroughResponse"
-  },
-  {
     "method": "pod.write",
     "scope": "turn",
     "effect": "write",

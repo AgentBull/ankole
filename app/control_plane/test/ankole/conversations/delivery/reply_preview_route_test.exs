@@ -114,7 +114,7 @@ defmodule Ankole.Conversations.Delivery.ReplyPreviewRouteTest do
     presentation = ReplyPresentation.new() |> ReplyPresentation.terminal("completed", answer)
     outbound_key = "ai-reply:#{event.id}"
 
-    Ankole.Conversations.Delivery.commit(%{
+    Ankole.SignalsFixtures.commit_delivery(%{
       agent_uid: agent.uid,
       binding_name: "rich",
       outbound_key: outbound_key,

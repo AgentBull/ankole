@@ -1,6 +1,6 @@
 import { GardSelection } from '../state'
 import { Pos, Leaf } from '../doc'
-import { Wordgard } from './editor'
+import type { Wordgard } from './editor'
 import { type CoordPos } from './tile'
 import { isEquivalentPosition, getSelection, SelectionRange } from './dom'
 

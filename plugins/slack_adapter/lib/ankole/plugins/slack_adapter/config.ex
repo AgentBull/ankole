@@ -11,7 +11,13 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
   alias SlackOpenAPI.Client
 
   import Ankole.Plugins.MapHelpers,
-    only: [required_string: 2, optional_string: 3, optional_boolean: 3, integer_between: 5]
+    only: [
+      string_array: 3,
+      required_string: 2,
+      optional_string: 3,
+      optional_boolean: 3,
+      integer_between: 5
+    ]
 
   @chat_key_pattern ~r/\Asignals\.slack\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.slack\.[A-Za-z0-9_.:-]+\z/
@@ -57,9 +63,6 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
 
     "signals.slack.bindings.#{id}"
   end
-
-  @spec identity_config_key(String.t()) :: String.t()
-  def identity_config_key(id), do: "principals.identity_providers.slack.#{id}"
 
   @spec validate_chat_config(term()) :: {:ok, chat_config()} | {:error, term()}
   def validate_chat_config(value) when is_map(value) do
@@ -180,10 +183,10 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
     |> Base.encode16(case: :lower)
   end
 
-  @doc "Resolves the stable application from the configured bot credential."
+  # Resolves the stable application from the configured bot credential.
   @spec resolve_application_id(chat_config() | identity_config()) ::
           {:ok, String.t()} | {:error, term()}
-  def resolve_application_id(config) do
+  defp resolve_application_id(config) do
     with {:ok, identity} <- fetch_runtime_bot_identity(config),
          do: {:ok, Map.fetch!(identity, "app_id")}
   end
@@ -229,23 +232,6 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
 
   defp require_when(true, nil, key), do: {:error, {:missing, key}}
   defp require_when(_enabled, _value, _key), do: :ok
-
-  defp string_array(map, key, default) do
-    case MapHelpers.fetch_value(map, key) do
-      values when is_list(values) ->
-        if Enum.all?(values, &(is_binary(&1) and String.trim(&1) != "")) do
-          {:ok, Enum.map(values, &String.trim/1)}
-        else
-          {:error, {:invalid_string_array, key}}
-        end
-
-      nil ->
-        {:ok, default}
-
-      _value ->
-        {:error, {:invalid_string_array, key}}
-    end
-  end
 
   defp maybe_map_put(map, _key, nil), do: map
   defp maybe_map_put(map, key, value), do: Map.put(map, key, value)

@@ -140,7 +140,14 @@ defmodule Ankole.Brain.RecallTest do
                )
     end
 
-    assert {:ok, _} = Ankole.Brain.Links.add_tag("notes/tag-b", "health")
+    assert {:ok, _} =
+             Ankole.Repo.insert(%Ankole.Brain.Schemas.Tag{
+               id: Ankole.Ecto.UUIDv7.autogenerate(),
+               object_slug: "notes/tag-b",
+               tag: "health",
+               created_at: DateTime.utc_now(:microsecond)
+             })
+
     assert {:ok, result} = Recall.recall(context.member.uid, %{query: "Beryllium tag probe"})
     chunks = Enum.filter(result.chunks, &(&1.object_slug in ["notes/tag-a", "notes/tag-b"]))
     assert [%{object_slug: "notes/tag-b"}, %{object_slug: "notes/tag-a"}] = chunks

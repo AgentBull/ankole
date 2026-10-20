@@ -9,7 +9,13 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
   alias MicrosoftOpenAPI.Client
 
   import Ankole.Plugins.MapHelpers,
-    only: [required_string: 2, optional_string: 3, optional_boolean: 3, integer_between: 5]
+    only: [
+      string_array: 3,
+      required_string: 2,
+      optional_string: 3,
+      optional_boolean: 3,
+      integer_between: 5
+    ]
 
   @chat_key_pattern ~r/\Asignals\.teams\.bindings\.[A-Za-z0-9_.:-]+\z/
   @identity_key_pattern ~r/\Aprincipals\.identity_providers\.entra-id\.[A-Za-z0-9_.:-]+\z/
@@ -69,9 +75,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
 
     "signals.teams.bindings.#{id}"
   end
-
-  @spec identity_config_key(String.t()) :: String.t()
-  def identity_config_key(id), do: "principals.identity_providers.entra-id.#{id}"
 
   @spec subscription_state_key(String.t()) :: String.t()
   def subscription_state_key(provider_id),
@@ -280,23 +283,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Config do
               {:error, {:invalid_base_url, key}}
           end
       end
-    end
-  end
-
-  defp string_array(map, key, default) do
-    case MapHelpers.fetch_value(map, key) do
-      values when is_list(values) ->
-        if Enum.all?(values, &(is_binary(&1) and String.trim(&1) != "")) do
-          {:ok, Enum.map(values, &String.trim/1)}
-        else
-          {:error, {:invalid_string_array, key}}
-        end
-
-      nil ->
-        {:ok, default}
-
-      _value ->
-        {:error, {:invalid_string_array, key}}
     end
   end
 end

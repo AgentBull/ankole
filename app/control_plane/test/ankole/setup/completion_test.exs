@@ -10,7 +10,10 @@ defmodule Ankole.Setup.CompletionTest do
   setup %{tenant: tenant} do
     :ok = set_privileged_tenant(tenant)
     :ok = Ankole.Tenants.ensure_scaffold(tenant)
-    {:ok, false} = SetupConfig.put_completed(false)
+
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     {:ok, _code} = SetupConfig.put_bootstrap_activation_code("ABCDEFGH")
     :ok
   end
@@ -67,7 +70,7 @@ defmodule Ankole.Setup.CompletionTest do
       assert {:ok, _root} = Completion.complete_with_first_site_admin(principal.uid, ["pevc"])
 
       assert {:ok, true} = SetupConfig.completed?()
-      installed = Enum.map(Ankole.Brain.SchemaPacks.installed_packs(), & &1.name)
+      installed = Enum.map(Ankole.Repo.all(Ankole.Brain.Schemas.SchemaPack), & &1.name)
       assert "general" in installed
       assert "pevc" in installed
     end
@@ -80,7 +83,7 @@ defmodule Ankole.Setup.CompletionTest do
 
       assert {:ok, false} = SetupConfig.completed?()
       assert {:ok, []} = AuthZ.list_principal_group_memberships(principal.uid)
-      assert Ankole.Brain.SchemaPacks.installed_packs() == []
+      assert Ankole.Repo.all(Ankole.Brain.Schemas.SchemaPack) == []
     end
   end
 end

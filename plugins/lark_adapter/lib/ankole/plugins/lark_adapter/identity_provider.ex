@@ -8,7 +8,7 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   alias Ankole.AuthZ
   alias Ankole.IdentityProviders.Directory
   alias Ankole.IdentityProviders.DirectoryAccess
-  alias Ankole.Kernel, as: NativeKernel
+  alias Ankole.IdentityProviders.Phone
   alias Ankole.Logging
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.SubjectIdentity
@@ -119,10 +119,15 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
     with {:ok, ticket} <- DirectoryAccess.begin_sync(provider_id, config) do
       case collect_and_sync(provider_id, config, ticket) do
         {:ok, _} = result -> result
-        {:error, reason} -> DirectoryAccess.fail_sync(ticket, reason)
+        {:error, reason} -> DirectoryAccess.fail_sync(ticket, directory_error(reason))
       end
     end
   end
+
+  defp directory_error(%FeishuOpenAPI.Error{code: code}),
+    do: {:provider_error, "Feishu error #{inspect(code)}"}
+
+  defp directory_error(reason), do: reason
 
   defp collect_and_sync(provider_id, config, ticket) do
     client = Config.client(config)
@@ -661,24 +666,6 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   defp normalized_mobile(user) do
     user
     |> optional_text("mobile")
-    |> phone_candidates()
-    |> Enum.find_value(fn candidate ->
-      case NativeKernel.phone_normalize_e164(candidate) do
-        normalized when is_binary(normalized) -> normalized
-        {:error, _reason} -> nil
-      end
-    end)
-  end
-
-  defp phone_candidates(nil), do: []
-
-  defp phone_candidates(phone) when is_binary(phone) do
-    trimmed = String.trim(phone)
-    digits = String.replace(trimmed, ~r/\D/, "")
-
-    case String.length(digits) == 11 and String.starts_with?(digits, "1") do
-      true -> [trimmed, "+86" <> digits]
-      false -> [trimmed]
-    end
+    |> Phone.normalize_china_mobile()
   end
 end

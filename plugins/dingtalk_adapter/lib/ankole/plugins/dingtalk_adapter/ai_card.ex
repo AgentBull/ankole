@@ -46,6 +46,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery.ReplyPresentation
+  alias Ankole.Conversations.Delivery.PreviewAdapter
   alias Ankole.Conversations.Delivery.PreviewAdapter.Request
   alias DingTalkOpenAPI.Card
   alias DingTalkOpenAPI.Error
@@ -483,7 +484,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
       "thought" => text_or_empty(presentation["thought"]),
       "plan" => render_plan(presentation["plan"]),
       "activity" => render_activity(presentation["activities"]),
-      "results" => render_results(presentation["results"]),
       "receipts" => render_receipts(presentation["receipts"]),
       "actions" => InteractiveCard.render_presentation_actions(presentation["actions"]),
       "meta" => render_meta(presentation, card)
@@ -561,12 +561,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
   defp activity_mark("completed"), do: "✓"
   defp activity_mark("failed"), do: "✗"
   defp activity_mark(_phase), do: "…"
-
-  defp render_results(items) when is_list(items) and items != [] do
-    Enum.map_join(items, "\n", fn item -> "- #{item["title"] || item["kind"] || "result"}" end)
-  end
-
-  defp render_results(_items), do: ""
 
   defp render_receipts(items) when is_list(items) and items != [] do
     Enum.map_join(items, "\n", fn item ->
@@ -714,7 +708,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
     |> Map.put("version", @checkpoint_version)
     |> Map.put("presentation", ReplyPresentation.checkpoint(presentation))
     |> put_subject(request)
-    |> put_thought_lease(presentation, final?)
+    |> PreviewAdapter.put_thought_lease(presentation, final?, @thought_lease_seconds)
     |> Map.delete("refresh_pending")
     |> Map.delete("refresh_reason")
   end
@@ -730,24 +724,6 @@ defmodule Ankole.Plugins.DingTalkAdapter.AICard do
 
   defp put_text(map, _key, value) when not is_binary(value), do: map
   defp put_text(map, key, value), do: Map.put(map, key, value)
-
-  defp put_thought_lease(checkpoint, presentation, false) do
-    case presentation["thought"] do
-      thought when is_binary(thought) and thought != "" ->
-        deadline =
-          DateTime.utc_now(:microsecond)
-          |> DateTime.add(@thought_lease_seconds, :second)
-          |> DateTime.to_iso8601()
-
-        Map.put(checkpoint, "cleanup_at", deadline)
-
-      _absent ->
-        Map.delete(checkpoint, "cleanup_at")
-    end
-  end
-
-  defp put_thought_lease(checkpoint, _presentation, true),
-    do: Map.delete(checkpoint, "cleanup_at")
 
   defp delivery_result(event, page_records, checkpoint) do
     first_out_track_id =

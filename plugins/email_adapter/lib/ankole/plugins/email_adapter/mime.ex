@@ -124,11 +124,11 @@ defmodule Ankole.Plugins.EmailAdapter.Mime do
     end)
   end
 
-  @doc "Splits `type/subtype; a=b` into its parts with decoded parameters."
+  # Splits `type/subtype; a=b` into its parts with decoded parameters.
   @spec parse_content_type(String.t() | nil) :: {String.t(), String.t(), map()}
-  def parse_content_type(nil), do: {"text", "plain", %{"charset" => "us-ascii"}}
+  defp parse_content_type(nil), do: {"text", "plain", %{"charset" => "us-ascii"}}
 
-  def parse_content_type(value) do
+  defp parse_content_type(value) do
     {media, params} = split_params(value)
 
     case String.split(String.downcase(media), "/", parts: 2) do
@@ -146,9 +146,9 @@ defmodule Ankole.Plugins.EmailAdapter.Mime do
   end
 
   @spec decode_body(binary(), String.t() | nil) :: binary()
-  def decode_body(body, nil), do: body
+  defp decode_body(body, nil), do: body
 
-  def decode_body(body, encoding) do
+  defp decode_body(body, encoding) do
     case encoding |> String.trim() |> String.downcase() do
       "base64" -> decode_base64(body)
       "quoted-printable" -> decode_quoted_printable(body)
@@ -157,7 +157,7 @@ defmodule Ankole.Plugins.EmailAdapter.Mime do
   end
 
   @spec decode_quoted_printable(binary()) :: binary()
-  def decode_quoted_printable(body) do
+  defp decode_quoted_printable(body) do
     body
     |> String.replace(~r/[ \t]+(\r?\n)/, "\\1")
     |> String.replace(~r/=\r?\n/, "")

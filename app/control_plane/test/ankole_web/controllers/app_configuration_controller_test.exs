@@ -13,7 +13,9 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
     Registry.clear_for_test()
     Cache.clear_for_test()
 
-    {:ok, false} = SetupConfig.put_completed(false)
+    {:ok, false} =
+      Ankole.AppConfigure.put_global(Ankole.Setup.Config.completed_definition(), false)
+
     :ok = SetupConfig.delete_bootstrap_activation_code()
 
     {:ok, prefix: "__test.console_api.#{System.unique_integer([:positive])}"}
@@ -78,12 +80,16 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
       AppConfigure.define(
         key: key(prefix, "exact"),
         encrypted: false,
-        schema: Schema.integer(),
+        schema:
+          Ankole.AppConfigure.Schema.new(fn
+            value when is_integer(value) -> {:ok, value}
+            _value -> {:error, :not_integer}
+          end),
         default_value: 1,
         description: "Exact integer setting"
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
 
     conn = console_conn(conn)
 
@@ -150,7 +156,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
         description: "Secret setting"
       )
 
-    assert :ok = AppConfigure.register_definitions([definition])
+    assert :ok = Ankole.AppConfigure.Registry.register_definitions([definition])
     conn = console_conn(conn)
 
     conn =
@@ -212,7 +218,7 @@ defmodule AnkoleWeb.AppConfigurationControllerTest do
 
     runtime_key = pattern.id <> ".alpha"
 
-    assert :ok = AppConfigure.register_patterns([pattern])
+    assert :ok = Ankole.AppConfigure.Registry.register_patterns([pattern])
     conn = console_conn(conn)
 
     conn = get(conn, ~p"/api/v1/site/app-configurations")

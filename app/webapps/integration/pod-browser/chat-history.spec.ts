@@ -1,12 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext } from '@playwright/test'
+import { state } from './fixtures'
+import { expect, test } from '@playwright/test'
 import { conversationRoute } from './routes'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  history_conversation_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
 
 test('a long chat loads real earlier windows without losing messages or the reading position', async ({ browser }) => {
   const context = await browser.newContext({ baseURL: state.base_url })

@@ -9,8 +9,6 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
 
   import Ankole.AIGatewayCase, only: [start_response_run: 1]
 
-  alias Ankole.AIGateway.Conversations
-
   alias Ankole.AIGateway.Artifacts
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Files
@@ -29,7 +27,7 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
     session_id = signal.session_id
 
     {:ok, conversation} =
-      Conversations.ensure_conversation(agent.uid, session_id,
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id,
         metadata: %{
           "origin" => %{"conversation_id" => conversation_id, "channel_kind" => "im_group"}
         }
@@ -121,7 +119,7 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
     %{principal: other_agent} = agent_fixture()
     signal_id = Ecto.UUID.generate()
     session_id = "cross-subject-hosted-image"
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
     id = image_id()
 
     assert {:ok, _artifact} =
@@ -154,7 +152,7 @@ defmodule Ankole.Conversations.Delivery.AIGatewayImageAttachmentTest do
     %{principal: agent} = agent_fixture()
     signal_id = Ecto.UUID.generate()
     session_id = "hosted-image-store-failure"
-    {:ok, conversation} = Conversations.ensure_conversation(agent.uid, session_id)
+    {:ok, conversation} = Ankole.AIGatewayCase.ensure_conversation(agent.uid, session_id)
 
     {:ok, response} =
       start_response_run(%{

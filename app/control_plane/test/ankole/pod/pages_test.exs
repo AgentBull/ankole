@@ -2,7 +2,7 @@ defmodule Ankole.Pod.PagesTest do
   use Ankole.DataCase, async: false
   import Ankole.PrincipalsFixtures
   alias Ankole.AuthZ
-  alias Ankole.Pod.{Access, Documents, Page, PageChange, PageContent, Pages}
+  alias Ankole.Pod.{Access, Documents, Page, PageChange, PageContent, Pages, PageUserState}
 
   setup do
     owner = human_fixture().principal
@@ -97,6 +97,72 @@ defmodule Ankole.Pod.PagesTest do
     assert {:ok, _} = Pages.authorize(ctx.agent.uid, child.id, "page_view")
     {:ok, shared} = Pages.list(ctx.agent.uid, %{scope: "shared"})
     assert Enum.map(shared, & &1.id) == [child.id]
+  end
+
+  test "a move places the page next to one sibling and rejects a stale anchor", ctx do
+    {:ok, root} = Pages.create(ctx.owner.uid, %{title: "Root"})
+    [a, b, c] = for title <- ~w(A B C), do: create_child(ctx.owner.uid, root.id, title)
+    {:ok, other} = Pages.create(ctx.owner.uid, %{title: "Other"})
+
+    order = fn ->
+      from(p in Page,
+        where: p.parent_id == ^root.id,
+        order_by: [p.position, p.id],
+        select: p.title
+      )
+      |> Repo.all()
+    end
+
+    assert {:ok, _} = Pages.move(ctx.owner.uid, c.id, %{parent_id: root.id, before_id: a.id})
+    assert order.() == ~w(C A B)
+    assert {:ok, _} = Pages.move(ctx.owner.uid, c.id, %{parent_id: root.id, after_id: a.id})
+    assert order.() == ~w(A C B)
+    assert {:ok, _} = Pages.move(ctx.owner.uid, a.id, %{parent_id: root.id, after_id: b.id})
+    assert order.() == ~w(C B A)
+
+    assert {:error, :position_conflict} =
+             Pages.move(ctx.owner.uid, b.id, %{parent_id: root.id, after_id: other.id})
+
+    assert {:error, :position_conflict} =
+             Pages.move(ctx.owner.uid, b.id, %{parent_id: root.id, after_id: b.id})
+
+    assert {:error, :invalid_position} =
+             Pages.move(ctx.owner.uid, b.id, %{
+               parent_id: root.id,
+               after_id: a.id,
+               before_id: c.id
+             })
+
+    assert {:ok, moved} =
+             Pages.move(ctx.owner.uid, other.id, %{parent_id: root.id, after_id: c.id})
+
+    assert moved.parent_id == root.id
+    assert order.() == ~w(C Other B A)
+  end
+
+  test "a move renumbers siblings whose keys cannot be ordered", ctx do
+    {:ok, root} = Pages.create(ctx.owner.uid, %{title: "Root"})
+    [a, b, c] = for title <- ~w(A B C), do: create_child(ctx.owner.uid, root.id, title)
+    from(p in Page, where: p.id in ^[a.id, b.id]) |> Repo.update_all(set: [position: "V"])
+    [first, second] = Enum.sort([a.id, b.id])
+
+    assert {:ok, _} = Pages.move(ctx.owner.uid, c.id, %{parent_id: root.id, after_id: first})
+
+    positions =
+      from(p in Page, where: p.parent_id == ^root.id, order_by: [p.position, p.id], select: p.id)
+      |> Repo.all()
+
+    assert positions == [first, c.id, second]
+
+    assert from(p in Page, where: p.parent_id == ^root.id, select: p.position)
+           |> Repo.all()
+           |> Enum.uniq()
+           |> length() == 3
+  end
+
+  defp create_child(uid, parent_id, title) do
+    {:ok, page} = Pages.create(uid, %{parent_id: parent_id, title: title})
+    page
   end
 
   test "trash hides shared descendants, restores the subtree, and refuses a started purge", ctx do
@@ -199,6 +265,27 @@ defmodule Ankole.Pod.PagesTest do
     assert {:ok, []} = Pages.list(ctx.reader.uid, %{query: "needle"})
     {:ok, _} = Pages.state(ctx.owner.uid, page.id, %{favorite: false})
     assert {:ok, []} = Pages.list(ctx.owner.uid, %{scope: "favorites"})
+  end
+
+  test "page state preserves the other flag and removes a row with neither flag", ctx do
+    {:ok, page} = Pages.create(ctx.owner.uid, %{})
+    key = [principal_uid: ctx.owner.uid, page_id: page.id]
+
+    assert {:ok, _} = Pages.state(ctx.owner.uid, page.id, %{})
+    refute Repo.get_by(PageUserState, key)
+
+    assert {:ok, favorite} = Pages.state(ctx.owner.uid, page.id, %{favorite: true})
+    assert favorite.favorited_at
+    assert {:ok, visited} = Pages.state(ctx.owner.uid, page.id, %{visited: true})
+    assert visited.favorited_at == favorite.favorited_at
+    assert visited.visited_at
+
+    assert {:ok, _} = Pages.state(ctx.owner.uid, page.id, %{favorite: false})
+    assert %{favorited_at: nil, visited_at: at} = Repo.get_by(PageUserState, key)
+    assert at == visited.visited_at
+
+    assert {:ok, _} = Pages.state(ctx.owner.uid, page.id, %{visited: false})
+    refute Repo.get_by(PageUserState, key)
   end
 
   test "other-tenant actors and page ids cannot cross the tenant boundary", ctx do

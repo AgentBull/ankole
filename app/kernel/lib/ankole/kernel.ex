@@ -31,7 +31,6 @@ defmodule Ankole.Kernel do
   @spec normalize_model_image_nif(binary()) :: binary() | {:error, String.t()}
   defp normalize_model_image_nif(_bytes), do: :erlang.nif_error(:nif_not_loaded)
   @type result(value) :: value | {:error, error_reason()}
-  @type salt :: String.t() | nil
   @type extra_context :: String.t() | nil
   @type authz_snapshot :: map()
   @type authz_decision :: map()
@@ -324,23 +323,10 @@ defmodule Ankole.Kernel do
   def derive_key(_key_seed, _sub_key_id, _extra_context), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Signs JSON-compatible JWT claims with the provided key and header options.
-  """
-  @spec jwt_sign(jwt_claims(), binary(), jwt_header()) :: result(String.t())
-  def jwt_sign(claims, key, header \\ %{})
-      when is_map(claims) and is_binary(key) and is_map(header) do
-    jwt_sign_nif(Torque.encode!(claims), key, Torque.encode!(header))
-  end
-
-  @spec jwt_sign_nif(String.t(), binary(), String.t()) :: result(String.t())
-  defp jwt_sign_nif(_claims, _key, _header), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
   Signs JSON-compatible JWT claims with an RSA private key in PEM form.
 
-  Only RS256/RS384/RS512 are accepted (default RS256); HMAC signing stays on
-  `jwt_sign/3`. The header map takes the same fields as `jwt_sign/3`,
-  including `key_id`/`kid`.
+  Only RS256/RS384/RS512 are accepted (default RS256). The header map accepts
+  `key_id`/`kid`.
   """
   @spec jwt_sign_pem(jwt_claims(), String.t(), jwt_header()) :: result(String.t())
   def jwt_sign_pem(claims, private_key_pem, header \\ %{})
@@ -353,25 +339,11 @@ defmodule Ankole.Kernel do
     do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Verifies a JWT and returns its JSON-compatible claims.
-  """
-  @spec jwt_verify(String.t(), binary(), jwt_validation()) :: result(jwt_claims())
-  def jwt_verify(token, key, validation \\ %{})
-      when is_binary(token) and is_binary(key) and is_map(validation) do
-    token
-    |> jwt_verify_nif(key, Torque.encode!(validation))
-    |> decode_json_result()
-  end
-
-  @spec jwt_verify_nif(String.t(), binary(), String.t()) :: result(String.t())
-  defp jwt_verify_nif(_token, _key, _validation), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
   Verifies an RSA-signed JWT against an RFC 7517 JWK and returns its claims.
 
   `jwk` is one JWK map with `"kty" => "RSA"` and base64url `"n"`/`"e"`
   components, as served by provider JWKS documents. Only RS256/RS384/RS512 are
-  accepted; HMAC verification stays on `jwt_verify/3`.
+  accepted.
   """
   @spec jwt_verify_jwk(String.t(), map(), jwt_validation()) :: result(jwt_claims())
   def jwt_verify_jwk(token, jwk, validation \\ %{})
@@ -389,16 +361,6 @@ defmodule Ankole.Kernel do
   """
   @spec generate_key() :: String.t()
   def generate_key, do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Hashes data with BLAKE3 and returns the digest as lowercase hexadecimal text.
-
-  When `salt` is present, it must be a 64-character hex key and is used as the
-  BLAKE3 keyed-hash key.
-  """
-  @spec generic_hash(binary(), salt()) :: result(String.t())
-  def generic_hash(data, salt \\ nil)
-  def generic_hash(_data, _salt), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Validates and canonicalizes an international phone number as E.164 text.

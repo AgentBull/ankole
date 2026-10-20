@@ -65,9 +65,6 @@ defmodule Ankole.Plugins.SlackAdapterTest do
            "payload" => %{"event" => %{"type" => "app_mention"}}
          }}
 
-      assert "app_mention" in Dispatcher.event_types()
-      assert "group_rename" in Dispatcher.event_types()
-
       assert {:ok, [%{status: :ignored_missing_platform_subject}]} =
                SocketDispatcher.dispatch(dispatcher, envelope)
     end

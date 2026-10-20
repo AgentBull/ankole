@@ -407,11 +407,11 @@ old. It locks the provider row while it exchanges and stores rotated tokens.
 Concurrent requests then use the stored result instead of consuming the same
 refresh token twice.
 
-Both Responses requests and the model-catalog connection check send
+Both Responses requests and model-catalog requests send
 `X-OpenAI-Fedramp: true` for a FedRAMP credential.
 
-The model catalog uses the same account-scoped Codex `/models` endpoint as the
-connection check. It lists models that the selected subscription account marks
+The model catalog uses the account-scoped Codex `/models` endpoint.
+It lists models that the selected subscription account marks
 as visible and supported in the API, and caches the normalized list for one
 hour. The Console shows these entries in its model combobox and keeps manual
 model entry available when the upstream catalog is unavailable.

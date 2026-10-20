@@ -1,33 +1,6 @@
-import { readFileSync } from 'node:fs'
-import { expect, test, type BrowserContext, type Page } from '@playwright/test'
+import { state, request } from './fixtures'
+import { expect, test, type Page } from '@playwright/test'
 import { conversationRoute, listRoute, pageRoute } from './routes'
-
-const state = JSON.parse(readFileSync(process.env.POD_BROWSER_STATE_PATH!, 'utf8')) as {
-  base_url: string
-  report_id: string
-  owner: { cookies: Parameters<BrowserContext['addCookies']>[0] }
-}
-
-async function request<T>(page: Page, path: string, method = 'GET', body?: unknown): Promise<T> {
-  return page.evaluate(
-    async ({ path, method, body }) => {
-      const meta = (name: string) => document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)!.content
-      const response = await fetch(`/.internal-apis/pod${path}`, {
-        method,
-        headers: {
-          'content-type': 'application/json',
-          'x-ankole-authentication': meta('ankole-authentication'),
-          'x-ankole-pod': meta('ankole-pod'),
-          'x-csrf-token': meta('csrf-token')
-        },
-        ...(body === undefined ? {} : { body: JSON.stringify(body) })
-      })
-      if (!response.ok) throw new Error(`${method} ${path}: ${response.status}`)
-      return response.status === 204 ? null : response.json()
-    },
-    { path, method, body }
-  )
-}
 
 async function createDocument(page: Page, text?: string) {
   await page.goto(pageRoute(state.report_id))
@@ -35,8 +8,9 @@ async function createDocument(page: Page, text?: string) {
     type: 'doc',
     title: `Command navigation ${crypto.randomUUID()}`
   })
-  if (text)
+  if (text) {
     await request(page, `/pages/${created.id}/content`, 'PUT', { base_revision: 0, xml: `<page><p>${text}</p></page>` })
+  }
   await page.goto(pageRoute(created.id))
   return created.id
 }
@@ -133,7 +107,7 @@ for (const decision of ['proceed', 'cancel'] as const) {
       const downloaded = page.waitForEvent('download')
       await blocker.getByRole('button', { name: '下载草稿并离开', exact: true }).click()
       await (await downloaded).delete()
-      await expect(page).toHaveURL(state.base_url + '/')
+      await expect(page).toHaveURL(`${state.base_url}/`)
       await expect.poll(() => agentsRequests).toBe(1)
       const composer = page.getByRole('textbox', { name: '消息', exact: true })
       await expect(composer).toBeDisabled()
@@ -196,7 +170,7 @@ test('one command menu restores focus, protects IME and keeps the native new-cha
     await page.keyboard.press('ControlOrMeta+k')
     await menu.locator('[cmdk-item][data-value="new-chat"]').click()
     await expect(menu).toBeHidden()
-    await expect(page).toHaveURL(state.base_url + '/')
+    await expect(page).toHaveURL(`${state.base_url}/`)
     await expect(composer).toBeFocused()
     await expect(composer).toHaveValue('Unsent draft retained by command navigation')
 

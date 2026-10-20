@@ -45,11 +45,10 @@ defmodule Ankole.MixProject do
   defp elixirc_paths(:test),
     do:
       ["lib", "test/support" | e2e_support_paths()] ++
-        plugin_elixirc_paths() ++
-        internal_paths(["control_plane/lib", "control_plane/test/support"])
+        internal_paths(["control_plane/test/support"])
 
   defp elixirc_paths(_),
-    do: ["lib"] ++ plugin_elixirc_paths() ++ internal_paths(["control_plane/lib"])
+    do: ["lib"]
 
   # Repo-root e2e support modules (harness, scenarios) and the fake Feishu
   # platform owned by tools/fake-feishu compile into :test alongside
@@ -64,12 +63,15 @@ defmodule Ankole.MixProject do
     ]
   end
 
-  defp plugin_elixirc_paths do
-    repo_root = Path.expand("../..", __DIR__)
+  defp plugin_deps do
+    roots = [Path.expand("../../plugins", __DIR__)] ++ internal_paths(["plugins"])
 
-    ([Path.join(repo_root, "plugins/*/lib")] ++ internal_paths(["plugins/*/lib"]))
-    |> Enum.flat_map(&Path.wildcard/1)
-    |> Enum.filter(&File.dir?/1)
+    for root <- roots,
+        project <- Path.wildcard(Path.join(root, "*/mix.exs")) do
+      path = Path.dirname(project)
+      app = String.to_atom("ankole_" <> Path.basename(path))
+      {app, [path: path, env: Mix.env()]}
+    end
   end
 
   defp edition do
@@ -231,54 +233,8 @@ defmodule Ankole.MixProject do
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_slop, "~> 0.4", only: [:dev, :test], runtime: false},
       {:stream_data, "~> 1.4", only: :test, runtime: false},
-      {:phoenix, "~> 1.8.15"},
-      {:phoenix_pubsub, "~> 2.4"},
-      {:phoenix_ecto, "~> 4.7"},
-      # Repo scopes JoinExpr predicates. Update this pin with its SQL contract tests.
-      {:ecto, "3.14.2"},
-      {:ecto_sql, "~> 3.14"},
-      {:postgrex, ">= 0.22.4"},
-      {:phoenix_html, "~> 4.3"},
-      {:phoenix_live_reload, "~> 1.7.0", only: :dev},
-      {:opentelemetry_api, "~> 1.5"},
-      {:opentelemetry, "~> 1.7"},
-      {:opentelemetry_exporter, "~> 1.11"},
-      {:req, "~> 0.7"},
-      {:finch, "~> 0.24"},
-      {:aws_signature, "~> 0.4.3"},
-      {:aws_credentials, "~> 1.1.1", runtime: false},
-      {:kubereq, "~> 0.4.5"},
-      {:gen_smtp, "~> 1.3", override: true},
-      # bamboo_smtp's narrow pins exclude these compatible, transport-tested releases.
-      {:bamboo, "~> 2.5", override: true},
-      {:bamboo_smtp, "~> 4.2"},
-      {:codepagex, "~> 0.1.13"},
-      {:mint_web_socket, "~> 1.0"},
-      {:localize, "~> 1.3"},
-      {:oban, "~> 2.24"},
-      {:crontab, "~> 1.2"},
-      {:open_api_spex, "~> 3.22"},
-      {:boruta, "2.3.8"},
-      {:toml_elixir, "~> 3.2"},
-      {:yaml_elixir, "~> 2.12"},
-      {:ex_json_schema, "~> 0.11"},
-      {:pgvector, "~> 0.4"},
-      {:tzdata, "~> 1.2"},
-      {:hackney, "~> 4.8", override: true},
-      {:h2, "~> 0.12", override: true},
-      {:dotenvy, "~> 1.2"},
-      {:torque, "~> 0.5.0"},
-      {:llm_db, "~> 2026.10"},
-      {:ankole_kernel, path: "../kernel"},
-      {:feishu_openapi, path: "../../libs/feishu_openapi"},
-      {:slack_openapi, path: "../../libs/slack_openapi"},
-      {:dingtalk_openapi, path: "../../libs/dingtalk_openapi"},
-      {:microsoft_openapi, path: "../../libs/microsoft_openapi"},
-      {:google_openapi, path: "../../libs/google_openapi"},
-      {:wecom_openapi, path: "../../libs/wecom_openapi"},
-      {:dns_cluster, "~> 0.3"},
-      {:bandit, "~> 1.12"}
-    ]
+      {:ankole_core, path: "../control_plane_core", env: Mix.env()}
+    ] ++ plugin_deps()
   end
 
   defp aliases do

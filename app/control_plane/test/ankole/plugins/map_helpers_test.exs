@@ -87,6 +87,41 @@ defmodule Ankole.Plugins.MapHelpersTest do
     assert MapHelpers.optional_string(%{"a" => 1}, "a", "d") == {:error, {:invalid_string, "a"}}
   end
 
+  test "string_array trims entries, preserves order and duplicates, and defaults only on nil" do
+    assert MapHelpers.string_array(%{"scopes" => [" email ", "openid", "email"]}, "scopes", []) ==
+             {:ok, ["email", "openid", "email"]}
+
+    assert MapHelpers.string_array(%{"scopes" => []}, "scopes", ["openid"]) == {:ok, []}
+    assert MapHelpers.string_array(%{}, "scopes", ["openid"]) == {:ok, ["openid"]}
+    assert MapHelpers.string_array(%{"scopes" => nil}, "scopes", ["openid"]) == {:ok, ["openid"]}
+
+    for value <- [["email", " "], ["email", 1], "email", false] do
+      assert MapHelpers.string_array(%{"scopes" => value}, "scopes", []) ==
+               {:error, {:invalid_string_array, "scopes"}}
+    end
+  end
+
+  test "enum_string validates normalized strings and keeps invalid types distinct" do
+    allowed = ["feishu", "lark"]
+
+    assert MapHelpers.enum_string(%{"domain" => " lark "}, "domain", allowed, "feishu") ==
+             {:ok, "lark"}
+
+    for value <- [nil, " "] do
+      assert MapHelpers.enum_string(%{"domain" => value}, "domain", allowed, "feishu") ==
+               {:ok, "feishu"}
+    end
+
+    assert MapHelpers.enum_string(%{"domain" => "other"}, "domain", allowed, "feishu") ==
+             {:error, {:invalid_enum, "domain", allowed}}
+
+    assert MapHelpers.enum_string(%{}, "domain", allowed, "other") ==
+             {:error, {:invalid_enum, "domain", allowed}}
+
+    assert MapHelpers.enum_string(%{"domain" => false}, "domain", allowed, "feishu") ==
+             {:error, {:invalid_string, "domain"}}
+  end
+
   test "optional_boolean keeps booleans, falls back, and rejects other values" do
     assert MapHelpers.optional_boolean(%{"a" => false}, "a", true) == {:ok, false}
     assert MapHelpers.optional_boolean(%{}, "a", true) == {:ok, true}

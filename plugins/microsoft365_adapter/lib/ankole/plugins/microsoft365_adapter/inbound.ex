@@ -28,23 +28,23 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   @spec handle_message_receive(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_receive(_event_type, activity, consumers) when is_map(activity),
-    do: dispatch_chat(consumers, &emit_message(&1, activity))
+    do: AdapterContext.dispatch_chat(consumers, &emit_message(&1, activity))
 
   @spec handle_message_removed(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_message_removed(_event_type, activity, consumers) when is_map(activity),
-    do: dispatch_chat(consumers, &emit_removed(&1, activity))
+    do: AdapterContext.dispatch_chat(consumers, &emit_removed(&1, activity))
 
   @spec handle_reaction_created(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_reaction_created(_event_type, activity, consumers) when is_map(activity),
-    do: dispatch_chat(consumers, &emit_reactions(&1, activity, :add))
+    do: AdapterContext.dispatch_chat(consumers, &emit_reactions(&1, activity, :add))
 
   @spec handle_reaction_deleted(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_reaction_deleted(_event_type, activity, consumers) when is_map(activity),
-    do: dispatch_chat(consumers, &emit_reactions(&1, activity, :remove))
+    do: AdapterContext.dispatch_chat(consumers, &emit_reactions(&1, activity, :remove))
 
   @spec handle_card_action(String.t(), map(), [map()]) :: {:ok, list()} | {:error, term()}
   def handle_card_action(_event_type, activity, consumers) when is_map(activity),
-    do: dispatch_chat(consumers, &emit_action(&1, activity))
+    do: AdapterContext.dispatch_chat(consumers, &emit_action(&1, activity))
 
   @spec normalize_message_receive(map(), map()) ::
           {:ok, map()} | {:ignore, atom()} | {:error, term()}
@@ -291,13 +291,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
       %{"v" => _version, "value" => decoded} -> decoded
       other -> other
     end
-  end
-
-  defp dispatch_chat(consumers, fun) do
-    consumers
-    |> Enum.filter(&match?(%{kind: :chat}, &1))
-    |> Enum.map(fun)
-    |> MapHelpers.collect_results()
   end
 
   # `29:` ids are Teams-encrypted user ids, `28:` ids are bot/connector

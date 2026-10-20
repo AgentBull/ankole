@@ -170,7 +170,7 @@ defmodule Ankole.Sessions.SharedConversationTest do
         metadata: %{"request_metadata" => request["metadata"]}
       })
 
-    {:ok, workspace} = Ankole.Sessions.Workspaces.ensure(c.first.uid, input.session_id)
+    {:ok, workspace} = Ankole.SessionsCase.ensure_workspace(c.first.uid, input.session_id)
 
     active =
       struct(
@@ -241,10 +241,10 @@ defmodule Ankole.Sessions.SharedConversationTest do
 
     first_run = run(c, c.first, first_signal)
     second_run = run(c, c.second, second_signal)
-    {:ok, _} = Ankole.Sessions.Workspaces.ensure(c.first.uid, first_signal.session_id)
+    {:ok, _} = Ankole.SessionsCase.ensure_workspace(c.first.uid, first_signal.session_id)
 
     {:ok, second_workspace} =
-      Ankole.Sessions.Workspaces.ensure(c.second.uid, second_signal.session_id)
+      Ankole.SessionsCase.ensure_workspace(c.second.uid, second_signal.session_id)
 
     native_id = Ecto.UUID.generate()
 

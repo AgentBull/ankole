@@ -9,10 +9,7 @@ defmodule Ankole.KernelTest do
   @aead_key "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
   @aead_ciphertext "vveE4WxRjp0KO8YVx7o09aQ5_q9ZzqX2.gb1S9PmqEp_5UuejAzvKErXrdE4-sQ"
 
-  test "hash helpers use the shared BLAKE3 vectors" do
-    assert NativeKernel.generic_hash("bullx") ==
-             "7f31cabae40697f9404428671c582d3c1f80c8a13d0741f4be8c9b856fcc0706"
-
+  test "derive_key uses the shared BLAKE3 vector" do
     assert NativeKernel.derive_key("seed", "tenant-A", "scope-a") ==
              "0553f445a2fb3dfc0fab4efa1e1ed31ef6a103277286cf63874904e341ee0d20"
   end
@@ -152,33 +149,6 @@ defmodule Ankole.KernelTest do
     assert reason =~ "invalid password hash"
   end
 
-  test "jwt helpers sign and verify claims" do
-    token =
-      NativeKernel.jwt_sign(
-        %{
-          iss: "ankole.control_plane",
-          aud: "ankole.web_console",
-          sub: "human-1",
-          exp: 4_102_444_800,
-          token_use: "access"
-        },
-        "jwt-secret",
-        %{algorithm: "HS256", key_id: "test-key"}
-      )
-
-    assert %{
-             "aud" => "ankole.web_console",
-             "sub" => "human-1",
-             "token_use" => "access"
-           } =
-             NativeKernel.jwt_verify(token, "jwt-secret", %{
-               algorithms: ["HS256"],
-               iss: ["ankole.control_plane"],
-               aud: ["ankole.web_console"],
-               sub: "human-1"
-             })
-  end
-
   # RS256 token signed by a throwaway test key whose public JWK is below;
   # claims: iss api.botframework.com, aud 11111111-…, exp 2100-01-01.
   @rs256_token "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InRlc3Qta2V5LTEifQ.eyJpc3MiOiJodHRwczovL2FwaS5ib3RmcmFtZXdvcmsuY29tIiwiYXVkIjoiMTExMTExMTEtMjIyMi0zMzMzLTQ0NDQtNTU1NTU1NTU1NTU1Iiwic2VydmljZVVybCI6Imh0dHBzOi8vc21iYS50cmFmZmljbWFuYWdlci5uZXQvdGVhbXMvIiwiZXhwIjo0MTAyNDQ0ODAwfQ.ZIR18QFxalBM4yQuG2cH1M30wm3gYEdPeQyjxiJMe008iJ-r2-bE8HUMmhlZHqdnUMpH8YvKfKz_M4yCVuDD6oNJXBBZHHN6PGW5peuaE5yRf9u6o0R1xArV-LTxkW3te2RgHSEbvaQrUUozASQbbP5UjpCzpB172Q5V2tyc2YvXsjZug0gRAtY3DdONrijJm4wxusyYT4Yaf2b_wJSKQJ-g6vlzq5LENdWCWP-cq_aHRdnWcmsMepH3oE2z0g38YDlumNN9gZV6L3JQpUFnKv_e46jIAnixV-Dl1ZXoSdnB7psVACgnaVkn4FtB5ToEms3UuYyPfIaYPlQpXm-JJg"
@@ -295,7 +265,9 @@ defmodule Ankole.KernelTest do
         body: {:control_shutdown, %V1.ControlShutdown{reason: "test"}}
       })
 
-    assert {:ok, %V1.Envelope{protocol_version: version}} = RuntimeFabric.decode_envelope(bytes)
+    assert {:ok, %V1.Envelope{protocol_version: version}} =
+             Ankole.RuntimeFabric.V1.Envelope.decode(bytes)
+
     assert RuntimeFabric.protocol_version() == version
   end
 
@@ -321,7 +293,7 @@ defmodule Ankole.KernelTest do
     encoded = RuntimeFabric.encode_envelope(envelope)
 
     assert is_binary(encoded)
-    assert {:ok, ^envelope} = RuntimeFabric.decode_envelope(encoded)
+    assert {:ok, ^envelope} = Ankole.RuntimeFabric.V1.Envelope.decode(encoded)
   end
 
   test "runtime fabric rejects a mismatched protocol version" do
@@ -341,7 +313,7 @@ defmodule Ankole.KernelTest do
 
     for type <- [:workspace_open, :workspace_ready, :tool_call, :tool_status, :tool_result] do
       bytes = File.read!(Path.join(golden_dir, "#{type}.v10.bin"))
-      assert {:ok, envelope} = RuntimeFabric.decode_envelope(bytes)
+      assert {:ok, envelope} = Ankole.RuntimeFabric.V1.Envelope.decode(bytes)
       assert {^type, value} = envelope.body
       assert value.run.signal_id == "input-1"
       assert value.run.session.session_id == "job:1000"
@@ -380,7 +352,7 @@ defmodule Ankole.KernelTest do
     end
 
     assert {:ok, %{body: {:turn_start, %{agent_context: context}}}} =
-             RuntimeFabric.decode_envelope(
+             Ankole.RuntimeFabric.V1.Envelope.decode(
                File.read!(Path.join(golden_dir, "turn_start.v10.bin"))
              )
 
@@ -405,7 +377,7 @@ defmodule Ankole.KernelTest do
            ] = context.agent_plugins
 
     assert {:ok, %{body: {:turn_start, %{mode: "adopt"}}}} =
-             RuntimeFabric.decode_envelope(
+             Ankole.RuntimeFabric.V1.Envelope.decode(
                File.read!(Path.join(golden_dir, "turn_adopt.v10.bin"))
              )
   end
@@ -667,17 +639,15 @@ defmodule Ankole.KernelTest do
               "status" => 200,
               "body" => %{"ok" => true, "value" => 42}
             }} =
-             UniversalAIClient.raw_post(%{
+             UniversalAIClient.raw_get(%{
                url: url,
                headers: [{"content-type", "application/json"}],
-               body: ~s({"hello":"world"}),
                timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: nil},
                transport: %{}
              })
 
     assert_receive {:http_json_server_request, request}, 1_000
-    assert request =~ "POST /json HTTP/1.1"
-    assert request =~ ~s({"hello":"world"})
+    assert request =~ "GET /json HTTP/1.1"
   end
 
   test "universal AI client caps slow-drip non-stream response bodies" do
@@ -692,16 +662,15 @@ defmodule Ankole.KernelTest do
               "stage" => "read",
               "message" => "upstream response body total timeout"
             }} =
-             UniversalAIClient.raw_post(%{
+             UniversalAIClient.raw_get(%{
                url: url,
                headers: [{"content-type", "application/json"}],
-               body: ~s({"hello":"world"}),
                timeout: %{connect_ms: 500, first_byte_ms: 500, idle_ms: 500, total_ms: 80},
                transport: %{}
              })
 
     assert_receive {:http_slow_json_server_request, request}, 1_000
-    assert request =~ "POST /json HTTP/1.1"
+    assert request =~ "GET /json HTTP/1.1"
   end
 
   test "universal AI client model_request builds model body natively" do

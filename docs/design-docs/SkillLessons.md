@@ -84,8 +84,7 @@ list and Dreaming never re-adds equivalent content.
 
 ## Delivery
 
-`Library.rendered_skill_lessons` returns one rendered block per enabled
-Skill, and skill views embed it under the header
+`Library.skill_view` embeds the active lessons for an enabled Skill under the header
 `Field notes (dated; verify against the current environment):`. Human
 lessons render first, each bullet dated, human bullets marked. A retired
 lesson leaves delivery at once; an unretired dreaming lesson keeps

@@ -85,7 +85,6 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
   alias Ankole.Plugins.DiscordAdapter.Client
   alias Ankole.Plugins.DiscordAdapter.Config
-  alias Ankole.Plugins.DiscordAdapter.ConnectionOwner
   alias Ankole.Plugins.DiscordAdapter.ConnectionReconciler
   alias Ankole.Plugins.DiscordAdapter.Dispatcher
   alias Ankole.Plugins.DiscordAdapter.Emoji
@@ -332,13 +331,13 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                  consumer(elem(key, 0), elem(key, 1))
                ])
 
-      assert eventually(fn -> ConnectionOwner.status(owner).state == :blocked end),
-             inspect(ConnectionOwner.status(owner))
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).state == :blocked end),
+             inspect(Ankole.SignalsFixtures.owner_status(owner))
 
       assert %{blocked_reason: :authentication_failed, last_error: %{status: 401}} =
-               ConnectionOwner.status(owner)
+               Ankole.SignalsFixtures.owner_status(owner)
 
-      refute inspect(ConnectionOwner.status(owner)) =~ "auth-secret"
+      refute inspect(Ankole.SignalsFixtures.owner_status(owner)) =~ "auth-secret"
       assert :ok = ConnectionReconciler.stop(key)
     end
 
@@ -363,7 +362,10 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       on_exit(fn -> ConnectionReconciler.stop(key) end)
 
-      assert eventually(fn -> ConnectionOwner.status(owner).last_error[:status] == 429 end)
+      assert eventually(fn ->
+               Ankole.SignalsFixtures.owner_status(owner).last_error[:status] == 429
+             end)
+
       Process.sleep(1_100)
       assert Agent.get(attempts, & &1) == 1
     end
@@ -379,12 +381,12 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                  consumer
                ])
 
-      assert eventually(fn -> ConnectionOwner.status(first).bot_id == "77" end)
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(first).bot_id == "77" end)
 
       assert %{
                message_content_intent?: false,
                state: :starting
-             } = ConnectionOwner.status(first)
+             } = Ankole.SignalsFixtures.owner_status(first)
 
       refute owner_serves?(
                ConnectionReconciler,
@@ -483,12 +485,12 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       assert_receive {:sequence_download_started, download_process}, 3_000
 
-      assert %{sequence: 1, pending_events: 2} = ConnectionOwner.status(owner)
+      assert %{sequence: 1, pending_events: 2} = Ankole.SignalsFixtures.owner_status(owner)
       assert_receive {:gateway, :closed}, 3_000
       send(download_process, :finish_sequence_download)
 
-      assert eventually(fn -> ConnectionOwner.status(owner).sequence == 3 end),
-             inspect(ConnectionOwner.status(owner))
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).sequence == 3 end),
+             inspect(Ankole.SignalsFixtures.owner_status(owner))
 
       assert_receive {:gateway, %{"op" => 6, "d" => %{"seq" => 3, "session_id" => "sess-1"}}},
                      5_000
@@ -499,7 +501,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
              end)
 
       assert %{state: :running, session?: true, message_content_intent?: true} =
-               ConnectionOwner.status(owner)
+               Ankole.SignalsFixtures.owner_status(owner)
     end
 
     test "sheds replayable events at the pending bound and recovers through resume replay" do
@@ -569,7 +571,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       # The fifth backlog event hits the bound of four: the owner keeps only
       # the in-flight head, sheds the replayable rest, and reconnects.
       assert_receive {:gateway, :closed}, 3_000
-      assert %{pending_events: 1, sequence: 1} = ConnectionOwner.status(owner)
+      assert %{pending_events: 1, sequence: 1} = Ankole.SignalsFixtures.owner_status(owner)
 
       send(download_process, :finish_bound_download)
 
@@ -580,7 +582,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
 
       assert {:ok, %{state: :running, session?: true, sequence: 6, pending_events: 0}} =
                wait_until(deadline(5_000), fn ->
-                 status = ConnectionOwner.status(owner)
+                 status = Ankole.SignalsFixtures.owner_status(owner)
                  if status.sequence == 6 and status.pending_events == 0, do: status
                end)
 
@@ -674,7 +676,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
       assert_receive {:attachment_download_started, download_process}, 3_000
       assert_receive :interaction_acknowledged, 2_500
       send(download_process, :finish_attachment_download)
-      assert eventually(fn -> ConnectionOwner.status(owner).sequence == 3 end)
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).sequence == 3 end)
     end
   end
 
@@ -1088,7 +1090,7 @@ defmodule Ankole.Plugins.DiscordAdapterTest do
                  consumer(agent.uid, "discord-disabled", config)
                ])
 
-      assert eventually(fn -> ConnectionOwner.status(owner).bot_id == "77" end)
+      assert eventually(fn -> Ankole.SignalsFixtures.owner_status(owner).bot_id == "77" end)
 
       assert {:ok, _binding} =
                Ankole.Signals.Bindings.disable_binding(agent.uid, "discord-disabled")

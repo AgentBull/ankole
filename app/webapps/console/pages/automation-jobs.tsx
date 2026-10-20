@@ -323,8 +323,6 @@ function jobStatusTone(status: AutomationJobItem['status']): StatusTone {
   switch (status) {
     case 'active':
       return 'positive'
-    case 'expired':
-      return 'warning'
     case 'cancelled':
       return 'neutral'
   }

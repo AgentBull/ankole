@@ -40,8 +40,9 @@ export const NavigationModel = createModel(
     const save = (next: Preferences) => {
       preferences.value = next
       try {
-        if (storageKey)
+        if (storageKey) {
           storage?.setItem(storageKey, JSON.stringify({ rootOpen: next.rootOpen, collapsed: [...next.collapsed] }))
+        }
       } catch {
         // A failed preference write must not undo the user's local choice.
       }

@@ -113,7 +113,7 @@
       encodedKeys += (i === 0 ? '' : ',') + stringify(key);
     }
     handlers = captured;
-    return encodedKeys + ']';
+    return `${encodedKeys}]`;
   };
   const invoke = async (routes, key, input) => {
     try {

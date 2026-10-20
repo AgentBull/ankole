@@ -115,7 +115,7 @@ defmodule Ankole.Conversations.Delivery.WakeupsTest do
 
   defp intent_fixture(agent_uid, key, attrs \\ %{}) do
     assert {:ok, %Intent{} = intent} =
-             Delivery.commit(
+             Ankole.SignalsFixtures.commit_delivery(
                Map.merge(
                  %{
                    agent_uid: agent_uid,
