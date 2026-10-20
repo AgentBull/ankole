@@ -46,6 +46,22 @@ indexes cover the shared physical tables. Rerank is a tenant setting and does
 not define an index. Every query still filters by tenant.
 Schema packs and library projections are installed separately in each tenant.
 
+Installed relation names and inverse names feed the conversation extraction
+prompt. They are preferred vocabulary, not a closed set: existing and newly
+learned labels remain valid when no installed term fits.
+
+The Console creates and replaces page tags through the existing Object write
+contract. Tags are exact, case-sensitive strings; input trims surrounding
+whitespace, rejects blank values, and stores one row per distinct tag. An
+omitted `tags` field keeps the current set; `[]` clears it. The content hash
+covers the tag set, and each update snapshots the previous tags with the
+existing ObjectVersion author. Merge refreshes that hash after tags move.
+The Console draft keeps tags as an array and edits each tag in a separate
+field. Embedded line breaks and literal backslashes stay inside that tag.
+Version rollback retains its body-and-meta contract and does not restore tags.
+Historical versions have no recoverable tag history. The upgrade refreshes
+baselines for existing tagged pages, so an open draft can require a reload.
+
 ## Scope and Disclosure
 
 Every claim, timeline row, and Markdown audience block carries one
@@ -192,6 +208,15 @@ anchor, through earlier checkpoints. It reserves the fresh pack in the
 checkpoint budget and stores it outside the output, before retained user
 originals and the summary when the provider replays it.
 
+Context assembly and volunteer pointers remain best effort. An unexpected
+exception returns the existing empty result and emits one warning with the
+failure class and stack locations. Logs omit exception messages and function
+arguments. The warning does not stop the Turn or change the injection budget.
+
+Page contradiction reads select at most twenty open findings, newest first,
+and load their counterpart claims in one batch. Each counterpart still passes
+the reader and disclosure checks before it enters the result.
+
 Read projections preserve stored text after access and disclosure checks.
 They do not remove words with an injection phrase blacklist. Skill lesson
 writes keep their separate content admission gate (see `SkillLessons.md`).
@@ -326,7 +351,9 @@ one failing phase is recorded without blocking the rest:
    together; citations must name supplied evidence and each body keeps the
    evidence audience. No useful pattern is a successful no-op. Generated
    pattern pages and legacy daily digests are excluded as new evidence.
-3. `extract_links` — materializes typed links from page text.
+3. `extract_timelines` — extracts dated events from each audience passage.
+   It requires the Dreaming model and advances `timelines_extracted_at` only
+   after successful extraction. A changed body remains pending.
 4. `grade_takes` — grades expired or stale Takes against page evidence
    (`Ankole.Brain.Calibration`). A Take records the input hash only after a
    successful grade. The hash covers the exact prompt, selected evidence,
@@ -366,7 +393,21 @@ one failing phase is recorded without blocking the rest:
 10. `skill_lessons` — see `docs/design-docs/SkillLessons.md`.
 
 Self-healing runs on its own cron: it embeds pending rows, repairs missing
-projections, and reports drift. Time decay itself stores nothing: ranking
+projections, and reports drift. It reconciles body-owned wikilink and alias
+mention edges without a Dreaming model. `links_extracted_at` records this
+mechanical work independently of timeline extraction. Reconciliation removes
+only stale edges with its own body provenance and keeps manual or learned
+relations. Existing edges keep their IDs. The upgrade copies the old combined
+watermark into `timelines_extracted_at`, so completed model work is retained.
+It clears the mechanical watermark for one model-free reconciliation of existing
+bodies. Content writes advance the logical `updated_at` timestamp. A body edit
+triggers both passes; a title edit also triggers timeline extraction because
+the title is part of its model input. Other field edits carry completed
+watermarks to the new timestamp. They do not complete pending work for an
+earlier body or title. Projection-only writes preserve the logical timestamp.
+A later target or alias creation does not by
+itself invalidate this body watermark; explicit reconciliation can retry an
+unresolved reference. Time decay itself stores nothing: ranking
 recomputes effective confidence on read, and `brain.forgetting` holds the
 halflives.
 

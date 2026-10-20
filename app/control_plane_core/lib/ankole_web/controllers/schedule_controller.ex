@@ -6,6 +6,8 @@ defmodule AnkoleWeb.ScheduleController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Schedule
@@ -146,8 +148,8 @@ defmodule AnkoleWeb.ScheduleController do
             in: :path,
             schema: %OpenAPISpex.Schema{
               type: :integer,
-              minimum: 1000,
-              maximum: 9_007_199_254_740_991
+              minimum: Ankole.ModelIntegerID.minimum(),
+              maximum: Ankole.ModelIntegerID.maximum()
             },
             required: true
           ]
@@ -164,8 +166,6 @@ defmodule AnkoleWeb.ScheduleController do
         |> Enum.map(&Schedule.cron_projection/1)
 
       json(conn, %{cron_schedules: schedules})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -177,8 +177,6 @@ defmodule AnkoleWeb.ScheduleController do
          {:ok, %{cron_schedule: schedule}} <-
            Schedule.create_cron_schedule(attrs, created_by: created_by) do
       json(conn, %{cron_schedule: Schedule.cron_projection(schedule)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -187,8 +185,6 @@ defmodule AnkoleWeb.ScheduleController do
          :ok <- ConsolePolicy.authorize(conn, schedule_resource(agent_uid), "read"),
          {:ok, schedule} <- cron_for_agent(params, agent_uid) do
       json(conn, %{cron_schedule: Schedule.cron_projection(schedule)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -202,8 +198,6 @@ defmodule AnkoleWeb.ScheduleController do
              conn.body_params
            ) do
       json(conn, %{cron_schedule: Schedule.cron_projection(updated)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -224,8 +218,6 @@ defmodule AnkoleWeb.ScheduleController do
          {:ok, %{scheduled_event: event}} <-
            Schedule.run_cron_schedule(schedule.id, idempotency_key: request_id) do
       json(conn, %{schedule_event: Schedule.event_projection(event)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -239,8 +231,6 @@ defmodule AnkoleWeb.ScheduleController do
         |> Enum.map(&Schedule.event_projection/1)
 
       json(conn, %{schedule_runs: runs})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -253,8 +243,6 @@ defmodule AnkoleWeb.ScheduleController do
         |> Enum.map(&Schedule.event_projection/1)
 
       json(conn, %{schedule_events: events})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -265,8 +253,6 @@ defmodule AnkoleWeb.ScheduleController do
          :ok <- event_belongs_to_agent(event, agent_uid),
          {:ok, cancelled} <- Schedule.cancel_checkback(scheduled_event_id) do
       json(conn, %{schedule_event: Schedule.event_projection(cancelled)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -276,8 +262,6 @@ defmodule AnkoleWeb.ScheduleController do
          {:ok, schedule} <- cron_for_agent(params, agent_uid),
          {:ok, updated} <- fun.(schedule.id) do
       json(conn, %{cron_schedule: Schedule.cron_projection(updated)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -340,21 +324,22 @@ defmodule AnkoleWeb.ScheduleController do
     end
   end
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
-  defp error(conn, :not_found), do: error(conn, 404, "not_found", "schedule was not found")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
+  defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "schedule was not found")
 
   defp error(conn, :cron_schedule_not_found),
-    do: error(conn, 404, "not_found", "schedule was not found")
+    do: ConsoleErrors.not_found(conn, "schedule was not found")
 
   defp error(conn, :scheduled_event_not_found),
-    do: error(conn, 404, "not_found", "event was not found")
+    do: ConsoleErrors.not_found(conn, "event was not found")
 
-  defp error(conn, {:missing, key}) do
-    error(conn, 422, "validation_failed", "#{key} is required")
+  defp error(conn, {kind, key}) when kind in [:missing, :missing_text] do
+    ConsoleErrors.required_field(conn, key)
   end
 
   defp error(conn, :cron_task_required) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "validation_failed",
@@ -363,7 +348,7 @@ defmodule AnkoleWeb.ScheduleController do
   end
 
   defp error(conn, :cron_owner_session_reserved) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "validation_failed",
@@ -372,22 +357,12 @@ defmodule AnkoleWeb.ScheduleController do
   end
 
   defp error(conn, %Ecto.Changeset{} = changeset) do
-    error(
-      conn,
-      422,
-      "validation_failed",
-      "request validation failed",
-      ConsoleErrors.changeset_details(changeset)
-    )
+    ConsoleErrors.changeset(conn, changeset)
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_schedule", "schedule request is invalid", [
+    ConsoleErrors.render(conn, 422, "invalid_schedule", "schedule request is invalid", [
       %{reason: inspect(reason)}
     ])
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

@@ -103,9 +103,13 @@ defmodule Ankole.Plugins.TelegramAdapter.ReplyPreview do
              "chat_id" => channel.chat_id,
              "message_id" => message_id
            }) do
-        {:ok, _response} -> :ok
-        {:error, %Client.Error{error_code: 400}} -> :ok
-        {:error, %Client.Error{} = error} -> uncertain_or_error(error)
+        {:ok, _response} ->
+          :ok
+
+        {:error, %Client.Error{} = error} ->
+          if Delivery.idempotent_absence?("deleteMessage", error),
+            do: :ok,
+            else: uncertain_or_error(error)
       end
     end
   end

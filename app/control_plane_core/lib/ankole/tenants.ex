@@ -54,6 +54,14 @@ defmodule Ankole.Tenants do
          else: (_ -> {:error, :not_found})
   end
 
+  @doc "Finds an exact slug whose tenant accepts new work."
+  def active_by_slug(slug) when is_binary(slug) do
+    with %Tenant{} = tenant <- Repo.get_by(Tenant, slug: slug),
+         true <- accepting_work?(tenant),
+         do: {:ok, tenant},
+         else: (_ -> {:error, :not_found})
+  end
+
   @doc "Runs a site fan-out without letting one tenant's failure skip another tenant."
   def map_active(fun) when is_function(fun, 0) do
     active =
@@ -104,9 +112,13 @@ defmodule Ankole.Tenants do
     end
   end
 
+  @doc "Checks a loaded tenant, or reads its current state by ID, for new work."
+  def accepting_work?(%Tenant{suspended_at: nil, deleting_at: nil}), do: true
+  def accepting_work?(%Tenant{}), do: false
+
   def accepting_work?(id) do
     case get(id) do
-      {:ok, %Tenant{suspended_at: nil, deleting_at: nil}} -> true
+      {:ok, tenant} -> accepting_work?(tenant)
       _ -> false
     end
   end
@@ -266,7 +278,7 @@ defmodule Ankole.Tenants do
         with {:ok, privileged_id} <- lock_administration(repo),
              {:ok, target} <- lock_tenant(repo, id),
              :ok <- not_privileged(target, privileged_id),
-             true <- is_nil(target.suspended_at) and is_nil(target.deleting_at),
+             true <- accepting_work?(target),
              {:ok, _} <-
                Repo.with_tenant(target.id, fn ->
                  with {:ok, group} <- Root.ensure_site_admin_group(repo),

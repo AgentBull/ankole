@@ -154,3 +154,20 @@ fn encodes_grammar_errors_as_normal_json_results() {
         r#"{"error":{"code":"unopened_audience_tag","line":1}}"#
     );
 }
+
+#[test]
+fn shares_audience_contract_cases_with_console_preview() {
+    let cases: serde_json::Value =
+        serde_json::from_str(include_str!("../../test/fixtures/brain_markdoc.json")).unwrap();
+
+    for case in cases.as_array().unwrap() {
+        let actual: serde_json::Value =
+            serde_json::from_str(&analyze_json(case["source"].as_str().unwrap()).unwrap()).unwrap();
+        let field = if case.get("error").is_some() {
+            "error"
+        } else {
+            "segments"
+        };
+        assert_eq!(actual[field], case[field], "case: {}", case["name"]);
+    }
+}

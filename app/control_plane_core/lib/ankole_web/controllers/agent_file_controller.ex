@@ -10,6 +10,8 @@ defmodule AnkoleWeb.AgentFileController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Files
@@ -103,8 +105,6 @@ defmodule AnkoleWeb.AgentFileController do
           truncated: truncated
         }
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -122,8 +122,6 @@ defmodule AnkoleWeb.AgentFileController do
             URI.encode(Path.basename(file.path), &URI.char_unreserved?/1)
         )
         |> send_file(200, local_path)
-      else
-        {:error, reason} -> error(conn, reason)
       end
     after
       File.rm(local_path)
@@ -147,8 +145,6 @@ defmodule AnkoleWeb.AgentFileController do
              }
            ]) do
       json(conn, %{uploaded_file: file_json(file)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -158,8 +154,6 @@ defmodule AnkoleWeb.AgentFileController do
     with {:ok, agent_uid} <- authorize(conn, agent_uid, "update"),
          {:ok, moved} <- Files.move(agent_uid, from_path, to_path) do
       json(conn, %{moved_files: moved})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -167,8 +161,6 @@ defmodule AnkoleWeb.AgentFileController do
     with {:ok, agent_uid} <- authorize(conn, agent_uid, "delete"),
          {:ok, deleted} <- Files.delete(agent_uid, path) do
       json(conn, %{deleted_files: deleted})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -215,46 +207,49 @@ defmodule AnkoleWeb.AgentFileController do
     end
   end
 
-  defp error(conn, :forbidden), do: render_error(conn, 403, "forbidden", "access denied")
-  defp error(conn, :not_found), do: render_error(conn, 404, "not_found", "file not found")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
+  defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "file not found")
 
   defp error(conn, :agent_not_found),
-    do: render_error(conn, 404, "agent_not_found", "agent not found")
+    do: ConsoleErrors.render(conn, 404, "agent_not_found", "agent not found")
 
   defp error(conn, :already_exists),
-    do: render_error(conn, 409, "already_exists", "a file already exists at the target path")
+    do:
+      ConsoleErrors.render(
+        conn,
+        409,
+        "already_exists",
+        "a file already exists at the target path"
+      )
 
   defp error(conn, {:path_conflict, parent, child}),
     do:
-      render_error(conn, 409, "path_conflict", "a file cannot also be a folder", [
+      ConsoleErrors.render(conn, 409, "path_conflict", "a file cannot also be a folder", [
         %{parent: parent, child: child}
       ])
 
   defp error(conn, {:missing, label}),
-    do: render_error(conn, 422, "validation_failed", "#{label} is required")
+    do: ConsoleErrors.required_field(conn, label)
 
   defp error(conn, :missing_file),
-    do: render_error(conn, 422, "validation_failed", "file is required")
+    do: ConsoleErrors.render(conn, 422, "validation_failed", "file is required")
 
   defp error(conn, {:file_too_large, _size, max_bytes}) do
-    render_error(conn, 422, "file_too_large", "file exceeds the transfer limit", [
+    ConsoleErrors.render(conn, 422, "file_too_large", "file exceeds the transfer limit", [
       %{max_bytes: max_bytes}
     ])
   end
 
   defp error(conn, {:invalid_path, value}),
-    do: render_error(conn, 422, "validation_failed", "invalid path", [%{value: value}])
+    do: ConsoleErrors.render(conn, 422, "validation_failed", "invalid path", [%{value: value}])
 
   defp error(conn, reason) when reason in [:same_path, :move_into_itself],
-    do: render_error(conn, 422, "validation_failed", "invalid move target")
+    do: ConsoleErrors.render(conn, 422, "validation_failed", "invalid move target")
 
   defp error(conn, reason) do
-    render_error(conn, 422, "file_operation_failed", "file operation failed", [
+    ConsoleErrors.render(conn, 422, "file_operation_failed", "file operation failed", [
       %{reason: inspect(reason)}
     ])
-  end
-
-  defp render_error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

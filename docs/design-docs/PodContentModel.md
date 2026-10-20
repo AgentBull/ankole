@@ -29,6 +29,10 @@ tree traversal. Page moves list writable document destinations and exclude the
 page and its descendants. Trash search filters the authorized page list.
 Pod links use the tenant's slug subdomain and Kernel's short UUID codec:
 `https://<slug>.<site>/pages/<short-id>` and `/conversations/<short-id>`.
+The Kernel owns the codec. The browser bundle cannot load the native kernel, so
+`app/webapps/common/uuid-url.ts` mirrors it. `app/kernel/test/vectors/uuid_url.json`
+pins the codec, and `app/kernel/test/vectors/pod_url.json` pins the Pod browser
+path and query grammar that the control plane and the browser share.
 Local development uses `<slug>.ankole.localhost:<port>`. Normal links have no `/pod`
 prefix or tenant query. Logged-in accounts are shared across Pod subdomains;
 switching uses the existing BrowserSessions authentication and activation owners.
@@ -134,6 +138,15 @@ The upgrade initializes only tenants with no Pod pages and no page grants.
   unchanged, requires `page_manage`. The same rule applies to Humans and Agents.
 - Lists, search, favorites, recents, embeds, and file reads check current page
   access. A reference to an inaccessible page does not expose its title or data.
+
+Navigation uses the SQL tree traversal only when every relevant page grant has
+an unconditional, canonical space, Private, or direct-page pattern. Other CEL
+conditions and resource globs use the same native AuthZ decision as a page read.
+This path loads the page tree and authorization snapshot once. It walks the tree
+once, indexes direct shares, and sends all resource/action checks through one
+native call. It does not rebuild or encode the full snapshot for each page.
+A direct page grant can put a page in Shared when its parent is not visible.
+A conditional direct grant follows the same rule.
 
 Agent writes check and lock the actual RunRef or Job attempt in the transaction
 that commits the content. The RPC broker passes this authority from the
@@ -407,12 +420,19 @@ The SDK uses the current Human's ordinary Pod APIs and a shared QueryClient.
 401, 403, or 404 hides cached data even while the live connection is unavailable.
 The first denial applies while a Query retry is pending, not only after its
 final error. A later temporary failure or component remount cannot make denied
-data visible; a successful read restores it. Temporary network failures before
+data visible; a successful read restores it. A new subscriber to a table with
+revoked access receives the revocation immediately. It does not join that
+table's channel again while any existing subscriber retains the revoked entry.
+Temporary network failures before
 a denial keep the last data. Pending writes cannot make
 denied data visible again. Record updates and
 deletes require the caller to retain its record at the start of editing and pass
 its field versions explicitly; a later query refresh cannot replace that edit
-snapshot. Pending mutation inputs preview existing record values without
+snapshot. An attachment upload ends its cell edit when it settles, including
+a transport failure. A later edit takes the latest field versions. A failed
+record save still retains its attempted value and versions for explicit retry;
+upload cleanup does not clear that attempt or call an unmounted editor.
+Pending mutation inputs preview existing record values without
 changing the confirmed query cache. A failure removes that preview and retains
 newer confirmed reads. Creates and deletes show pending state and enter the result only
 after server confirmation, preserving failed input and deletion dialogs. The

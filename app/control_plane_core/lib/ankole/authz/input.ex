@@ -73,6 +73,36 @@ defmodule Ankole.AuthZ.Input do
 
   def normalize_actions(_actions), do: {:error, :invalid_request}
 
+  def normalize_checks(checks) when is_list(checks) and checks != [] do
+    checks
+    |> Enum.map(&normalize_check/1)
+    |> Ankole.Attrs.collect_results()
+  end
+
+  def normalize_checks(_checks), do: {:error, :invalid_request}
+
+  defp normalize_check(%{resource: resource, action: action} = check) do
+    with {:ok, resource} <- normalize_resource(resource),
+         {:ok, [action]} <- normalize_actions([action]) do
+      normalized = %{"resource" => resource, "action" => action}
+
+      case Map.fetch(check, :grant_ids) do
+        :error ->
+          {:ok, normalized}
+
+        {:ok, ids} when is_list(ids) ->
+          if Enum.all?(ids, &is_binary/1),
+            do: {:ok, Map.put(normalized, "grantIDs", ids)},
+            else: {:error, :invalid_request}
+
+        _invalid ->
+          {:error, :invalid_request}
+      end
+    end
+  end
+
+  defp normalize_check(_check), do: {:error, :invalid_request}
+
   def normalize_resource(resource) do
     with {:ok, resource} <- normalize_required_text(resource) do
       case Regex.match?(@resource_glob_metacharacters, resource) do
@@ -103,14 +133,7 @@ defmodule Ankole.AuthZ.Input do
     end
   end
 
-  def normalize_required_text(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> {:error, :invalid_request}
-      trimmed -> {:ok, trimmed}
-    end
-  end
-
-  def normalize_required_text(_value), do: {:error, :invalid_request}
+  def normalize_required_text(value), do: Ankole.Attrs.required_text(value, :invalid_request)
 
   def validate_condition_syntax(condition) when is_binary(condition) do
     try do

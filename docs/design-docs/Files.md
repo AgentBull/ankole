@@ -227,6 +227,14 @@ that several upserts declare once. Files under the same top-level folder of
 the Agent Home travel together in bundles of at most 100 MiB, packed by the
 size that each upsert declares; a file alone in its group travels by itself.
 
+`WorkerFiles.with_received_file/3` owns single-file reception to a temporary
+local file. It waits for the complete stream and the final Worker RPC result
+before it calls the domain function. The stream and function run in the caller's
+process, with the caller's tenant context. Relay errors return their declared
+reason. Other exceptions propagate. The temporary file is removed on every
+exit. Pod and drive callers retain path validation, authorization, digest
+checks, and durable writes. Bundle reception retains its separate format.
+
 The turn-local command `ankole-files` gives the model the drive:
 `list [<folder>] [--after <path>]`, `get <drive path> [--output <local path>]`,
 `put <local path> <drive path>`, and `rm <drive path>`. `get` writes to
@@ -356,9 +364,9 @@ A missing file is reported and its original payload remains available for a
 later import with the correct Home. Symlinks cannot redirect the import
 outside that Home.
 
-A release runs `bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'`
+A release runs `bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'`
 in a container that mounts the Agent volume at `/agents`. Development runs
-`mix ankole.files.import_agent_home var/ankole-dev/agents`. The import never
+`mix run --no-start -e 'Ankole.Upgrade202610.import_agent_home("var/ankole-dev/agents")'`. The import never
 replaces a drive file, so a second run copies only what the first run did not.
 It reports skipped symlinks, Skills or scripts over the Worker transfer limit,
 Automation Jobs without `main.ts`, and every directory or file that it cannot
@@ -373,7 +381,7 @@ by root, while the import runs as the control-plane user. The deployment
 guides therefore make the old volume readable (`chmod -R a+rX`) before the
 import.
 
-Remove `AgentHomeImport`, the import release command, and
+Remove `Ankole.Upgrade202610.import_agent_home/1` and
 `files.importAgentHomeClaim` when upgrades from pooled Worker releases are
 no longer supported, all old Skills are present in the drives, and no
 Automation Job has `legacy_directory_path`, and no unsent Delivery attachment

@@ -11,7 +11,11 @@ defmodule AnkoleWeb.Schemas.BackgroundActivities do
         title: "BackgroundActivityJob",
         type: :object,
         properties: %{
-          id: %Schema{type: :integer, minimum: 1, maximum: 9_007_199_254_740_991},
+          id: %Schema{
+            type: :integer,
+            minimum: Ankole.ModelIntegerID.minimum(),
+            maximum: Ankole.ModelIntegerID.maximum()
+          },
           agent_uid: %Schema{type: :string},
           owner_session_id: %Schema{type: :string},
           resource_kind: %Schema{type: :string, enum: ["background_job"]},
@@ -55,11 +59,19 @@ defmodule AnkoleWeb.Schemas.BackgroundActivities do
         title: "BackgroundActivityAutomationRun",
         type: :object,
         properties: %{
-          id: %Schema{type: :integer, minimum: 1, maximum: 9_007_199_254_740_991},
+          id: %Schema{
+            type: :integer,
+            minimum: Ankole.ModelIntegerID.minimum(),
+            maximum: Ankole.ModelIntegerID.maximum()
+          },
           agent_uid: %Schema{type: :string},
           owner_session_id: %Schema{type: :string},
           resource_kind: %Schema{type: :string, enum: ["automation_run"]},
-          automation_job_id: %Schema{type: :integer, minimum: 1, maximum: 9_007_199_254_740_991},
+          automation_job_id: %Schema{
+            type: :integer,
+            minimum: Ankole.ModelIntegerID.minimum(),
+            maximum: Ankole.ModelIntegerID.maximum()
+          },
           label: %Schema{type: :string, nullable: true},
           definition_status: %Schema{type: :string, enum: ["active", "cancelled"]},
           status: %Schema{type: :string, enum: ["queued", "running"]},
@@ -127,11 +139,19 @@ defmodule AnkoleWeb.Schemas.BackgroundActivities do
         title: "BackgroundActivityWorkflowCall",
         type: :object,
         properties: %{
-          id: %Schema{type: :integer, minimum: 1, maximum: 9_007_199_254_740_991},
+          id: %Schema{
+            type: :integer,
+            minimum: Ankole.ModelIntegerID.minimum(),
+            maximum: Ankole.ModelIntegerID.maximum()
+          },
           agent_uid: %Schema{type: :string},
           owner_session_id: %Schema{type: :string},
           resource_kind: %Schema{type: :string, enum: ["workflow_call"]},
-          run_id: %Schema{type: :integer, minimum: 1, maximum: 9_007_199_254_740_991},
+          run_id: %Schema{
+            type: :integer,
+            minimum: Ankole.ModelIntegerID.minimum(),
+            maximum: Ankole.ModelIntegerID.maximum()
+          },
           run_status: %Schema{type: :string},
           run_title: %Schema{type: :string},
           task_session_id: %Schema{type: :string},
@@ -185,7 +205,11 @@ defmodule AnkoleWeb.Schemas.BackgroundActivities do
         title: "BackgroundActivityWorkflowRun",
         type: :object,
         properties: %{
-          id: %Schema{type: :integer, minimum: 1, maximum: 9_007_199_254_740_991},
+          id: %Schema{
+            type: :integer,
+            minimum: Ankole.ModelIntegerID.minimum(),
+            maximum: Ankole.ModelIntegerID.maximum()
+          },
           agent_uid: %Schema{type: :string},
           owner_session_id: %Schema{type: :string},
           resource_kind: %Schema{type: :string, enum: ["workflow_run"]},

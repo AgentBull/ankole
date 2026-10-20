@@ -157,42 +157,64 @@ export class TextblockMap {
     forward: boolean,
     skipped?: string[]
   ): { pos: number; side: -1 | 1 } | null {
-    // This implementation moves strictly visually, without concern for a
-    // traversal visiting every logical position in the string. It will
-    // still do so for simple input, but situations like multiple isolates
-    // with the same level next to each other, or text going against the
-    // main dir at the end of the line, will make some positions
-    // unreachable with this motion. Each visible cursor position will
-    // correspond to the lower-level bidi span that touches it.
+    // This implementation moves strictly visually, without concern
+    // for a traversal visiting every logical position in the string.
+    // It will still do so for simple input, but situations like
+    // multiple isolates with the same level next to each other will
+    // make some positions unreachable with this motion. Each visible
+    // cursor position will correspond to the lower-level bidi span
+    // that touches it.
     //
-    // The alternative would be to solve an order globally for a given
-    // line, making sure that it includes every position, but that would
-    // require associating non-canonical (higher bidi span level)
-    // positions with a given visual position, which is likely to confuse
-    // people. (And would generally be a lot more complicated.)
+    // Positions at the start/end of the block with a direction
+    // pointing away from the content indicate the first and last
+    // position, even if there's a span not in the dominant direction
+    // next to them (and thus the first/last character is not actually
+    // visually at the start or end of line).
+    //
+    // Accumulates character skipped over in `skipped[0]`, when given.
+    if (!this.text.length) return null
     let startIndex = this.toIndex(start)
     const { order, ltr } = this
-    let spanI = BidiSpan.find(order, startIndex, side)
-    let span = order[spanI],
-      spanEnd = span!.side(forward, ltr)
+    let spanI: number
+    if (startIndex == 0 && side < 0) {
+      // Start of line.
+      if (!forward) return null
+      spanI = 0
+      startIndex = order[spanI]!.side(false, ltr)
+    } else if (startIndex == this.text.length && side > 0) {
+      // End of line.
+      if (forward) return null
+      spanI = order.length - 1
+      startIndex = order[spanI]!.side(true, ltr)
+    } else {
+      spanI = BidiSpan.find(order, startIndex, side)
+    }
+    let span = order[spanI]!,
+      spanEnd = span.side(forward, ltr)
     // End of span
     if (startIndex == spanEnd) {
       const nextI = (spanI += forward ? 1 : -1)
       if (nextI < 0 || nextI >= order.length) return null
-      span = order[(spanI = nextI)]
-      startIndex = span!.side(!forward, ltr)
-      spanEnd = span!.side(forward, ltr)
+      span = order[(spanI = nextI)]!
+      startIndex = span.side(!forward, ltr)
+      spanEnd = span.side(forward, ltr)
     }
-    let nextIndex = findClusterBreak(this.text, startIndex, span!.forward(forward, ltr))
+    let nextIndex = findClusterBreak(this.text, startIndex, span.forward(forward, ltr))
     if (nextIndex == startIndex) return null
-    if (nextIndex < span!.from || nextIndex > span!.to) nextIndex = spanEnd
+    if (nextIndex < span.from || nextIndex > span.to) nextIndex = spanEnd
     if (skipped) skipped[0] = this.text.slice(Math.min(startIndex, nextIndex), Math.max(startIndex, nextIndex))
 
     const nextSpan = spanI == (forward ? order.length - 1 : 0) ? null : order[spanI + (forward ? 1 : -1)]
-    if (nextSpan && nextIndex == spanEnd && nextSpan.level + (forward ? 0 : 1) < span!.level) {
-      return { pos: this.fromIndex(nextSpan.side(!forward, ltr)), side: nextSpan.forward(forward, ltr) ? 1 : -1 }
+    if (nextIndex == spanEnd) {
+      // End of line.
+      if (!nextSpan) {
+        return forward ? { pos: this.start + this.node.contentLength, side: 1 } : { pos: this.start, side: -1 }
+      }
+      if (nextSpan.level + (forward ? 0 : 1) < span.level) {
+        return { pos: this.fromIndex(nextSpan.side(!forward, ltr)), side: nextSpan.forward(forward, ltr) ? 1 : -1 }
+      }
     }
-    return { pos: this.fromIndex(nextIndex), side: nextIndex != spanEnd ? 1 : span!.forward(forward, ltr) ? -1 : 1 }
+    return { pos: this.fromIndex(nextIndex), side: nextIndex != spanEnd ? 1 : span.forward(forward, ltr) ? -1 : 1 }
   }
 
   /** @internal */
@@ -225,23 +247,6 @@ export class TextblockMap {
     if (!word) return null
     const segments = [...new Intl.Segmenter(undefined, { granularity: 'word' }).segment(word)]
     return history.get(segments[forward ? 0 : segments.length - 1]!.segment.length) || cur
-  }
-
-  /**
-   * Get the position at the start or end of the textblock. Note that
-   * in bidirectional text this may not be the actual start or end
-   * position of the node.
-   */
-  visualSide(start: boolean): { pos: number; side: -1 | 1 } {
-    let pos, side: -1 | 1
-    if (start) {
-      const span = this.order[0]!
-      ;[pos, side] = span.ltr == this.ltr ? [span.from, 1] : [span.to, -1]
-    } else {
-      const span = this.order[this.order.length - 1]!
-      ;[pos, side] = span.ltr == this.ltr ? [span.to, -1] : [span.from, 1]
-    }
-    return { pos: this.fromIndex(pos), side }
   }
 
   /** @internal */

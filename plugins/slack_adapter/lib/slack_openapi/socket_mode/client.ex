@@ -1,11 +1,10 @@
 defmodule SlackOpenAPI.SocketMode.Client do
-  import IMTransport.WebSocket, only: [parse_url: 1]
-
   @moduledoc """
   Supervised Socket Mode connection with post-dispatch acknowledgements.
 
-  Slack envelopes are dispatched in supervised tasks. The websocket owner only
-  parses frames, tracks task references, and writes acknowledgements.
+  Slack envelopes are dispatched in supervised tasks. This process parses
+  frames, tracks task references, and writes acknowledgements.
+  `IMTransport.WebSocket` owns the Mint connection.
   """
 
   use GenServer
@@ -14,6 +13,7 @@ defmodule SlackOpenAPI.SocketMode.Client do
 
   alias SlackOpenAPI.{Client, Error}
   alias SlackOpenAPI.SocketMode.Dispatcher
+  alias IMTransport.WebSocket
 
   @fatal_reasons ["invalid_auth", "not_allowed_token_type", "forbidden_team"]
   @default_reconnect_interval_s 15
@@ -24,17 +24,12 @@ defmodule SlackOpenAPI.SocketMode.Client do
             expected_app_id: nil,
             task_supervisor: nil,
             auto_reconnect: true,
-            conn: nil,
-            websocket: nil,
-            request_ref: nil,
+            socket: nil,
             reconnect_attempt: 0,
             reconnect_timer: nil,
             reconnect_interval_s: @default_reconnect_interval_s,
             reconnect_nonce_s: @default_reconnect_nonce_s,
             dispatch_tasks: %{},
-            upgrade_buffer: <<>>,
-            upgrade_status: nil,
-            upgrade_headers: nil,
             status: :disconnected,
             connection_info: %{}
 
@@ -94,7 +89,8 @@ defmodule SlackOpenAPI.SocketMode.Client do
   end
 
   @impl true
-  def handle_info(:connect, %{conn: conn} = state) when not is_nil(conn), do: {:noreply, state}
+  def handle_info(:connect, %{socket: socket} = state) when not is_nil(socket),
+    do: {:noreply, state}
 
   def handle_info(:connect, state) do
     state = clear_reconnect_timer(state)
@@ -157,15 +153,20 @@ defmodule SlackOpenAPI.SocketMode.Client do
     end
   end
 
-  def handle_info(_message, %{conn: nil} = state), do: {:noreply, state}
+  def handle_info(_message, %{socket: nil} = state), do: {:noreply, state}
 
   def handle_info(message, state) do
-    case Mint.WebSocket.stream(state.conn, message) do
-      {:ok, conn, responses} ->
-        handle_responses(responses, %{state | conn: conn})
+    case WebSocket.stream(state.socket, message) do
+      {:ok, socket, frames} ->
+        {:noreply, Enum.reduce(frames, %{state | socket: socket}, &handle_frame/2)}
 
-      {:error, conn, reason, _responses} ->
-        state = %{state | conn: conn} |> drop_conn()
+      {:error, socket, {:websocket_decode, reason}} ->
+        Logger.warning("slack_openapi Socket Mode decode failed: #{inspect(reason)}")
+        {:noreply, %{state | socket: socket}}
+
+      {:error, socket, reason} ->
+        reason = unwrap_upgrade(reason)
+        state = %{state | socket: socket} |> drop_conn()
         maybe_schedule_reconnect(state, reason)
 
       :unknown ->
@@ -181,15 +182,12 @@ defmodule SlackOpenAPI.SocketMode.Client do
 
   defp connect(state) do
     with {:ok, endpoint} <- fetch_endpoint(state.client),
-         {:ok, scheme, host, port, path} <- parse_url(endpoint),
-         {:ok, conn} <- Mint.HTTP.connect(http_scheme(scheme), host, port, protocols: [:http1]),
-         {:ok, conn, ref} <-
-           Mint.WebSocket.upgrade(scheme, conn, path, [{"user-agent", "slack_openapi-elixir/0.1"}]) do
+         {:ok, socket} <-
+           WebSocket.connect(endpoint, headers: [{"user-agent", "slack_openapi-elixir/0.1"}]) do
       {:ok,
        %{
          state
-         | conn: conn,
-           request_ref: ref,
+         | socket: socket,
            status: :upgrading,
            reconnect_attempt: 0,
            reconnect_timer: nil
@@ -199,9 +197,6 @@ defmodule SlackOpenAPI.SocketMode.Client do
         {:error, error, true}
 
       {:error, reason} ->
-        {:error, reason, false}
-
-      {:error, _conn, reason} ->
         {:error, reason, false}
     end
   end
@@ -214,68 +209,8 @@ defmodule SlackOpenAPI.SocketMode.Client do
     end
   end
 
-  defp http_scheme(:ws), do: :http
-  defp http_scheme(:wss), do: :https
-
-  defp handle_responses([], state), do: {:noreply, state}
-
-  defp handle_responses([{:status, ref, status} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, %{state | upgrade_status: status})
-  end
-
-  defp handle_responses([{:headers, ref, headers} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, %{state | upgrade_headers: headers})
-  end
-
-  defp handle_responses([{:done, ref} | rest], %{request_ref: ref} = state) do
-    case Mint.WebSocket.new(
-           state.conn,
-           ref,
-           state.upgrade_status,
-           state.upgrade_headers
-         ) do
-      {:ok, conn, websocket} ->
-        state = %{state | conn: conn, websocket: websocket, status: :upgrading}
-        state = decode_buffered_upgrade_data(state)
-        handle_responses(rest, state)
-
-      {:error, conn, reason} ->
-        state = %{state | conn: conn} |> drop_conn()
-        maybe_schedule_reconnect(state, reason)
-    end
-  end
-
-  defp handle_responses(
-         [{:data, ref, data} | rest],
-         %{request_ref: ref, websocket: nil} = state
-       ) do
-    handle_responses(rest, %{state | upgrade_buffer: state.upgrade_buffer <> data})
-  end
-
-  defp handle_responses([{:data, ref, data} | rest], %{request_ref: ref} = state) do
-    state = decode_ws_data(data, state)
-    handle_responses(rest, state)
-  end
-
-  defp handle_responses([_response | rest], state), do: handle_responses(rest, state)
-
-  defp decode_buffered_upgrade_data(%{upgrade_buffer: <<>>} = state), do: state
-
-  defp decode_buffered_upgrade_data(state) do
-    data = state.upgrade_buffer
-    decode_ws_data(data, %{state | upgrade_buffer: <<>>})
-  end
-
-  defp decode_ws_data(data, state) do
-    case Mint.WebSocket.decode(state.websocket, data) do
-      {:ok, websocket, frames} ->
-        Enum.reduce(frames, %{state | websocket: websocket}, &handle_frame/2)
-
-      {:error, websocket, reason} ->
-        Logger.warning("slack_openapi Socket Mode decode failed: #{inspect(reason)}")
-        %{state | websocket: websocket}
-    end
-  end
+  defp unwrap_upgrade({:upgrade, reason}), do: reason
+  defp unwrap_upgrade(reason), do: reason
 
   defp handle_frame({:text, json}, state) do
     case Torque.decode(json) do
@@ -353,7 +288,8 @@ defmodule SlackOpenAPI.SocketMode.Client do
 
   defp envelope_event_type(envelope), do: Map.get(envelope, "type", "unknown")
 
-  defp send_ack(_envelope_id, _duration, %{conn: nil} = state), do: state
+  defp send_ack(_envelope_id, _duration, %{socket: nil} = state), do: state
+  defp send_ack(_envelope_id, _duration, %{socket: %{websocket: nil}} = state), do: state
 
   defp send_ack(envelope_id, duration, state) do
     new_state = send_frame({:text, encode_ack(envelope_id)}, state)
@@ -361,23 +297,16 @@ defmodule SlackOpenAPI.SocketMode.Client do
     new_state
   end
 
-  defp send_frame(_frame, %{websocket: nil} = state), do: state
+  defp send_frame(_frame, %{socket: nil} = state), do: state
+  defp send_frame(_frame, %{socket: %{websocket: nil}} = state), do: state
 
   defp send_frame(frame, state) do
-    case Mint.WebSocket.encode(state.websocket, frame) do
-      {:ok, websocket, data} ->
-        case Mint.WebSocket.stream_request_body(state.conn, state.request_ref, data) do
-          {:ok, conn} ->
-            %{state | conn: conn, websocket: websocket}
+    case WebSocket.send_frame(state.socket, frame) do
+      {:ok, socket} ->
+        %{state | socket: socket}
 
-          {:error, conn, reason} ->
-            %{state | conn: conn, websocket: websocket}
-            |> drop_conn()
-            |> schedule_reconnect_async(reason)
-        end
-
-      {:error, websocket, reason} ->
-        %{state | websocket: websocket}
+      {:error, socket, reason} ->
+        %{state | socket: socket}
         |> drop_conn()
         |> schedule_reconnect_async(reason)
     end
@@ -436,16 +365,13 @@ defmodule SlackOpenAPI.SocketMode.Client do
   end
 
   defp drop_conn(state) do
-    if state.conn, do: Mint.HTTP.close(state.conn)
+    WebSocket.close(state.socket)
     Enum.each(Map.keys(state.dispatch_tasks), &Process.demonitor(&1, [:flush]))
 
     %{
       state
-      | conn: nil,
-        websocket: nil,
-        request_ref: nil,
+      | socket: nil,
         dispatch_tasks: %{},
-        upgrade_buffer: <<>>,
         status: :disconnected,
         connection_info: %{}
     }

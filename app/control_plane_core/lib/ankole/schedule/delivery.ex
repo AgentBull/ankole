@@ -71,7 +71,7 @@ defmodule Ankole.Schedule.Delivery do
   end
 
   defp normalize_targets(delivery) do
-    case fetch(delivery, "targets") do
+    case fetch(delivery, :targets) do
       {:ok, targets} when is_list(targets) and targets != [] ->
         targets
         |> Enum.map(&normalize_target/1)
@@ -118,7 +118,7 @@ defmodule Ankole.Schedule.Delivery do
   end
 
   defp normalize_quiet_success(delivery) do
-    case fetch(delivery, "quiet_success") do
+    case fetch(delivery, :quiet_success) do
       :error -> {:ok, :unset}
       {:ok, value} when is_boolean(value) -> {:ok, value}
       {:ok, _value} -> {:error, {:invalid_boolean, "quiet_success"}}
@@ -143,13 +143,13 @@ defmodule Ankole.Schedule.Delivery do
     do: {:error, :cron_delivery_route_required}
 
   defp route_update?(delivery) do
-    match?({:ok, _value}, fetch(delivery, "targets"))
+    match?({:ok, _value}, fetch(delivery, :targets))
   end
 
   defp fetch(map, key) do
-    case Map.fetch(map, key) do
+    case Map.fetch(map, Atom.to_string(key)) do
       {:ok, value} -> {:ok, value}
-      :error -> Map.fetch(map, String.to_atom(key))
+      :error -> Map.fetch(map, key)
     end
   end
 end

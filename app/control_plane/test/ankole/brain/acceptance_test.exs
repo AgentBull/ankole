@@ -441,11 +441,74 @@ defmodule Ankole.Brain.AcceptanceTest do
   end
 
   describe "dreaming phase 3" do
-    test "skips the whole phase without a model and leaves the watermark", %{object: object} do
-      assert %{status: :skipped, reason: :dreaming_model_not_configured} =
-               Dreaming.phase_extract_links()
+    test "model-free links advance separately from model timelines", %{
+      object: object,
+      human: human
+    } do
+      {:ok, target} =
+        Objects.create_object(%{slug: "notes/target", type: "note", title: "Target"}, human.uid)
 
-      assert Repo.get_by!(Object, slug: object.slug).links_extracted_at == nil
+      {:ok, _} = Ankole.Brain.Links.add_alias(target.slug, "Target mention")
+
+      {:ok, object} =
+        Objects.update_object(
+          object.slug,
+          %{
+            body: "[[notes/target]] and Target mention",
+            expected_content_hash: object.content_hash
+          },
+          human.uid
+        )
+
+      assert Ankole.Brain.SelfHealing.reconcile_body_links() >= 1
+      current = Repo.get_by!(Object, slug: object.slug)
+      assert current.links_extracted_at == object.updated_at
+      assert current.updated_at == object.updated_at
+      assert current.timelines_extracted_at == nil
+      assert Ankole.Brain.SelfHealing.reconcile_body_links() == 0
+
+      links =
+        Repo.all(from l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug)
+
+      assert Enum.sort(Enum.map(links, & &1.link_source)) == ["markdown", "mentions"]
+
+      assert {:ok, _} = Ankole.Brain.Links.reconcile_object_links(object.slug)
+
+      assert MapSet.new(links, & &1.id) ==
+               MapSet.new(
+                 Repo.all(
+                   from l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug
+                 ),
+                 & &1.id
+               )
+
+      assert %{status: :skipped, reason: :dreaming_model_not_configured} =
+               Dreaming.phase_extract_timelines()
+
+      assert Repo.get_by!(Object, slug: object.slug).timelines_extracted_at == nil
+
+      {:ok, _} =
+        Ankole.Brain.Links.upsert_link(%{
+          from_object_slug: object.slug,
+          to_object_slug: target.slug,
+          link_type: "manual relation",
+          link_source: "manual"
+        })
+
+      {:ok, object} =
+        Objects.update_object(
+          object.slug,
+          %{body: "No references now.", expected_content_hash: object.content_hash},
+          human.uid
+        )
+
+      assert DateTime.compare(object.updated_at, current.links_extracted_at) == :gt
+      assert Ankole.Brain.SelfHealing.reconcile_body_links() >= 1
+
+      assert [%{link_source: "manual"}] =
+               Repo.all(
+                 from l in Ankole.Brain.Schemas.Link, where: l.from_object_slug == ^object.slug
+               )
     end
   end
 

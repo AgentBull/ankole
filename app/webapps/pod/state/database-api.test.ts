@@ -307,6 +307,32 @@ describe('Database cache reconciliation', () => {
   })
 })
 
+test('a late subscriber receives revocation without reopening the revoked channel', async () => {
+  const context = fixture()
+  const join = spyOn(context.realtime, 'join')
+  const late: TableEvent[] = []
+  let unsubscribe: (() => void) | undefined
+  try {
+    await context.subscribe()
+    context.realtime.emit('access_revoked')
+    unsubscribe = context.api.subscribe(tableID, event => late.push(event))
+    expect(late).toEqual([{ access_revoked: true }])
+    expect(join).toHaveBeenCalledTimes(1)
+    context.realtime.emit('changed', { data_version: 2 })
+    await turn()
+    expect(late).toEqual([{ access_revoked: true }])
+    unsubscribe()
+    unsubscribe = undefined
+    context.unsubscribe()
+    await context.subscribe()
+    expect(join).toHaveBeenCalledTimes(2)
+  } finally {
+    unsubscribe?.()
+    join.mockRestore()
+    context.dispose()
+  }
+})
+
 test('local aggregation obeys the configured group bound through the server owner', async () => {
   const context = fixture()
   const aggregate = spyOn(databaseHTTP, 'aggregate')

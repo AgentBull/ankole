@@ -9,6 +9,8 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Principals.MappingRequests
@@ -67,8 +69,6 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
       json(conn, %{
         identity_mapping_requests: Enum.map(MappingRequests.list_requests(), &request_json/1)
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -77,8 +77,6 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
          {:ok, principal_uid} <- body_text(conn, :principal_uid),
          {:ok, %{identity: identity}} <- MappingRequests.bind_request(id, principal_uid) do
       json(conn, %{identity_mapping: identity_json(identity)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -88,8 +86,6 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
       json(conn, %{
         identity_mapping_requests: Enum.map(MappingRequests.list_requests(), &request_json/1)
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -104,8 +100,6 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
              external_id: external_id
            }) do
       json(conn, %{identity_mapping: identity_json(identity)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -138,6 +132,8 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
     end
   end
 
+  defp fallback(conn, {:error, reason}), do: error(conn, reason)
+
   defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
 
   defp error(conn, :not_found),
@@ -161,8 +157,20 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
   defp error(conn, %Ecto.Changeset{}),
     do: error(conn, 422, "invalid_request", "mapping is invalid")
 
-  defp error(conn, reason),
-    do: error(conn, 500, "internal_error", "unexpected error: #{inspect(reason)}")
+  defp error(conn, reason) do
+    Ankole.Logging.warning(
+      "identity_mapping.api_failed",
+      "identity mapping request failed for an unhandled reason",
+      %{reason: inspect(reason)}
+    )
+
+    error(
+      conn,
+      500,
+      "internal_error",
+      "the request failed for an unexpected reason; check the server log"
+    )
+  end
 
   defp error(conn, status, code, message) do
     conn

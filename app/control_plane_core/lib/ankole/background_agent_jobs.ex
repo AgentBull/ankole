@@ -20,8 +20,8 @@ defmodule Ankole.BackgroundAgentJobs do
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.Sessions.TurnErrorClassifier
 
-  @minimum_job_id 1000
-  @maximum_job_id 9_007_199_254_740_991
+  require Ankole.ModelIntegerID
+
   @doc """
   Builds the durable Session id for one BackgroundAgentJob.
 
@@ -34,27 +34,12 @@ defmodule Ankole.BackgroundAgentJobs do
   """
   @spec job_session_id(pos_integer()) :: String.t()
   def job_session_id(job_id)
-      when is_integer(job_id) and job_id >= @minimum_job_id and job_id <= @maximum_job_id,
+      when Ankole.ModelIntegerID.valid?(job_id),
       do: Ankole.Sessions.Key.job(job_id)
 
   @doc "Parses a canonical model-safe Job id from its RuntimeFabric decimal string."
   @spec parse_job_id(term()) :: {:ok, pos_integer()} | :error
-  def parse_job_id(job_id)
-      when is_integer(job_id) and job_id >= @minimum_job_id and job_id <= @maximum_job_id,
-      do: {:ok, job_id}
-
-  def parse_job_id(job_id) when is_binary(job_id) do
-    case Integer.parse(job_id) do
-      {parsed, ""}
-      when parsed >= @minimum_job_id and parsed <= @maximum_job_id ->
-        if Integer.to_string(parsed) == job_id, do: {:ok, parsed}, else: :error
-
-      _parsed ->
-        :error
-    end
-  end
-
-  def parse_job_id(_other), do: :error
+  defdelegate parse_job_id(job_id), to: Ankole.ModelIntegerID, as: :parse
 
   @doc "Extracts the integer Job id from a Job session id; `:error` for any other term."
   @spec parse_job_session_id(term()) :: {:ok, pos_integer()} | :error

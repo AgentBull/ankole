@@ -22,6 +22,7 @@ defmodule Ankole.Brain.ConversationsLearning do
   alias Ankole.Brain.Schemas.ObjectAlias
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Scope
+  alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Sources
   alias Ankole.Brain.Timelines
   alias Ankole.Kernel, as: NativeKernel
@@ -242,6 +243,9 @@ defmodule Ankole.Brain.ConversationsLearning do
              :ok <- ensure_extraction_written(items, written),
              :ok <- Sources.record_extraction_watermark(repo, current, boundary) do
           {:ok, %{status: outcome, token: token, written: written}}
+        else
+          nil -> {:error, :source_archived}
+          {:error, _reason} = error -> error
         end
       end)
 
@@ -702,6 +706,14 @@ defmodule Ankole.Brain.ConversationsLearning do
       Objects.writable_types()
       |> Enum.map_join(", ", fn type -> "#{type.name} (slug prefix #{type.slug_prefix})" end)
 
+    relation_vocabulary =
+      SchemaPacks.relation_vocabulary()
+      |> Enum.map_join(", ", fn relation ->
+        if relation.inverse,
+          do: "#{relation.name} (inverse #{relation.inverse})",
+          else: relation.name
+      end)
+
     """
     You extract long-term memory from a chat transcript. Return one JSON
     object: {"items": [...]}. Each item is one of:
@@ -744,6 +756,10 @@ defmodule Ankole.Brain.ConversationsLearning do
     #{speakers}
 
     #{known_pages_section(known_pages)}Installed object types (for new object items): #{installed_types}
+
+    Installed relation vocabulary: #{relation_vocabulary}
+    Prefer these relation labels when they express the source. Other labels
+    remain allowed when none fits; do not invent a relation just to use a label.
 
     Transcript:
     #{transcript.text}

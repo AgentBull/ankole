@@ -1,6 +1,8 @@
 defmodule Ankole.BackgroundAgentJobs.Dispatch do
   @moduledoc false
 
+  require Ankole.ModelIntegerID
+
   import Ecto.Query
 
   alias Ecto.Adapters.SQL
@@ -60,7 +62,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   @spec respawn_with_dispatch(pos_integer(), map()) ::
           {:ok, %{job: Job.t(), dispatch_event: Signal.t()}} | {:error, term()}
   def respawn_with_dispatch(source_job_id, attrs)
-      when is_integer(source_job_id) and source_job_id > 0 and is_map(attrs) do
+      when Ankole.ModelIntegerID.valid?(source_job_id) and is_map(attrs) do
     now = now()
 
     with attrs when is_map(attrs) <- Attrs.normalize(attrs),
@@ -540,7 +542,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
            []
          ) do
       {:ok, %{rows: [[job_id]]}}
-      when is_integer(job_id) and job_id in 1000..9_007_199_254_740_991 ->
+      when Ankole.ModelIntegerID.valid?(job_id) ->
         {:ok, job_id}
 
       {:ok, _result} ->

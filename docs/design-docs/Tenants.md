@@ -160,6 +160,11 @@ for shared history and provider Delivery.
 
 ## Suspension, deletion and recovery
 
+`Tenants.accepting_work?/1` owns the new-work state check. It accepts a loaded
+tenant or reads the current state by ID. `Tenants.active_by_slug/1` applies that
+check to an exact slug lookup without selecting a tenant context. Pod hosts and
+login use this lookup; existence checks and maintenance keep their own readers.
+
 Suspension blocks new work and Human OIDC access while preserving data. Already
 admitted attempts can finish, including recovery after a process exit. Cleanup,
 Worker release and durable delivery continue. Recovery scanners do not turn a
@@ -199,13 +204,15 @@ Tenant columns use a constant default for existing rows, then drop that default;
 new writes must provide ownership. The admin scope migration updates both stored
 scope columns and audience tags in live Brain bodies and version snapshots.
 
-`Ankole.Upgrade202610` owns the temporary data steps in one file. The
-`mix ecto.migrate` alias and `Release.migrate` both call it after schema migration,
-so `ecto.setup`, package scripts, `kit app-db` and `bun dev` also complete the
-data upgrade. The file starts and stops only the processes its steps need.
-An operator can repeat only the data steps with
-`mix run --no-start -e 'Ankole.Upgrade202610.run()'` after schema migration,
-with the original encryption key and every control-plane replica stopped.
+`Ankole.Upgrade202610` owns the temporary 2026-10 data and Agent Home file
+upgrade steps in one file. The `mix ecto.migrate` alias and `Release.migrate`
+both call `Ankole.Upgrade202610.run/0` after schema migration, so `ecto.setup`,
+package scripts, `kit app-db` and `bun dev` also complete the data upgrade. The
+file starts and stops only the processes its steps need. An operator can repeat
+only the data steps with `mix run --no-start -e 'Ankole.Upgrade202610.run()'`
+after schema migration, with the original encryption key and every
+control-plane replica stopped, and runs `Ankole.Upgrade202610.import_agent_home/1`
+for the one-time Agent Home file import into drives.
 
 Remove that file, its Mix alias, its Release call and its tests when every
 supported direct-upgrade origin includes these steps and upgrade rehearsals

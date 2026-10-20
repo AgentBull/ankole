@@ -1,0 +1,96 @@
+{
+  "valid": [
+    {
+      "name": "text",
+      "binding": {
+        "selector": "provider/model",
+        "provider_options": {
+          "nested": {
+            "preserved": true
+          },
+          "values": [
+            "one",
+            2,
+            false
+          ]
+        },
+        "supports_parallel_tool_calls": true,
+        "input_modalities": [
+          "text"
+        ]
+      },
+      "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6eyJuZXN0ZWQiOnsicHJlc2VydmVkIjp0cnVlfSwidmFsdWVzIjpbIm9uZSIsMixmYWxzZV19LCJzdXBwb3J0c19wYXJhbGxlbF90b29sX2NhbGxzIjp0cnVlLCJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXX0"
+    },
+    {
+      "name": "vision",
+      "binding": {
+        "selector": "provider/model",
+        "provider_options": {
+          "nested": {
+            "preserved": true
+          },
+          "values": [
+            "one",
+            2,
+            false
+          ]
+        },
+        "supports_parallel_tool_calls": true,
+        "input_modalities": [
+          "text"
+        ],
+        "vision_fallback": {
+          "selector": "vision/model",
+          "provider_options": {},
+          "input_modalities": [
+            "text",
+            "image"
+          ]
+        }
+      },
+      "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6eyJuZXN0ZWQiOnsicHJlc2VydmVkIjp0cnVlfSwidmFsdWVzIjpbIm9uZSIsMixmYWxzZV19LCJzdXBwb3J0c19wYXJhbGxlbF90b29sX2NhbGxzIjp0cnVlLCJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXSwidmlzaW9uX2ZhbGxiYWNrIjp7InNlbGVjdG9yIjoidmlzaW9uL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6e30sImlucHV0X21vZGFsaXRpZXMiOlsidGV4dCIsImltYWdlIl19fQ"
+    },
+    {
+      "name": "brain",
+      "binding": {
+        "selector": "provider/model",
+        "provider_options": {
+          "nested": {
+            "preserved": true
+          },
+          "values": [
+            "one",
+            2,
+            false
+          ]
+        },
+        "supports_parallel_tool_calls": true,
+        "input_modalities": [
+          "text"
+        ],
+        "brain": {
+          "operations": [
+            "recall",
+            "get_page"
+          ],
+          "signal_id": "signal-1"
+        }
+      },
+      "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6eyJuZXN0ZWQiOnsicHJlc2VydmVkIjp0cnVlfSwidmFsdWVzIjpbIm9uZSIsMixmYWxzZV19LCJzdXBwb3J0c19wYXJhbGxlbF90b29sX2NhbGxzIjp0cnVlLCJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXSwiYnJhaW4iOnsib3BlcmF0aW9ucyI6WyJyZWNhbGwiLCJnZXRfcGFnZSJdLCJzaWduYWxfaWQiOiJzaWduYWwtMSJ9fQ"
+    },
+    {
+      "name": "unicode",
+      "binding": {
+        "selector": "provider/模型",
+        "provider_options": {
+          "label": "中文"
+        },
+        "supports_parallel_tool_calls": true,
+        "input_modalities": [
+          "text"
+        ]
+      },
+      "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL-aooeWeiyIsInByb3ZpZGVyX29wdGlvbnMiOnsibGFiZWwiOiLkuK3mlocifSwic3VwcG9ydHNfcGFyYWxsZWxfdG9vbF9jYWxscyI6dHJ1ZSwiaW5wdXRfbW9kYWxpdGllcyI6WyJ0ZXh0Il19"
+    }
+  ]
+}

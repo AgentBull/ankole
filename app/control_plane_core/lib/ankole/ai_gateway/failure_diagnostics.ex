@@ -511,21 +511,10 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   defp map_or(_value, fallback) when is_map(fallback), do: fallback
   defp map_or(_value, _fallback), do: %{}
 
-  defp value(map, key) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, value} ->
-        value
+  defp value(map, key) when is_map(map) and is_binary(key),
+    do: Ankole.Attrs.get_string_first(map, key)
 
-      :error ->
-        Enum.reduce_while(map, nil, fn
-          {atom_key, value}, _acc when is_atom(atom_key) ->
-            if Atom.to_string(atom_key) == key, do: {:halt, value}, else: {:cont, nil}
-
-          _entry, _acc ->
-            {:cont, nil}
-        end)
-    end
-  end
+  defp value(map, key) when is_map(map), do: Map.get(map, key)
 
   defp first_integer(values), do: Enum.find_value(values, &integer/1)
   defp first_string(values), do: Enum.find_value(values, &string/1)

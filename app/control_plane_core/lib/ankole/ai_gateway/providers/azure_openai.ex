@@ -75,7 +75,7 @@ defmodule Ankole.AIGateway.Providers.AzureOpenAI do
   """
   def prepare_language_model(ctx) do
     responses? = Providers.responses_endpoint?(ctx)
-    options = Map.new(ctx.settings, fn {key, value} -> {Atom.to_string(key), value} end)
+    options = Ankole.Attrs.normalize_external_attrs(ctx.settings)
     ctx = %{ctx | provider_options: Map.delete(ctx.provider_options, "maxTokensParameter")}
 
     ctx =

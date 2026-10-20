@@ -78,6 +78,8 @@ defmodule Ankole.Plugins.MapHelpersTest do
     assert MapHelpers.required_string(%{"a" => "  "}, "a") == {:error, {:missing, "a"}}
     assert MapHelpers.required_string(%{}, "a") == {:error, {:missing, "a"}}
     assert MapHelpers.required_string(%{"a" => 1}, "a") == {:error, {:missing, "a"}}
+    assert MapHelpers.required_string(%{a: "atom-only"}, "a") == {:error, {:missing, "a"}}
+    assert MapHelpers.required_string(nil, "a") == {:error, {:missing, "a"}}
   end
 
   test "optional_string trims, falls back to the default, and rejects non-strings" do

@@ -31,6 +31,25 @@ defmodule Ankole.Conversations.Delivery.TextTest do
   end
 
   describe "visible_text/1" do
+    test "chat text chooses assistant parts, concatenates, and accepts historical strings" do
+      items = [
+        %{"type" => "message", "role" => "user", "content" => "private input"},
+        %{"type" => "reasoning", "content" => [%{"type" => "text", "text" => "draft"}]},
+        %{
+          "type" => "message",
+          "role" => "assistant",
+          "content" => [
+            %{"type" => "output_text", "text" => "  first"},
+            %{"type" => "reasoning_text", "text" => "hidden"}
+          ]
+        },
+        %{"type" => "message", "content" => " second"},
+        %{"type" => "text", "text" => citation(["ref"]) <> " third  "}
+      ]
+
+      assert Text.visible_text(items) == "first second third"
+    end
+
     test "returns the cleaned assistant text with citation tokens removed" do
       items = [
         %{

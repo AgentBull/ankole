@@ -422,9 +422,12 @@ defmodule Ankole.Pod.Pages do
 
       with :ok <- AuthZ.authorize(uid, "pod:space", "update"),
            {:ok, %{type: :agent}} <- Ankole.Principals.get_principal(agent_uid),
-           :ok <- Access.put_role(%{principal_uid: agent_uid}, "pod:space:**", role),
-           do: {:ok, %{principal_uid: agent_uid, role: role}},
-           else: (error -> error)
+           :ok <- Access.put_role(%{principal_uid: agent_uid}, "pod:space:**", role) do
+        {:ok, %{principal_uid: agent_uid, role: role}}
+      else
+        {:ok, _principal} -> {:error, :invalid_principal}
+        error -> error
+      end
     end)
   end
 

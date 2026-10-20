@@ -77,7 +77,8 @@ defmodule AnkoleWeb.Plugs.RequirePodSession do
   end
 
   defp resolve(id) do
-    with {:ok, %{suspended_at: nil, deleting_at: nil} = tenant} <- Ankole.Tenants.get(id),
+    with {:ok, tenant} <- Ankole.Tenants.get(id),
+         true <- Ankole.Tenants.accepting_work?(tenant),
          do: {:ok, tenant.id},
          else: (_ -> {:error, :not_found})
   end

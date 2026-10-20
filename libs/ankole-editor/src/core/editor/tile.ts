@@ -322,6 +322,18 @@ export class CompositeTile extends Tile {
     if (!result) return null
     const { closest, rect } = result
     const pos = this.posBeforeChild(closest, start)
+    // Special case when querying a position after/before the
+    // first/last child in a textblock
+    if (textblock && textblock.start == start && (x < rect.left || x > rect.right)) {
+      const atStart = x < rect.left == textblock.ltr
+      const span = atStart ? textblock.order[0]! : textblock.order[textblock.order.length - 1]!
+      if (span.ltr != textblock.ltr && pos >= span.from + textblock.start && pos <= span.to + textblock.start) {
+        return atStart
+          ? CoordPos.create(textblock.start, -1)
+          : CoordPos.create(textblock.start + textblock.node.contentLength, 1)
+      }
+    }
+
     if (closest.dom.nodeName == 'BR') return CoordPos.create(pos, 1)
     if (closest.tag && closest.tag.isPlot && closest.tag.type.isInline) {
       if (x > rect.right) return CoordPos.create(pos + closest.length, -1)

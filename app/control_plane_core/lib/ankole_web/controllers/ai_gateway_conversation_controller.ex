@@ -6,6 +6,8 @@ defmodule AnkoleWeb.AIGatewayConversationController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Sessions.ConsoleQueries
@@ -94,8 +96,6 @@ defmodule AnkoleWeb.AIGatewayConversationController do
         conversations: ConsoleQueries.console_projections(page.conversations),
         next_cursor: page.next_cursor
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -104,8 +104,8 @@ defmodule AnkoleWeb.AIGatewayConversationController do
          %Conversation{} = conversation <- ConsoleQueries.get_conversation(conversation_id) do
       json(conn, %{conversation: ConsoleQueries.console_projection(conversation)})
     else
-      nil -> error(conn, :not_found)
-      {:error, reason} -> error(conn, reason)
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -124,23 +124,24 @@ defmodule AnkoleWeb.AIGatewayConversationController do
           })
 
         {:error, reason} ->
-          error(conn, reason)
+          {:error, reason}
       end
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
-  defp error(conn, :not_found), do: error(conn, 404, "not_found", "conversation was not found")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
+  defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "conversation was not found")
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_conversation_request", "conversation request is invalid", [
-      %{reason: inspect(reason)}
-    ])
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
+    ConsoleErrors.render(
+      conn,
+      422,
+      "invalid_conversation_request",
+      "conversation request is invalid",
+      [
+        %{reason: inspect(reason)}
+      ]
+    )
   end
 end

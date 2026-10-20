@@ -6,10 +6,11 @@ defmodule AnkoleWeb.ConsoleReadinessController do
   alias OpenApiSpex, as: OpenAPISpex
 
   use AnkoleWeb, :controller
+
+  action_fallback AnkoleWeb.ConsoleErrors
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.ConsoleReadiness
-  alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.ConsoleReadinessResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
@@ -31,10 +32,6 @@ defmodule AnkoleWeb.ConsoleReadinessController do
   def show(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "console_readiness", "read") do
       json(conn, ConsoleReadiness.snapshot())
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
-
-  defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
 end

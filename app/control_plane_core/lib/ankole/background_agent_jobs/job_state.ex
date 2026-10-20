@@ -1,6 +1,8 @@
 defmodule Ankole.BackgroundAgentJobs.JobState do
   @moduledoc """
-  Status values and allowed transitions for a BackgroundAgentJob.
+  Status values and Worker-reported transitions for a BackgroundAgentJob.
+
+  Lifecycle owns host requeue and Human continuation commands.
   """
 
   @statuses ~w(queued running waiting_on_user succeeded failed stopped)
@@ -24,8 +26,8 @@ defmodule Ankole.BackgroundAgentJobs.JobState do
   @spec running_statuses() :: [String.t()]
   def running_statuses, do: @running_statuses
 
-  @spec transition_allowed?(String.t(), String.t()) :: boolean()
-  def transition_allowed?(current, next) when is_binary(current) and is_binary(next) do
+  @spec worker_transition_allowed?(String.t(), String.t()) :: boolean()
+  def worker_transition_allowed?(current, next) when is_binary(current) and is_binary(next) do
     next in Map.get(@transitions, current, [])
   end
 end

@@ -243,7 +243,7 @@ once after an upgrade from a release without Agent drives:
 docker compose run --rm --no-deps --user root --entrypoint chmod \
   -v ankole_agents_data:/agents control-plane -R a+rX /agents
 docker compose run --rm -v ankole_agents_data:/agents control-plane \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 The import never replaces a drive file and reports files that it cannot read.

@@ -1092,3 +1092,9 @@ and [Automation runs](AutomationJobs.md#live-activity-in-console-home), with the
 own permissions, observation times and page cursors. It does not total parent
 Workflow rows, child calls and delegated Jobs as execution slots, and it does not
 cover all conversation Turns, Worker processes or resource utilization.
+
+`Ankole.ModelIntegerID` owns the shared `1000..9007199254740991` bounds and
+canonical decimal wire parsing. Workflow IDs use the same contract. Worker
+and Control Plane checks use the vectors in
+`app/kernel/proto/ankole/runtime_fabric/v1/model_integer_id_vectors.json`.
+Session workspace IDs retain their tighter lower bound of `10000`.

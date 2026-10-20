@@ -25,8 +25,12 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
     %{principal: alice} = human_fixture()
 
+    test_pid = self()
+
     base_url =
       start_upstream_server(fn %{path: "chat/completions", body: body} ->
+        send(test_pid, {:learning_request, body})
+
         items = %{
           "items" => [
             %{
@@ -61,6 +65,15 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
     insert_entry!(channel.id, "m1", "send me something written first", alice.uid)
 
     %{agent: agent, alice: alice, channel: channel}
+  end
+
+  test "the learning request includes installed relation vocabulary", %{channel: channel} do
+    assert {:ok, %{status: :complete}} = ConversationsLearning.process_conversation(channel.id)
+    assert_receive {:learning_request, request}
+    prompt = Enum.map_join(request["messages"], "\n", & &1["content"])
+    assert prompt =~ "Installed relation vocabulary:"
+    assert prompt =~ "part_of (inverse has_part)"
+    assert prompt =~ "Other labels"
   end
 
   test "idle slice discovery excludes completed channels and keeps the first new arrival",

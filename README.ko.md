@@ -201,7 +201,7 @@ Ankole은 프로덕션에서 실행 중입니다. Ankole Agent도 회사가 쓰�
 
 - 배포 하나는 조직 하나만 사용합니다. 신뢰 경계를 공유하지 않는 조직은 따로 배포해야 합니다.
 - Worker 컨테이너는 해당 Agent의 유일한 격리 경계입니다. Ankole은 Agent 자신의 작업으로부터 Worker를 보호하지 않습니다.
-- Alibaba Cloud Function Compute 제공자는 아직 클라우드에서 Worker 수명 주기 전체를 검증하지 않았습니다. [Agent Workers](docs/design-docs/AgentWorkers.md#provider-implementations)(영어)에 각 플랫폼이 통과한 검사가 나와 있습니다.
+- Worker 제공자마다 클라우드 검증 범위가 다릅니다. [Agent Workers](docs/design-docs/AgentWorkers.md#provider-verification-evidence)(영어)에서 기록된 근거와 남은 검증 항목을 확인하세요.
 
 ## 문서
 

@@ -1218,21 +1218,9 @@ defmodule Ankole.Conversations.Delivery.ReplyPresentation do
     Map.new(map, fn {key, value} -> {to_string(key), value} end)
   end
 
-  defp value(map, key) when is_map(map) do
-    case Map.fetch(map, key) do
-      {:ok, value} ->
-        value
+  defp value(map, key) when is_map(map) and is_binary(key),
+    do: Ankole.Attrs.get_string_first(map, key)
 
-      :error ->
-        case Enum.find(map, fn
-               {map_key, _value} when is_atom(map_key) -> Atom.to_string(map_key) == key
-               _entry -> false
-             end) do
-          {_map_key, value} -> value
-          nil -> nil
-        end
-    end
-  end
-
+  defp value(map, key) when is_map(map), do: Map.get(map, key)
   defp value(_map, _key), do: nil
 end

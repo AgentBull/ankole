@@ -303,6 +303,10 @@ existing `PokeRun` job. This also covers a crash before the first task event.
 A new replay reads the script and memo from PostgreSQL, so completed tasks do
 not run again.
 
+An unexpected replay-isolate cancellation failure emits a warning with the
+failure class and stack locations. It omits exception messages and function
+arguments and keeps the existing best-effort cancellation result.
+
 The replay supervisor runs at most four kernel replay isolates at one time. If
 all four slots are in use, another running run stays durable and its `RunServer`
 retries after 30 seconds. This limit controls replay isolates, not Workflow task

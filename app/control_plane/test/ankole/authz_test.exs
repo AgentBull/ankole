@@ -9,6 +9,37 @@ defmodule Ankole.AuthZTest do
   import Ankole.PrincipalsFixtures
 
   describe "authorization snapshots" do
+    test "independent checks use the public boundary and retain explicit grant restrictions" do
+      %{principal: principal} = human_fixture(%{uid: unique_uid("checks-human")})
+
+      {:ok, grant} =
+        AuthZ.upsert_permission_grant(%{
+          principal_uid: principal.uid,
+          resource_pattern: "workspace:**",
+          action: "read",
+          condition: ~s(resource == "workspace:first")
+        })
+
+      assert {:ok, [true, false, false, true, false]} =
+               AuthZ.authorize_checks(principal.uid, [
+                 %{resource: "workspace:first", action: "read"},
+                 %{resource: "workspace:second", action: "read"},
+                 %{resource: "workspace:first", action: "write"},
+                 %{resource: "workspace:first", action: "read", grant_ids: [grant.id]},
+                 %{resource: "workspace:first", action: "read", grant_ids: []}
+               ])
+
+      for checks <- [
+            [],
+            [%{resource: "workspace:*", action: "read"}],
+            [%{resource: "workspace:first", action: ""}],
+            [%{resource: "workspace:first", action: "read", grant_ids: nil}],
+            [%{resource: "workspace:first", action: "read", grant_ids: [123]}]
+          ] do
+        assert {:error, :invalid_request} = AuthZ.authorize_checks(principal.uid, checks)
+      end
+    end
+
     test "computed group grants are evaluated by the kernel" do
       %{principal: principal} = human_fixture(%{uid: unique_uid("computed-human")})
 

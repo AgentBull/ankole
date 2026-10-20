@@ -16,6 +16,7 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Jobs.ProcessConversationSlice
   alias Ankole.Brain.LibraryKnowledge
+  alias Ankole.Brain.Links
   alias Ankole.Brain.Objects
   alias Ankole.Brain.OIDCClientLearning
   alias Ankole.Brain.Schemas.Chunk
@@ -39,6 +40,7 @@ defmodule Ankole.Brain.SelfHealing do
       # embeddings in the same sweep instead of one cycle later.
       library_knowledge = sync_library_knowledge()
       rechunked = rechunk_stale_objects()
+      linked = reconcile_body_links()
       embedded = embed_pending()
       slices = sweep_idle_channels()
       oidc_sources = OIDCClientLearning.sweep()
@@ -47,6 +49,7 @@ defmodule Ankole.Brain.SelfHealing do
        %{
          library_knowledge: library_knowledge,
          rechunked: rechunked,
+         linked: linked,
          embedded: embedded,
          slices: slices,
          oidc_sources: oidc_sources
@@ -54,6 +57,19 @@ defmodule Ankole.Brain.SelfHealing do
     else
       {:ok, %{status: :brain_disabled}}
     end
+  end
+
+  @doc "Reconciles stale body links independently of model configuration."
+  def reconcile_body_links do
+    Object
+    |> where([object], is_nil(object.deleted_at))
+    |> where(
+      [object],
+      is_nil(object.links_extracted_at) or object.links_extracted_at < object.updated_at
+    )
+    |> limit(@rechunk_batch_limit)
+    |> Repo.all()
+    |> Enum.count(fn object -> match?({:ok, _}, Links.reconcile_object_links(object.slug)) end)
   end
 
   # Rechunks objects whose chunking signature differs from the current one.

@@ -1,6 +1,8 @@
 defmodule AnkoleWeb.BackgroundActivityController do
   @moduledoc "Three independently authorized read projections of an Agent's background activity."
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenApiSpex.ControllerSpecs
   alias OpenApiSpex.Schema
   alias AnkoleWeb.{ConsoleErrors, ConsoleParams, ConsolePolicy}
@@ -70,8 +72,6 @@ defmodule AnkoleWeb.BackgroundActivityController do
              limit: limit(params)
            ) do
       json(conn, activity_page(page, observed_at, [:jobs]))
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -83,8 +83,6 @@ defmodule AnkoleWeb.BackgroundActivityController do
          {:ok, cursor} <- cursor(params[:cursor]) do
       page = Ankole.AutomationJobs.ConsoleQueries.activity(agent, cursor, limit(params))
       json(conn, activity_page(page, observed_at, [:runs]))
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -99,8 +97,6 @@ defmodule AnkoleWeb.BackgroundActivityController do
         Ankole.Workflow.ConsoleQueries.activity(agent, calls_cursor, runs_cursor, limit(params))
 
       json(conn, activity_page(page, observed_at, [:live_calls, :runs]))
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -128,14 +124,15 @@ defmodule AnkoleWeb.BackgroundActivityController do
   defp cursor(value) when value in [nil, ""], do: {:ok, nil}
 
   defp cursor(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {id, ""} when id > 0 and id <= 9_007_199_254_740_991 -> {:ok, id}
+    case Ankole.ModelIntegerID.parse(value) do
+      {:ok, id} -> {:ok, id}
       _ -> {:error, :invalid_activity_cursor}
     end
   end
 
   defp cursor(_), do: {:error, :invalid_activity_cursor}
-  defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
+
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, _reason),
     do: ConsoleErrors.render(conn, 422, "validation_failed", "invalid Agent or activity cursor")

@@ -18,6 +18,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.CodexVision
   alias Ankole.AIGateway.FailureDiagnostics
+  alias Ankole.AIGateway.Usage
   alias Ankole.Attrs
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.Providers
@@ -1031,7 +1032,7 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
          "top_logprobs" => Map.get(metadata, "top_logprobs", 0),
          "temperature" => Map.get(metadata, "temperature", 1),
          "reasoning" => Map.get(metadata, "reasoning", %{"effort" => nil, "summary" => nil}),
-         "usage" => response_usage(Map.get(metadata, "usage")),
+         "usage" => Usage.normalize(Map.get(metadata, "usage")),
          "tool_usage" => map_or_empty(Map.get(metadata, "tool_usage")),
          "provider_metadata" => map_or_empty(Map.get(metadata, "provider_metadata")),
          "tool_results" => list_or_empty(Map.get(metadata, "tool_results")),
@@ -1149,49 +1150,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp response_error(_status, _metadata), do: nil
 
-  defp response_usage(%{} = usage) do
-    input_tokens = usage_integer(usage, ["input_tokens", "prompt_tokens", "inputTokens"])
-    output_tokens = usage_integer(usage, ["output_tokens", "completion_tokens", "outputTokens"])
-
-    total_tokens =
-      usage_integer(usage, ["total_tokens", "totalTokens"], input_tokens + output_tokens)
-
-    %{
-      "input_tokens" => input_tokens,
-      "output_tokens" => output_tokens,
-      "total_tokens" => total_tokens,
-      "input_tokens_details" => %{
-        "cached_tokens" =>
-          usage_integer(
-            map_or_empty(
-              Map.get(usage, "input_tokens_details") || Map.get(usage, "prompt_tokens_details")
-            ),
-            ["cached_tokens", "cached", "cachedInputTokens"]
-          )
-      },
-      "output_tokens_details" => %{
-        "reasoning_tokens" =>
-          usage_integer(
-            map_or_empty(
-              Map.get(usage, "output_tokens_details") ||
-                Map.get(usage, "completion_tokens_details")
-            ),
-            ["reasoning_tokens", "reasoning", "reasoningTokens"]
-          )
-      }
-    }
-  end
-
-  defp response_usage(_usage) do
-    %{
-      "input_tokens" => 0,
-      "output_tokens" => 0,
-      "total_tokens" => 0,
-      "input_tokens_details" => %{"cached_tokens" => 0},
-      "output_tokens_details" => %{"reasoning_tokens" => 0}
-    }
-  end
-
   defp public_response_metadata(metadata) do
     case Map.get(metadata, "request_metadata") do
       %{} = request_metadata -> request_metadata
@@ -1204,19 +1162,6 @@ defmodule Ankole.AIGateway.StatefulLifecycle do
 
   defp map_or_empty(value) when is_map(value), do: value
   defp map_or_empty(_value), do: %{}
-
-  defp usage_integer(map, keys, default \\ 0)
-
-  defp usage_integer(map, keys, default) when is_map(map) and is_list(keys) do
-    Enum.find_value(keys, default, fn key ->
-      case Map.get(map, key) do
-        value when is_integer(value) and value >= 0 -> value
-        _value -> false
-      end
-    end)
-  end
-
-  defp usage_integer(_map, _keys, default), do: default
 
   defp prefixed_id(_prefix, nil), do: nil
   defp prefixed_id(prefix, id) when is_binary(id), do: prefix <> id

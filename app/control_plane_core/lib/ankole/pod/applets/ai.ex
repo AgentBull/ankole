@@ -4,6 +4,7 @@ defmodule Ankole.Pod.Applets.AI do
   alias Ankole.{AIGateway, Principals}
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ReasoningEffort
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.Pod.Config
 
   def generate_text(options) do
@@ -84,10 +85,11 @@ defmodule Ankole.Pod.Applets.AI do
   defp output_text(%{"output_text" => text}) when is_binary(text), do: text
 
   defp output_text(%{"output" => output}) when is_list(output) do
-    for %{"type" => "message", "content" => content} <- output,
-        %{"type" => "output_text", "text" => text} <- content,
-        into: "",
-        do: text
+    output
+    |> ResponseItems.message_content_parts()
+    |> Enum.filter(&match?(%{"type" => "output_text"}, &1))
+    |> ResponseItems.text_parts()
+    |> Enum.join("")
   end
 
   defp output_text(_), do: ""

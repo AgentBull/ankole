@@ -70,7 +70,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
         config: config
       })
       when is_map(payload) do
-    with {:ok, provider_message_id} <- required_text(payload, "msgid"),
+    with {:ok, provider_message_id} <- MapHelpers.required_string(payload, "msgid"),
          {:ok, author} <- author(payload, config),
          {:ok, channel_kind, chat_target} <- channel_target(payload),
          raw_text <- message_text(payload),
@@ -152,7 +152,7 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   def normalize_card_action(%Event{body: payload}) when is_map(payload) do
     event_body = card_event_body(payload)
 
-    with {:ok, task_id} <- required_text(event_body, "task_id"),
+    with {:ok, task_id} <- MapHelpers.required_string(event_body, "task_id"),
          {:ok, operator_id} <- operator_actor_key(payload) do
       {:ok, channel_kind, chat_target} =
         case channel_target(payload) do
@@ -555,13 +555,6 @@ defmodule Ankole.Plugins.WeComAdapter.Inbound do
   defp ignored_status(:system_sender), do: :ignored_system_sender
   defp ignored_status(:missing_group_chatid), do: :ignored_missing_group_chatid
   defp ignored_status(:empty_or_unsupported_message), do: :ignored_empty_or_unsupported_message
-
-  defp required_text(map, key) do
-    case optional_text(map, key) do
-      value when is_binary(value) -> {:ok, value}
-      nil -> {:error, {:missing, key}}
-    end
-  end
 
   # Media URLs and AES keys expire after this call. Keep other provider facts.
   defp durable_media_payload(payload) when is_map(payload) do

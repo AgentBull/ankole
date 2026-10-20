@@ -12,6 +12,8 @@ defmodule AnkoleWeb.BrainController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Brain.Claims
@@ -251,8 +253,6 @@ defmodule AnkoleWeb.BrainController do
   def health(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
       json_plain(conn, %{health: Health.snapshot()})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -260,8 +260,6 @@ defmodule AnkoleWeb.BrainController do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, result} <- Ankole.Brain.Jobs.Dreaming.enqueue() do
       json_plain(conn, %{result: result})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -277,16 +275,12 @@ defmodule AnkoleWeb.BrainController do
         |> Enum.map(&object_summary/1)
 
       json_plain(conn, %{objects: objects})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
   def object_types(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "read") do
       json_plain(conn, %{types: Objects.installed_type_names()})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -295,10 +289,8 @@ defmodule AnkoleWeb.BrainController do
       case GetPage.get_page_admin(slug) do
         {:ok, page} -> json_plain(conn, %{object: page})
         {:ambiguous, candidates} -> json_plain(conn, %{candidates: candidates})
-        {:error, :not_found} -> error(conn, :not_found)
+        {:error, :not_found} -> {:error, :not_found}
       end
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -316,8 +308,6 @@ defmodule AnkoleWeb.BrainController do
         {:ok, object} -> render_object_page(conn, object.slug)
         {:error, reason} -> object_write_error(conn, reason, attrs.body)
       end
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -330,8 +320,6 @@ defmodule AnkoleWeb.BrainController do
         {:ok, object} -> render_object_page(conn, object.slug)
         {:error, reason} -> object_write_error(conn, reason, attrs.body)
       end
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -347,13 +335,12 @@ defmodule AnkoleWeb.BrainController do
             author: version.author && Map.from_struct(version.author),
             body: version.body,
             meta: version.meta,
+            tags: version.tags,
             snapshot_at: version.snapshot_at
           }
         end)
 
       json_plain(conn, %{versions: versions})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -364,8 +351,6 @@ defmodule AnkoleWeb.BrainController do
              author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
            ) do
       json_plain(conn, %{object: object_summary(object)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -373,8 +358,6 @@ defmodule AnkoleWeb.BrainController do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, object} <- Forget.forget_object(slug, params["reason"] || "", :admin) do
       json_plain(conn, %{object: object_summary(object)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -385,8 +368,6 @@ defmodule AnkoleWeb.BrainController do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, object} <- Objects.fork_library_page(slug) do
       json_plain(conn, %{object: object_summary(object)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -396,8 +377,6 @@ defmodule AnkoleWeb.BrainController do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, object} <- Objects.restore(slug) do
       json_plain(conn, %{object: object_summary(object)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -414,8 +393,6 @@ defmodule AnkoleWeb.BrainController do
         |> Enum.map(&claim_detail/1)
 
       json_plain(conn, %{claims: claims})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -435,8 +412,6 @@ defmodule AnkoleWeb.BrainController do
              author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
            ) do
       json_plain(conn, %{claim: claim_detail(claim)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -444,8 +419,6 @@ defmodule AnkoleWeb.BrainController do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, claim} <- Forget.forget_claim(claim_id, params["reason"] || "", :admin) do
       json_plain(conn, %{claim: claim_detail(claim)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -466,8 +439,6 @@ defmodule AnkoleWeb.BrainController do
              to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal))
            ) do
       json_plain(conn, %{claim: claim_detail(claim)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -497,8 +468,6 @@ defmodule AnkoleWeb.BrainController do
         end)
 
       json_plain(conn, %{contradictions: contradictions})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -509,8 +478,6 @@ defmodule AnkoleWeb.BrainController do
          true <- status in ["resolved", "dismissed"] || {:error, :invalid_status},
          {:ok, updated} <- Dreaming.decide_contradiction(id, status, params["resolution_note"]) do
       json_plain(conn, %{contradiction: %{id: updated.id, status: updated.status}})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -535,8 +502,6 @@ defmodule AnkoleWeb.BrainController do
         end)
 
       json_plain(conn, %{suggestions: suggestions})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -566,10 +531,8 @@ defmodule AnkoleWeb.BrainController do
 
       case result do
         {:ok, outcome} -> json_plain(conn, %{result: outcome})
-        {:error, reason} -> error(conn, reason)
+        {:error, reason} -> {:error, reason}
       end
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -592,8 +555,6 @@ defmodule AnkoleWeb.BrainController do
         end)
 
       json_plain(conn, %{suggestions: suggestions})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -617,10 +578,8 @@ defmodule AnkoleWeb.BrainController do
 
       case result do
         {:ok, outcome} -> json_plain(conn, %{result: outcome})
-        {:error, reason} -> error(conn, reason)
+        {:error, reason} -> {:error, reason}
       end
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -642,8 +601,6 @@ defmodule AnkoleWeb.BrainController do
         end)
 
       json_plain(conn, %{sources: sources})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -658,8 +615,6 @@ defmodule AnkoleWeb.BrainController do
              config: params["config"] || %{}
            }) do
       json_plain(conn, %{source: %{id: source.id, kind: source.kind, name: source.name}})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -669,8 +624,8 @@ defmodule AnkoleWeb.BrainController do
          {:ok, source} <- Sources.update_default_scope(source_id, scope) do
       json_plain(conn, %{source: %{id: source.id, kind: source.kind, name: source.name}})
     else
-      :error -> error(conn, {:missing, "default_audience_scope"})
-      {:error, reason} -> error(conn, reason)
+      :error -> {:error, {:missing, "default_audience_scope"}}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -678,8 +633,6 @@ defmodule AnkoleWeb.BrainController do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, result} <- SourceLearning.enqueue_learn(source_id) do
       json_plain(conn, %{result: result})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -687,8 +640,6 @@ defmodule AnkoleWeb.BrainController do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, archived} <- Sources.archive(source_id) do
       json_plain(conn, %{source: %{id: archived.id, archived_at: archived.archived_at}})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -706,10 +657,8 @@ defmodule AnkoleWeb.BrainController do
 
       case Recall.recall(principal_uid, %{query: query}, disclosure: disclosure) do
         {:ok, result} -> json_plain(conn, %{result: result})
-        {:error, reason} -> error(conn, reason)
+        {:error, reason} -> {:error, reason}
       end
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -723,8 +672,6 @@ defmodule AnkoleWeb.BrainController do
         |> Enum.map(&claim_detail/1)
 
       json_plain(conn, %{claims: claims})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -795,18 +742,8 @@ defmodule AnkoleWeb.BrainController do
   defp parse_mode("strict"), do: :strict
   defp parse_mode(_mode), do: :relaxed
 
-  defp required_text(params, key) do
-    case map_value(params, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, key}}
-          text -> {:ok, text}
-        end
-
-      _value ->
-        {:error, {:missing, key}}
-    end
-  end
+  defp required_text(params, key),
+    do: Ankole.Attrs.required_text(map_value(params, key), {:missing, key})
 
   defp object_create_attrs(params) when is_map(params) do
     with {:ok, slug} <- required_text(params, "slug"),
@@ -815,7 +752,9 @@ defmodule AnkoleWeb.BrainController do
          {:ok, body} <- required_binary(params, "body"),
          {:ok, meta} <- required_map(params, "meta"),
          {:ok, subtype} <- optional_text(params, "subtype"),
-         {:ok, effective_date} <- optional_date(params, "effective_date") do
+         {:ok, effective_date} <- optional_date(params, "effective_date"),
+         {:ok, tags} <-
+           Ankole.Brain.Links.normalize_tags(Map.get(params, "tags", Map.get(params, :tags, []))) do
       {:ok,
        %{
          slug: slug,
@@ -824,7 +763,8 @@ defmodule AnkoleWeb.BrainController do
          title: title,
          body: body,
          meta: meta,
-         effective_date: effective_date
+         effective_date: effective_date,
+         tags: tags
        }}
     end
   end
@@ -847,11 +787,20 @@ defmodule AnkoleWeb.BrainController do
          meta: meta,
          effective_date: effective_date,
          expected_content_hash: expected_content_hash
-       }}
+       }
+       |> maybe_object_tags(params)}
     end
   end
 
   defp object_update_attrs(_params), do: {:error, {:missing, "object"}}
+
+  defp maybe_object_tags(attrs, params) do
+    cond do
+      Map.has_key?(params, "tags") -> Map.put(attrs, :tags, params["tags"])
+      Map.has_key?(params, :tags) -> Map.put(attrs, :tags, params[:tags])
+      true -> attrs
+    end
+  end
 
   defp required_binary(params, key) do
     case map_value(params, key) do
@@ -898,22 +847,19 @@ defmodule AnkoleWeb.BrainController do
     end
   end
 
-  defp map_value(map, key) when is_map(map) and is_binary(key) do
-    Map.get(map, key, Map.get(map, String.to_existing_atom(key)))
-  rescue
-    ArgumentError -> Map.get(map, key)
-  end
+  defp map_value(map, key) when is_map(map) and is_binary(key),
+    do: Ankole.Attrs.get_string_first(map, key)
 
   defp render_object_page(conn, slug) do
     case GetPage.get_page_admin(slug) do
       {:ok, page} -> json_plain(conn, %{object: page})
-      {:error, reason} -> error(conn, reason)
-      {:ambiguous, _candidates} -> error(conn, :not_found)
+      {:error, reason} -> {:error, reason}
+      {:ambiguous, _candidates} -> {:error, :not_found}
     end
   end
 
   defp object_write_error(conn, :content_hash_conflict, _body) do
-    render_error(
+    ConsoleErrors.render(
       conn,
       409,
       "content_hash_conflict",
@@ -930,38 +876,39 @@ defmodule AnkoleWeb.BrainController do
             ] do
     case Markdoc.diagnostic(body) do
       %{code: code, line: line} ->
-        render_error(conn, 422, code, "the Brain body syntax is invalid", [
+        ConsoleErrors.render(conn, 422, code, "the Brain body syntax is invalid", [
           %{path: "body", line: line}
         ])
 
       nil ->
-        error(conn, reason)
+        {:error, reason}
     end
   end
 
-  defp object_write_error(conn, reason, _body), do: error(conn, reason)
+  defp object_write_error(_conn, reason, _body), do: {:error, reason}
+
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :object_deleted),
-    do: render_error(conn, 409, "object_deleted", "restore the object before editing it")
+    do: ConsoleErrors.render(conn, 409, "object_deleted", "restore the object before editing it")
 
-  defp error(conn, :forbidden), do: render_error(conn, 403, "forbidden", "access denied")
-  defp error(conn, :not_found), do: render_error(conn, 404, "not_found", "resource not found")
+  defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "resource not found")
 
   defp error(conn, {:missing, key}),
     do:
-      render_error(conn, 422, "validation_failed", "#{key} is required", [
+      ConsoleErrors.render(conn, 422, "validation_failed", "#{key} is required", [
         %{path: key, kind: "missing"}
       ])
 
   defp error(conn, {:invalid, key}),
     do:
-      render_error(conn, 422, "validation_failed", "#{key} is invalid", [
+      ConsoleErrors.render(conn, 422, "validation_failed", "#{key} is invalid", [
         %{path: key, kind: "invalid"}
       ])
 
   defp error(conn, {:invalid_slug, _slug}),
     do:
-      render_error(
+      ConsoleErrors.render(
         conn,
         422,
         "invalid_slug",
@@ -971,25 +918,43 @@ defmodule AnkoleWeb.BrainController do
 
   defp error(conn, {:reserved_object_slug, _slug}),
     do:
-      render_error(conn, 422, "reserved_slug", "this slug prefix is reserved for the system", [
-        %{path: "slug"}
-      ])
+      ConsoleErrors.render(
+        conn,
+        422,
+        "reserved_slug",
+        "this slug prefix is reserved for the system",
+        [
+          %{path: "slug"}
+        ]
+      )
 
   defp error(conn, {:slug_taken, _slug}),
     do:
-      render_error(conn, 409, "slug_taken", "an object or alias with this slug already exists", [
-        %{path: "slug"}
-      ])
+      ConsoleErrors.render(
+        conn,
+        409,
+        "slug_taken",
+        "an object or alias with this slug already exists",
+        [
+          %{path: "slug"}
+        ]
+      )
 
   defp error(conn, {:unknown_object_type, _type, %{installed_types: installed}}),
     do:
-      render_error(conn, 422, "unknown_object_type", "this object type is not installed", [
-        %{path: "type", installed_types: installed}
-      ])
+      ConsoleErrors.render(
+        conn,
+        422,
+        "unknown_object_type",
+        "this object type is not installed",
+        [
+          %{path: "type", installed_types: installed}
+        ]
+      )
 
   defp error(conn, {:reserved_object_type, _type}),
     do:
-      render_error(
+      ConsoleErrors.render(
         conn,
         422,
         "reserved_object_type",
@@ -998,15 +963,11 @@ defmodule AnkoleWeb.BrainController do
       )
 
   defp error(conn, :brain_disabled),
-    do: render_error(conn, 422, "brain_disabled", "Brain is disabled")
+    do: ConsoleErrors.render(conn, 422, "brain_disabled", "Brain is disabled")
 
   defp error(conn, reason) do
-    render_error(conn, 422, "brain_request_invalid", "brain request failed", [
+    ConsoleErrors.render(conn, 422, "brain_request_invalid", "brain request failed", [
       %{reason: inspect(reason)}
     ])
-  end
-
-  defp render_error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

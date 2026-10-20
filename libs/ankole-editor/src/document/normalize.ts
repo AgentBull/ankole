@@ -46,9 +46,6 @@ export function normalizeTree(root: Element): Element {
   return normalizeElement(root, undefined, 0, { nodes: 0 })
 }
 
-export const sameTree = (a: Element, b: Element) =>
-  JSON.stringify(normalizeTree(a)) === JSON.stringify(normalizeTree(b))
-
 function count(node: Node, depth: number, state: Count) {
   if (++state.nodes > limits.nodes || depth > limits.depth) {
     throw new TreeError(`页面超过 ${limits.nodes} 个节点或 ${limits.depth} 层嵌套`, node, '请把页面拆小。')

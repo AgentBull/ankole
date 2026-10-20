@@ -1,5 +1,6 @@
 defmodule Ankole.AIGateway.CompactionArtifacts do
   alias Ankole.AIGateway.ResponseChain
+  alias Ankole.AIGateway.Usage
 
   @moduledoc """
   Canonical storage and replay seam for AIGateway compaction artifacts.
@@ -140,7 +141,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
       "object" => "response.compaction",
       "created_at" => unix_timestamp(artifact.inserted_at),
       "output" => output(artifact),
-      "usage" => response_usage(get_in(artifact.content, ["usage"]))
+      "usage" => Usage.normalize(get_in(artifact.content, ["usage"]))
     }
 
     case Keyword.get(opts, :ankole) do
@@ -293,7 +294,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
            "source" => "upstream",
            "binding" => binding,
            "output" => output,
-           "usage" => response_usage(Map.get(attrs, :usage, %{}))
+           "usage" => Usage.normalize(Map.get(attrs, :usage, %{}))
          }
          |> put_brain_context_pack(attrs)}
     end
@@ -324,7 +325,7 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
           "summary" => %{"text" => String.trim(summary_text)},
           "output" => retained_user_originals ++ [compaction_item(id)] ++ retained_items,
           "retention" => artifact_retention(attrs, retained_items, retained_user_originals),
-          "usage" => response_usage(Map.get(attrs, :usage, %{}))
+          "usage" => Usage.normalize(Map.get(attrs, :usage, %{}))
         }
 
         # Provider-owned compaction items the local summary could not read.
@@ -383,38 +384,6 @@ defmodule Ankole.AIGateway.CompactionArtifacts do
   defp artifact_uuid(@handle_prefix <> public_id), do: artifact_uuid(public_id)
   defp artifact_uuid("cmp_" <> uuid), do: UUIDv7.cast(uuid)
   defp artifact_uuid(_value), do: :error
-
-  defp response_usage(%{} = usage) do
-    input_tokens = usage_integer(usage, ["input_tokens", "prompt_tokens", "inputTokens"])
-    output_tokens = usage_integer(usage, ["output_tokens", "completion_tokens", "outputTokens"])
-    total_tokens = usage_integer(usage, ["total_tokens", "totalTokens"])
-    total_tokens = if total_tokens > 0, do: total_tokens, else: input_tokens + output_tokens
-
-    %{
-      "input_tokens" => input_tokens,
-      "output_tokens" => output_tokens,
-      "total_tokens" => total_tokens,
-      "input_tokens_details" => %{
-        "cached_tokens" => usage_integer(usage, ["cached_tokens", "cachedTokens"])
-      },
-      "output_tokens_details" => %{
-        "reasoning_tokens" => usage_integer(usage, ["reasoning_tokens", "reasoningTokens"])
-      }
-    }
-  end
-
-  defp response_usage(_usage), do: response_usage(%{})
-
-  defp usage_integer(map, keys) when is_map(map) and is_list(keys) do
-    Enum.find_value(keys, 0, fn key ->
-      case Map.get(map, key) do
-        value when is_integer(value) and value >= 0 -> value
-        _value -> false
-      end
-    end)
-  end
-
-  defp usage_integer(_map, _keys), do: 0
 
   defp unix_timestamp(%DateTime{} = datetime), do: DateTime.to_unix(datetime)
   defp unix_timestamp(_datetime), do: System.system_time(:second)

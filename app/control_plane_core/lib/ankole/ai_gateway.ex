@@ -21,6 +21,7 @@ defmodule Ankole.AIGateway do
   alias Ankole.AIGateway.Resolver
   alias Ankole.AIGateway.ResponsesPreparation
   alias Ankole.AIGateway.ResponseStream
+  alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.StatefulLifecycle
   alias Ankole.AIGateway.UniversalAIRequest
   alias Ankole.AIGateway.UsageLedger
@@ -35,15 +36,18 @@ defmodule Ankole.AIGateway do
           required(:model_ref) => map()
         }
 
+  @type compaction_response :: %{required(:body) => map()}
+
   @doc """
   Creates one stateless OpenResponses response.
 
   The call resolves the agent-visible selector, prepares a provider-owned
   UniversalAIRequest spec, calls the UniversalAIClient, and normalizes the result back
-  into the AIGateway response body.
+  into the AIGateway response body. A compaction trigger returns only its
+  response body; it does not select a model response or expose a model reference.
   """
   @spec create_response(String.t(), map(), keyword()) ::
-          {:ok, gateway_response()} | {:error, term()}
+          {:ok, gateway_response() | compaction_response()} | {:error, term()}
   def create_response(subject_uid, request, opts \\ [])
 
   def create_response(subject_uid, request, opts) when is_map(request) do
@@ -115,14 +119,8 @@ defmodule Ankole.AIGateway do
 
   defp output_text(%{"output" => output}) when is_list(output) do
     output
-    |> Enum.flat_map(fn
-      %{"type" => "message", "content" => content} when is_list(content) -> content
-      _item -> []
-    end)
-    |> Enum.flat_map(fn
-      %{"text" => text} when is_binary(text) -> [text]
-      _part -> []
-    end)
+    |> ResponseItems.message_content_parts()
+    |> ResponseItems.text_parts()
     |> Enum.join("\n")
     |> String.trim()
   end

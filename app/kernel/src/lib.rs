@@ -1,21 +1,30 @@
 //! Native behavior lives in host-neutral modules.
 //! Feature-gated modules only translate host runtime types, naming, and errors.
 
+#[cfg(all(feature = "nif", feature = "napi"))]
+compile_error!("enable the nif feature or the napi feature, not both");
+
+// The NIF build uses mimalloc. The Node addon uses the host allocator.
+#[cfg(not(feature = "napi"))]
 use mimalloc::MiMalloc;
 
-// Native addons can be loaded by long-running host runtimes. Keeping the global
-// allocator explicit gives the NIF build one allocation policy.
+#[cfg(not(feature = "napi"))]
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
 #[cfg(any(
     test,
     feature = "nif",
+    feature = "napi",
+    feature = "web_proxy",
     feature = "universal_ai_client",
     feature = "object_store",
     feature = "model_image"
 ))]
 pub mod common;
+
+#[cfg(feature = "web_proxy")]
+pub mod web_proxy;
 
 #[cfg(any(test, feature = "nif"))]
 pub mod authz;
@@ -52,3 +61,13 @@ pub mod universal_ai_client;
 
 #[cfg(feature = "nif")]
 mod nif_exports;
+
+#[cfg(feature = "napi")]
+#[cfg_attr(
+    test,
+    allow(
+        dead_code,
+        reason = "Node-API registration is disabled in Rust test binaries; Bun tests call the exports"
+    )
+)]
+mod napi_exports;

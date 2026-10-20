@@ -9,7 +9,7 @@ This specification gives the behavior of the `@ankole/block-editor` package in `
 - `upstream/fixtures/commonmark-dialect.json` records each example where this format is different from the CommonMark reference implementation. This file is part of this specification.
 - `upstream/NOTICE.md` gives the sources and licenses of the third-party test data.
 - In shortcuts, ⌘ is the Command key on Apple platforms (macOS, iOS, and iPadOS) and the Ctrl key on other platforms. In this specification, Ctrl is the Control key on all platforms. On Apple platforms, editor shortcuts do not use Ctrl with a letter, because the system uses these keys to edit text.
-- The package writes error texts, warnings, and UI labels in Chinese. This specification gives each of these texts exactly, in code format, with an English translation. The Chinese text is the requirement. The English translation only gives the meaning.
+- Document errors and warnings remain in Chinese. Interface labels use the editor's `PhraseSet` mechanism. `BlockEditor.labels` supplies host translations; omitted labels retain the Chinese defaults below. Menus search their translated titles and details and their fixed keyword aliases. A label change updates the interface without changing the page, selection, or undo history. Hosts own their translation catalogs. The Pod host uses the four shared application catalogs. Parsing and serialization do not depend on interface labels.
 
 | Term | Meaning |
 | --- | --- |
@@ -611,6 +611,7 @@ Props of `BlockEditor`:
 | `onChange` | `() => void` | — | The component calls it synchronously each time an accepted update changes the page. It gets no content. |
 | `onError` | `(error: unknown) => void` | — | Reports a rejected edit without replacing the current document. Without a callback, the component displays the error. |
 | `readOnly` | `boolean` | `false` | Refer to the text below. |
+| `labels` | `Partial<EditorLabels>` | Chinese defaults | Host translations for visible and accessible editor text. Unspecified labels keep their defaults. |
 | `ariaLabel` | `string` | `文档编辑器` ("document editor") | The accessible name of the edit area |
 | `placeholder` | `string` | `输入 / 添加 Block，或直接开始写作…` ("Type / to add a Block, or start to write…") | The prompt for an empty page. Refer to the text below. |
 | `className` | `string` | `''` | The component adds it to the outer element. |
@@ -618,7 +619,13 @@ Props of `BlockEditor`:
 | `toolbar` | `ReactNode` | The default toolbar | `null` hides the toolbar. Custom content runs in the editor context. |
 | `children` | `ReactNode` | — | Content in the editor context. It can use `useEditor` and `useEditorState`. |
 
-A host re-render or a new callback does not make a new editor. When `readOnly` is `true`:
+A host re-render, new callback, or label change does not make a new editor.
+Labels use the existing `PhraseSet`; hosts own locale selection and catalogs.
+`ariaLabel` and `placeholder` override the corresponding labels when supplied.
+Slash search matches the translated block title and detail, plus its existing
+keywords. Labels do not change document text, selection, or undo history.
+The interface descriptions below use the default Chinese labels.
+When `readOnly` is `true`:
 
 - You cannot edit the page.
 - The toolbar is in a disabled `fieldset`. The default toolbar shows only the hint text and the disabled undo and redo buttons.
@@ -728,14 +735,18 @@ A revision number is valid only in one editor instance.
 
 | Entry point | Exports |
 | --- | --- |
-| `@ankole/block-editor` | `BlockEditor`, `BlockEditorProps`, `EditorToolbar`, `useEditor`, `useEditorState` |
-| `@ankole/block-editor/document` | `parseMarkdown`, `printMarkdown`, `parseXml`, `printXml`, `normalizeTree`, `sameTree`, `unknownNames`, `vocabulary`, `marks`, `DocumentError`, `element`, `text`, `textOf`, `limits`, and the types `DocumentElement`, `DocumentNode`, `DocumentText`, `SourceFormat`, `Mark`, `ElementRule` |
-| `@ankole/block-editor/editor` | `editorExtension`, `initialState`, `headlessState`, `PageSession`, `PageCollaboration`, `insertEmbed`, `insertImage`, `pageDocument`, `readTree`, `replaceTree`, `preparePageUpdate`, `applyBlockType`, `blockOptions`, `canTurnInto`, `coreBlockTypes`, `currentBlock`, `deleteBlock`, `duplicateBlocks`, `insertAfterBlock`, `moveBlocks`, `toggleFormat`, `undo`, `redo`, and the types `Editor`, `PageWrite`, `PageSnapshot`, `PageApplied`, `BlockDefinition`, `BlockInsert`, `BlockOption`, `BlockType`, `FormatName`, `EditorHost`, `EmbedAttributes`, `PageChange`, `PageChanges`, `PageChangeRequest`, `CollaborationState` |
+| `@ankole/block-editor` | `BlockEditor`, `useEditor` |
+| `@ankole/block-editor/document` | `parseMarkdown`, `printMarkdown`, `parseXml`, `printXml` |
+| `@ankole/block-editor/editor` | `editorPhrases`, `PageSession`, `PageCollaboration`, `insertEmbed`, `insertImage`, `toggleFormat`, `undo`, and the types `EditorLabels`, `Editor`, `EditorHost`, `EmbedAttributes`, `PageChanges` |
 | `@ankole/block-editor/styles.css` | The styles of the editor and its overlays |
 
-A host imports only these entry points. `readTree(editor.state.doc)` reads the page in the editor. `replaceTree(editor.state, tree)` returns an update that replaces the full page, and `editor.dispatch` applies it.
+A host imports only these entry points. They serve the Pod, Worker, and
+embedding example. The example uses `useEditor`, `toggleFormat`, and `undo` for
+its custom toolbar. Internal editor helpers and test types use relative imports.
+`PageSession.read()` reads a page snapshot. `PageSession.apply()` replaces the
+page from Markdown or XML and checks its revision.
 
-The optional `host` in `initialState` or `BlockEditor` supplies `EditorHost`:
+The optional `host` in `BlockEditor` supplies `EditorHost`:
 
 | Hook | Contract |
 | --- | --- |

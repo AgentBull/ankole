@@ -3,6 +3,20 @@ defmodule Ankole.Sessions.CodexModelBindingTest do
 
   alias Ankole.Sessions.CodexModelBinding
 
+  test "decodes the exact headers produced by the Worker shared wire corpus" do
+    vectors =
+      __DIR__
+      |> Path.join(
+        "../../../../kernel/proto/ankole/runtime_fabric/v1/codex_model_binding_vectors.json"
+      )
+      |> File.read!()
+      |> Ankole.JSON.decode!()
+
+    for vector <- vectors["valid"] do
+      assert CodexModelBinding.decode(vector["encoded"]) == {:ok, vector["binding"]}
+    end
+  end
+
   test "decodes one frozen binding and preserves every provider option" do
     encoded =
       %{

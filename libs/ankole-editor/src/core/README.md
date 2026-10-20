@@ -1,6 +1,6 @@
 # Core
 
-This directory holds the editing engine. It is a fork of [Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit d1acec0 (2026-10-15), under the MIT license in [LICENSE](LICENSE).
+This directory holds the editing engine. It is a fork of [Wordgard](https://code.haverbeke.berlin/wordgard/wordgard) at commit 83844a0 (2026-10-20), under the MIT license in [LICENSE](LICENSE).
 
 The fork is part of the package source. It uses the package's TypeScript settings, formatting and test runners. It does not follow upstream mechanically: to take an upstream change, apply it by hand and add a test.
 
@@ -14,6 +14,7 @@ Source form:
   - Enums are plain `enum`, not `const enum`.
   - No method of a class inside a namespace uses `this` in a default parameter.
 - Indexed access that the code knows is in range has a non-null assertion (`noUncheckedIndexedAccess`).
+- The `Shape` namespace is a type-only export, because the package enables `isolatedModules`.
 - Documentation comments use JSDoc, not `///`.
 - The code passes the repository lint rules in `.oxlintrc.json`: for example `const` for bindings that are not reassigned, no assignments in conditions, no aliases of `this`, and no unused variables or parameters. Debug logging switches and FIXME notes are removed.
 
@@ -39,6 +40,7 @@ Clipboard:
 Fixes:
 
 - `Wordgard.logException` called itself and overflowed the stack. It now reports to the exception sink.
+- A state with no key-binding providers still applies the default keymap. The keymap field is read without requiring it in the state.
 
 Document and selection:
 

@@ -4,6 +4,8 @@ defmodule AnkoleWeb.AutomationJobController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenApiSpex.ControllerSpecs
 
   alias Ankole.AutomationJobs
@@ -49,8 +51,8 @@ defmodule AnkoleWeb.AutomationJobController do
             in: :path,
             schema: %Schema{
               type: :integer,
-              minimum: 1,
-              maximum: 9_007_199_254_740_991
+              minimum: Ankole.ModelIntegerID.minimum(),
+              maximum: Ankole.ModelIntegerID.maximum()
             },
             required: true
           ],
@@ -75,8 +77,6 @@ defmodule AnkoleWeb.AutomationJobController do
         |> Enum.map(&AutomationJobs.console_projection/1)
 
       json(conn, %{automation_jobs: jobs})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -88,8 +88,6 @@ defmodule AnkoleWeb.AutomationJobController do
              runs: ConsoleParams.integer(params, :runs, 20)
            ) do
       json(conn, %{automation_job: AutomationJobs.console_projection(job, runs)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -101,15 +99,11 @@ defmodule AnkoleWeb.AutomationJobController do
 
   defp resource(agent_uid), do: "agent:#{agent_uid}:automation_jobs"
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :automation_job_not_found),
-    do: error(conn, 404, "not_found", "automation job was not found")
+    do: ConsoleErrors.not_found(conn, "automation job was not found")
 
   defp error(conn, {:missing, key}),
-    do: error(conn, 422, "validation_failed", "#{key} is required")
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
-  end
+    do: ConsoleErrors.required_field(conn, key)
 end

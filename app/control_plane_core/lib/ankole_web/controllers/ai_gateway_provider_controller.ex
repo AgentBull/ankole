@@ -6,6 +6,8 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIGateway.Models
@@ -196,24 +198,18 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   def models(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_providers", "read") do
       json(conn, %{models: Models.console_catalog()})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
   def provider_kinds(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider_kinds", "read") do
       json(conn, %{provider_kinds: ProviderConfigs.list_provider_kinds()})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "ai_gateway_providers", "read") do
       json(conn, %{ai_gateway_providers: ProviderConfigs.list_providers()})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -222,8 +218,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "read"),
          {:ok, provider} <- ProviderConfigs.get_provider(provider_id) do
       json(conn, %{ai_gateway_provider: provider})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -233,8 +227,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          {:ok, attrs} <- provider_attrs(provider_id, conn.body_params),
          {:ok, provider} <- put_provider_row(provider_id, attrs) do
       json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -243,8 +235,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "delete"),
          {:ok, provider} <- ProviderConfigs.delete_provider(provider_id) do
       json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -253,8 +243,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, provider} <- ProviderConfigs.enable_provider(provider_id) do
       render_provider(conn, provider)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -267,8 +255,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
              conn.body_params
            ) do
       render_provider(conn, provider)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -283,8 +269,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
              conn.body_params
            ) do
       render_provider(conn, provider)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -294,8 +278,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, provider} <- ProviderConfigs.delete_credential(provider_id, credential_id) do
       render_provider(conn, provider)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -305,8 +287,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          {:ok, provider} <-
            ProviderConfigs.update_credential_strategy(provider_id, conn.body_params.strategy) do
       render_provider(conn, provider)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -316,8 +296,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          {:ok, login} <-
            ChatGPTAuth.start_login(provider_id, conn.body_params) do
       json(conn, login)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -326,8 +304,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          :ok <- ConsolePolicy.authorize(conn, "ai_gateway_provider:#{provider_id}", "update"),
          {:ok, login} <- ChatGPTAuth.poll_login(provider_id, conn.body_params.login_context) do
       json(conn, login)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -339,8 +315,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
          {:ok, login} <-
            ChatGPTAuth.complete_browser_login(provider_id, login_context, callback_url) do
       json(conn, login)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -353,8 +327,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
              conn.body_params
            ) do
       render_provider(conn, provider)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -408,42 +380,48 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     json(conn, %{ai_gateway_provider: ProviderConfigs.projection(provider)})
   end
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
-  defp error(conn, :not_found), do: error(conn, 404, "not_found", "resource was not found")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
+  defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "resource was not found")
 
   defp error(conn, :credential_not_found),
-    do: error(conn, 404, "not_found", "credential was not found")
+    do: ConsoleErrors.not_found(conn, "credential was not found")
 
-  defp error(conn, :agent_not_found), do: error(conn, 404, "not_found", "agent was not found")
+  defp error(conn, :agent_not_found), do: ConsoleErrors.not_found(conn, "agent was not found")
 
   defp error(conn, {:provider_in_use, references}) do
-    error(conn, 422, "provider_in_use", "provider is referenced by active model profiles", [
-      %{references: references}
-    ])
-  end
-
-  defp error(conn, {:missing, key}) do
-    error(conn, 422, "validation_failed", "#{key} is required")
-  end
-
-  defp error(conn, %Ecto.Changeset{} = changeset) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
-      "validation_failed",
-      "request validation failed",
-      ConsoleErrors.changeset_details(changeset)
+      "provider_in_use",
+      "provider is referenced by active model profiles",
+      [
+        %{references: references}
+      ]
     )
   end
 
+  defp error(conn, {:missing, key}) do
+    ConsoleErrors.required_field(conn, key)
+  end
+
+  defp error(conn, %Ecto.Changeset{} = changeset) do
+    ConsoleErrors.changeset(conn, changeset)
+  end
+
   defp error(conn, :provider_id_mismatch) do
-    error(conn, 422, "provider_id_mismatch", "body provider_id must match the path provider_id")
+    ConsoleErrors.render(
+      conn,
+      422,
+      "provider_id_mismatch",
+      "body provider_id must match the path provider_id"
+    )
   end
 
   # ChatGPT sign-in and refresh failures carry the real upstream response, so
   # the operator sees the actual rejection instead of a configuration message.
   defp error(conn, {:device_login_failed, status, code}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "chatgpt_login_rejected",
@@ -453,7 +431,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, {:token_exchange_failed, status, code}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "chatgpt_login_rejected",
@@ -463,7 +441,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, :invalid_device_login_response) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "chatgpt_login_rejected",
@@ -472,7 +450,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, {:request_failed, reason}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "chatgpt_login_unreachable",
@@ -482,17 +460,28 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, {:oauth_denied, code}) do
-    error(conn, 422, "chatgpt_login_denied", "the ChatGPT account denied the sign-in request", [
-      %{upstream_code: code}
-    ])
+    ConsoleErrors.render(
+      conn,
+      422,
+      "chatgpt_login_denied",
+      "the ChatGPT account denied the sign-in request",
+      [
+        %{upstream_code: code}
+      ]
+    )
   end
 
   defp error(conn, :login_expired) do
-    error(conn, 422, "chatgpt_login_expired", "the ChatGPT sign-in expired; start it again")
+    ConsoleErrors.render(
+      conn,
+      422,
+      "chatgpt_login_expired",
+      "the ChatGPT sign-in expired; start it again"
+    )
   end
 
   defp error(conn, :oauth_state_mismatch) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "chatgpt_login_invalid",
@@ -501,19 +490,29 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, :invalid_device_pkce) do
-    error(conn, 422, "chatgpt_login_invalid", "the device sign-in context failed verification")
+    ConsoleErrors.render(
+      conn,
+      422,
+      "chatgpt_login_invalid",
+      "the device sign-in context failed verification"
+    )
   end
 
   defp error(conn, :invalid_callback_url) do
-    error(conn, 422, "validation_failed", "callback_url is not a valid URL")
+    ConsoleErrors.render(conn, 422, "validation_failed", "callback_url is not a valid URL")
   end
 
   defp error(conn, :invalid_login_context) do
-    error(conn, 422, "validation_failed", "login_context is invalid; start the sign-in again")
+    ConsoleErrors.render(
+      conn,
+      422,
+      "validation_failed",
+      "login_context is invalid; start the sign-in again"
+    )
   end
 
   defp error(conn, :credential_not_refreshable) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "credential_not_refreshable",
@@ -522,7 +521,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, {:chatgpt_refresh_permanent, code}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "chatgpt_refresh_failed",
@@ -532,7 +531,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, {:chatgpt_refresh_transient, status, _headers, code}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "chatgpt_refresh_failed",
@@ -542,7 +541,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, :provider_not_chatgpt_subscription) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "validation_failed",
@@ -551,7 +550,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, :login_issuer_changed) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "chatgpt_login_invalid",
@@ -560,7 +559,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, reason) when reason in [:invalid_jwt, :invalid_jwt_expiration] do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "chatgpt_login_rejected",
@@ -569,15 +568,20 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, :invalid_device_poll_interval) do
-    error(conn, 422, "validation_failed", "login_context is invalid; start the sign-in again")
+    ConsoleErrors.render(
+      conn,
+      422,
+      "validation_failed",
+      "login_context is invalid; start the sign-in again"
+    )
   end
 
   defp error(conn, :blank_id) do
-    error(conn, 422, "validation_failed", "provider_id is required")
+    ConsoleErrors.render(conn, 422, "validation_failed", "provider_id is required")
   end
 
   defp error(conn, {:invalid_credential_entry, credential_id}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "invalid_value",
@@ -589,7 +593,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, {:invalid_credential_payload, credential_id}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "invalid_value",
@@ -601,7 +605,7 @@ defmodule AnkoleWeb.AIGatewayProviderController do
   end
 
   defp error(conn, {:credential_decrypt_failed, credential_id, _reason}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "invalid_value",
@@ -620,7 +624,12 @@ defmodule AnkoleWeb.AIGatewayProviderController do
         ConsoleErrors.unexpected(conn, "ai_gateway.provider_api.unexpected_error", reason)
 
       label ->
-        error(conn, 422, "invalid_value", "AIGateway provider configuration is invalid: #{label}")
+        ConsoleErrors.render(
+          conn,
+          422,
+          "invalid_value",
+          "AIGateway provider configuration is invalid: #{label}"
+        )
     end
   end
 
@@ -657,8 +666,4 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     do: "a credential entry carries unknown keys: #{Enum.join(keys, ", ")}"
 
   defp config_reason_label(_reason), do: nil
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
-  end
 end

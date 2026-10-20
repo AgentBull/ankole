@@ -209,6 +209,7 @@ export function FieldInput({
                 .catch(setError)
                 .finally(() => {
                   if (mounted.current) setUploading(false)
+                  if (mounted.current) onEditEnd?.()
                   if (uploadingRef.current) {
                     uploadingRef.current = false
                     pendingCallback.current?.(false)

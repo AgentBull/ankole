@@ -1,16 +1,11 @@
 //! WHATWG URL facts for the shared web URL policy.
 //!
 //! AIGateway `web_fetch` validation, Brain source fetches, the Lark image
-//! resolver consume these facts, and
-//! the BEAM callers share the allow/deny mechanics through
-//! `Ankole.Kernel.validate_web_url/3`. The `ankole-browser` navigation guard
-//! cannot link the native module, so it mirrors `classify_ipv4` and
-//! `classify_ipv6` in TypeScript; parity is pinned by the shared vectors in
-//! `test/vectors/web_url_host_classification.json`, which the Rust, Elixir,
-//! and Bun suites all decode. Runtime callers keep only their scheme rules
-//! and error shapes.
+//! resolver and browser consume these rules through NIF and Node-API bindings.
+//! Callers supply scheme restrictions and the private-network setting. The
+//! connection owner must use the checked IP address without another DNS lookup.
 
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 use url::{Host, Url as URL};
 
@@ -45,6 +40,73 @@ pub struct WebURLFacts {
     pub host_class: Option<HostClass>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WebURLRejection {
+    Metadata,
+    Private,
+    Invalid,
+}
+
+impl WebURLRejection {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Metadata => "metadata",
+            Self::Private => "private",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
+/// Checks URL syntax, allowed schemes, and the literal host. Does not do DNS.
+pub fn validate_web_url(
+    input: &str,
+    schemes: &[&str],
+    ssrf_filter: bool,
+) -> Result<(), WebURLRejection> {
+    let facts = web_url_facts(input).map_err(|_| WebURLRejection::Invalid)?;
+    let class = facts.host_class.ok_or(WebURLRejection::Invalid)?;
+    validate_host_class(class, ssrf_filter)?;
+    if !schemes.contains(&facts.scheme.as_str()) {
+        // Preserve the established private-host rejection for unsupported schemes.
+        return Err(if class == HostClass::Private {
+            WebURLRejection::Private
+        } else {
+            WebURLRejection::Invalid
+        });
+    }
+    Ok(())
+}
+
+/// Checks every DNS answer, including addresses that a client might try later.
+pub fn validate_ip_addresses(
+    addresses: &[IpAddr],
+    ssrf_filter: bool,
+) -> Result<(), WebURLRejection> {
+    if addresses.is_empty() {
+        return Err(WebURLRejection::Invalid);
+    }
+    for address in addresses {
+        validate_host_class(classify_ip(*address), ssrf_filter)?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "web_proxy")]
+pub(crate) fn validate_host<S: AsRef<str>>(
+    host: &Host<S>,
+    ssrf_filter: bool,
+) -> Result<(), WebURLRejection> {
+    validate_host_class(classify_host(host), ssrf_filter)
+}
+
+fn validate_host_class(class: HostClass, ssrf_filter: bool) -> Result<(), WebURLRejection> {
+    match class {
+        HostClass::Metadata => Err(WebURLRejection::Metadata),
+        HostClass::Private if ssrf_filter => Err(WebURLRejection::Private),
+        _ => Ok(()),
+    }
+}
+
 pub fn web_url_facts(input: &str) -> KernelResult<WebURLFacts> {
     let url =
         URL::parse(input).map_err(|error| KernelError::new(format!("invalid web url: {error}")))?;
@@ -69,15 +131,23 @@ fn host_text(host: &Host<&str>) -> String {
     }
 }
 
-fn classify_host(host: &Host<&str>) -> HostClass {
+fn classify_host<S: AsRef<str>>(host: &Host<S>) -> HostClass {
     match host {
-        Host::Domain(domain) => classify_domain(domain),
+        Host::Domain(domain) => classify_domain(domain.as_ref()),
         Host::Ipv4(ip) => classify_ipv4(*ip),
         Host::Ipv6(ip) => classify_ipv6(*ip),
     }
 }
 
+fn classify_ip(ip: IpAddr) -> HostClass {
+    match ip {
+        IpAddr::V4(ip) => classify_ipv4(ip),
+        IpAddr::V6(ip) => classify_ipv6(ip),
+    }
+}
+
 fn classify_domain(domain: &str) -> HostClass {
+    let domain = domain.trim_end_matches('.');
     if domain == "metadata" || domain == "metadata.google.internal" {
         return HostClass::Metadata;
     }
@@ -272,9 +342,6 @@ mod tests {
 
     #[test]
     fn shared_host_classification_vectors_hold() {
-        // The ankole-browser navigation guard mirrors classify_ipv4 and
-        // classify_ipv6 in TypeScript and asserts the same vectors, so the
-        // two tables cannot drift apart.
         let text = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/test/vectors/web_url_host_classification.json"
@@ -300,5 +367,76 @@ mod tests {
                 "{input} must classify as {expected}"
             );
         }
+        for vector in vectors["urls"].as_array().unwrap() {
+            let input = vector["input"].as_str().unwrap();
+            assert_eq!(
+                web_url_facts(input).unwrap().host_class.unwrap().as_str(),
+                vector["class"].as_str().unwrap(),
+                "{input}"
+            );
+        }
+        for input in vectors["invalid_urls"].as_array().unwrap() {
+            assert_eq!(
+                validate_web_url(input.as_str().unwrap(), &["http", "https"], false),
+                Err(WebURLRejection::Invalid)
+            );
+        }
+    }
+
+    #[test]
+    fn admission_keeps_scheme_and_network_policy_in_one_owner() {
+        assert_eq!(
+            validate_web_url("https://example.com/", &["https"], true),
+            Ok(())
+        );
+        assert_eq!(
+            validate_web_url("http://example.com/", &["https"], false),
+            Err(WebURLRejection::Invalid)
+        );
+        assert_eq!(
+            validate_web_url("http://10.0.0.1/", &["http"], true),
+            Err(WebURLRejection::Private)
+        );
+        assert_eq!(
+            validate_web_url("http://10.0.0.1/", &["http"], false),
+            Ok(())
+        );
+        assert_eq!(
+            validate_web_url("ftp://10.0.0.1/", &["https"], false),
+            Err(WebURLRejection::Private)
+        );
+        assert_eq!(
+            validate_web_url("https://metadata./", &["https"], false),
+            Err(WebURLRejection::Metadata)
+        );
+        assert_eq!(
+            validate_web_url("data:text/plain,hello", &["data"], false),
+            Err(WebURLRejection::Invalid)
+        );
+    }
+
+    #[test]
+    fn dns_validation_rejects_empty_answers_and_checks_all_families() {
+        assert_eq!(
+            validate_ip_addresses(&[], false),
+            Err(WebURLRejection::Invalid)
+        );
+        let addresses = [
+            "8.8.8.8".parse().unwrap(),
+            "::ffff:169.254.169.254".parse().unwrap(),
+        ];
+        assert_eq!(
+            validate_ip_addresses(&addresses, false),
+            Err(WebURLRejection::Metadata)
+        );
+        let addresses = [
+            "8.8.8.8".parse().unwrap(),
+            "::ffff:10.0.0.1".parse().unwrap(),
+        ];
+        assert_eq!(
+            validate_ip_addresses(&addresses, true),
+            Err(WebURLRejection::Private)
+        );
+        assert_eq!(validate_ip_addresses(&addresses, false), Ok(()));
     }
 }

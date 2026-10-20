@@ -92,7 +92,11 @@ defmodule Ankole.Conversations.Attachments do
       Ankole.Logging.warning(
         "conversations.attachments.reuse_lookup_failed",
         "Attachment reuse lookup failed",
-        %{provider_message_id: input.provider_message_id, reason: Exception.message(exception)}
+        Map.put(
+          Ankole.Logging.failure_fields(:error, exception, __STACKTRACE__),
+          :provider_message_id,
+          input.provider_message_id
+        )
       )
 
       {input, DateTime.utc_now(:microsecond)}
@@ -143,12 +147,8 @@ defmodule Ankole.Conversations.Attachments do
       ]
   end
 
-  defp observation_time(%{"observed_at" => value}) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, observed_at, _offset} -> observed_at
-      _invalid -> DateTime.utc_now(:microsecond)
-    end
-  end
+  defp observation_time(%{"observed_at" => value}) when is_binary(value),
+    do: Ankole.Attrs.parse_datetime(value) || DateTime.utc_now(:microsecond)
 
   defp observation_time(_observation), do: DateTime.utc_now(:microsecond)
 

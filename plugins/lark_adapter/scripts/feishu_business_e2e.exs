@@ -100,7 +100,9 @@ defmodule FeishuOpenAPIBusinessE2E do
     end
   rescue
     exception ->
-      Logger.error("receive handler crashed: " <> Exception.format(:error, exception, __STACKTRACE__))
+      Logger.error(
+        "receive handler crashed: " <> Exception.format(:error, exception, __STACKTRACE__)
+      )
   end
 
   defp handle_receive(_client, _config, event) do
@@ -115,7 +117,10 @@ defmodule FeishuOpenAPIBusinessE2E do
     )
 
     message_record = fetch_message_record!(client, message_id)
-    effective_chat_id = message_record["chat_id"] || chat_id || raise("message #{message_id} missing chat_id")
+
+    effective_chat_id =
+      message_record["chat_id"] || chat_id || raise("message #{message_id} missing chat_id")
+
     user = fetch_user!(client, sender_user_id)
     chat = fetch_chat!(client, effective_chat_id)
 
@@ -290,7 +295,8 @@ defmodule FeishuOpenAPIBusinessE2E do
         }
       )
 
-    card_id = get_in(create_response, ["data", "card_id"]) || raise("card create returned no card_id")
+    card_id =
+      get_in(create_response, ["data", "card_id"]) || raise("card create returned no card_id")
 
     reply_response =
       FeishuOpenAPI.post!(
@@ -333,12 +339,13 @@ defmodule FeishuOpenAPIBusinessE2E do
       "cardkit/v1/cards/:card_id/settings",
       path_params: %{card_id: card_id},
       body: %{
-        settings: Torque.encode!(%{
-          config: %{
-            streaming_mode: false,
-            summary: %{content: final_summary}
-          }
-        }),
+        settings:
+          Torque.encode!(%{
+            config: %{
+              streaming_mode: false,
+              summary: %{content: final_summary}
+            }
+          }),
         sequence: length(updates) + 1,
         uuid: uuid4()
       }
@@ -369,9 +376,10 @@ defmodule FeishuOpenAPIBusinessE2E do
         "resource download failed for receive_v1 message_id=#{inspect(message_id)}: " <>
           Exception.format(:error, exception, __STACKTRACE__)
       )
-    end
+  end
 
-  defp maybe_download_message_record_resource(client, config, message_id, record) when is_map(record) do
+  defp maybe_download_message_record_resource(client, config, message_id, record)
+       when is_map(record) do
     msg_type = Map.get(record, "msg_type")
     raw_content = get_in(record, ["body", "content"])
     maybe_download_message_resource(client, config, message_id, msg_type, raw_content)
@@ -544,7 +552,9 @@ defmodule FeishuOpenAPIBusinessE2E do
     <<a::32, b::16, c::16, d::16, e::48>> = :crypto.strong_rand_bytes(16)
     c = (c &&& 0x0FFF) ||| 0x4000
     d = (d &&& 0x3FFF) ||| 0x8000
-    :io_lib.format("~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b", [a, b, c, d, e]) |> IO.iodata_to_binary()
+
+    :io_lib.format("~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b", [a, b, c, d, e])
+    |> IO.iodata_to_binary()
   end
 
   defp ensure_seen_store! do
@@ -606,7 +616,9 @@ defmodule FeishuOpenAPIBusinessE2E do
         nil
 
       true ->
-        case Regex.run(~r/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/, trimmed, capture: :all_but_first) do
+        case Regex.run(~r/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/, trimmed,
+               capture: :all_but_first
+             ) do
           [key, raw_value] -> {key, parse_env_value(String.trim(raw_value))}
           _ -> nil
         end

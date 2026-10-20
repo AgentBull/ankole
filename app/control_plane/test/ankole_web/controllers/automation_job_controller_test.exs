@@ -106,12 +106,7 @@ defmodule AnkoleWeb.AutomationJobControllerTest do
            |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/9007199254740991")
            |> json_response(404)
 
-    assert conn
-           |> recycle_api()
-           |> get(~p"/api/v1/agents/#{agent.uid}/automation-jobs/999")
-           |> json_response(404)
-
-    for invalid_id <- [0, 9_007_199_254_740_992] do
+    for invalid_id <- [0, 999, 9_007_199_254_740_992] do
       assert %{"error" => %{"code" => "validation_failed"}} =
                conn
                |> recycle_api()

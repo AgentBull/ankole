@@ -1,545 +1,156 @@
-import type { CDPSession, Frame, Locator, Page } from 'playwright-core'
+import type { Frame, Locator, Page } from 'playwright-core'
 import type { BrowserCommandArgs } from '../protocol'
 import { BrowserDataError } from '../errors'
 
-export type RefTarget = {
-  ref: string
-  frameIndex: number
-  frameURL: string
-  selector: string
-  backendDOMNodeId?: number
-  role: string
-  name: string
-}
+// This module uses the Playwright AI snapshot.
+// `page.getByRef` resolves a ref from the latest snapshot.
+const SnapshotBudget = 16 * 1024
+const ExplicitRef = /^(?:@|ref=)((?:f\d+)?e\d+)$/
+const RefInText = /\[ref=((?:f\d+)?e\d+)\]/g
+
+type SnapshotOptions = BrowserCommandArgs<'snapshot'>
 
 type SnapshotNode = {
   role: string
-  name: string
-  selector?: string
-  backendDOMNodeId?: number
-  interactive: boolean
-  disabled: boolean
-  checked?: boolean | string
-  value?: string
+  name?: string
+  text?: string
+  ref?: string
+  cursor?: string
   url?: string
-  depth: number
+  disabled?: boolean
+  checked?: boolean | 'mixed'
+  expanded?: boolean
+  pressed?: boolean | 'mixed'
+  selected?: boolean
+  children?: (SnapshotNode | string)[]
 }
 
-export type SnapshotOptions = BrowserCommandArgs<'snapshot'>
+const InteractiveRoles = new Set([
+  'button',
+  'checkbox',
+  'combobox',
+  'link',
+  'listbox',
+  'menuitem',
+  'menuitemcheckbox',
+  'menuitemradio',
+  'option',
+  'radio',
+  'scrollbar',
+  'searchbox',
+  'slider',
+  'spinbutton',
+  'switch',
+  'tab',
+  'textbox',
+  'treeitem'
+])
 
 export class SnapshotStore {
-  private readonly refs = new Map<string, RefTarget>()
+  private readonly refs = new Set<string>()
 
   clear(): void {
     this.refs.clear()
   }
 
-  entries(): RefTarget[] {
-    return [...this.refs.values()]
+  entries(): string[] {
+    return [...this.refs]
   }
 
-  async capture(page: Page, options: SnapshotOptions = {}): Promise<string> {
+  async capture(
+    page: Page,
+    options: SnapshotOptions = {},
+    frame: Frame = page.mainFrame(),
+    deadline = Date.now() + 30_000
+  ): Promise<string> {
+    const locator = options.selector ? frame.locator(options.selector).first() : undefined
+    const root = locator ?? page
+    let snapshot: string
+    try {
+      // JSON snapshots do not wait for a selector. Use the same deadline as text snapshots.
+      if (options.interactive && locator) {
+        await locator.waitFor({ state: 'attached', timeout: Math.max(1, deadline - Date.now()) })
+      }
+      const captureOptions = {
+        mode: 'ai' as const,
+        timeout: Math.max(1, deadline - Date.now()),
+        ...(options.depth === undefined ? {} : { depth: options.depth })
+      }
+      if (options.interactive) {
+        const nodes: SnapshotNode[] = await root.ariaSnapshotJSON(captureOptions)
+        snapshot = interactiveSnapshot(nodes)
+      } else {
+        snapshot = await root.ariaSnapshot(captureOptions)
+      }
+    } catch (error) {
+      throw asSnapshotError(error)
+    }
+    const text = presentSnapshot(snapshot, options)
     this.refs.clear()
-    const budget = 16 * 1024
-    const lines: string[] = []
-    // Length of `lines.join('\n')`, kept incrementally so traversal can stop as
-    // soon as the joined text strictly exceeds the budget. Because the stop
-    // happens only after the budget is exceeded, the first `budget` characters —
-    // all the final slice keeps — are identical to a full traversal.
-    let joinedLength = 0
-    const append = (line: string): void => {
-      joinedLength += (lines.length === 0 ? 0 : 1) + line.length
-      lines.push(line)
-    }
-    const withinBudget = (): boolean => joinedLength <= budget
-    let nextRef = 1
-    const frames = page.frames()
-    for (let frameIndex = 0; frameIndex < frames.length && withinBudget(); frameIndex += 1) {
-      const frame = frames[frameIndex]!
-      const emit = (node: SnapshotNode): boolean => {
-        let refText = ''
-        if (node.interactive && node.selector) {
-          const ref = `e${nextRef++}`
-          this.refs.set(ref, {
-            ref,
-            frameIndex,
-            frameURL: frame.url(),
-            selector: node.selector,
-            ...(node.backendDOMNodeId === undefined ? {} : { backendDOMNodeId: node.backendDOMNodeId }),
-            role: node.role,
-            name: node.name
-          })
-          refText = ` [ref=${ref}]`
-        }
-        const state = [node.disabled ? 'disabled' : '', node.checked === undefined ? '' : `checked=${node.checked}`]
-          .filter(Boolean)
-          .map(value => ` [${value}]`)
-          .join('')
-        const href = options.urls && node.url ? ` [url=${JSON.stringify(node.url)}]` : ''
-        const value = node.value && node.value !== node.name ? ` [value=${JSON.stringify(node.value)}]` : ''
-        const indent = options.compact ? '' : '  '.repeat(Math.min(node.depth, 8))
-        const name = node.name ? ` ${JSON.stringify(node.name)}` : ''
-        append(`${indent}- ${node.role}${name}${refText}${state}${value}${href}`)
-        return withinBudget()
-      }
-      try {
-        if (frameIndex === 0 && !options.selector) {
-          try {
-            // collectAXNodes throws only before its first emit, so the fallback
-            // cannot duplicate emitted nodes.
-            await collectAXNodes(page, options, emit)
-          } catch {
-            for (const node of await collectFrameNodes(frame, options)) if (!emit(node)) break
-          }
-        } else {
-          const nodes = await collectFrameNodes(frame, options)
-          if (frame !== page.mainFrame()) append(`[frame ${frameIndex} ${frame.url() || 'about:blank'}]`)
-          for (const node of nodes) if (!emit(node)) break
-        }
-      } catch (error) {
-        append(`[frame ${frameIndex} ${frame.url() || 'about:blank'} unavailable: ${errorMessage(error)}]`)
-        continue
-      }
-    }
-    if (lines.length === 0) return '(empty page)'
-    const text = lines.join('\n')
-    return text.length <= budget ? text : `${text.slice(0, budget)}\n… [snapshot truncated]`
+    for (const match of text.matchAll(RefInText)) this.refs.add(match[1]!)
+    return text
   }
 
   async resolve(page: Page, input: string, rawFrame: Frame = page.mainFrame()): Promise<Locator> {
-    const explicitRef = /^(?:@|ref=)(e\d+)$/.exec(input)
-    const normalized = explicitRef?.[1] ?? input
-    const target = this.refs.get(normalized)
-    if (!target) {
-      if (explicitRef) {
-        throw new BrowserDataError('stale_ref', `ref ${normalized} is not present in the latest snapshot`)
-      }
-      return rawFrame.locator(input)
+    const explicit = ExplicitRef.exec(input)
+    const ref = explicit?.[1] ?? (this.refs.has(input) ? input : undefined)
+    if (!ref) return rawFrame.locator(input)
+    if (!this.refs.has(ref)) {
+      throw new BrowserDataError('stale_ref', `ref ${ref} is not present in the latest snapshot`)
     }
-    const frames = page.frames()
-    const frame = frames[target.frameIndex]
-    if (!frame || frame.url() !== target.frameURL) {
-      throw new BrowserDataError('stale_ref', `ref ${normalized} belongs to a stale frame`)
-    }
-    const locator =
-      target.backendDOMNodeId === undefined
-        ? frame.locator(target.selector)
-        : await locatorForBackendNode(page, frame, target.backendDOMNodeId, normalized)
-    if ((await locator.count()) !== 1) {
-      throw new BrowserDataError('stale_ref', `ref ${normalized} no longer resolves uniquely`)
-    }
-    if (target.backendDOMNodeId !== undefined) return locator
-    const fingerprint = await locator.evaluate(element => {
-      const explicit = element.getAttribute('role')?.trim()
-      let role = explicit?.split(/\s+/)[0]
-      if (!role) {
-        const tag = element.tagName.toLowerCase()
-        if (/^h[1-6]$/.test(tag)) role = 'heading'
-        else if (tag === 'a' && element.hasAttribute('href')) role = 'link'
-        else if (tag === 'button') role = 'button'
-        else if (tag === 'textarea') role = 'textbox'
-        else if (tag === 'select') role = 'combobox'
-        else if (tag === 'img') role = 'img'
-        else if (tag === 'table') role = 'table'
-        else if (tag === 'tr') role = 'row'
-        else if (tag === 'td' || tag === 'th') role = 'cell'
-        else if (tag === 'li') role = 'listitem'
-        else if (tag === 'input') {
-          const type = (element.getAttribute('type') ?? 'text').toLowerCase()
-          if (type === 'checkbox') role = 'checkbox'
-          else if (type === 'radio') role = 'radio'
-          else if (['button', 'submit', 'reset'].includes(type)) role = 'button'
-          else if (type === 'search') role = 'searchbox'
-          else role = 'textbox'
-        } else role = tag
-      }
-
-      let name = element.getAttribute('aria-label')?.trim() ?? ''
-      const labelledBy = element.getAttribute('aria-labelledby')
-      if (!name && labelledBy) {
-        name = labelledBy
-          .split(/\s+/)
-          .map(id => document.getElementById(id)?.textContent?.trim() ?? '')
-          .filter(Boolean)
-          .join(' ')
-      }
-      if (!name && element instanceof HTMLInputElement) {
-        name = element.labels?.[0]?.textContent?.trim() ?? element.placeholder
-        if (!name && element.value && ['button', 'submit', 'reset'].includes(element.type)) name = element.value
-      }
-      if (!name && element instanceof HTMLImageElement) name = element.alt
-      if (!name) name = element.getAttribute('title')?.trim() ?? ''
-      if (!name) name = (element.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 240)
-      return { role, name }
-    })
-    if (fingerprint.role !== target.role || fingerprint.name !== target.name) {
-      throw new BrowserDataError('stale_ref', `ref ${normalized} no longer matches its snapshot fingerprint`, {
-        details: {
-          expected: { role: target.role, name: target.name },
-          actual: fingerprint
-        }
-      })
-    }
-    return locator
+    return await locatorForRef(page, ref)
   }
 }
 
-type AXNodeLike = {
-  nodeId: string
-  ignored: boolean
-  role?: { value?: unknown }
-  chromeRole?: { value?: unknown }
-  name?: { value?: unknown }
-  value?: { value?: unknown }
-  properties?: Array<{ name: string; value: { value?: unknown } }>
-  parentId?: string
-  backendDOMNodeId?: number
+function interactiveSnapshot(nodes: (SnapshotNode | string)[], depth = 0): string {
+  const lines: string[] = []
+  for (const node of nodes) {
+    if (typeof node === 'string') continue
+    if (node.ref && (InteractiveRoles.has(node.role) || node.cursor === 'pointer')) {
+      const name = node.name ?? node.text
+      let line = `${'  '.repeat(depth)}- ${node.role}${name ? ` ${JSON.stringify(name)}` : ''} [ref=${node.ref}]`
+      for (const state of ['disabled', 'checked', 'expanded', 'pressed', 'selected'] as const) {
+        if (node[state] !== undefined) line += ` [${state}=${node[state]}]`
+      }
+      if (node.name && node.text && node.text !== node.name) line += `: ${JSON.stringify(node.text)}`
+      lines.push(line)
+      if (node.url) lines.push(`${'  '.repeat(depth + 1)}- /url: ${node.url}`)
+    }
+    if (node.children) lines.push(interactiveSnapshot(node.children, depth + 1))
+  }
+  return lines.filter(Boolean).join('\n')
 }
 
-/**
- * Streams main-frame nodes through `emit` in traversal order. When `emit`
- * returns false (text budget exceeded), collection stops before the next node's
- * per-node CDP round trips. All operations that can throw run before the first
- * emit, so a caller may fall back to `collectFrameNodes` on failure without
- * duplicating nodes.
- */
-async function collectAXNodes(
-  page: Page,
-  options: SnapshotOptions,
-  emit: (node: SnapshotNode) => boolean
-): Promise<void> {
-  const session = await page.context().newCDPSession(page)
+function presentSnapshot(snapshot: string, options: SnapshotOptions): string {
+  const lines = snapshot.split('\n').flatMap(line => {
+    if (!options.urls && line.trimStart().startsWith('- /url:')) return []
+    return [options.compact ? line.trimStart() : line]
+  })
+  const text = lines.join('\n').trim()
+  if (text.length === 0) return '(empty page)'
+  if (text.length <= SnapshotBudget) return text
+  return `${text.slice(0, SnapshotBudget)}\n… [snapshot truncated]`
+}
+
+async function locatorForRef(page: Page, ref: string): Promise<Locator> {
+  const locator = page.getByRef(ref)
+  let count = 0
   try {
-    await Promise.all([session.send('Accessibility.enable'), session.send('DOM.enable')])
-    const tree = await session.send('Accessibility.getFullAXTree')
-    const nodes = tree.nodes as AXNodeLike[]
-    const byID = new Map(nodes.map(node => [node.nodeId, node]))
-    // AX trees can omit pointer/click handlers and other DOM-only interactive
-    // affordances. Collect those with the same selectors used by command refs;
-    // they are emitted after the AX nodes, deduplicated by selector.
-    const extras = await collectFrameNodes(page.mainFrame(), { ...options, interactive: true })
-    const selectors = new Set<string>()
-
-    for (const node of nodes) {
-      if (node.ignored) continue
-      const role = normalizeAXRole(stringValue(node.role?.value ?? node.chromeRole?.value))
-      if (!role || role === 'inline-text') continue
-      const name = stringValue(node.name?.value)
-      const interactive = isAXInteractive(role, node)
-      if (options.interactive && !interactive) continue
-      if (!interactive && !name && (options.compact || !isAXStructure(role))) continue
-      const depth = axDepth(node, byID)
-      if (depth > (options.depth ?? 32)) continue
-
-      let selector: string | undefined
-      if (interactive && node.backendDOMNodeId !== undefined) {
-        selector = await selectorForBackendNode(session, node.backendDOMNodeId).catch(() => undefined)
-      }
-      if (selector) selectors.add(selector)
-      const checked = axProperty(node, 'checked')
-      const value = stringValue(node.value?.value)
-      const url = stringValue(axProperty(node, 'url'))
-      const more = emit({
-        role,
-        name,
-        ...(selector ? { selector } : {}),
-        ...(selector && node.backendDOMNodeId !== undefined ? { backendDOMNodeId: node.backendDOMNodeId } : {}),
-        interactive,
-        disabled: axProperty(node, 'disabled') === true,
-        ...(typeof checked === 'boolean' || typeof checked === 'string' ? { checked } : {}),
-        ...(value ? { value } : {}),
-        ...(url ? { url } : {}),
-        depth
-      })
-      if (!more) return
-    }
-
-    for (const extra of extras) {
-      if (extra.selector && !selectors.has(extra.selector) && !emit(extra)) return
-    }
-  } finally {
-    await session.send('Accessibility.disable').catch(() => undefined)
-    await session.detach().catch(() => undefined)
-  }
-}
-
-function normalizeAXRole(value: string): string {
-  if (!value) return ''
-  if (value === 'RootWebArea' || value === 'WebArea') return 'document'
-  if (value === 'StaticText' || value === 'LabelText') return 'text'
-  if (value === 'InlineTextBox') return 'inline-text'
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replaceAll(' ', '-')
-    .toLowerCase()
-}
-
-function isAXInteractive(role: string, node: AXNodeLike): boolean {
-  if (
-    [
-      'button',
-      'link',
-      'textbox',
-      'searchbox',
-      'checkbox',
-      'radio',
-      'combobox',
-      'listbox',
-      'option',
-      'menuitem',
-      'menuitemcheckbox',
-      'menuitemradio',
-      'tab',
-      'switch',
-      'slider',
-      'spinbutton',
-      'treeitem'
-    ].includes(role)
-  ) {
-    return true
-  }
-  return axProperty(node, 'focusable') === true || axProperty(node, 'editable') === true
-}
-
-function isAXStructure(role: string): boolean {
-  return ['document', 'heading', 'paragraph', 'list', 'listitem', 'table', 'row', 'cell', 'img', 'text'].includes(role)
-}
-
-function axProperty(node: AXNodeLike, name: string): unknown {
-  return node.properties?.find(property => property.name === name)?.value.value
-}
-
-function axDepth(node: AXNodeLike, byID: ReadonlyMap<string, AXNodeLike>): number {
-  let depth = 0
-  let parentID = node.parentId
-  const seen = new Set<string>()
-  while (parentID && !seen.has(parentID)) {
-    seen.add(parentID)
-    const parent = byID.get(parentID)
-    if (!parent) break
-    depth += 1
-    parentID = parent.parentId
-  }
-  return depth
-}
-
-async function selectorForBackendNode(session: CDPSession, backendNodeId: number): Promise<string | undefined> {
-  const resolved = await session.send('DOM.resolveNode', { backendNodeId })
-  const objectId = resolved.object.objectId
-  if (!objectId) return undefined
-  try {
-    const result = await session.send('Runtime.callFunctionOn', {
-      objectId,
-      returnByValue: true,
-      functionDeclaration: `function () {
-        if (!(this instanceof Element)) return null;
-        if (this.id && document.querySelectorAll('#' + CSS.escape(this.id)).length === 1)
-          return '#' + CSS.escape(this.id);
-        for (const attribute of ['data-testid', 'data-test', 'name']) {
-          const value = this.getAttribute(attribute);
-          if (!value) continue;
-          const selector = this.tagName.toLowerCase() + '[' + attribute + '=' + JSON.stringify(value) + ']';
-          if (document.querySelectorAll(selector).length === 1) return selector;
-        }
-        const parts = [];
-        let current = this;
-        while (current && current !== document.documentElement) {
-          const tag = current.tagName.toLowerCase();
-          const parent = current.parentElement;
-          if (!parent) break;
-          const siblings = Array.from(parent.children).filter(child => child.tagName === current.tagName);
-          parts.unshift(siblings.length === 1 ? tag : tag + ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')');
-          current = parent;
-        }
-        return 'html > ' + parts.join(' > ');
-      }`
-    })
-    return typeof result.result.value === 'string' ? result.result.value : undefined
-  } finally {
-    await session.send('Runtime.releaseObject', { objectId }).catch(() => undefined)
-  }
-}
-
-function stringValue(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
-  return ''
-}
-
-async function collectFrameNodes(frame: Frame, options: SnapshotOptions): Promise<SnapshotNode[]> {
-  const root = frame.locator(options.selector ?? 'body').first()
-  return await root.evaluate((scope, captureOptions) => {
-    const output: SnapshotNode[] = []
-    const maxDepth = captureOptions.depth ?? 32
-    const elements = [scope, ...Array.from(scope.querySelectorAll('*'))]
-    for (const candidate of elements) {
-      if (!(candidate instanceof Element)) continue
-      const style = getComputedStyle(candidate)
-      const rect = candidate.getBoundingClientRect()
-      if (style.display === 'none' || style.visibility === 'hidden' || rect.width === 0 || rect.height === 0) continue
-      const role = semanticRole(candidate)
-      const interactive = isInteractive(candidate, role, style)
-      if (captureOptions.interactive && !interactive) continue
-      if (!interactive && !isStructural(role)) continue
-      const depth = relativeDepth(candidate, scope)
-      if (depth > maxDepth) continue
-      const input = candidate instanceof HTMLInputElement ? candidate : undefined
-      output.push({
-        role,
-        name: accessibleName(candidate),
-        selector: uniqueSelector(candidate),
-        interactive,
-        disabled: candidate.matches(':disabled') || candidate.getAttribute('aria-disabled')?.toLowerCase() === 'true',
-        ...(input?.type === 'checkbox' || input?.type === 'radio'
-          ? { checked: input.checked }
-          : candidate.getAttribute('aria-checked')
-            ? { checked: candidate.getAttribute('aria-checked') === 'true' }
-            : {}),
-        ...(candidate instanceof HTMLAnchorElement && candidate.href ? { url: candidate.href } : {}),
-        depth
-      })
-    }
-    return output
-
-    function semanticRole(element: Element): string {
-      const explicit = element.getAttribute('role')?.trim()
-      if (explicit) return explicit.split(/\s+/)[0]!
-      const tag = element.tagName.toLowerCase()
-      if (/^h[1-6]$/.test(tag)) return 'heading'
-      if (tag === 'a' && element.hasAttribute('href')) return 'link'
-      if (tag === 'button') return 'button'
-      if (tag === 'textarea') return 'textbox'
-      if (tag === 'select') return 'combobox'
-      if (tag === 'img') return 'img'
-      if (tag === 'table') return 'table'
-      if (tag === 'tr') return 'row'
-      if (tag === 'td' || tag === 'th') return 'cell'
-      if (tag === 'li') return 'listitem'
-      if (tag === 'input') {
-        const type = (element.getAttribute('type') ?? 'text').toLowerCase()
-        if (type === 'checkbox') return 'checkbox'
-        if (type === 'radio') return 'radio'
-        if (['button', 'submit', 'reset'].includes(type)) return 'button'
-        if (type === 'search') return 'searchbox'
-        return 'textbox'
-      }
-      return tag
-    }
-
-    function accessibleName(element: Element): string {
-      const aria = element.getAttribute('aria-label')?.trim()
-      if (aria) return aria
-      const labelledBy = element.getAttribute('aria-labelledby')
-      if (labelledBy) {
-        const label = labelledBy
-          .split(/\s+/)
-          .map(id => document.getElementById(id)?.textContent?.trim() ?? '')
-          .filter(Boolean)
-          .join(' ')
-        if (label) return label
-      }
-      if (element instanceof HTMLInputElement) {
-        const label = element.labels?.[0]?.textContent?.trim()
-        if (label) return label
-        if (element.placeholder) return element.placeholder
-        if (element.value && ['button', 'submit', 'reset'].includes(element.type)) return element.value
-      }
-      if (element instanceof HTMLImageElement && element.alt) return element.alt
-      const title = element.getAttribute('title')?.trim()
-      if (title) return title
-      return (element.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 240)
-    }
-
-    function isInteractive(element: Element, role: string, style: CSSStyleDeclaration): boolean {
-      return (
-        ['button', 'link', 'textbox', 'checkbox', 'radio', 'combobox', 'option', 'menuitem', 'tab', 'switch'].includes(
-          role
-        ) ||
-        element.hasAttribute('onclick') ||
-        element.hasAttribute('contenteditable') ||
-        (element.hasAttribute('tabindex') && Number(element.getAttribute('tabindex')) >= 0) ||
-        style.cursor === 'pointer'
-      )
-    }
-
-    function isStructural(role: string): boolean {
-      return ['heading', 'table', 'row', 'cell', 'listitem', 'img'].includes(role)
-    }
-
-    function relativeDepth(element: Element, rootElement: Element): number {
-      let depth = 0
-      let current: Element | null = element
-      while (current && current !== rootElement) {
-        current = current.parentElement
-        depth += 1
-      }
-      return depth
-    }
-
-    function uniqueSelector(element: Element): string {
-      if (element.id && document.querySelectorAll(`#${CSS.escape(element.id)}`).length === 1) {
-        return `#${CSS.escape(element.id)}`
-      }
-      for (const attribute of ['data-testid', 'data-test', 'name']) {
-        const value = element.getAttribute(attribute)
-        if (!value) continue
-        const selector = `${element.tagName.toLowerCase()}[${attribute}=${JSON.stringify(value)}]`
-        if (document.querySelectorAll(selector).length === 1) return selector
-      }
-      const parts: string[] = []
-      let current: Element | null = element
-      while (current && current !== document.documentElement) {
-        const tag = current.tagName.toLowerCase()
-        const parent: Element | null = current.parentElement
-        if (!parent) break
-        const siblings = Array.from(parent.children).filter(child => child.tagName === current!.tagName)
-        parts.unshift(siblings.length === 1 ? tag : `${tag}:nth-of-type(${siblings.indexOf(current) + 1})`)
-        current = parent
-      }
-      return `html > ${parts.join(' > ')}`
-    }
-  }, options)
-}
-
-async function locatorForBackendNode(
-  page: Page,
-  frame: Frame,
-  backendDOMNodeId: number,
-  ref: string
-): Promise<Locator> {
-  const session = await page.context().newCDPSession(page)
-  try {
-    await session.send('DOM.enable')
-    const resolved = await session.send('DOM.resolveNode', { backendNodeId: backendDOMNodeId })
-    const objectId = resolved.object.objectId
-    if (!objectId) throw new Error('backend node is no longer an element')
-    const marker = `ankole-${ref}-${crypto.randomUUID()}`
-    try {
-      const marked = await session.send('Runtime.callFunctionOn', {
-        objectId,
-        arguments: [{ value: marker }],
-        returnByValue: true,
-        functionDeclaration: `function (value) {
-          if (!(this instanceof Element)) return false;
-          this.setAttribute('data-ankole-browser-ref', value);
-          return true;
-        }`
-      })
-      if (marked.result.value !== true) throw new Error('backend node is no longer an element')
-    } finally {
-      await session.send('Runtime.releaseObject', { objectId }).catch(() => undefined)
-    }
-    return frame.locator(`[data-ankole-browser-ref="${marker}"]`)
+    count = await locator.count()
   } catch (error) {
-    throw new BrowserDataError('stale_ref', `ref ${ref} no longer points to its snapshot element`, {
-      cause: error
-    })
-  } finally {
-    await session.send('DOM.disable').catch(() => undefined)
-    await session.detach().catch(() => undefined)
+    throw new BrowserDataError('stale_ref', `ref ${ref} no longer points to its snapshot element`, { cause: error })
   }
+  if (count !== 1) {
+    throw new BrowserDataError('stale_ref', `ref ${ref} no longer points to its snapshot element`)
+  }
+  return locator
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
+function asSnapshotError(error: unknown): BrowserDataError {
+  if (error instanceof BrowserDataError) return error
+  if (error instanceof Error && error.name === 'TimeoutError') {
+    return new BrowserDataError('timeout', error.message, { retryable: true, cause: error })
+  }
+  const message = error instanceof Error ? error.message : String(error)
+  return new BrowserDataError('invalid_result', message, { cause: error })
 }

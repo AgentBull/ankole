@@ -138,13 +138,8 @@ defmodule Ankole.AIGateway.CompactionPolicy do
     end)
   end
 
-  defp normalize_config(value) when is_map(value) do
-    {:ok,
-     Map.new(value, fn
-       {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-       {key, value} -> {key, value}
-     end)}
-  end
+  defp normalize_config(value) when is_map(value),
+    do: {:ok, Ankole.Attrs.normalize_external_attrs(value)}
 
   defp normalize_config(_value), do: {:error, :not_compaction_config}
 
@@ -263,8 +258,8 @@ defmodule Ankole.AIGateway.CompactionPolicy do
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
 
   defp positive_integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} when integer > 0 -> integer
+    case Ankole.Attrs.integer_value(value) do
+      integer when is_integer(integer) and integer > 0 -> integer
       _value -> nil
     end
   end

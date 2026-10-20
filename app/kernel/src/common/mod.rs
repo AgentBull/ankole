@@ -4,7 +4,11 @@ mod encoding;
 mod error;
 mod hash;
 mod ids;
-#[cfg(any(feature = "universal_ai_client", feature = "object_store"))]
+#[cfg(any(
+    feature = "universal_ai_client",
+    feature = "object_store",
+    feature = "web_proxy"
+))]
 pub(crate) mod io_runtime;
 mod jwt;
 mod password;
@@ -23,7 +27,11 @@ pub use password::{argon2id_hash, argon2id_verify};
 pub use phone::phone_normalize_e164;
 pub use search::{ReciprocalRankFusionResult, reciprocal_rank_fusion};
 pub use token::estimate_o200k_base_tokens;
-pub use web_url::{HostClass, WebURLFacts, web_url_facts};
+#[cfg(feature = "web_proxy")]
+pub(crate) use web_url::validate_host;
+pub use web_url::{
+    HostClass, WebURLFacts, WebURLRejection, validate_ip_addresses, validate_web_url, web_url_facts,
+};
 
 #[cfg(test)]
 mod tests {
@@ -101,7 +109,7 @@ mod tests {
     #[test]
     fn o200k_base_token_estimator_counts_known_text() {
         assert_eq!(estimate_o200k_base_tokens("Hello world"), 2);
-        assert!(estimate_o200k_base_tokens("记忆系统") > 0);
+        assert_eq!(estimate_o200k_base_tokens("记忆系统"), 3);
     }
 
     // Throwaway 2048-bit RSA pair generated for this test; it protects nothing.

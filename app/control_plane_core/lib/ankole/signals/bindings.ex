@@ -30,6 +30,19 @@ defmodule Ankole.Signals.Bindings do
   alias Ankole.Signals.SubjectNamespace
   alias Ankole.Signals.UnmatchedSenderPolicies
 
+  @doc "Builds a durable adapter configuration key for one Agent and binding."
+  @spec binding_config_key(String.t(), String.t(), String.t()) :: String.t()
+  def binding_config_key(prefix, agent_uid, binding_name)
+      when is_binary(prefix) and is_binary(agent_uid) and is_binary(binding_name) do
+    digest =
+      [agent_uid, binding_name]
+      |> Ankole.JSON.encode!()
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.encode16(case: :lower)
+
+    prefix <> "." <> digest
+  end
+
   @application_binding_config_errors %{
     "line" => :line_binding_config_unavailable,
     "lark" => :lark_binding_config_unavailable,
@@ -93,7 +106,7 @@ defmodule Ankole.Signals.Bindings do
          {:ok, unmatched_sender_policy} <-
            unmatched_sender_policy(attrs, UnmatchedSenderPolicies.default_value()),
          {:ok, config_key} <-
-           binding_config_key(
+           resolve_binding_config_key(
              definition,
              principal.uid,
              binding_name
@@ -194,7 +207,7 @@ defmodule Ankole.Signals.Bindings do
          {:ok, policy} <- group_message_policy(mode),
          {:ok, unmatched_sender_policy} <- unmatched_sender_policy(attrs, nil),
          {:ok, config_key} <-
-           binding_config_key(
+           resolve_binding_config_key(
              definition,
              target_principal.uid,
              binding_name
@@ -430,7 +443,7 @@ defmodule Ankole.Signals.Bindings do
   defp binding_config(_attrs), do: {:error, :missing_config}
 
   defp group_message_mode(attrs, default) do
-    case Map.get(attrs, :group_message_mode, Map.get(attrs, "group_message_mode")) do
+    case Ankole.Attrs.get(attrs, :group_message_mode) do
       mode when is_binary(mode) and mode != "" -> {:ok, mode}
       nil when is_nil(default) -> {:ok, nil}
       nil -> {:ok, default}
@@ -442,7 +455,7 @@ defmodule Ankole.Signals.Bindings do
   defp group_message_policy(mode), do: GroupMessageModes.policy(mode)
 
   defp unmatched_sender_policy(attrs, default) do
-    case Map.get(attrs, :unmatched_sender_policy, Map.get(attrs, "unmatched_sender_policy")) do
+    case Ankole.Attrs.get(attrs, :unmatched_sender_policy) do
       value when is_binary(value) and value != "" -> UnmatchedSenderPolicies.policy(value)
       nil when is_nil(default) -> {:ok, nil}
       nil -> UnmatchedSenderPolicies.policy(default)
@@ -987,7 +1000,7 @@ defmodule Ankole.Signals.Bindings do
 
   defdelegate list_adapters(), to: Ankole.Signals.BindingCatalog
 
-  defp binding_config_key(%Definition{} = definition, agent_uid, binding_name) do
+  defp resolve_binding_config_key(%Definition{} = definition, agent_uid, binding_name) do
     case definition.config_module do
       module when is_atom(module) and not is_nil(module) ->
         if function_exported?(module, :binding_config_key, 2) do

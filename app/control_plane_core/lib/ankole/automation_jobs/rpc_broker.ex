@@ -125,12 +125,9 @@ defmodule Ankole.AutomationJobs.RPCBroker do
   end
 
   defp positive_integer(value, key) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} when integer > 0 and integer <= 9_007_199_254_740_991 ->
-        {:ok, integer}
-
-      _invalid ->
-        {:error, {:invalid_positive_integer, key}}
+    case Ankole.ModelIntegerID.parse(value) do
+      {:ok, id} -> {:ok, id}
+      :error -> {:error, {:invalid_positive_integer, key}}
     end
   end
 
@@ -143,14 +140,7 @@ defmodule Ankole.AutomationJobs.RPCBroker do
     end
   end
 
-  defp required_text(value, key) when is_binary(value) do
-    case String.trim(value) do
-      "" -> {:error, {:missing_text, key}}
-      text -> {:ok, text}
-    end
-  end
-
-  defp required_text(_value, key), do: {:error, {:missing_text, key}}
+  defp required_text(value, key), do: Ankole.Attrs.required_text(value, {:missing_text, key})
 
   defp list_limit(value) when is_integer(value) and value > 0, do: min(value, 500)
   defp list_limit(_value), do: 100

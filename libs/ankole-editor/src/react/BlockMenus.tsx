@@ -30,7 +30,7 @@ import {
   moveBlocks,
   type BlockType
 } from '../editor/block-actions'
-import { useEditor, useEditorState } from './context'
+import { useEditor, useEditorLabel, useEditorState } from './context'
 
 /*
  * Menus for blocks (SPEC §7.6): the insert menu of the toolbar and of the block handle, and the
@@ -117,6 +117,7 @@ function useMenu(kind: MenuKind) {
 const targetOf = (editor: Wordgard) => editor.state.field(menuField, false)?.pos ?? null
 
 export function InsertMenu({ hovered, trigger }: { hovered?: () => number | null; trigger?: ReactElement }) {
+  const label = useEditorLabel()
   const kind = hovered ? 'handle-insert' : 'insert'
   const { editor, open, change, finalFocus } = useMenu(kind)
   const triggerId = useId()
@@ -133,13 +134,16 @@ export function InsertMenu({ hovered, trigger }: { hovered?: () => number | null
           trigger ?? (
             <Button variant="ghost" size="xs">
               <RiAddLine />
-              插入
+              {label('insert')}
             </Button>
           )
         }
       />
-      <DropdownMenuContent className="block-menu ankole-editor-overlay" aria-label="添加 Block" finalFocus={finalFocus}>
-        <DropdownMenuLabel>添加内容</DropdownMenuLabel>
+      <DropdownMenuContent
+        className="block-menu ankole-editor-overlay"
+        aria-label={label('insert_block')}
+        finalFocus={finalFocus}>
+        <DropdownMenuLabel>{label('add_content')}</DropdownMenuLabel>
         {blockOptions.map(option => (
           <DropdownMenuItem
             key={option.type}
@@ -150,8 +154,8 @@ export function InsertMenu({ hovered, trigger }: { hovered?: () => number | null
             }}>
             <span className="menu-icon">{option.glyph}</span>
             <span>
-              {option.title}
-              <small>{option.detail}</small>
+              {option.title(editor.state)}
+              <small>{option.detail(editor.state)}</small>
             </span>
           </DropdownMenuItem>
         ))}
@@ -162,6 +166,7 @@ export function InsertMenu({ hovered, trigger }: { hovered?: () => number | null
 
 /** The block menu. Without `hovered`, it acts on the top-level block that holds the caret. */
 export function BlockMenu({ hovered, trigger }: { hovered?: () => number | null; trigger?: ReactElement }) {
+  const label = useEditorLabel()
   const kind = hovered ? 'handle' : 'block'
   const { editor, open, change, finalFocus } = useMenu(kind)
   const triggerId = useId()
@@ -176,7 +181,11 @@ export function BlockMenu({ hovered, trigger }: { hovered?: () => number | null;
         {...(hovered ? handleTriggerEvents(() => change(!open, hovered())) : {})}
         render={
           trigger ?? (
-            <Button variant="ghost" size="xs" aria-label="当前 Block 菜单" title="当前 Block 菜单 ⌘/Ctrl+/">
+            <Button
+              variant="ghost"
+              size="xs"
+              aria-label={label('current_block_menu')}
+              title={`${label('current_block_menu')} ⌘/Ctrl+/`}>
               <RiMoreLine />
               Block
             </Button>
@@ -185,7 +194,7 @@ export function BlockMenu({ hovered, trigger }: { hovered?: () => number | null;
       />
       <DropdownMenuContent
         className="block-menu block-actions ankole-editor-overlay"
-        aria-label="Block 操作"
+        aria-label={label('block_actions')}
         finalFocus={finalFocus}>
         <BlockActions />
       </DropdownMenuContent>
@@ -195,6 +204,7 @@ export function BlockMenu({ hovered, trigger }: { hovered?: () => number | null;
 
 /** The block menu of ⌘/, anchored at the top of its block. */
 export function KeyboardBlockMenu() {
+  const label = useEditorLabel()
   const { editor, open, setOpen, change, finalFocus } = useMenu('keyboard')
   const request = useEditorState(state => {
     const menu = state.field(menuField, false)
@@ -231,7 +241,7 @@ export function KeyboardBlockMenu() {
       />
       <DropdownMenuContent
         className="block-menu block-actions ankole-editor-overlay"
-        aria-label="Block 操作"
+        aria-label={label('block_actions')}
         finalFocus={finalFocus}>
         <BlockActions />
       </DropdownMenuContent>
@@ -254,6 +264,7 @@ function handleTriggerEvents(toggle: () => void) {
 }
 
 function BlockActions() {
+  const label = useEditorLabel()
   const editor = useEditor()
   const state = useEditorState()
   const block = topBlock(state, state.field(menuField, false)?.pos ?? null)
@@ -286,34 +297,36 @@ function BlockActions() {
   }
   return (
     <>
-      <DropdownMenuLabel>{block ? '当前 Block' : '先将光标放入文档'}</DropdownMenuLabel>
+      <DropdownMenuLabel>{label(block ? 'current_block' : 'focus_document')}</DropdownMenuLabel>
       <DropdownMenuSub>
-        <DropdownMenuSubTrigger disabled={!block || !canTurnInto(state, block.before)}>转换为</DropdownMenuSubTrigger>
-        <DropdownMenuSubContent className="block-menu ankole-editor-overlay" aria-label="转换 Block 类型">
+        <DropdownMenuSubTrigger disabled={!block || !canTurnInto(state, block.before)}>
+          {label('turn_into')}
+        </DropdownMenuSubTrigger>
+        <DropdownMenuSubContent className="block-menu ankole-editor-overlay" aria-label={label('turn_into_type')}>
           {blockOptions
             .filter(option => option.turnInto)
             .map(option => (
               <DropdownMenuItem key={option.type} onClick={turnInto(option.type)}>
                 <span className="menu-icon">{option.glyph}</span>
-                {option.title}
+                {option.title(editor.state)}
               </DropdownMenuItem>
             ))}
         </DropdownMenuSubContent>
       </DropdownMenuSub>
       <DropdownMenuItem disabled={!block} onClick={act(pos => duplicateBlocks(editor, pos))}>
-        创建副本
+        {label('duplicate')}
       </DropdownMenuItem>
       <DropdownMenuItem disabled={!block?.index} onClick={act(pos => moveBlocks(editor, -1, pos))}>
-        上移
+        {label('move_up')}
       </DropdownMenuItem>
       <DropdownMenuItem
         disabled={!block || block.index === state.doc.content.length - 1}
         onClick={act(pos => moveBlocks(editor, 1, pos))}>
-        下移
+        {label('move_down')}
       </DropdownMenuItem>
       <DropdownMenuSeparator />
       <DropdownMenuItem disabled={!block} variant="destructive" onClick={() => void remove()}>
-        删除 Block
+        {label('delete_block')}
       </DropdownMenuItem>
     </>
   )
@@ -366,6 +379,7 @@ const handleMenuOpen = (state: GardState) => !!state.field(menuField, false)?.ki
 
 /** Handles beside the hovered top-level block: insert below, open the block menu, drag to reorder. */
 export function BlockHandles({ anchor }: { anchor: HTMLElement }) {
+  const label = useEditorLabel()
   const editor = useEditor()
   const [hover, setHover] = useState<{ pos: number; top: number } | null>(null)
   const menuOpen = useEditorState(handleMenuOpen)
@@ -481,7 +495,7 @@ export function BlockHandles({ anchor }: { anchor: HTMLElement }) {
           <InsertMenu
             hovered={() => hoveredPos.current}
             trigger={
-              <Button variant="ghost" size="icon-xs" aria-label="在下方添加 Block" title="在下方添加 Block">
+              <Button variant="ghost" size="icon-xs" aria-label={label('insert_below')} title={label('insert_below')}>
                 <RiAddLine />
               </Button>
             }
@@ -489,7 +503,7 @@ export function BlockHandles({ anchor }: { anchor: HTMLElement }) {
           <BlockMenu
             hovered={() => hoveredPos.current}
             trigger={
-              <Button variant="ghost" size="icon-xs" aria-label="Block 菜单" title="点击打开菜单，拖动调整顺序">
+              <Button variant="ghost" size="icon-xs" aria-label={label('block_menu')} title={label('drag_hint')}>
                 <RiDraggable />
               </Button>
             }

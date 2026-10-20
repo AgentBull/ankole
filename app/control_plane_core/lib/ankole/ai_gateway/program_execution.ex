@@ -112,10 +112,15 @@ defmodule Ankole.AIGateway.ProgramExecution do
 
   defp safe_cancel_run(run_id) do
     ProgramRunner.cancel(run_id)
-  rescue
-    _error -> :error
   catch
-    _kind, _reason -> :error
+    kind, reason ->
+      Ankole.Logging.warning(
+        "ai_gateway.program_cancel.failed",
+        "Program cancellation failed",
+        Ankole.Logging.failure_fields(kind, reason, __STACKTRACE__)
+      )
+
+      :error
   end
 
   @doc false

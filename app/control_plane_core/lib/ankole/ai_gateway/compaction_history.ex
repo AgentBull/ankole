@@ -165,32 +165,10 @@ defmodule Ankole.AIGateway.CompactionHistory do
   defp message_usage_tokens(%Message{metadata: %{} = metadata}) do
     metadata
     |> Map.get("usage")
-    |> usage_tokens()
+    |> Ankole.AIGateway.Usage.total_tokens()
   end
 
   defp message_usage_tokens(_message), do: 0
-
-  defp usage_tokens(%{} = usage) do
-    total_tokens = usage_integer(usage, ["total_tokens", "totalTokens"])
-
-    if total_tokens > 0 do
-      total_tokens
-    else
-      usage_integer(usage, ["input_tokens", "prompt_tokens", "inputTokens"]) +
-        usage_integer(usage, ["output_tokens", "completion_tokens", "outputTokens"])
-    end
-  end
-
-  defp usage_tokens(_usage), do: 0
-
-  defp usage_integer(map, keys) when is_map(map) and is_list(keys) do
-    Enum.find_value(keys, 0, fn key ->
-      case Map.get(map, key) do
-        value when is_integer(value) and value >= 0 -> value
-        _value -> false
-      end
-    end)
-  end
 
   def items_token_estimate(items) do
     items

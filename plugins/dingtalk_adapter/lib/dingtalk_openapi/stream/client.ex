@@ -1,6 +1,4 @@
 defmodule DingTalkOpenAPI.Stream.Client do
-  import IMTransport.WebSocket, only: [parse_url: 1]
-
   @moduledoc """
   Supervised DingTalk Stream-mode connection with post-dispatch acknowledgements.
 
@@ -25,8 +23,8 @@ defmodule DingTalkOpenAPI.Stream.Client do
   keeps that safe.
 
   A reconnect must re-register for a fresh single-use ticket.
-  `FeishuOpenAPI.WS.Client` shares only the Mint plumbing; the frames and
-  acks diverge, so there is no shared abstraction.
+  `IMTransport.WebSocket` owns the Mint connection. This module owns DingTalk
+  frames, acknowledgements, and reconnect timing.
   """
 
   use GenServer
@@ -35,6 +33,7 @@ defmodule DingTalkOpenAPI.Stream.Client do
 
   alias DingTalkOpenAPI.{Client, Error}
   alias DingTalkOpenAPI.Stream.Dispatcher
+  alias IMTransport.WebSocket
 
   @open_path "/v1.0/gateway/connections/open"
   @user_agent "dingtalk_openapi-elixir/0.1"
@@ -45,15 +44,10 @@ defmodule DingTalkOpenAPI.Stream.Client do
             subscriptions: [],
             task_supervisor: nil,
             auto_reconnect: true,
-            conn: nil,
-            websocket: nil,
-            request_ref: nil,
+            socket: nil,
             reconnect_attempt: 0,
             reconnect_timer: nil,
             dispatch_tasks: %{},
-            upgrade_buffer: <<>>,
-            upgrade_status: nil,
-            upgrade_headers: nil,
             status: :disconnected
 
   @type t :: %__MODULE__{}
@@ -109,7 +103,8 @@ defmodule DingTalkOpenAPI.Stream.Client do
   end
 
   @impl true
-  def handle_info(:connect, %{conn: conn} = state) when not is_nil(conn), do: {:noreply, state}
+  def handle_info(:connect, %{socket: socket} = state) when not is_nil(socket),
+    do: {:noreply, state}
 
   def handle_info(:connect, state) do
     state = clear_reconnect_timer(state)
@@ -164,15 +159,23 @@ defmodule DingTalkOpenAPI.Stream.Client do
     end
   end
 
-  def handle_info(_message, %{conn: nil} = state), do: {:noreply, state}
+  def handle_info(_message, %{socket: nil} = state), do: {:noreply, state}
 
   def handle_info(message, state) do
-    case Mint.WebSocket.stream(state.conn, message) do
-      {:ok, conn, responses} ->
-        handle_responses(responses, %{state | conn: conn})
+    case WebSocket.stream(state.socket, message) do
+      {:ok, socket, frames} ->
+        just_opened = is_nil(state.socket.websocket) and not is_nil(socket.websocket)
+        state = %{state | socket: socket}
+        state = if just_opened, do: on_open(state), else: state
+        {:noreply, Enum.reduce(frames, state, &handle_frame/2)}
 
-      {:error, conn, reason, _responses} ->
-        state = %{state | conn: conn} |> drop_conn()
+      {:error, socket, {:websocket_decode, reason}} ->
+        Logger.warning("dingtalk_openapi Stream decode failed: #{inspect(reason)}")
+        {:noreply, %{state | socket: socket}}
+
+      {:error, socket, reason} ->
+        reason = unwrap_upgrade(reason)
+        state = %{state | socket: socket} |> drop_conn()
         maybe_schedule_reconnect(state, reason)
 
       :unknown ->
@@ -188,31 +191,19 @@ defmodule DingTalkOpenAPI.Stream.Client do
 
   defp connect(state) do
     with {:ok, endpoint, ticket} <- register_connection(state),
-         {:ok, scheme, host, port, path} <- parse_url(connect_url(endpoint, ticket)),
-         {:ok, conn} <- Mint.HTTP.connect(http_scheme(scheme), host, port, protocols: [:http1]),
-         {:ok, conn, ref} <-
-           Mint.WebSocket.upgrade(scheme, conn, path, [{"user-agent", @user_agent}]) do
-      emit([:connect], %{duration_ms: 0}, %{host: host})
+         url = connect_url(endpoint, ticket),
+         {:ok, socket} <- WebSocket.connect(url, headers: [{"user-agent", @user_agent}]) do
+      emit([:connect], %{duration_ms: 0}, %{host: URI.parse(url).host})
 
-      # The backoff counter resets only once the WebSocket is established (the
-      # upgrade `{:done}` handler), so an endpoint that accepts the upgrade
-      # request but never completes the handshake still backs off exponentially.
-      {:ok,
-       %{
-         state
-         | conn: conn,
-           request_ref: ref,
-           status: :upgrading,
-           reconnect_timer: nil
-       }}
+      # The backoff counter resets only once the WebSocket is established, so an
+      # endpoint that accepts the upgrade request but never completes the
+      # handshake still backs off exponentially.
+      {:ok, %{state | socket: socket, status: :upgrading, reconnect_timer: nil}}
     else
       {:error, %Error{reason: reason} = error} when reason in [:auth] ->
         {:error, error, true}
 
       {:error, reason} ->
-        {:error, reason, false}
-
-      {:error, _conn, reason} ->
         {:error, reason, false}
     end
   end
@@ -253,70 +244,10 @@ defmodule DingTalkOpenAPI.Stream.Client do
     URI.to_string(%{uri | query: query})
   end
 
-  defp http_scheme(:ws), do: :http
-  defp http_scheme(:wss), do: :https
+  defp on_open(state), do: %{state | status: :connected, reconnect_attempt: 0}
 
-  defp handle_responses([], state), do: {:noreply, state}
-
-  defp handle_responses([{:status, ref, status} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, %{state | upgrade_status: status})
-  end
-
-  defp handle_responses([{:headers, ref, headers} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, %{state | upgrade_headers: headers})
-  end
-
-  defp handle_responses([{:done, ref} | rest], %{request_ref: ref} = state) do
-    case Mint.WebSocket.new(
-           state.conn,
-           ref,
-           state.upgrade_status,
-           state.upgrade_headers
-         ) do
-      {:ok, conn, websocket} ->
-        state = %{
-          state
-          | conn: conn,
-            websocket: websocket,
-            status: :connected,
-            reconnect_attempt: 0
-        }
-
-        state = decode_buffered_upgrade_data(state)
-        handle_responses(rest, state)
-
-      {:error, conn, reason} ->
-        state = %{state | conn: conn} |> drop_conn()
-        maybe_schedule_reconnect(state, reason)
-    end
-  end
-
-  defp handle_responses([{:data, ref, data} | rest], %{request_ref: ref, websocket: nil} = state) do
-    handle_responses(rest, %{state | upgrade_buffer: state.upgrade_buffer <> data})
-  end
-
-  defp handle_responses([{:data, ref, data} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, decode_ws_data(data, state))
-  end
-
-  defp handle_responses([_response | rest], state), do: handle_responses(rest, state)
-
-  defp decode_buffered_upgrade_data(%{upgrade_buffer: <<>>} = state), do: state
-
-  defp decode_buffered_upgrade_data(state) do
-    decode_ws_data(state.upgrade_buffer, %{state | upgrade_buffer: <<>>})
-  end
-
-  defp decode_ws_data(data, state) do
-    case Mint.WebSocket.decode(state.websocket, data) do
-      {:ok, websocket, frames} ->
-        Enum.reduce(frames, %{state | websocket: websocket}, &handle_frame/2)
-
-      {:error, websocket, reason} ->
-        Logger.warning("dingtalk_openapi Stream decode failed: #{inspect(reason)}")
-        %{state | websocket: websocket}
-    end
-  end
+  defp unwrap_upgrade({:upgrade, reason}), do: reason
+  defp unwrap_upgrade(reason), do: reason
 
   defp handle_frame({:text, json}, state) do
     case Torque.decode(json) do
@@ -389,8 +320,16 @@ defmodule DingTalkOpenAPI.Stream.Client do
 
   defp send_response_frame(request_headers, code, data, state, duration \\ 0)
 
-  defp send_response_frame(_headers, _code, _data, %{websocket: nil} = state, _duration),
-    do: state
+  defp send_response_frame(_headers, _code, _data, %{socket: nil} = state, _duration), do: state
+
+  defp send_response_frame(
+         _headers,
+         _code,
+         _data,
+         %{socket: %{websocket: nil}} = state,
+         _duration
+       ),
+       do: state
 
   defp send_response_frame(request_headers, code, data, state, duration) do
     response =
@@ -414,23 +353,16 @@ defmodule DingTalkOpenAPI.Stream.Client do
   defp ack_kind({:withhold, _reason}), do: :withheld
   defp ack_kind(_other), do: :unknown
 
-  defp send_ws_frame(_frame, %{websocket: nil} = state), do: state
+  defp send_ws_frame(_frame, %{socket: nil} = state), do: state
+  defp send_ws_frame(_frame, %{socket: %{websocket: nil}} = state), do: state
 
   defp send_ws_frame(frame, state) do
-    case Mint.WebSocket.encode(state.websocket, frame) do
-      {:ok, websocket, data} ->
-        case Mint.WebSocket.stream_request_body(state.conn, state.request_ref, data) do
-          {:ok, conn} ->
-            %{state | conn: conn, websocket: websocket}
+    case WebSocket.send_frame(state.socket, frame) do
+      {:ok, socket} ->
+        %{state | socket: socket}
 
-          {:error, conn, reason} ->
-            %{state | conn: conn, websocket: websocket}
-            |> drop_conn()
-            |> schedule_reconnect_async(reason)
-        end
-
-      {:error, websocket, reason} ->
-        %{state | websocket: websocket} |> drop_conn() |> schedule_reconnect_async(reason)
+      {:error, socket, reason} ->
+        %{state | socket: socket} |> drop_conn() |> schedule_reconnect_async(reason)
     end
   end
 
@@ -485,16 +417,13 @@ defmodule DingTalkOpenAPI.Stream.Client do
   end
 
   defp drop_conn(state) do
-    if state.conn, do: Mint.HTTP.close(state.conn)
+    WebSocket.close(state.socket)
     Enum.each(Map.keys(state.dispatch_tasks), &Process.demonitor(&1, [:flush]))
 
     %{
       state
-      | conn: nil,
-        websocket: nil,
-        request_ref: nil,
+      | socket: nil,
         dispatch_tasks: %{},
-        upgrade_buffer: <<>>,
         status: :disconnected
     }
   end

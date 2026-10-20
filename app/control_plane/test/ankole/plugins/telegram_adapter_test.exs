@@ -203,6 +203,31 @@ defmodule Ankole.Plugins.TelegramAdapterTest do
                )
     end
 
+    test "preview delete treats only missing-message 400 responses as idempotent success" do
+      Req.Test.stub(__MODULE__, fn conn ->
+        {:ok, raw_body, conn} = Plug.Conn.read_body(conn)
+        body = Torque.decode!(raw_body)
+
+        description =
+          if body["message_id"] == 10,
+            do: "Bad Request: message to delete not found",
+            else: "Bad Request: message can't be deleted for everyone"
+
+        conn
+        |> Plug.Conn.put_status(400)
+        |> Req.Test.json(%{"ok" => false, "error_code" => 400, "description" => description})
+      end)
+
+      context = {test_client("123456:secret-value"), %{chat_id: 501}}
+
+      assert :ok = ReplyPreview.delete_message(context, nil, %{"message_id" => "10"})
+
+      assert {:error, %Client.Error{error_code: 400, description: description}} =
+               ReplyPreview.delete_message(context, nil, %{"message_id" => "11"})
+
+      assert description =~ "can't be deleted"
+    end
+
     test "advances the offset only through durable or explicitly ignored updates" do
       updates = Enum.map(10..12, &%{"update_id" => &1})
 

@@ -791,18 +791,12 @@ defmodule Ankole.AIGateway.ChatGPTAuth do
 
   defp poll_interval(_value), do: {:error, :invalid_device_poll_interval}
 
-  defp required_text(map, key) when is_map(map) do
-    case Map.get(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, missing_key(key)}
-          value -> {:ok, value}
-        end
-
-      _value ->
-        {:error, missing_key(key)}
-    end
-  end
+  defp required_text(map, key) when is_map(map),
+    do:
+      Ankole.Attrs.required_text(
+        Map.get(map, key),
+        missing_key(key)
+      )
 
   defp required_text(_map, key), do: {:error, missing_key(key)}
 

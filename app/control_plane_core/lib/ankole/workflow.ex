@@ -25,8 +25,7 @@ defmodule Ankole.Workflow do
   alias Ankole.Workflow.Schemas.Run
   alias Ankole.Workflow.WorkerConfig
 
-  @minimum_id 1000
-  @maximum_id 9_007_199_254_740_991
+  require Ankole.ModelIntegerID
   @result_window_bytes 8_000
   @memo_budget_bytes 6 * 1_024 * 1_024
   @value_max_bytes 24 * 1_024
@@ -51,7 +50,7 @@ defmodule Ankole.Workflow do
 
   @spec task_session_id(pos_integer()) :: String.t()
   def task_session_id(call_id)
-      when is_integer(call_id) and call_id >= @minimum_id and call_id <= @maximum_id,
+      when Ankole.ModelIntegerID.valid?(call_id),
       do: Ankole.Sessions.Key.workflow_task(call_id)
 
   @spec parse_run_id(term()) :: {:ok, pos_integer()} | :error
@@ -590,21 +589,7 @@ defmodule Ankole.Workflow do
 
   defp workflow_failure_notice_lines(_failure_summaries), do: nil
 
-  defp parse_id(value)
-       when is_integer(value) and value >= @minimum_id and value <= @maximum_id,
-       do: {:ok, value}
-
-  defp parse_id(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {parsed, ""} when parsed >= @minimum_id and parsed <= @maximum_id ->
-        if Integer.to_string(parsed) == value, do: {:ok, parsed}, else: :error
-
-      _parsed ->
-        :error
-    end
-  end
-
-  defp parse_id(_value), do: :error
+  defp parse_id(value), do: Ankole.ModelIntegerID.parse(value)
 
   defp list_statuses(nil), do: {:ok, ["running"]}
   defp list_statuses(""), do: {:ok, ["running"]}
@@ -797,32 +782,25 @@ defmodule Ankole.Workflow do
     end
   end
 
-  defp required_text(attrs, "owner_session_id") do
-    case Ankole.Attrs.optional_text(Map.get(attrs, "owner_session_id")) do
-      nil -> {:error, :workflow_owner_session_id_required}
-      value -> {:ok, value}
-    end
-  end
+  defp required_text(attrs, "owner_session_id"),
+    do:
+      Ankole.Attrs.required_text(
+        Map.get(attrs, "owner_session_id"),
+        :workflow_owner_session_id_required
+      )
 
-  defp required_text(attrs, "source_tool_call_id") do
-    case Ankole.Attrs.optional_text(Map.get(attrs, "source_tool_call_id")) do
-      nil -> {:error, :workflow_source_tool_call_id_required}
-      value -> {:ok, value}
-    end
-  end
+  defp required_text(attrs, "source_tool_call_id"),
+    do:
+      Ankole.Attrs.required_text(
+        Map.get(attrs, "source_tool_call_id"),
+        :workflow_source_tool_call_id_required
+      )
 
-  defp required_text(attrs, "binding_name") do
-    case Ankole.Attrs.optional_text(Map.get(attrs, "binding_name")) do
-      value -> {:ok, value}
-    end
-  end
+  defp required_text(attrs, "binding_name"),
+    do: {:ok, Ankole.Attrs.optional_text(Map.get(attrs, "binding_name"))}
 
-  defp required_text(attrs, key) do
-    case Ankole.Attrs.optional_text(Map.get(attrs, key)) do
-      nil -> {:error, :workflow_required_text_missing}
-      value -> {:ok, value}
-    end
-  end
+  defp required_text(attrs, key),
+    do: Ankole.Attrs.required_text(Map.get(attrs, key), :workflow_required_text_missing)
 
   @doc false
   @spec commit_replay_pending(pos_integer(), [map()], non_neg_integer()) ::

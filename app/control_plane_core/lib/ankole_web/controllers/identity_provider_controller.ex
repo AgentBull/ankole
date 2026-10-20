@@ -6,6 +6,8 @@ defmodule AnkoleWeb.IdentityProviderController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.IdentityProviders
@@ -68,8 +70,6 @@ defmodule AnkoleWeb.IdentityProviderController do
       json(conn, %{
         identity_provider_adapters: Enum.map(IdentityProviders.list_adapters(), &adapter_json/1)
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -77,8 +77,6 @@ defmodule AnkoleWeb.IdentityProviderController do
     with :ok <- ConsolePolicy.authorize(conn, "identity_providers", "read"),
          {:ok, providers} <- IdentityProviders.list_configured_providers() do
       json(conn, %{identity_providers: providers})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -96,8 +94,6 @@ defmodule AnkoleWeb.IdentityProviderController do
            ),
          {:ok, provider} <- IdentityProviders.fetch_configured_provider(provider_id) do
       json(conn, %{identity_provider: provider})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -113,8 +109,6 @@ defmodule AnkoleWeb.IdentityProviderController do
           job_id: job.id
         }
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -143,9 +137,11 @@ defmodule AnkoleWeb.IdentityProviderController do
     }
   end
 
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
   defp error(conn, {:platform_application_identity_unavailable, reference}),
     do:
-      error(
+      ConsoleErrors.render(
         conn,
         422,
         "platform_application_identity_unavailable",
@@ -155,7 +151,7 @@ defmodule AnkoleWeb.IdentityProviderController do
 
   defp error(conn, :platform_application_identity_unavailable),
     do:
-      error(
+      ConsoleErrors.render(
         conn,
         422,
         "platform_application_identity_unavailable",
@@ -164,29 +160,32 @@ defmodule AnkoleWeb.IdentityProviderController do
 
   defp error(conn, :platform_app_bound_to_another_tenant),
     do:
-      error(
+      ConsoleErrors.render(
         conn,
         409,
         "platform_app_bound_to_another_tenant",
         "This platform application belongs to another tenant"
       )
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
-
   defp error(conn, {:unknown_identity_provider, _provider_id}) do
-    error(conn, 404, "not_found", "identity provider was not found or is disabled")
+    ConsoleErrors.not_found(conn, "identity provider was not found or is disabled")
   end
 
   defp error(conn, {:unknown_identity_provider_adapter, _adapter_id}) do
-    error(conn, 404, "not_found", "identity provider adapter was not found")
+    ConsoleErrors.not_found(conn, "identity provider adapter was not found")
   end
 
   defp error(conn, :sync_disabled) do
-    error(conn, 422, "sync_disabled", "directory sync is disabled for this identity provider")
+    ConsoleErrors.render(
+      conn,
+      422,
+      "sync_disabled",
+      "directory sync is disabled for this identity provider"
+    )
   end
 
   defp error(conn, :sync_unsupported) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "sync_unsupported",
@@ -197,15 +196,15 @@ defmodule AnkoleWeb.IdentityProviderController do
   # An atom key names a request parameter. A string key names a provider config
   # field, which the fallback clause renders with its field path.
   defp error(conn, {:missing, key}) when is_atom(key) do
-    error(conn, 422, "validation_failed", "#{key} is required")
+    ConsoleErrors.required_field(conn, key)
   end
 
   defp error(conn, :invalid_config) do
-    error(conn, 422, "validation_failed", "config must be an object")
+    ConsoleErrors.render(conn, 422, "validation_failed", "config must be an object")
   end
 
   defp error(conn, {:local_provider_exists, existing_id}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "local_provider_exists",
@@ -217,16 +216,12 @@ defmodule AnkoleWeb.IdentityProviderController do
   # An unlisted reason is a server-side defect: log it for the operator and
   # answer without internal terms.
   defp error(conn, {:invalid_id, field, _value}) do
-    error(conn, 422, "validation_failed", "#{field} is not a valid identifier")
+    ConsoleErrors.render(conn, 422, "validation_failed", "#{field} is not a valid identifier")
   end
 
   defp error(conn, reason) do
     with :unhandled <- ConsoleErrors.render_config_field_error(conn, reason) do
       ConsoleErrors.unexpected(conn, "principals.identity_provider_api.unexpected_error", reason)
     end
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

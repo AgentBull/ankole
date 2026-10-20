@@ -11,6 +11,8 @@ defmodule AnkoleWeb.AgentSkillLessonController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIAgent.Library
@@ -59,8 +61,6 @@ defmodule AnkoleWeb.AgentSkillLessonController do
     with {:ok, agent_uid} <- ConsoleParams.text(params, :agent_uid),
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:library", "read") do
       render_lessons(conn, agent_uid)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -77,8 +77,6 @@ defmodule AnkoleWeb.AgentSkillLessonController do
              Ankole.ActorRef.from_principal(conn.assigns.current_principal)
            ) do
       render_lessons(conn, agent_uid)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -88,15 +86,13 @@ defmodule AnkoleWeb.AgentSkillLessonController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:library", "update"),
          {:ok, _lesson} <- Library.retire_skill_lesson(agent_uid, lesson_id) do
       render_lessons(conn, agent_uid)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
   defp render_lessons(conn, agent_uid) do
     case Library.list_skill_lessons(agent_uid) do
       {:ok, lessons} -> json(conn, %{skill_lessons: lessons})
-      {:error, reason} -> error(conn, reason)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -109,49 +105,40 @@ defmodule AnkoleWeb.AgentSkillLessonController do
 
   defp body_text(_params, key), do: {:error, {:missing, Atom.to_string(key)}}
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
-  defp error(conn, :not_found), do: error(conn, 404, "not_found", "agent was not found")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
+  defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "agent was not found")
 
   defp error(conn, reason) when reason in [:skill_not_found, :skill_lesson_not_found] do
-    error(conn, 404, "not_found", "agent skill lesson was not found")
+    ConsoleErrors.not_found(conn, "agent skill lesson was not found")
   end
 
   defp error(conn, :skill_lesson_already_retired) do
-    error(conn, 422, "validation_failed", "skill lesson is already retired")
+    ConsoleErrors.render(conn, 422, "validation_failed", "skill lesson is already retired")
   end
 
   defp error(conn, :skill_not_enabled) do
-    error(conn, 422, "validation_failed", "skill is not enabled for this agent")
+    ConsoleErrors.render(conn, 422, "validation_failed", "skill is not enabled for this agent")
   end
 
   defp error(conn, :blank_content) do
-    error(conn, 422, "validation_failed", "lesson content is required")
+    ConsoleErrors.render(conn, 422, "validation_failed", "lesson content is required")
   end
 
   defp error(conn, :content_contains_url) do
-    error(conn, 422, "validation_failed", "lesson content must not contain a URL")
+    ConsoleErrors.render(conn, 422, "validation_failed", "lesson content must not contain a URL")
   end
 
   defp error(conn, {:missing, key}),
-    do: error(conn, 422, "validation_failed", "#{key} is required")
+    do: ConsoleErrors.required_field(conn, key)
 
   defp error(conn, %Ecto.Changeset{} = changeset) do
-    error(
-      conn,
-      422,
-      "validation_failed",
-      "request validation failed",
-      ConsoleErrors.changeset_details(changeset)
-    )
+    ConsoleErrors.changeset(conn, changeset)
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_skill_lesson", "agent skill lesson is invalid", [
+    ConsoleErrors.render(conn, 422, "invalid_skill_lesson", "agent skill lesson is invalid", [
       %{reason: inspect(reason)}
     ])
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

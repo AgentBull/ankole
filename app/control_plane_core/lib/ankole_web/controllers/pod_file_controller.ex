@@ -178,19 +178,6 @@ defmodule AnkoleWeb.PodFileController do
 
   defp uid(conn), do: conn.assigns.current_principal_uid
 
-  defp revision(body) do
-    case Ankole.Attrs.get(body, :base_revision) do
-      value when is_integer(value) ->
-        value
-
-      value when is_binary(value) ->
-        case Integer.parse(value) do
-          {number, ""} -> number
-          _ -> nil
-        end
-
-      _ ->
-        nil
-    end
-  end
+  defp revision(body),
+    do: body |> Ankole.Attrs.get(:base_revision) |> Ankole.Attrs.integer_value()
 end

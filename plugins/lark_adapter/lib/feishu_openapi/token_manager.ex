@@ -1,6 +1,6 @@
 defmodule FeishuOpenAPI.TokenManager do
   @moduledoc """
-  One `TokenManager` per `app_id`, registered in `FeishuOpenAPI.TokenRegistry`
+  One `TokenManager` per credential namespace, registered in `FeishuOpenAPI.TokenRegistry`
   and supervised by `FeishuOpenAPI.TokenManager.Supervisor`. A process starts
   on the first token miss. The ETS table (`:feishu_openapi_tokens`) belongs to
   `FeishuOpenAPI.TokenStore`: reads are lock-free, and misses go through this
@@ -24,17 +24,7 @@ defmodule FeishuOpenAPI.TokenManager do
   require Logger
 
   alias FeishuOpenAPI.{Client, Error, TokenStore}
-
-  # Treat a token as expired this long before its nominal expiry, so a token is
-  # never used right as it lapses (clock skew between hosts, server-side early
-  # expiry, in-flight request latency).
-  @expiry_delta_ms :timer.minutes(3)
-  # Fire the proactive refresh this far ahead of the (already shortened) expiry,
-  # so a fresh token is usually warm in ETS before any caller needs it.
-  @refresh_lead_ms :timer.seconds(30)
-  # Caller-side bound on a token fetch. Must exceed Req's receive timeout so a
-  # slow-but-succeeding upstream fetch isn't cut off by the GenServer.call.
-  @call_timeout :timer.seconds(15)
+  alias IMTransport.TokenCache
 
   @type key ::
           {:tenant, Client.cache_namespace(), String.t() | nil} | {:app, Client.cache_namespace()}
@@ -62,7 +52,7 @@ defmodule FeishuOpenAPI.TokenManager do
   @spec get_tenant_token(Client.t(), String.t() | nil, keyword()) ::
           {:ok, String.t()} | {:error, Error.t()}
   @doc """
-  Returns a tenant access token, fetching it through the per-app manager on miss.
+  Returns a tenant access token, fetching it through the credential manager on miss.
 
   `:min_validity_ms` rejects a cached or newly fetched token whose shortened
   safe lifetime is below the requested duration.
@@ -292,7 +282,7 @@ defmodule FeishuOpenAPI.TokenManager do
 
   defp call_manager(%Client{} = client, message) do
     pid = ensure_started(client)
-    GenServer.call(pid, message, @call_timeout)
+    GenServer.call(pid, message, TokenCache.call_timeout())
   end
 
   defp ensure_started(%Client{} = client) do
@@ -327,7 +317,7 @@ defmodule FeishuOpenAPI.TokenManager do
           remaining_ms <= 0 ->
             # Expired rows are deleted on read so later callers take the normal
             # miss path and join a single fetch task.
-            :ets.delete(TokenStore.table(), key)
+            :ets.delete_object(TokenStore.table(), {key, token, expires_at})
             :miss
 
           remaining_ms < min_validity_ms ->
@@ -478,18 +468,14 @@ defmodule FeishuOpenAPI.TokenManager do
   end
 
   defp cache_and_return(key, token, expire_seconds) do
-    expires_at =
-      System.monotonic_time(:millisecond) + :timer.seconds(expire_seconds) - @expiry_delta_ms
-
-    # The SDK stores a shortened TTL. Feishu tokens can expire slightly earlier
-    # than their nominal value, and network time can differ between machines.
-    :ets.insert(TokenStore.table(), {key, token, expires_at})
-    {:ok, token, expires_at}
+    # The shared cache shortens the TTL. Feishu tokens can expire slightly
+    # earlier than their nominal value, and network time can differ between machines.
+    TokenCache.store(TokenStore.table(), key, token, expire_seconds)
   end
 
   defp schedule_refresh(state, key, expires_at_ms) do
     state = cancel_refresh_timer(state, key)
-    delay = expires_at_ms - System.monotonic_time(:millisecond) - @refresh_lead_ms
+    delay = TokenCache.refresh_delay_ms(expires_at_ms)
 
     # Skip proactive refresh when the lead time already overshoots expiry (very
     # short-lived token). No timer is armed; the next caller takes the reactive

@@ -100,8 +100,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   defp normalize_supported_message(event, message, user_id, consumer) do
     config = consumer.config
 
-    with {:ok, provider_message_id} <- required_text(message, "ts"),
-         {:ok, slack_channel_id} <- required_text(message, "channel"),
+    with {:ok, provider_message_id} <- MapHelpers.required_string(message, "ts"),
+         {:ok, slack_channel_id} <- MapHelpers.required_string(message, "channel"),
          {:ok, attachments} <- attachment_maps(message, provider_message_id),
          mentions <- mentions(Map.get(message, "text", ""), consumer),
          text <- visible_text(Map.get(message, "text"), mentions),
@@ -200,8 +200,8 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
   defp emit_removed(consumer, event) do
     message = event.content || %{}
 
-    with {:ok, provider_message_id} <- required_text(message, "deleted_ts"),
-         {:ok, slack_channel_id} <- required_text(message, "channel") do
+    with {:ok, provider_message_id} <- MapHelpers.required_string(message, "deleted_ts"),
+         {:ok, slack_channel_id} <- MapHelpers.required_string(message, "channel") do
       input = %{
         source_event_id: event.id || "deleted:#{provider_message_id}",
         provider_message_id: provider_message_id,
@@ -233,10 +233,10 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
         {:ok, %{status: :ignored_unsupported_reaction_target}}
 
       true ->
-        with {:ok, user_id} <- required_text(content, "user"),
-             {:ok, provider_message_id} <- required_text(item, "ts"),
-             {:ok, channel} <- required_text(item, "channel"),
-             {:ok, reaction} <- required_text(content, "reaction") do
+        with {:ok, user_id} <- MapHelpers.required_string(content, "user"),
+             {:ok, provider_message_id} <- MapHelpers.required_string(item, "ts"),
+             {:ok, channel} <- MapHelpers.required_string(item, "channel"),
+             {:ok, reaction} <- MapHelpers.required_string(content, "reaction") do
           raw = String.replace(reaction, ~r/::skin-tone-\d+$/, "")
 
           Observe.emit_reaction(consumer.context.agent_uid, consumer.context.binding_name, %{
@@ -523,13 +523,6 @@ defmodule Ankole.Plugins.SlackAdapter.Inbound do
     case MapHelpers.optional_text(message, "thread_ts") do
       thread_ts when is_nil(thread_ts) or thread_ts == provider_message_id -> nil
       thread_ts -> thread_ts
-    end
-  end
-
-  defp required_text(map, key) do
-    case MapHelpers.optional_text(map, key) do
-      nil -> {:error, {:missing, key}}
-      value -> {:ok, value}
     end
   end
 

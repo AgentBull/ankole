@@ -21,7 +21,6 @@ defmodule Ankole.Brain.GetPage do
   alias Ankole.Brain.Schemas.Contradiction
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.Object
-  alias Ankole.Brain.Schemas.Tag
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Brain.Config
   alias Ankole.Repo
@@ -237,18 +236,39 @@ defmodule Ankole.Brain.GetPage do
         |> Claims.filter_live_parents()
         |> select([claim], claim.id)
 
-      Contradiction
-      |> where([contradiction], contradiction.status == "open")
-      |> where(
-        [contradiction],
-        (contradiction.a_claim_id in ^claim_ids and
-           contradiction.b_claim_id in subquery(visible_claim_ids)) or
-          (contradiction.b_claim_id in ^claim_ids and
-             contradiction.a_claim_id in subquery(visible_claim_ids))
-      )
-      |> order_by([contradiction], desc: contradiction.created_at)
-      |> limit(20)
-      |> Repo.all()
+      contradictions =
+        Contradiction
+        |> where([contradiction], contradiction.status == "open")
+        |> where(
+          [contradiction],
+          (contradiction.a_claim_id in ^claim_ids and
+             contradiction.b_claim_id in subquery(visible_claim_ids)) or
+            (contradiction.b_claim_id in ^claim_ids and
+               contradiction.a_claim_id in subquery(visible_claim_ids))
+        )
+        |> order_by([contradiction], desc: contradiction.created_at)
+        |> limit(20)
+        |> Repo.all()
+
+      counterpart_ids =
+        Enum.map(contradictions, fn contradiction ->
+          if contradiction.a_claim_id in claim_ids,
+            do: contradiction.b_claim_id,
+            else: contradiction.a_claim_id
+        end)
+        |> Enum.uniq()
+
+      counterparts =
+        if counterpart_ids == [] do
+          %{}
+        else
+          Claim
+          |> where([claim], claim.id in ^counterpart_ids)
+          |> Repo.all()
+          |> Map.new(&{&1.id, &1})
+        end
+
+      contradictions
       |> Enum.flat_map(fn contradiction ->
         own_id =
           if contradiction.a_claim_id in claim_ids,
@@ -260,7 +280,7 @@ defmodule Ankole.Brain.GetPage do
             do: contradiction.b_claim_id,
             else: contradiction.a_claim_id
 
-        with %Claim{} = counterpart <- Repo.get(Claim, counterpart_id),
+        with %Claim{} = counterpart <- Map.get(counterparts, counterpart_id),
              true <- keep_counterpart?.(counterpart) do
           [
             %{
@@ -392,11 +412,5 @@ defmodule Ankole.Brain.GetPage do
     }
   end
 
-  defp page_tags(object) do
-    Tag
-    |> where([tag], tag.object_slug == ^object.slug)
-    |> order_by([tag], asc: tag.tag)
-    |> select([tag], tag.tag)
-    |> Repo.all()
-  end
+  defp page_tags(object), do: Ankole.Brain.Links.tags_for_object(object.slug)
 end

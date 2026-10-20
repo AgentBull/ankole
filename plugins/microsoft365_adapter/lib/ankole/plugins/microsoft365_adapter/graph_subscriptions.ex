@@ -351,7 +351,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
   defp delete_entry(client, entry), do: delete_subscription(client, entry)
 
   defp needs_renewal?(entry, now) do
-    case entry |> MapHelpers.optional_text("expiration") |> parse_datetime() do
+    case entry |> MapHelpers.optional_text("expiration") |> Ankole.Attrs.parse_datetime() do
       nil ->
         true
 
@@ -366,10 +366,6 @@ defmodule Ankole.Plugins.Microsoft365Adapter.GraphSubscriptions do
     |> DateTime.truncate(:second)
     |> DateTime.to_iso8601()
   end
-
-  defp parse_datetime(nil), do: nil
-
-  defp parse_datetime(value) when is_binary(value), do: Ankole.Attrs.parse_datetime(value)
 
   defp generate_client_state, do: Ankole.Kernel.generate_key()
 

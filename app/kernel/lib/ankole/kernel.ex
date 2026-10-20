@@ -77,7 +77,7 @@ defmodule Ankole.Kernel do
   def brain_markdoc_analyze(body) when is_binary(body) do
     body
     |> brain_markdoc_analyze_nif()
-    |> Torque.decode!()
+    |> decode_json_result()
   end
 
   @doc false
@@ -144,7 +144,7 @@ defmodule Ankole.Kernel do
     snapshot
     |> Torque.encode!()
     |> authz_authorize_nif()
-    |> Torque.decode!()
+    |> decode_json_result()
   end
 
   @doc """
@@ -155,7 +155,16 @@ defmodule Ankole.Kernel do
     snapshot
     |> Torque.encode!()
     |> authz_authorize_all_nif()
-    |> Torque.decode!()
+    |> decode_json_result()
+  end
+
+  @doc "Evaluates independent resource/action checks with one authorization snapshot."
+  @spec authz_authorize_checks(map()) :: result(map())
+  def authz_authorize_checks(snapshot) when is_map(snapshot) do
+    snapshot
+    |> Torque.encode!()
+    |> authz_authorize_checks_nif()
+    |> decode_json_result()
   end
 
   @spec authz_authorize_nif(String.t()) :: result(String.t())
@@ -163,6 +172,8 @@ defmodule Ankole.Kernel do
 
   @spec authz_authorize_all_nif(String.t()) :: result(String.t())
   defp authz_authorize_all_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
+
+  defp authz_authorize_checks_nif(_snapshot), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
   @spec universal_ai_client_open_nif(String.t(), pid(), reference()) ::
@@ -436,21 +447,21 @@ defmodule Ankole.Kernel do
   @spec validate_web_url(String.t(), [String.t()], boolean()) ::
           :ok | {:error, :metadata | :private | :invalid}
   def validate_web_url(url, schemes, ssrf_filter?)
-      when is_binary(url) and is_list(schemes) and is_boolean(ssrf_filter?) do
-    case web_url_facts(url) do
-      %{host_class: :metadata} ->
-        {:error, :metadata}
+      when is_binary(url) and is_list(schemes) and is_boolean(ssrf_filter?),
+      do: validate_web_url_nif(url, schemes, ssrf_filter?)
 
-      %{scheme: scheme, host_class: :private} ->
-        if scheme in schemes and not ssrf_filter?, do: :ok, else: {:error, :private}
+  defp validate_web_url_nif(_url, _schemes, _ssrf_filter?),
+    do: :erlang.nif_error(:nif_not_loaded)
 
-      %{scheme: scheme, host_class: :public} ->
-        if scheme in schemes, do: :ok, else: {:error, :invalid}
+  @doc "Checks every resolved IP address with the shared SSRF policy. Does not do DNS."
+  @spec validate_ip_addresses([String.t()], boolean()) ::
+          :ok | {:error, :metadata | :private | :invalid}
+  def validate_ip_addresses(addresses, ssrf_filter?)
+      when is_list(addresses) and is_boolean(ssrf_filter?),
+      do: validate_ip_addresses_nif(addresses, ssrf_filter?)
 
-      _unparseable ->
-        {:error, :invalid}
-    end
-  end
+  defp validate_ip_addresses_nif(_addresses, _ssrf_filter?),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   defp decode_json_result({:error, _reason} = error), do: error
   defp decode_json_result(json) when is_binary(json), do: Torque.decode!(json)

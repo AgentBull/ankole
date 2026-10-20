@@ -165,4 +165,25 @@ describe('PointSet', () => {
     setA.compareRange(0, setB, 1, chunkSize * 3, () => ist(false))
     ist(accessCount, 10, '<')
   })
+
+  it('can find the point at a position', () => {
+    const set = PointSet.create<V>([
+      [V.a, 10],
+      [V.b, 20]
+    ])
+    ist(set.at(5), undefined)
+    ist(set.at(10), V.a)
+    ist(set.at(15), undefined)
+    ist(set.at(20), V.b)
+    ist(set.at(25), undefined)
+  })
+
+  it('can find the point at a position in a big set', () => {
+    const set = PointSet.create<V>(add => {
+      for (let i = 0; i < chunkSize * 2; i++) add(V.a, i * 2)
+    })
+    ist(set.at(0), V.a)
+    ist(set.at(1), undefined)
+    ist(set.at(chunkSize * 2 + 100), V.a)
+  })
 })

@@ -1,6 +1,6 @@
 defmodule Ankole.Kernel.ProgramRunner do
   @moduledoc """
-  Deterministic PTC program execution on the native kernel.
+  Deterministic Workflow and PTC program execution on the native kernel.
 
   One call runs one program in a fresh bare V8 isolate until it completes or
   stalls on its first unanswered tool-call batch. Resume is replay: callers

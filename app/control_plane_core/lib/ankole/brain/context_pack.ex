@@ -23,6 +23,7 @@ defmodule Ankole.Brain.ContextPack do
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Repo
+  alias Ankole.Logging
 
   @pack_entity_limit 8
   @pack_facts_per_entity 5
@@ -71,9 +72,16 @@ defmodule Ankole.Brain.ContextPack do
         ContextPackStats.record(:degraded)
         %{entities: [], open_threads: []}
     end
-  rescue
-    _error ->
+  catch
+    :error, reason ->
       ContextPackStats.record(:degraded)
+
+      Logging.warning(
+        "brain.context_pack.failed",
+        "Brain context assembly failed; the Turn continues without it",
+        Map.put(Logging.failure_fields(:error, reason, __STACKTRACE__), :agent_uid, agent_uid)
+      )
+
       %{entities: [], open_threads: []}
   end
 
@@ -175,7 +183,7 @@ defmodule Ankole.Brain.ContextPack do
   @doc """
   Zero-model volunteer pointers for one Text Turn: the pages this message
   names by an exact alias. Each pointer is one line of slug, title, and
-  type; failures degrade silently to an empty list.
+  type; failures return an empty list and log a warning.
 
   Only a named page points. A pointer the message did not ask for repeats
   on every Turn of the conversation whether or not it relates to anything,
@@ -209,8 +217,15 @@ defmodule Ankole.Brain.ContextPack do
     else
       _disabled_or_blank -> []
     end
-  rescue
-    _error -> []
+  catch
+    :error, reason ->
+      Logging.warning(
+        "brain.volunteer_pointers.failed",
+        "Brain pointer assembly failed; the Turn continues without pointers",
+        Map.put(Logging.failure_fields(:error, reason, __STACKTRACE__), :agent_uid, agent_uid)
+      )
+
+      []
   end
 
   # A pointer requires reachable content, not just instance-visible metadata.

@@ -263,18 +263,7 @@ defmodule Ankole.Sessions.Scheduled do
 
   defp signal_data(_event), do: %{}
 
-  defp map_text(map, key) do
-    case map_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _ ->
-        nil
-    end
-  end
+  defp map_text(map, key), do: map |> map_value(key) |> Ankole.Attrs.optional_text()
 
   defp map_value(map, key) when is_map(map), do: Map.get(map, key)
   defp map_value(_map, _key), do: nil

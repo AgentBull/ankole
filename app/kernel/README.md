@@ -1,7 +1,9 @@
 # Ankole Kernel
 
 Ankole Kernel is the Rust library loaded by the Elixir control plane through
-Rustler. The Bun Worker does not load a native kernel addon.
+Rustler. The browser daemon loads the `napi` build for URL admission and its
+local Chromium SOCKS5 proxy. The Bun Worker process does not load this library.
+Host tests also use `napi` for the shared `o200k_base` token estimator.
 
 ## Purpose
 
@@ -11,7 +13,10 @@ durable state, provider policy, credentials, and domain commits.
 The current surface is:
 
 - `common/` - AEAD tokens, key derivation, hashing, password hashing,
-  encodings, UUID helpers, JWT helpers, and phone normalization.
+  encodings, UUID helpers, JWT helpers, phone normalization, and `o200k_base`
+  token estimates, and web URL classification and admission.
+- `web_proxy.rs` - a loopback SOCKS5 TCP proxy for local Chromium. It checks the
+  requested host and all resolved addresses, then connects to a checked IP.
 - `authz/` - snapshot-only authorization evaluation, CEL condition validation,
   and resource-pattern validation and matching.
 - `universal_ai_client/` - native async streaming for prepared AI requests:
@@ -69,10 +74,25 @@ fixtures live in `proto/golden`.
 
 ## Build and Transport
 
-The control plane uses one Cargo feature, `nif`, for development, tests, and
+The control plane uses the Cargo feature `nif` for development, tests, and
 production. `src/nif_exports.rs` translates BEAM values and errors, then calls
 the Rust modules. Complex inputs cross as JSON-shaped values (`Torque` in
 Elixir, `serde_json` in Rust); byte payloads stay binary.
+
+The Cargo feature `napi` builds a Node addon in a separate target directory.
+The addon exposes the shared URL facts, URL admission, IP-address admission,
+and the local browser proxy. It also exports `estimateO200kBaseTokens` for
+host tests. NIF and Node-API adapters only convert types and errors. Do not
+enable `nif` and `napi` in one build.
+
+```bash
+bun run --filter @ankole/kernel build:node
+```
+
+The build writes `app/kernel/target/napi-build/ankole_kernel.node`.
+Pass `--release` for an optimized build. The Worker image builds this addon
+for its target architecture and bundles it with the browser entry points.
+Node-API TLS tests require the `openssl` command.
 
 CEL NIF calls use a separate 8 MiB native stack on the dirty CPU scheduler
 thread. This covers parsing, evaluation, and program cleanup without changes

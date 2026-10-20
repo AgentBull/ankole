@@ -9,6 +9,18 @@ defmodule Ankole.Pod.AppletAITest do
     :ok
   end
 
+  test "Applet text keeps original whitespace and Provider citation bytes" do
+    agent = agent_fixture().principal.uid
+    text = "\n  first\nsecond " <> <<0xE200::utf8>> <> "cite" <> <<0xE201::utf8>> <> "\n"
+
+    configure(
+      agent,
+      start_upstream_server(fn _ -> {:json, 200, response("completed", text, nil)} end)
+    )
+
+    assert {:ok, %{text: ^text}} = AI.generate_text(%{"model" => "primary", "prompt" => "Write"})
+  end
+
   test "AI uses the configured Agent's light fallback, attributes usage, and does not apply its token quota" do
     agent = agent_fixture().principal.uid
     test_pid = self()
@@ -56,7 +68,7 @@ defmodule Ankole.Pod.AppletAITest do
     assert request["instructions"] == "Be concise"
 
     assert [%{subject_uid: ^agent, input_tokens: 7, output_tokens: 3}] =
-             Repo.all(from r in UsageRecord, where: r.model == "applet-ai-test/gpt-5.5")
+             Repo.all(from(r in UsageRecord, where: r.model == "applet-ai-test/gpt-5.5"))
   end
 
   test "AI returns partial or empty output on length exhaustion" do

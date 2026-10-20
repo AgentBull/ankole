@@ -54,11 +54,11 @@ storage helpers also need capacity in the account's memory quota. Operators
 must back up persistent Home and the control-plane drive. See
 [Agent Workers](design-docs/AgentWorkers.md).
 
-Function Compute follows the official Sandbox, NAS, and E2B protocols, but its
-AgenticFS and OSS paths still need cloud validation. OSS does not provide full
-POSIX semantics. Memory pause and template capture also need an enabled Aliyun
-account. ACS remains unavailable until its default hibernation can be shown
-to preserve process memory.
+Function Compute OSS does not provide full POSIX semantics. The recorded
+cloud checks and remaining Worker lifecycle checks are in
+[Provider Verification Evidence](design-docs/AgentWorkers.md#provider-verification-evidence).
+ACS remains unavailable until its default hibernation can be shown to
+preserve process memory.
 
 The control plane waits for all previous instances, including paused and
 terminating ones, to disappear before a new generation. An uncertain create

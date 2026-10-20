@@ -21,15 +21,17 @@ import * as T from '../core/types'
 import { toggleFormat, type FormatName } from '../editor/commands'
 import { linkAt, removeLink, setLink, type LinkInfo } from '../editor/links'
 import { formats } from '../editor/schema'
-import { useEditor, useEditorState } from './context'
+import { editorPhrases } from '../editor/phrases'
+import type { PhraseSet } from '../core/phrases'
+import { useEditor, useEditorLabel, useEditorState } from './context'
 
 const buttons = [
-  { format: 'strong', label: '粗体', Icon: RiBold },
-  { format: 'em', label: '斜体', Icon: RiItalic },
-  { format: 'u', label: '下划线', Icon: RiUnderline },
-  { format: 's', label: '删除线', Icon: RiStrikethrough },
-  { format: 'code', label: '行内代码', Icon: RiCodeLine }
-] satisfies { format: FormatName; label: string; Icon: typeof RiBold }[]
+  { format: 'strong', label: editorPhrases.ref('bold'), Icon: RiBold },
+  { format: 'em', label: editorPhrases.ref('italic'), Icon: RiItalic },
+  { format: 'u', label: editorPhrases.ref('underline'), Icon: RiUnderline },
+  { format: 's', label: editorPhrases.ref('strikethrough'), Icon: RiStrikethrough },
+  { format: 'code', label: editorPhrases.ref('inline_code'), Icon: RiCodeLine }
+] satisfies { format: FormatName; label: PhraseSet.Ref; Icon: typeof RiBold }[]
 
 /** The address for the link form input, or null when it is not a usable address (SPEC §7.6). */
 function linkUrl(value: string) {
@@ -109,13 +111,14 @@ type Info = { rect: DOMRect; active: boolean[]; highlight: boolean; link: boolea
 type LinkForm = { link: LinkInfo | null }
 
 export function SelectionToolbar() {
+  const label = useEditorLabel()
   const editor = useEditor()
   const state = useEditorState()
   const toolbar = useRef<HTMLDivElement>(null)
   const [info, setInfo] = useState<Info | null>(null)
   const [linkForm, setLinkForm] = useState<LinkForm | null>(null)
   const [url, setUrl] = useState('')
-  const [error, setError] = useState('')
+  const [error, setError] = useState(false)
   const [position, setPosition] = useState({ left: 0, top: 0 })
   const form = useRef<LinkForm | null>(null)
   form.current = linkForm
@@ -132,14 +135,14 @@ export function SelectionToolbar() {
     if (!target) return false
     setLinkForm({ link })
     setUrl(link?.href ?? '')
-    setError('')
+    setError(false)
     setInfo(info => info ?? { rect: selectionRect(editor, target), active: [], highlight: false, link: !!link })
     return true
   }
 
   const closeLink = () => {
     setLinkForm(null)
-    setError('')
+    setError(false)
     editor.focus()
   }
 
@@ -269,7 +272,7 @@ export function SelectionToolbar() {
   const submitLink = () => {
     const href = linkUrl(url)
     if (!href) {
-      setError('请输入网址、邮件地址链接或页面锚点')
+      setError(true)
       return
     }
     Command.dispatch(editor, setLink, { href })
@@ -283,7 +286,7 @@ export function SelectionToolbar() {
       className="selection-toolbar ankole-editor-overlay ceramic"
       style={position}
       role={linkForm ? 'dialog' : 'toolbar'}
-      aria-label={linkForm ? '编辑链接' : '选区格式'}
+      aria-label={label(linkForm ? 'edit_link' : 'selection_format')}
       onKeyDown={event => {
         if (composingKey(event.nativeEvent)) return
         if (event.key === 'Escape') {
@@ -318,26 +321,26 @@ export function SelectionToolbar() {
           <div className="link-form-row">
             <Input
               autoFocus
-              aria-label="链接地址"
+              aria-label={label('link_address')}
               value={url}
-              placeholder="粘贴或输入链接…"
+              placeholder={label('link_placeholder')}
               aria-invalid={!!error}
               onChange={event => {
                 setUrl(event.target.value)
-                setError('')
+                setError(false)
               }}
               onKeyDown={event => {
                 if (event.key === 'Enter' && composingKey(event.nativeEvent)) event.preventDefault()
               }}
             />
             <Button type="submit" size="xs">
-              应用链接
+              {label('apply_link')}
             </Button>
-            <Button type="button" variant="ghost" size="icon-xs" aria-label="取消链接编辑" onClick={closeLink}>
+            <Button type="button" variant="ghost" size="icon-xs" aria-label={label('cancel_link')} onClick={closeLink}>
               <RiCloseLine />
             </Button>
           </div>
-          {error && <p role="alert">{error}</p>}
+          {error && <p role="alert">{label('invalid_link')}</p>}
           {linkForm.link && (
             <Button
               type="button"
@@ -347,7 +350,7 @@ export function SelectionToolbar() {
                 Command.dispatch(editor, removeLink)
                 closeLink()
               }}>
-              移除链接
+              {label('remove_link')}
             </Button>
           )}
         </form>
@@ -358,8 +361,8 @@ export function SelectionToolbar() {
               key={format}
               variant="ghost"
               size="icon-xs"
-              aria-label={label}
-              title={label}
+              aria-label={label(state)}
+              title={label(state)}
               aria-pressed={info.active[index]}
               onMouseDown={event => event.preventDefault()}
               onClick={() => apply(format)}>
@@ -370,8 +373,8 @@ export function SelectionToolbar() {
           <Button
             variant="ghost"
             size="icon-xs"
-            aria-label="链接"
-            title="链接 ⌘/Ctrl+K"
+            aria-label={label('link')}
+            title={`${label('link')} ⌘/Ctrl+K`}
             aria-pressed={info.link}
             onMouseDown={event => event.preventDefault()}
             onClick={openLink}>
@@ -380,8 +383,8 @@ export function SelectionToolbar() {
           <Button
             variant="ghost"
             size="icon-xs"
-            aria-label="高亮"
-            title="高亮"
+            aria-label={label('highlight')}
+            title={label('highlight')}
             aria-pressed={info.highlight}
             onMouseDown={event => event.preventDefault()}
             onClick={() => apply('mark')}>

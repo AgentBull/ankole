@@ -16,6 +16,8 @@ defmodule AnkoleWeb.AppConfigurationController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AppConfigure
@@ -98,8 +100,6 @@ defmodule AnkoleWeb.AppConfigurationController do
     with :ok <- ConsolePolicy.authorize(conn, "app_configurations", "read"),
          {:ok, items} <- AppConfigure.list_console_items(:global) do
       json(conn, %{app_configurations: items})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -111,8 +111,6 @@ defmodule AnkoleWeb.AppConfigurationController do
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "read"),
          {:ok, item} <- AppConfigure.console_detail(:global, key) do
       json(conn, %{app_configuration: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -128,8 +126,6 @@ defmodule AnkoleWeb.AppConfigurationController do
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "update"),
          {:ok, item} <- AppConfigure.console_update(:global, key, conn.body_params) do
       json(conn, %{app_configuration: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -144,8 +140,6 @@ defmodule AnkoleWeb.AppConfigurationController do
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "reset"),
          {:ok, item} <- AppConfigure.console_delete(:global, key) do
       json(conn, %{app_configuration: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -161,8 +155,6 @@ defmodule AnkoleWeb.AppConfigurationController do
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "decrypt"),
          {:ok, value} <- AppConfigure.console_decrypt(:global, key) do
       json(conn, %{decrypted_value: %{key: key, value: value}})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -174,48 +166,61 @@ defmodule AnkoleWeb.AppConfigurationController do
   # stable machine `code`. The `ambiguous_key`/`pattern_key_not_editable` cases
   # come from AppConfigure's pattern keys (e.g. wildcard keys that must be
   # materialized globally before they can be edited per-instance).
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
+
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, {:unknown_key, _key}) do
-    error(conn, 404, "not_found", "app configuration was not found")
+    ConsoleErrors.not_found(conn, "app configuration was not found")
   end
 
   defp error(conn, {:ambiguous_key, _key, matches}) do
-    error(conn, 422, "ambiguous_key", "app configuration matches more than one pattern", [
-      %{matches: matches}
-    ])
+    ConsoleErrors.render(
+      conn,
+      422,
+      "ambiguous_key",
+      "app configuration matches more than one pattern",
+      [
+        %{matches: matches}
+      ]
+    )
   end
 
   defp error(conn, {:pattern_key_not_editable, _key}) do
-    error(conn, 422, "not_editable", "pattern key must exist globally before console editing")
+    ConsoleErrors.render(
+      conn,
+      422,
+      "not_editable",
+      "pattern key must exist globally before console editing"
+    )
   end
 
   defp error(conn, {:key_managed_by_owner, _key}) do
-    error(conn, 422, "not_editable", "app configuration is managed through its owning API")
+    ConsoleErrors.render(
+      conn,
+      422,
+      "not_editable",
+      "app configuration is managed through its owning API"
+    )
   end
 
   defp error(conn, :not_encrypted) do
-    error(conn, 422, "not_encrypted", "app configuration is not encrypted")
+    ConsoleErrors.render(conn, 422, "not_encrypted", "app configuration is not encrypted")
   end
 
   defp error(conn, :missing_value) do
-    error(conn, 422, "validation_failed", "value is required")
+    ConsoleErrors.render(conn, 422, "validation_failed", "value is required")
   end
 
   defp error(conn, :missing_key) do
-    error(conn, 422, "validation_failed", "key is required")
+    ConsoleErrors.render(conn, 422, "validation_failed", "key is required")
   end
 
   defp error(conn, reason) do
     with :unhandled <- ConsoleErrors.render_config_field_error(conn, reason) do
-      error(conn, 422, "invalid_value", "app configuration value is invalid", [
+      ConsoleErrors.render(conn, 422, "invalid_value", "app configuration value is invalid", [
         %{reason: inspect(reason)}
       ])
     end
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
   end
 
   operation(:index_tenant,
@@ -231,8 +236,6 @@ defmodule AnkoleWeb.AppConfigurationController do
     with :ok <- ConsolePolicy.authorize(conn, "app_configurations", "read"),
          {:ok, items} <- AppConfigure.list_console_items(:tenant) do
       json(conn, %{app_configurations: items})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -251,8 +254,6 @@ defmodule AnkoleWeb.AppConfigurationController do
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "read"),
          {:ok, item} <- AppConfigure.console_detail(:tenant, key) do
       json(conn, %{app_configuration: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -273,8 +274,6 @@ defmodule AnkoleWeb.AppConfigurationController do
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "update"),
          {:ok, item} <- AppConfigure.console_update(:tenant, key, conn.body_params) do
       json(conn, %{app_configuration: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -293,8 +292,6 @@ defmodule AnkoleWeb.AppConfigurationController do
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "reset"),
          {:ok, item} <- AppConfigure.console_delete(:tenant, key) do
       json(conn, %{app_configuration: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -313,8 +310,6 @@ defmodule AnkoleWeb.AppConfigurationController do
          :ok <- ConsolePolicy.authorize(conn, "app_configuration:#{key}", "decrypt"),
          {:ok, value} <- AppConfigure.console_decrypt(:tenant, key) do
       json(conn, %{decrypted_value: %{key: key, value: value}})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 end

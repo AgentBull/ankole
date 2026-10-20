@@ -110,7 +110,12 @@ export class BrowserSession {
         return await this.open(command.args.url)
       case 'snapshot':
         this.guard.assertRendererAvailable('snapshot')
-        return await this.snapshots.capture(this.registry.currentPage(), command.args)
+        return await this.snapshots.capture(
+          this.registry.currentPage(),
+          command.args,
+          this.registry.currentFrame(),
+          deadline
+        )
       case 'screenshot':
         return await this.screenshot(command.args)
       case 'click':
@@ -513,10 +518,8 @@ export class BrowserSession {
   }
 
   private async installAnnotations(page: Page): Promise<void> {
-    for (const target of this.snapshots.entries()) {
-      const frame = page.frames()[target.frameIndex]
-      if (!frame || frame.url() !== target.frameURL) continue
-      const locator = await this.snapshots.resolve(page, `@${target.ref}`, frame)
+    for (const ref of this.snapshots.entries()) {
+      const locator = await this.snapshots.resolve(page, `@${ref}`)
       await locator.evaluate((element, ref) => {
         const rect = element.getBoundingClientRect()
         const label = document.createElement('div')
@@ -534,7 +537,7 @@ export class BrowserSession {
           pointerEvents: 'none'
         })
         document.body.appendChild(label)
-      }, target.ref)
+      }, ref)
     }
   }
 

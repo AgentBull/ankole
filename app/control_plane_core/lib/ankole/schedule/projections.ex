@@ -140,7 +140,7 @@ defmodule Ankole.Schedule.Projections do
   end
 
   defp model_last_error(error) when is_map(error) do
-    case Map.get(error, "reason", Map.get(error, :reason)) do
+    case Ankole.Attrs.get_string_first(error, "reason") do
       reason when is_binary(reason) and reason != "" ->
         reason = String.trim_leading(reason, ":")
 

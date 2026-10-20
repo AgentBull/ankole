@@ -2,6 +2,8 @@ defmodule AnkoleWeb.WorkerProviderController do
   @moduledoc "Console access to Worker provider configuration and one-time Agent assignment."
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenApiSpex.ControllerSpecs
 
   alias Ankole.AgentWorkers.ProviderKind
@@ -83,8 +85,6 @@ defmodule AnkoleWeb.WorkerProviderController do
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "worker_providers", "read") do
       json(conn, %{worker_providers: Providers.list_projections()})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -97,8 +97,6 @@ defmodule AnkoleWeb.WorkerProviderController do
         end)
 
       json(conn, %{worker_provider_kinds: kinds})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -106,8 +104,6 @@ defmodule AnkoleWeb.WorkerProviderController do
     with :ok <- ConsolePolicy.authorize(conn, "worker_providers", "update"),
          {:ok, provider} <- Providers.create(conn.body_params) do
       conn |> put_status(:created) |> json(%{worker_provider: Providers.projection(provider)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -116,8 +112,6 @@ defmodule AnkoleWeb.WorkerProviderController do
          :ok <- ConsolePolicy.authorize(conn, "worker_provider:#{id}", "update"),
          {:ok, provider} <- Providers.update(id, conn.body_params) do
       json(conn, %{worker_provider: Providers.projection(provider)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -126,8 +120,6 @@ defmodule AnkoleWeb.WorkerProviderController do
          :ok <- ConsolePolicy.authorize(conn, "worker_provider:#{id}", "read"),
          :ok <- Providers.check(id) do
       json(conn, %{available: true})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -136,8 +128,6 @@ defmodule AnkoleWeb.WorkerProviderController do
          :ok <- ConsolePolicy.authorize(conn, "worker_provider:#{id}", "delete"),
          {:ok, _provider} <- Providers.delete(id) do
       send_resp(conn, :no_content, "")
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -147,12 +137,12 @@ defmodule AnkoleWeb.WorkerProviderController do
          {:ok, id} <- ConsoleParams.text(conn.body_params, :provider_id),
          {:ok, worker} <- Providers.assign(uid, id) do
       json(conn, %{agent_uid: worker.agent_uid, provider_id: worker.provider_id})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
-  defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
+  defp error(conn, {:missing, key}), do: ConsoleErrors.required_field(conn, key)
 
   defp error(conn, :worker_provider_not_found),
     do:

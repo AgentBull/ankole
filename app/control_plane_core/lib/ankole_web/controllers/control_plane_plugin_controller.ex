@@ -6,6 +6,8 @@ defmodule AnkoleWeb.ControlPlanePluginController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.ControlPlanePlugins
@@ -43,8 +45,6 @@ defmodule AnkoleWeb.ControlPlanePluginController do
     with :ok <- ConsolePolicy.authorize(conn, "control_plane_plugins", "read"),
          {:ok, plugins} <- ControlPlanePlugins.list() do
       json(conn, %{control_plane_plugins: plugins})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -53,18 +53,16 @@ defmodule AnkoleWeb.ControlPlanePluginController do
          {:ok, id, enabled} <- body(conn.body_params),
          {:ok, plugins} <- ControlPlanePlugins.configure(id, enabled) do
       json(conn, %{control_plane_plugins: plugins})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
   defp body(%{id: id, enabled: enabled}) when id != "", do: {:ok, id, enabled}
   defp body(_params), do: {:error, :invalid_control_plane_plugin_configuration}
 
-  defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :control_plane_plugin_not_found) do
-    ConsoleErrors.render(conn, 404, "not_found", "Control Plane Plugin was not found")
+    ConsoleErrors.not_found(conn, "Control Plane Plugin was not found")
   end
 
   defp error(conn, reason) do

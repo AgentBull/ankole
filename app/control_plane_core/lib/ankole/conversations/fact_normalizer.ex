@@ -269,7 +269,7 @@ defmodule Ankole.Conversations.FactNormalizer do
   # later system event in the same channel can declare the same conversation
   # origin without reinterpreting an old message body.
   defp put_dm_peer_principal(metadata, :im_dm, author, agent_uid) do
-    case json_text(author, "principal_uid") do
+    case Ankole.Attrs.optional_text(Map.get(author, "principal_uid")) do
       principal_uid when is_binary(principal_uid) ->
         principal_uid = Ankole.PrincipalKey.canonicalize(principal_uid)
 
@@ -293,9 +293,9 @@ defmodule Ankole.Conversations.FactNormalizer do
   end
 
   defp sender_key(author) do
-    json_text(author, "platform_subject") ||
-      json_text(author, "external_id") ||
-      json_text(author, "id")
+    Ankole.Attrs.optional_text(Map.get(author, "platform_subject")) ||
+      Ankole.Attrs.optional_text(Map.get(author, "external_id")) ||
+      Ankole.Attrs.optional_text(Map.get(author, "id"))
   end
 
   defp validate_provider_author(author) do
@@ -416,11 +416,6 @@ defmodule Ankole.Conversations.FactNormalizer do
   end
 
   defp attr_datetime(_map, _key), do: nil
-
-  defp json_text(map, key) when is_map(map) and is_binary(key),
-    do: Ankole.Attrs.optional_text(Map.get(map, key))
-
-  defp json_text(_map, _key), do: nil
 
   defp normalize_raw_payload(input) do
     normalize_json_map(attr_map(input, :raw_payload, %{}), :raw_payload)

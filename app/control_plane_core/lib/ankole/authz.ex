@@ -668,6 +668,17 @@ defmodule Ankole.AuthZ do
     Decision.authorize_all_decision(principal_uid, resource, actions, context)
   end
 
+  @doc """
+  Evaluates independent resource/action checks with one authorization snapshot.
+
+  Each check has `:resource` and `:action`. Optional `:grant_ids` restricts
+  the check to those grants; an empty list denies it. Results keep input order.
+  """
+  @spec authorize_checks(String.t(), [map()], map()) :: {:ok, [boolean()]} | {:error, term()}
+  def authorize_checks(principal_uid, checks, context \\ %{}) do
+    Decision.authorize_checks(principal_uid, checks, context)
+  end
+
   defdelegate site_admin?(uid), to: Root
 
   @doc false

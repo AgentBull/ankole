@@ -4,7 +4,7 @@ defmodule Ankole.AIGateway.ToolSearchTest do
   alias Ankole.AIGateway.ProgrammaticToolCalling, as: PTC
   alias Ankole.AIGateway.ToolSearch
   alias Ankole.AIGateway.ToolSearch.Index
-  alias Ankole.AIGateway.ToolSearch.StreamLoop
+  alias Ankole.AIGateway.HostedTools.StreamLoop
 
   # Golden wire sample from codex rust-v0.147.0
   # codex-rs/protocol/src/models.rs `tool_search_call_roundtrips`.

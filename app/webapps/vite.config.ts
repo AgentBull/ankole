@@ -115,6 +115,7 @@ function manualChunks(moduleID: string): string | undefined {
   }
 
   if (
+    packageName === 'zod' ||
     moduleID.includes('/@tanstack/query-core/') ||
     moduleID.includes('/@tanstack/react-query/') ||
     moduleID.includes('/@preact/signals-core/') ||
@@ -129,9 +130,14 @@ function manualChunks(moduleID: string): string | undefined {
   if (
     moduleID.includes('/@base-ui/') ||
     moduleID.includes('/@floating-ui/') ||
-    moduleID.includes('/@formisch/react/') ||
     moduleID.includes('/@remixicon/react/') ||
-    moduleID.includes('/valibot/')
+    packageName === '@tanstack/react-form' ||
+    packageName === '@tanstack/form-core' ||
+    packageName === '@tanstack/react-store' ||
+    packageName === '@tanstack/store' ||
+    packageName === '@tanstack/pacer-lite' ||
+    packageName === '@tanstack/devtools-event-client' ||
+    packageName === 'use-sync-external-store'
   ) {
     return 'vendor-setup-ui'
   }
@@ -212,7 +218,7 @@ export default defineConfig(({ command }): UserConfig => ({
       name: 'ankole-edition-styles',
       enforce: 'pre',
       transform(code, id) {
-        if (edition === 'saas' && id.replaceAll('\\', '/').endsWith('/uikit/src/styles.css')) {
+        if (edition === 'saas' && id.replaceAll('\\', '/').endsWith('/webapps/common/styles.css')) {
           return `${code}\n@source ${JSON.stringify(path.join(repositoryRoot, 'internals/webapps'))};\n`
         }
       }

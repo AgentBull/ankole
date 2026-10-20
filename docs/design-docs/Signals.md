@@ -535,3 +535,8 @@ acceptance, execution ownership, or authorization. A comment author uses the
 existing Principal mapping and WorkAccess snapshot. An unknown author cannot
 borrow the integration owner's authority. Several Agents observing the same
 comment space share its public Messages and retain their own Sessions.
+
+`Conversations.MessageInput` owns entry text/list merging and pending
+attachment deadlines. An empty pending set has no deadline. An initial batch
+then uses its aggregation window; an input revision becomes available now.
+The two callers retain these distinct scheduling decisions.

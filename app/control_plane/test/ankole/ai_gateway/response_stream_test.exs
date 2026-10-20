@@ -12,7 +12,7 @@ defmodule Ankole.AIGateway.ResponseStreamTest do
   alias Ankole.AIGateway.ResponseStream.State
   alias Ankole.AIGateway.ResponseStream.Supervisor
   alias Ankole.AIGateway.ToolSearch
-  alias Ankole.AIGateway.ToolSearch.StreamLoop
+  alias Ankole.AIGateway.HostedTools.StreamLoop
   alias Ankole.Kernel.UniversalAIClient
 
   defmodule CollectorStream do

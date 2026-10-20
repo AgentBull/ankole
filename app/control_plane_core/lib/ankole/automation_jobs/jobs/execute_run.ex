@@ -124,7 +124,7 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
            AutomationJobs.finish_attempt(run.id, run.attempt_id, %{
              status: response.status,
              exit_code: response.exit_code,
-             error: blank_to_nil(response.error),
+             error: if(response.error == "", do: nil, else: response.error),
              stdout: response.stdout,
              stderr: response.stderr,
              stdout_truncated: response.stdout_truncated,
@@ -187,9 +187,6 @@ defmodule Ankole.AutomationJobs.Jobs.ExecuteRun do
     {iodata, _size} = struct.__struct__.encode!(struct)
     IO.iodata_to_binary(iodata)
   end
-
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
 
   defp reply_route_text(route, key) when is_map(route) do
     case Map.get(route, key) do

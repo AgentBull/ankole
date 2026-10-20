@@ -154,52 +154,38 @@ defmodule Ankole.Pod.RPCBroker do
   end
 
   defp receive_document(source, ctx, fun) do
-    local = Ankole.Files.temp_path()
-
-    try do
-      with {:ok, source} <- Ankole.Files.normalize_path(source),
-           {:ok, %{"body" => body}} <-
-             WorkerFiles.stream(
-               source,
-               worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}
-             ) do
-        Enum.into(body, File.stream!(local))
-        with {:ok, xml} <- File.read(local), do: fun.(xml)
-      end
-    rescue
-      error in Ankole.WorkerFiles.RelayError -> {:error, error.reason}
-    after
-      File.rm(local)
+    with {:ok, source} <- Ankole.Files.normalize_path(source) do
+      WorkerFiles.with_received_file(
+        source,
+        [worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}],
+        fn local ->
+          with {:ok, xml} <- File.read(local), do: fun.(xml)
+        end
+      )
     end
   end
 
   defp upload(uid, params, ctx) do
     source = params["home_relative_path"]
-    local = Ankole.Files.temp_path()
 
-    try do
-      with {:ok, _page} <- Pages.authorize(uid, params["id"], "page_edit"),
-           {:ok, source} <- Ankole.Files.normalize_path(source),
-           {:ok, %{"body" => body}} <-
-             WorkerFiles.stream(
-               source,
-               worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}
-             ) do
-        Enum.into(body, File.stream!(local))
-
-        Files.upload(
-          uid,
-          params["id"],
-          params["role"] || "file",
-          params["base_revision"],
-          params["name"] || Path.basename(source),
-          {:file, local},
-          params["content_type"],
-          ctx.write_authority
-        )
-      end
-    after
-      File.rm(local)
+    with {:ok, _page} <- Pages.authorize(uid, params["id"], "page_edit"),
+         {:ok, source} <- Ankole.Files.normalize_path(source) do
+      WorkerFiles.with_received_file(
+        source,
+        [worker: %{worker_id: ctx.worker_id, transport_route: ctx.route}],
+        fn local ->
+          Files.upload(
+            uid,
+            params["id"],
+            params["role"] || "file",
+            params["base_revision"],
+            params["name"] || Path.basename(source),
+            {:file, local},
+            params["content_type"],
+            ctx.write_authority
+          )
+        end
+      )
     end
   end
 

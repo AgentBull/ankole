@@ -3,7 +3,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
 
   import Ecto.Query, warn: false
 
-  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.{Principals, Repo}
   alias Ankole.Plugins.MapHelpers
   alias Ankole.Plugins.TelegramAdapter.Client
   alias Ankole.Plugins.UTF16Text
@@ -192,7 +192,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
 
       channel_id =
         reaction_channel_id(
-          consumer.context,
           bot.id,
           chat_id,
           Integer.to_string(message_id)
@@ -596,7 +595,7 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
   # message entry recorded. The chat match is exact or `:topic:`-delimited: a
   # bare prefix would also match another chat whose id extends this one, for
   # example `-1001234` behind `-100123`.
-  defp reaction_channel_id(context, bot_id, chat_id, provider_message_id) do
+  defp reaction_channel_id(bot_id, chat_id, provider_message_id) do
     base = provider_conversation_id(bot_id, chat_id, nil)
 
     Repo.one(
@@ -610,15 +609,6 @@ defmodule Ankole.Plugins.TelegramAdapter.Inbound do
         limit: 1,
         select: conversation.provider_conversation_id
     ) || base
-  rescue
-    exception ->
-      Logging.warning(
-        "telegram_adapter.reaction.channel_lookup_failed",
-        "Telegram reaction channel lookup failed",
-        %{binding: context.binding_name, reason: Exception.message(exception)}
-      )
-
-      provider_conversation_id(bot_id, chat_id, nil)
   end
 
   @doc false

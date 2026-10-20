@@ -21,6 +21,13 @@ end
 
 defmodule Ankole.EditionFixture.HostPolicy do
   @behaviour AnkoleWeb.Plugs.RequestHost
+  def domain, do: "example.test"
+  def pod_origin(%Ankole.Tenants.Tenant{}), do: "https://pod.example.test"
+  def canonical_origin(:site), do: "https://site.example.test"
+
+  def canonical_origin({:pod, "019a2b00-0000-7000-8000-000000000001"}),
+    do: "https://pod.example.test"
+
   def classify(%URI{host: "site.example.test"}), do: {:ok, :site}
 
   def classify(%URI{host: "pod.example.test"}),

@@ -15,6 +15,45 @@ defmodule Ankole.Attrs do
     do: Map.get(attrs, key, Map.get(attrs, to_string(key), default))
 
   @doc """
+  Reads a string key or its existing atom alias. The string key takes precedence.
+
+  An explicit `nil` or `false` under the string key is a value, not an absence.
+  An absent string key falls back to the atom alias without creating an atom.
+  """
+  @spec get_string_first(map(), String.t()) :: term()
+  def get_string_first(attrs, key) when is_map(attrs) and is_binary(key) do
+    case Map.fetch(attrs, key) do
+      {:ok, value} -> value
+      :error -> existing_atom_value(attrs, key)
+    end
+  end
+
+  @doc """
+  Reads an atom key or its string form and falls back for `nil` and `false`.
+
+  An atom key selects atom-first order. A string key selects string-first order.
+  This preserves truthy fallback reads; use `get/3` to preserve an explicit
+  `nil` or `false` under an atom key. The string path never creates an atom.
+  """
+  @spec get_truthy(map(), atom() | String.t()) :: term()
+  def get_truthy(attrs, key) when is_atom(key),
+    do: Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
+
+  def get_truthy(attrs, key) when is_binary(key),
+    do: Map.get(attrs, key) || existing_atom_value(attrs, key)
+
+  @doc """
+  Trims a required text value and returns the caller's error for a missing value.
+  """
+  @spec required_text(term(), term()) :: {:ok, String.t()} | {:error, term()}
+  def required_text(value, reason) do
+    case optional_text(value) do
+      nil -> {:error, reason}
+      text -> {:ok, text}
+    end
+  end
+
+  @doc """
   Trims a string and returns `nil` for blank strings or other values.
   """
   @spec optional_text(term()) :: String.t() | nil
@@ -152,6 +191,12 @@ defmodule Ankole.Attrs do
       true -> :ok
       false -> {:error, {:missing_adapter_callback, module, function, arity}}
     end
+  end
+
+  defp existing_atom_value(attrs, key) do
+    Map.get(attrs, String.to_existing_atom(key))
+  rescue
+    ArgumentError -> nil
   end
 
   defp targets_current_agent?(mention) do

@@ -189,7 +189,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
       when is_map(response_or_event) do
     response = response_body(response_or_event)
     usage = model_usage(response_or_event, opts)
-    tool_usage = map_value(response, "tool_usage")
+    tool_usage = Ankole.Attrs.get_truthy(response, "tool_usage")
 
     tool_usage =
       if is_map(tool_usage) and
@@ -225,9 +225,9 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   @spec model_usage(map(), keyword()) :: map() | nil
   def model_usage(response_or_event, opts \\ []) when is_map(response_or_event) do
     response = response_body(response_or_event)
-    usage = map_value(response, "usage")
-    tool_usage = map_value(response, "tool_usage")
-    image_usage = if is_map(tool_usage), do: map_value(tool_usage, "image_gen")
+    usage = Ankole.Attrs.get_truthy(response, "usage")
+    tool_usage = Ankole.Attrs.get_truthy(response, "tool_usage")
+    image_usage = if is_map(tool_usage), do: Ankole.Attrs.get_truthy(tool_usage, "image_gen")
 
     if is_map(usage) and is_map(image_usage) and
          Keyword.get(opts, :aggregate_includes_tool_usage?, false) do
@@ -676,9 +676,6 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   defp response_body(%{"body" => %{} = body}), do: body
   defp response_body(%{} = response), do: response
 
-  defp map_value(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, String.to_atom(key))
-
   defp subtract_usage(usage, tool_usage) do
     Map.new(usage, fn {key, value} ->
       tool_value = Map.get(tool_usage, key)
@@ -790,7 +787,7 @@ defmodule Ankole.AIGateway.CredentialAttempts do
   end
 
   defp map_text(map, key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
+    case Ankole.Attrs.get_truthy(map, key) do
       value when is_binary(value) -> value
       _value -> nil
     end

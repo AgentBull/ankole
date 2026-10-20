@@ -133,7 +133,7 @@ You do not need to learn every runtime before starting. The repository-level Bun
 | Control Plane | Runs setup, Console APIs, configuration, durable workflows, and runtime authority | `app/control_plane` | `http://ankole.localhost:4000` |
 | Webapps | Provide setup, authentication, and Console pages | `app/webapps` | Vite on `localhost:3035`, served through the control plane |
 | Agent Computer | Runs environment tools, Codex, Skill materialization, and Worker-local state | `app/agent_computer` | One Docker container per Agent, label `ankole.installation=dev` |
-| Kernel | Provides native primitives and AI transport | `app/kernel` | Loaded by Elixir through Rustler |
+| Kernel | Provides native primitives and transport | `app/kernel` | Loaded by Elixir through Rustler and the browser daemon through Node-API |
 | RuntimeFabric | Carries live control-plane-to-worker traffic over a Phoenix Channel | Control Plane | `ws://localhost:4000/runtime-fabric/worker` |
 
 ### Elixir in five minutes
@@ -579,7 +579,7 @@ Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implement
 | --- | --- |
 | `app/control_plane` | Phoenix/OTP control plane, Ecto persistence, setup, Console APIs, and durable runtime authority |
 | `app/agent_computer` | Bun/TypeScript Worker, environment tools, Codex, Skills, files, and terminal state |
-| `app/kernel` | Rust library loaded by the control plane through Rustler |
+| `app/kernel` | Rust library loaded through Rustler and browser Node-API bindings |
 | `app/webapps` | Vite/React setup, authentication, Pod, and Console applications |
 | `app/library` | Built-in agent skills and starter templates |
 | `app/locales` | Shared translation catalogs |
@@ -609,9 +609,12 @@ Start with checks scoped to the files you changed. This makes failures easier to
 The `Repository checks` workflow runs on pull requests and pushes to `main`.
 It runs the existing Webapps, Applet SDK, editor, and analysis commands. Its
 Control Plane job uses the Ankole PostgreSQL image, checks OpenAPI output, and
-runs the compile-connected cycle check, fast suite, and upgrade check. The
+runs the compile-connected cycle check, fast suite, upgrade check, and standalone
+Feishu protocol integration. A matrix also runs the six provider client projects,
+shared transport and frame libraries, fake Feishu server, and Kernel Elixir tests
+as independent Mix projects. The
 page-codec job checks the shared XML corpus and generated edit chains in
-TypeScript and Rust. Provider E2E,
+TypeScript and Rust. It also runs the Kernel Node-API URL and proxy checks. Provider E2E,
 Worker container tests, and browser suites still use their dedicated commands.
 
 | Changed area | Useful first checks |
@@ -621,6 +624,7 @@ Worker container tests, and browser suites still use their dedicated commands.
 | Agent Computer | `bun run agent-computer:type-check` and `bun run agent-computer:test` |
 | Webapps | `bun run webapps:type-check`, `bun run --filter @ankole/webapps test`, and `bun run webapps:build` |
 | Kernel | `bun run --filter @ankole/kernel lint` and `bun run --filter @ankole/kernel test` |
+| Browser | `bun run --filter @ankole/browser lint`, `bun run --filter @ankole/browser test`, and `bun run --filter @ankole/browser test:integration` with `ANKOLE_BROWSER_TEST_CHROMIUM` set to Chromium |
 | Feishu client | `bun run lark-adapter:test` |
 | Block editor | `bun run --filter @ankole/block-editor type-check`, `bun run --filter @ankole/block-editor test`, and `bun run --filter @ankole/block-editor test:package` |
 | Website | `bun run --filter @ankole/website type-check` and `bun run --filter @ankole/website build` |

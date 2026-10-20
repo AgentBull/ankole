@@ -96,6 +96,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           title: %Schema{type: :string},
           body: %Schema{type: :string},
           meta: %Schema{type: :object, additionalProperties: true},
+          tags: %Schema{type: :array, items: %Schema{type: :string}},
           effective_date: %Schema{type: :string, format: :date, nullable: true}
         },
         required: [:slug, :type, :title, :body, :meta],
@@ -120,6 +121,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           title: %Schema{type: :string},
           body: %Schema{type: :string},
           meta: %Schema{type: :object, additionalProperties: true},
+          tags: %Schema{type: :array, items: %Schema{type: :string}},
           effective_date: %Schema{type: :string, format: :date, nullable: true},
           expected_content_hash: %Schema{type: :string}
         },
@@ -416,6 +418,7 @@ defmodule AnkoleWeb.Schemas.BrainAPI do
           author: %Schema{allOf: [ActorRef], nullable: true},
           body: %Schema{type: :string},
           meta: %Schema{type: :object, additionalProperties: true},
+          tags: %Schema{type: :array, items: %Schema{type: :string}},
           snapshot_at: %Schema{type: :string}
         },
         required: [:id, :body, :meta, :snapshot_at],

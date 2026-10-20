@@ -8,14 +8,29 @@ fn launch(
     timeout_ms: u64,
     heap_mb: usize,
 ) -> (Handle, Receiver<Event>) {
+    let request = Request {
+        source: source.into(),
+        context,
+        inspect,
+        timeout_ms,
+        heap_mb,
+    };
+    launch_with(move || Ok(request))
+}
+
+fn launch_with(
+    decode: impl FnOnce() -> Result<Request, String> + Send + 'static,
+) -> (Handle, Receiver<Event>) {
     // Parallel test callers wait for the same admission slots production uses.
     // The explicit overload test below observes rejection without retrying.
+    let decode = Arc::new(Mutex::new(Some(decode)));
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         let (sender, receiver) = mpsc::channel();
         let busy = Arc::new(AtomicBool::new(false));
         let observer = Arc::clone(&busy);
-        let handle = start(Request { source: source.into(), context: context.clone(), inspect, timeout_ms, heap_mb },
+        let decode = Arc::clone(&decode);
+        let handle = start_with(move || decode.lock().unwrap().take().unwrap()(),
             Arc::new(move |event| {
                 if matches!(&event, Event::Done(value) if value["body"]["error"]["code"] == "applet_busy") {
                     observer.store(true, Ordering::SeqCst);
@@ -465,30 +480,23 @@ fn pending_capabilities_share_the_same_memory_budget() {
 
 #[test]
 fn transport_decoders_run_on_the_same_invocation_thread() {
-    let (sender, events) = mpsc::channel();
     let (decoded, decoded_events) = mpsc::channel();
-    let handle = start_with(
-        move || {
-            decoded
-                .send((
-                    "request",
-                    std::thread::current().id(),
-                    std::thread::current().name().map(str::to_owned),
-                ))
-                .unwrap();
-            Ok(Request {
-                source: "export default {'GET /':()=>AnkoleRuntime.db.query('t')}".into(),
-                context: context("GET", "/"),
-                inspect: false,
-                timeout_ms: 2000,
-                heap_mb: 32,
-            })
-        },
-        Arc::new(move |event| {
-            sender.send(event).unwrap();
-        }),
-    )
-    .unwrap();
+    let (handle, events) = launch_with(move || {
+        decoded
+            .send((
+                "request",
+                std::thread::current().id(),
+                std::thread::current().name().map(str::to_owned),
+            ))
+            .unwrap();
+        Ok(Request {
+            source: "export default {'GET /':()=>AnkoleRuntime.db.query('t')}".into(),
+            context: context("GET", "/"),
+            inspect: false,
+            timeout_ms: 2000,
+            heap_mb: 32,
+        })
+    });
     let (_, request_thread, name) = decoded_events.recv_timeout(Duration::from_secs(2)).unwrap();
     assert_eq!(name.as_deref(), Some("ankole-applet"));
     let call_id = match events.recv_timeout(Duration::from_secs(2)).unwrap() {
@@ -509,48 +517,34 @@ fn transport_decoders_run_on_the_same_invocation_thread() {
 
 #[test]
 fn request_decode_time_counts_against_the_original_deadline() {
-    let (sender, events) = mpsc::channel();
-    let _handle = start_with(
-        move || {
-            std::thread::sleep(Duration::from_millis(50));
-            Ok(Request {
-                source: "export default {'GET /':()=>42}".into(),
-                context: context("GET", "/"),
-                inspect: false,
-                timeout_ms: 20,
-                heap_mb: 32,
-            })
-        },
-        Arc::new(move |event| {
-            sender.send(event).unwrap();
-        }),
-    )
-    .unwrap();
+    let (_handle, events) = launch_with(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        Ok(Request {
+            source: "export default {'GET /':()=>42}".into(),
+            context: context("GET", "/"),
+            inspect: false,
+            timeout_ms: 20,
+            heap_mb: 32,
+        })
+    });
     assert_eq!(finish(&events)["body"]["error"]["code"], "handler_timeout");
 }
 
 #[test]
 fn cancellation_remains_effective_before_and_after_transport_decode() {
-    let (sender, events) = mpsc::channel();
     let (decoding, decoder_started) = mpsc::channel();
     let (release, decoder_release) = mpsc::channel();
-    let handle = start_with(
-        move || {
-            decoding.send(()).unwrap();
-            decoder_release.recv().unwrap();
-            Ok(Request {
-                source: "export default {'GET /':()=>AnkoleRuntime.db.query('t')}".into(),
-                context: context("GET", "/"),
-                inspect: false,
-                timeout_ms: 2000,
-                heap_mb: 32,
-            })
-        },
-        Arc::new(move |event| {
-            sender.send(event).unwrap();
-        }),
-    )
-    .unwrap();
+    let (handle, events) = launch_with(move || {
+        decoding.send(()).unwrap();
+        decoder_release.recv().unwrap();
+        Ok(Request {
+            source: "export default {'GET /':()=>AnkoleRuntime.db.query('t')}".into(),
+            context: context("GET", "/"),
+            inspect: false,
+            timeout_ms: 2000,
+            heap_mb: 32,
+        })
+    });
     decoder_started
         .recv_timeout(Duration::from_secs(2))
         .unwrap();

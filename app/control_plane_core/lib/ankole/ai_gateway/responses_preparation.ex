@@ -22,7 +22,7 @@ defmodule Ankole.AIGateway.ResponsesPreparation do
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ToolContract
   alias Ankole.AIGateway.ToolSearch
-  alias Ankole.AIGateway.ToolSearch.StreamLoop
+  alias Ankole.AIGateway.HostedTools.StreamLoop
 
   @hosted_max_bytes 128 * 1024 * 1024
   @hosted_total_timeout_ms 30 * 60 * 1000

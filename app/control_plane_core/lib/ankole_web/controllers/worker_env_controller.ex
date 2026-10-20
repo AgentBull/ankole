@@ -13,6 +13,8 @@ defmodule AnkoleWeb.WorkerEnvController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AgentWorkers.WorkerEnv
@@ -125,8 +127,6 @@ defmodule AnkoleWeb.WorkerEnvController do
     with :ok <- ConsolePolicy.authorize(conn, "worker_envs", "read"),
          {:ok, items} <- WorkerEnv.console_list_global() do
       json(conn, %{worker_envs: items})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -138,8 +138,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "update"),
          {:ok, item} <- WorkerEnv.console_put_global(name, request_attrs(conn.body_params)) do
       json(conn, %{worker_env: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -153,8 +151,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "reset"),
          {:ok, item} <- WorkerEnv.console_delete_global(name) do
       json(conn, %{worker_env: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -169,8 +165,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "decrypt"),
          {:ok, value} <- WorkerEnv.console_decrypt_global(name) do
       json(conn, %{decrypted_value: %{name: name, value: value}})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -182,8 +176,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:worker_envs", "read"),
          {:ok, items} <- WorkerEnv.console_list_for_agent(agent_uid) do
       json(conn, %{worker_envs: items})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -197,8 +189,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          {:ok, item} <-
            WorkerEnv.console_put_for_agent(agent_uid, name, request_attrs(conn.body_params)) do
       json(conn, %{worker_env: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -211,8 +201,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:worker_env:#{name}", "reset"),
          {:ok, item} <- WorkerEnv.console_delete_for_agent(agent_uid, name) do
       json(conn, %{worker_env: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -225,8 +213,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:worker_env:#{name}", "decrypt"),
          {:ok, value} <- WorkerEnv.console_decrypt_for_agent(agent_uid, name) do
       json(conn, %{decrypted_value: %{name: name, value: value}})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -258,54 +244,52 @@ defmodule AnkoleWeb.WorkerEnvController do
     end
   end
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :not_found) do
-    error(conn, 404, "not_found", "worker env variable was not found")
+    ConsoleErrors.not_found(conn, "worker env variable was not found")
   end
 
   defp error(conn, :agent_not_found) do
-    error(conn, 404, "not_found", "agent was not found")
+    ConsoleErrors.not_found(conn, "agent was not found")
   end
 
   defp error(conn, {:invalid_worker_env_name, _name}) do
-    error(conn, 422, "validation_failed", "name must match [A-Za-z_][A-Za-z0-9_]*")
+    ConsoleErrors.render(conn, 422, "validation_failed", "name must match [A-Za-z_][A-Za-z0-9_]*")
   end
 
   defp error(conn, {:reserved_worker_env_name, name}) do
-    error(conn, 422, "reserved_name", "#{name} is reserved by the worker runtime")
+    ConsoleErrors.render(conn, 422, "reserved_name", "#{name} is reserved by the worker runtime")
   end
 
   defp error(conn, :invalid_worker_env_value) do
-    error(conn, 422, "validation_failed", "value must be a string")
+    ConsoleErrors.render(conn, 422, "validation_failed", "value must be a string")
   end
 
   defp error(conn, :invalid_worker_env_secret) do
-    error(conn, 422, "validation_failed", "secret must be a boolean")
+    ConsoleErrors.render(conn, 422, "validation_failed", "secret must be a boolean")
   end
 
   defp error(conn, :invalid_worker_env_description) do
-    error(conn, 422, "validation_failed", "description must be a string or null")
+    ConsoleErrors.render(conn, 422, "validation_failed", "description must be a string or null")
   end
 
   defp error(conn, :not_encrypted) do
-    error(conn, 422, "not_encrypted", "worker env variable is not encrypted")
+    ConsoleErrors.render(conn, 422, "not_encrypted", "worker env variable is not encrypted")
   end
 
   defp error(conn, :missing_name) do
-    error(conn, 422, "validation_failed", "name is required")
+    ConsoleErrors.render(conn, 422, "validation_failed", "name is required")
   end
 
   defp error(conn, :missing_agent_uid) do
-    error(conn, 422, "validation_failed", "agent_uid is required")
+    ConsoleErrors.render(conn, 422, "validation_failed", "agent_uid is required")
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_value", "worker env value is invalid", [%{reason: inspect(reason)}])
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
+    ConsoleErrors.render(conn, 422, "invalid_value", "worker env value is invalid", [
+      %{reason: inspect(reason)}
+    ])
   end
 
   operation(:index_tenant,
@@ -321,8 +305,6 @@ defmodule AnkoleWeb.WorkerEnvController do
     with :ok <- ConsolePolicy.authorize(conn, "worker_envs", "read"),
          {:ok, items} <- WorkerEnv.console_list_tenant() do
       json(conn, %{worker_envs: items})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -343,8 +325,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "update"),
          {:ok, item} <- WorkerEnv.console_put_tenant(name, request_attrs(conn.body_params)) do
       json(conn, %{worker_env: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -363,8 +343,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "reset"),
          {:ok, item} <- WorkerEnv.console_delete_tenant(name) do
       json(conn, %{worker_env: item})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -383,8 +361,6 @@ defmodule AnkoleWeb.WorkerEnvController do
          :ok <- ConsolePolicy.authorize(conn, "worker_env:#{name}", "decrypt"),
          {:ok, value} <- WorkerEnv.console_decrypt_tenant(name) do
       json(conn, %{decrypted_value: %{name: name, value: value}})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 end

@@ -3,6 +3,25 @@ defmodule Ankole.AIGateway.ResponseItemsTest do
 
   alias Ankole.AIGateway.ResponseItems
 
+  test "message parts preserve order and raw text while leaving presentation policy to callers" do
+    first = %{"type" => "output_text", "text" => "  first\n"}
+    second = %{"type" => "text", "text" => "second  "}
+    image = %{"type" => "output_image", "url" => "https://example.test/a.png"}
+
+    items = [
+      %{"type" => "message", "role" => "user", "content" => [first, image]},
+      %{"type" => "reasoning", "content" => [%{"text" => "private reasoning"}]},
+      %{"type" => "function_call_output", "output" => "tool result"},
+      %{"type" => "message", "content" => "historical string"},
+      %{"type" => "message", "content" => [second, %{"text" => 1}]}
+    ]
+
+    assert ResponseItems.message_content_parts(items) == [first, image, second, %{"text" => 1}]
+
+    assert items |> ResponseItems.message_content_parts() |> ResponseItems.text_parts() ==
+             ["  first\n", "second  "]
+  end
+
   defp reduce_items(items) do
     Enum.reduce_while(items, {:ok, ResponseItems.new()}, fn item, {:ok, ledger} ->
       case ResponseItems.reduce(ledger, item) do

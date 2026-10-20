@@ -7,6 +7,8 @@ defmodule AnkoleWeb.AgentLibraryController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIAgent.Library
@@ -60,8 +62,6 @@ defmodule AnkoleWeb.AgentLibraryController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:library", "read"),
          {:ok, documents} <- Library.list_agent_documents(agent_uid) do
       json(conn, %{library_documents: documents})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -79,8 +79,6 @@ defmodule AnkoleWeb.AgentLibraryController do
              expected_content_hash
            ) do
       json(conn, %{library_document: document})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -103,11 +101,12 @@ defmodule AnkoleWeb.AgentLibraryController do
 
   defp body_text(_params, key), do: {:error, {:missing, Atom.to_string(key)}}
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
-  defp error(conn, :not_found), do: error(conn, 404, "not_found", "agent was not found")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
+  defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "agent was not found")
 
   defp error(conn, :agent_library_document_conflict) do
-    error(
+    ConsoleErrors.render(
       conn,
       409,
       "agent_library_document_conflict",
@@ -116,30 +115,26 @@ defmodule AnkoleWeb.AgentLibraryController do
   end
 
   defp error(conn, {:missing, key}) do
-    error(conn, 422, "validation_failed", "#{key} is required")
+    ConsoleErrors.required_field(conn, key)
   end
 
   defp error(conn, reason) when reason in [:invalid_document_kind, :invalid_agent_document] do
-    error(conn, 422, "validation_failed", "agent library document is invalid")
+    ConsoleErrors.render(conn, 422, "validation_failed", "agent library document is invalid")
   end
 
   defp error(conn, %Ecto.Changeset{} = changeset) do
-    error(
-      conn,
-      422,
-      "validation_failed",
-      "request validation failed",
-      ConsoleErrors.changeset_details(changeset)
-    )
+    ConsoleErrors.changeset(conn, changeset)
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_agent_library_document", "agent library document is invalid", [
-      %{reason: inspect(reason)}
-    ])
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
+    ConsoleErrors.render(
+      conn,
+      422,
+      "invalid_agent_library_document",
+      "agent library document is invalid",
+      [
+        %{reason: inspect(reason)}
+      ]
+    )
   end
 end

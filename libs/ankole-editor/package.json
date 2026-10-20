@@ -32,7 +32,7 @@
     "dev": "bun --bun vite --host 127.0.0.1",
     "build": "bun run type-check",
     "preview": "bun --bun vite preview --host 127.0.0.1",
-    "test": "bun test ./test",
+    "test": "bun test --preload ./test/mac-platform.ts ./test",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install chromium firefox webkit",
     "type-check": "tsc --noEmit",

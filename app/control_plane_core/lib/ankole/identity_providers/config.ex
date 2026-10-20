@@ -159,10 +159,10 @@ defmodule Ankole.IdentityProviders.Config do
     do: {:error, {:invalid_integer, "directory_full_sync_interval_minutes", %{min: 1}}}
 
   defp validate_activation(attrs) when is_map(attrs) do
-    with {:ok, provider_id} <- fetch_id(attrs, "provider_id"),
+    with {:ok, provider_id} <- fetch_id(attrs, :provider_id),
          :ok <- tenant_source_id(provider_id),
-         {:ok, adapter_id} <- fetch_id(attrs, "adapter_id"),
-         {:ok, plugin_id} <- fetch_id(attrs, "plugin_id"),
+         {:ok, adapter_id} <- fetch_id(attrs, :adapter_id),
+         {:ok, plugin_id} <- fetch_id(attrs, :plugin_id),
          {:ok, config_key} <- fetch_non_empty_string(attrs, "config_key"),
          {:ok, enabled} <- fetch_enabled(attrs) do
       {:ok,
@@ -209,8 +209,8 @@ defmodule Ankole.IdentityProviders.Config do
 
   defp fetch_id(attrs, key) do
     attrs
-    |> fetch_value(key)
-    |> normalize_id(String.to_atom(key))
+    |> fetch_value(Atom.to_string(key))
+    |> normalize_id(key)
   end
 
   defp normalize_id(value, field) when is_binary(value) do

@@ -173,6 +173,22 @@ defmodule AnkoleWeb.ScheduleControllerTest do
            |> json_response(422)
   end
 
+  test "blank schedule text uses the required-field error envelope", %{conn: conn} do
+    %{principal: agent} = agent_fixture()
+
+    body =
+      conn
+      |> console_conn()
+      |> post(
+        ~p"/api/v1/agents/#{agent.uid}/cron-schedules",
+        cron_body(agent.uid, "session-a", "   ")
+      )
+      |> json_response(422)
+
+    assert body["error"]["code"] == "validation_failed"
+    assert body["error"]["message"] == "name is required"
+  end
+
   test "admin manually runs a cron schedule idempotently", %{conn: conn} do
     %{principal: agent} = agent_fixture()
     schedule = cron_schedule!(agent.uid, "session-a", "manual-digest")

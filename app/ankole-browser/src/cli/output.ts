@@ -34,7 +34,7 @@ export const CLIHelp = `Usage: ankole-browser [--session NAME] [--json] [--timeo
 
 Core commands:
   open [URL]                         Open or navigate the current page
-  snapshot [-i] [-c] [-d N]         Print rendered page snapshot with @eN refs
+  snapshot [-i] [-c] [-d N]         Print a Playwright AI snapshot with @eN refs
   click|fill|type|hover|focus ...    Act on @eN refs or CSS selectors
   get|is|find|wait ...               Observe or wait for page state
   tab|frame|dialog ...               Manage browser-side state

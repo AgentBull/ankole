@@ -4,7 +4,8 @@ defmodule Ankole.Plugins.DiscordAdapter.Gateway do
 
   This module owns the wire protocol only: opcodes, intents, close-code
   classification, and payload construction. `Ankole.Plugins.DiscordAdapter.Socket`
-  owns the connection, and `ConnectionOwner` owns the session lifecycle.
+  holds the `IMTransport.WebSocket` connection, and `ConnectionOwner` owns the
+  session lifecycle.
   """
 
   @op_dispatch 0

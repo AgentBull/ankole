@@ -9,7 +9,7 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
   alias Ankole.AIGateway.ProgramExecution
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ToolSearch
-  alias Ankole.AIGateway.ToolSearch.StreamLoop
+  alias Ankole.AIGateway.HostedTools.StreamLoop
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks

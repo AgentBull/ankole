@@ -56,8 +56,8 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
         config: config
       })
       when is_map(payload) do
-    with {:ok, provider_message_id} <- required_text(payload, "msgId"),
-         {:ok, conversation_id} <- required_text(payload, "conversationId"),
+    with {:ok, provider_message_id} <- MapHelpers.required_string(payload, "msgId"),
+         {:ok, conversation_id} <- MapHelpers.required_string(payload, "conversationId"),
          {:ok, author} <- author(payload, config),
          raw_text <- message_text(payload),
          attachments <- attachments(payload),
@@ -130,7 +130,7 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   @doc "Normalizes a card CALLBACK without observing or submitting it. Test seam."
   @spec normalize_card_action(Event.t()) :: {:ok, map()} | {:error, term()}
   def normalize_card_action(%Event{data: payload}) when is_map(payload) do
-    with {:ok, out_track_id} <- required_text(payload, "outTrackId"),
+    with {:ok, out_track_id} <- MapHelpers.required_string(payload, "outTrackId"),
          {:ok, operator_id} <- operator_actor_key(operator_user_id(payload)) do
       conversation_id =
         optional_text(payload, "openConversationId") || optional_text(payload, "conversationId") ||
@@ -444,9 +444,9 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
         DateTime.from_unix!(value, unit)
 
       value when is_binary(value) ->
-        case Integer.parse(value) do
-          {integer, ""} -> provider_time(%{"createAt" => integer})
-          _other -> nil
+        case Ankole.Attrs.integer_value(value) do
+          nil -> nil
+          integer -> provider_time(%{"createAt" => integer})
         end
 
       _value ->
@@ -516,23 +516,13 @@ defmodule Ankole.Plugins.DingTalkAdapter.Inbound do
   defp coerce_integer(value) when is_integer(value), do: value
 
   defp coerce_integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _other -> value
-    end
+    Ankole.Attrs.integer_value(value) || value
   end
 
   defp coerce_integer(value), do: value
 
   defp ignored_status(:missing_platform_subject), do: :ignored_missing_platform_subject
   defp ignored_status(:empty_or_unsupported_message), do: :ignored_empty_or_unsupported_message
-
-  defp required_text(map, key) do
-    case optional_text(map, key) do
-      value when is_binary(value) -> {:ok, value}
-      nil -> {:error, {:missing, key}}
-    end
-  end
 
   # A download code expires after this call and must not enter durable facts.
   defp durable_media_payload(payload) when is_map(payload) do

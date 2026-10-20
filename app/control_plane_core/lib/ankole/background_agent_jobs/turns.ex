@@ -8,6 +8,8 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   budget.
   """
 
+  require Ankole.ModelIntegerID
+
   import Ecto.Query
 
   alias Ankole.Repo
@@ -98,7 +100,7 @@ defmodule Ankole.BackgroundAgentJobs.Turns do
   end
 
   @spec list_for_job(pos_integer(), keyword()) :: [Turn.t()]
-  def list_for_job(job_id, opts \\ []) when is_integer(job_id) and job_id > 0 do
+  def list_for_job(job_id, opts \\ []) when Ankole.ModelIntegerID.valid?(job_id) do
     limit = opts |> Keyword.get(:limit, 100) |> max(1) |> min(200)
 
     Turn

@@ -32,6 +32,7 @@ defmodule AnkoleDiscordAdapter.MixProject do
       {:req, "~> 0.7.3"},
       {:torque, "~> 0.5.0"},
       {:mint_web_socket, "~> 1.0"},
+      {:im_transport, path: "../../libs/im_transport"},
       {:ecto, "3.14.2"}
     ]
   end

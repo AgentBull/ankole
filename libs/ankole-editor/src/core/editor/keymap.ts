@@ -142,13 +142,21 @@ export namespace KeyBinding {
     return runHandlers(map, event, wg)
   }
 
+  /** @internal */
+  export const keymap = GardState.Field.Derived.define(state => {
+    const bindings: readonly KeyBinding[] = state.facet(source)
+    return state.facet(useDefaultKeymap) ? bindings.concat(defaultKeymap) : bindings
+  })
+
   /**
    * Facet used for registering key bindings. Extension precedence
    * determines the order in which bindings that match the same key
    * are called. When a handler has returned `true` for a given key,
    * no further handlers are called.
    */
-  export const source = GardState.Facet.define<KeyBinding>()
+  export const source = GardState.Facet.define<KeyBinding>({
+    enables: keymap
+  })
 
   /**
    * By default, the {@link KeyBinding.defaultKeymap default keymap}
@@ -441,30 +449,24 @@ class NormalizedBinding {
 
 type Keymap = NormalizedBinding[]
 
-const keymapCache = new WeakMap<readonly KeyBinding[], { map: Keymap; deflt: boolean }>()
+const keymapCache = new WeakMap<readonly KeyBinding[], Keymap>()
 
 function getKeymap(state: GardState) {
-  const bindings = state.facet(KeyBinding.source)
-  const addDefault = state.facet(KeyBinding.useDefaultKeymap)
+  // A state without key-binding providers still has the default keymap.
+  const bindings = state.field(KeyBinding.keymap, false)
   let found = keymapCache.get(bindings)
-  if (!found || found.deflt != addDefault) {
-    found = {
-      map: buildKeymap(addDefault ? bindings.concat(KeyBinding.defaultKeymap) : bindings, currentPlatform),
-      deflt: addDefault
-    }
-    keymapCache.set(bindings, found)
-  }
-  return found.map
+  if (!found) keymapCache.set(bindings, (found = buildKeymap(bindings, currentPlatform)))
+  return found
 }
 
 const lookupCache = new WeakMap<readonly KeyBinding[], Map<string | PhraseSet.Ref, string>>()
 
 function getDescMap(state: GardState) {
-  const bindings = state.facet(KeyBinding.source)
+  const bindings = state.field(KeyBinding.keymap, false)
   let map = lookupCache.get(bindings)
   if (!map) {
     lookupCache.set(bindings, (map = new Map()))
-    for (const binding of bindings.concat(state.facet(KeyBinding.useDefaultKeymap) ? KeyBinding.defaultKeymap : [])) {
+    for (const binding of bindings) {
       const { description, shiftDescription } = binding.spec
       if (description || shiftDescription) {
         const name = binding.spec[currentPlatform] || binding.spec.key

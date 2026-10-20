@@ -210,7 +210,7 @@ Ankole runs in production. An Ankole Agent helps maintain this repository with t
 
 - A site can serve multiple tenants with isolated organization data. All tenants trust the site operator and share the site's model and Worker providers.
 - The Worker container is the only isolation boundary of its Agent. Ankole does not protect a Worker from its own Agent.
-- The Alibaba Cloud Function Compute provider has not yet run the full Worker lifecycle in the cloud. [Agent Workers](docs/design-docs/AgentWorkers.md#provider-implementations) lists the checks that each platform has passed.
+- Cloud verification has a different scope for each Worker provider. [Agent Workers](docs/design-docs/AgentWorkers.md#provider-verification-evidence) records the evidence and remaining checks.
 
 ## Documentation
 

@@ -31,6 +31,16 @@ A grant permits one action only when:
 
 Any failed check denies the action. A batch stops at its first denied action.
 
+`Ankole.AuthZ.authorize_checks/3` accepts independent resource/action checks
+with atom keys and loads one snapshot. Optional `grant_ids` restricts a check
+to those grants. AuthZ owns input validation and the kernel wire format. The kernel
+returns one boolean per check in request order. It evaluates computed groups
+once and uses one CEL environment. A check can restrict itself to named grant
+IDs from that snapshot; an empty set denies the check. The kernel still checks
+the subject, action, pattern, and condition. This permits a caller to distinguish
+direct shares from inherited access without another permission model.
+Repeated diagnostics for the same stored error appear once per call.
+
 ## Split Work between Elixir and Rust
 
 The Elixir control plane:

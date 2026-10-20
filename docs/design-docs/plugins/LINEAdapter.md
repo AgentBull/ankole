@@ -106,6 +106,10 @@ find its target, because Conversations resolves a durable reply by its first
 message ID only. The user can quote the first message or name the Signal
 with `/retry signal::<id>`.
 
+A database error while checking the quoted author fails ingress. It must not
+turn a quote of the Agent into ordinary group input. Provider redelivery uses
+the existing durable source keys to prevent duplicate accepted input.
+
 Conversations applies the binding's group mode to other group messages. LINE
 indexes and character limits count UTF-16 code units; the shared
 `Ankole.Plugins.UTF16Text` helper applies them.

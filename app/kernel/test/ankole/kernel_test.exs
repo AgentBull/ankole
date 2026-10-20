@@ -88,7 +88,9 @@ defmodule Ankole.KernelTest do
 
   test "web_url_facts/1 matches the shared host classification vectors" do
     vectors_path = Path.expand("../vectors/web_url_host_classification.json", __DIR__)
-    %{"addresses" => addresses} = vectors_path |> File.read!() |> Torque.decode!()
+
+    %{"addresses" => addresses, "urls" => urls, "invalid_urls" => invalid_urls} =
+      vectors_path |> File.read!() |> Torque.decode!()
 
     for %{"input" => input, "class" => class} <- addresses do
       url = if String.contains?(input, ":"), do: "https://[#{input}]/", else: "https://#{input}/"
@@ -98,6 +100,26 @@ defmodule Ankole.KernelTest do
 
       assert Atom.to_string(host_class) == class, "#{input} must classify as #{class}"
     end
+
+    for %{"input" => url, "class" => class} <- urls do
+      assert %{host_class: host_class} = NativeKernel.web_url_facts(url)
+      assert Atom.to_string(host_class) == class
+    end
+
+    for url <- invalid_urls do
+      assert {:error, :invalid} = NativeKernel.validate_web_url(url, ["https"], false)
+    end
+  end
+
+  test "validate_ip_addresses/2 rejects empty, invalid, and mixed DNS answers" do
+    assert {:error, :invalid} = NativeKernel.validate_ip_addresses([], false)
+    assert {:error, :invalid} = NativeKernel.validate_ip_addresses(["not an IP"], false)
+
+    assert {:error, :metadata} =
+             NativeKernel.validate_ip_addresses(["8.8.8.8", "::ffff:169.254.169.254"], false)
+
+    assert {:error, :private} = NativeKernel.validate_ip_addresses(["8.8.8.8", "10.0.0.1"], true)
+    assert :ok = NativeKernel.validate_ip_addresses(["8.8.8.8", "10.0.0.1"], false)
   end
 
   test "validate_web_url/3 applies the shared SSRF policy" do
@@ -564,7 +586,7 @@ defmodule Ankole.KernelTest do
 
   test "o200k_base token estimator is provider-neutral" do
     assert NativeKernel.estimate_o200k_base_tokens("Hello world") == 2
-    assert NativeKernel.estimate_o200k_base_tokens("记忆系统") > 0
+    assert NativeKernel.estimate_o200k_base_tokens("记忆系统") == 3
   end
 
   test "reciprocal rank fusion combines routes through the native boundary" do

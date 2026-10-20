@@ -22,7 +22,6 @@
     "@ankole/applet-sdk": "workspace:*",
     "@ankole/block-editor": "workspace:*",
     "@ankole/uikit": "workspace:*",
-    "@formisch/react": "^1.1.0",
     "@garfish/browser-vm": "1.19.12",
     "@garfish/core": "1.19.12",
     "@garfish/css-scope": "1.19.12",
@@ -30,6 +29,7 @@
     "@office-kit/pptx-preview": "0.16.0",
     "@preact/signals-react": "3.12.0",
     "@remixicon/react": "4.9.0",
+    "@tanstack/react-form": "1.33.5",
     "@tanstack/react-query": "5.104.5",
     "@tanstack/react-virtual": "3.14.21",
     "@zxcvbn-ts/core": "^4.2.0",
@@ -48,8 +48,8 @@
     "react-router": "8.5.0",
     "remark-gfm": "^4.0.1",
     "use-stick-to-bottom": "1.1.6",
-    "valibot": "^1.5.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@babel/core": "8.0.7",

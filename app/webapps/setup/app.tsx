@@ -1,5 +1,5 @@
 import { uniq } from '@agentbull/active-support'
-import { Field as FormField, Form, getInput, useForm } from '@formisch/react'
+import { revalidateLogic, useForm } from '@tanstack/react-form'
 import {
   RiArrowRightSLine,
   RiCheckLine,
@@ -27,7 +27,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useIsMutating, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import * as v from 'valibot'
+import { z } from 'zod'
 import {
   setupState,
   createSetupSession,
@@ -50,22 +50,21 @@ import { IdentitySetupModel, type IdentitySetupDraft } from './state/identity-se
 import { PluginsStepModel, visibleIdentityAdapters } from './state/plugins-step-model'
 import { setupStepState, type SetupStepID } from './state/setup-progress'
 
-const bootstrapSchema = v.object({
-  activationCode: v.pipe(
-    v.string(),
-    v.nonEmpty(() => i18n.t('common.field_required', { field: i18n.t('setup.activation_code') }))
-  ),
-  locale: v.pipe(v.string(), v.nonEmpty())
+const bootstrapSchema = z.object({
+  activationCode: z.string().min(1, {
+    error: () => i18n.t('common.field_required', { field: i18n.t('setup.activation_code') })
+  }),
+  locale: z.string().min(1)
 })
 
-type BootstrapInput = v.InferOutput<typeof bootstrapSchema>
+type BootstrapInput = z.infer<typeof bootstrapSchema>
 
 const providerIDPattern = /^[a-z][a-z0-9_-]*$/
 
 function identitySchema(adapterRequired: string, providerIDInvalid: string) {
-  return v.object({
-    adapterID: v.pipe(v.string(), v.nonEmpty(adapterRequired)),
-    providerID: v.pipe(v.string(), v.regex(providerIDPattern, providerIDInvalid))
+  return z.object({
+    adapterID: z.string().min(1, { error: adapterRequired }),
+    providerID: z.string().regex(providerIDPattern, { error: providerIDInvalid })
   })
 }
 
@@ -208,15 +207,17 @@ export function SetupApp() {
 function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupState; onAuthenticated: () => void }) {
   const { t } = useTranslation()
   const locale = setupState?.currentLocale ?? i18n.language
-  const form = useForm({
-    schema: bootstrapSchema,
-    initialInput: { activationCode: '', locale },
-    validate: 'submit',
-    revalidate: 'input'
-  })
   const mutation = useMutation({
     mutationFn: (input: BootstrapInput) => createSetupSession({ body: input }),
     onSuccess: onAuthenticated
+  })
+  const form = useForm({
+    defaultValues: { activationCode: '', locale },
+    validationLogic: revalidateLogic(),
+    validators: { onDynamic: bootstrapSchema },
+    onSubmit: ({ value }) => {
+      mutation.mutate(value)
+    }
   })
   const printActivationCode = useMutation({
     mutationFn: () => logSetupActivationCode(),
@@ -233,19 +234,26 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
     <SetupPanel title={t('setup.bootstrap_title')}>
       <p className="text-sm leading-6 text-muted-foreground">{t('setup.activation_hint')}</p>
       <ErrorBlock error={mutation.error ?? printActivationCode.error} />
-      <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
+      <form
+        className="grid gap-6"
+        noValidate
+        onSubmit={event => {
+          event.preventDefault()
+          event.stopPropagation()
+          void form.handleSubmit()
+        }}>
         <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          <FormField of={form} path={['locale']}>
+          <form.Field name="locale">
             {field => (
               <Field>
                 <FieldLabel>{t('setup.language')}</FieldLabel>
                 <Select
-                  value={String(field.input ?? locale)}
+                  value={field.state.value || locale}
                   onValueChange={value => {
                     if (!value) return
-                    field.onChange(value)
+                    field.handleChange(value)
                     void loadLocale(value).then(() => {
-                      if (getInput(form, { path: ['locale'] }) === value) void i18n.changeLanguage(value)
+                      if (form.getFieldValue('locale') === value) void i18n.changeLanguage(value)
                     })
                   }}>
                   <SelectTrigger className="w-full">
@@ -261,32 +269,36 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
                 </Select>
               </Field>
             )}
-          </FormField>
+          </form.Field>
 
-          <FormField of={form} path={['activationCode']}>
-            {field => (
-              <Field>
-                <div className="flex flex-wrap items-center gap-2">
-                  <FieldLabel>{t('setup.activation_code')}</FieldLabel>
-                  <button
-                    className="link text-sm leading-5 disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={printActivationCode.isPending}
-                    onClick={() => printActivationCode.mutate()}
-                    type="button">
-                    {printActivationCode.isPending ? t('setup.activation_printing') : t('setup.activation_print')}
-                  </button>
-                </div>
-                <Input
-                  {...field.props}
-                  aria-invalid={field.errors ? true : undefined}
-                  autoComplete="one-time-code"
-                  value={String(field.input ?? '')}
-                  onChange={event => field.onChange(event.target.value.toUpperCase())}
-                />
-                <FormFieldError errors={field.errors} />
-              </Field>
-            )}
-          </FormField>
+          <form.Field name="activationCode">
+            {field => {
+              const error = field.state.meta.errors[0]?.message
+              return (
+                <Field>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <FieldLabel>{t('setup.activation_code')}</FieldLabel>
+                    <button
+                      className="link text-sm leading-5 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={printActivationCode.isPending}
+                      onClick={() => printActivationCode.mutate()}
+                      type="button">
+                      {printActivationCode.isPending ? t('setup.activation_printing') : t('setup.activation_print')}
+                    </button>
+                  </div>
+                  <Input
+                    aria-invalid={error ? true : undefined}
+                    autoComplete="one-time-code"
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={event => field.handleChange(event.target.value.toUpperCase())}
+                  />
+                  {error ? <UiFieldError>{error}</UiFieldError> : null}
+                </Field>
+              )
+            }}
+          </form.Field>
         </FieldGroup>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
@@ -299,7 +311,7 @@ function BootstrapGate({ setupState, onAuthenticated }: { setupState?: SetupStat
             )}
           </Button>
         </div>
-      </Form>
+      </form>
     </SetupPanel>
   )
 }
@@ -527,14 +539,14 @@ function SSOIdentityForm({
     event.preventDefault()
     if (mutation.isPending) return
     const draft = model.submission()
-    const result = v.safeParse(identitySchema(t('setup.adapter_required'), t('setup.provider_id_invalid')), draft)
+    const result = identitySchema(t('setup.adapter_required'), t('setup.provider_id_invalid')).safeParse(draft)
     if (!result.success) {
-      model.setValidationError(result.issues[0]?.message)
+      model.setValidationError(result.error.issues[0]?.message)
       return
     }
 
     model.setValidationError()
-    mutation.mutate({ ...draft, ...result.output })
+    mutation.mutate({ ...draft, ...result.data })
   }
 
   async function copyCallbackURL() {
@@ -684,8 +696,4 @@ function oidcCallbackURLHintKey(adapterID: string): string {
 
 function identityAdapterLabel(adapter: IdentityAdapter, locale: string): string {
   return localizedText(adapter.displayName, locale) ?? adapter.adapterID
-}
-
-function FormFieldError({ errors }: { errors: [string, ...string[]] | null }) {
-  return errors ? <UiFieldError>{errors[0]}</UiFieldError> : null
 }

@@ -273,9 +273,9 @@ defmodule Ankole.AIGateway.Models do
   defp integer_filter(value) when is_integer(value), do: {:ok, value}
 
   defp integer_filter(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> {:ok, integer}
-      _value -> :error
+    case Ankole.Attrs.integer_value(value) do
+      nil -> :error
+      integer -> {:ok, integer}
     end
   end
 

@@ -64,7 +64,7 @@ The runner owns connection teardown. User code must not launch a browser or clos
 ## Work from observable state
 
 1. Translate every user requirement into a rendered state, returned value, or artifact that can prove completion.
-2. Start with `open` and `snapshot -i`. Choose `@eN` refs only from the latest snapshot. A navigation, tab/frame switch, page close, or `stale_ref` error requires a new snapshot; never guess a replacement ref.
+2. Start with `open` and `snapshot -i`. Choose refs only from the latest snapshot. A main-frame ref has the form `@e2`. A ref in an iframe has the form `@f1e3`. Take a new snapshot after navigation, a tab change, a frame change, a page close, or a `stale_ref` error. Do not guess a replacement ref.
 3. Use `find role|text|label|placeholder|testid|first|last|nth` when a ref is inconvenient. Use `get`, `is`, and `wait` to check state rather than treating a successful click as proof of its outcome.
 4. Keep the injected default session for the whole Job. A Job already has its own opaque route and persistent profile; do not invent named sessions as an isolation mechanism. `close` releases live browser resources but retains route data.
 5. Save evidence under `browser/` in the current Session or Job Workspace. Browser commands return the same real absolute paths that the Worker uses. For a reproducible workflow, keep `plan.md`, scratch scripts, `final.mjs`, and numbered run directories. Verify `result.json`, logs, current page state, and every cited screenshot before finishing.

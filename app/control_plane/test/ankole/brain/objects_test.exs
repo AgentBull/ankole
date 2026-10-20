@@ -30,6 +30,125 @@ defmodule Ankole.Brain.ObjectsTest do
   end
 
   describe "create_object/3" do
+    test "metadata and tags retain completed extraction while changed inputs remain pending", %{
+      human: human
+    } do
+      {:ok, object} =
+        Objects.create_object(
+          %{slug: "notes/extraction-progress", type: "note", title: "Progress", body: "Body"},
+          human.uid
+        )
+
+      object =
+        object
+        |> Ecto.Changeset.change(
+          links_extracted_at: object.updated_at,
+          timelines_extracted_at: object.updated_at
+        )
+        |> Repo.update!()
+
+      object =
+        Enum.reduce([%{tags: ["research"]}, %{meta: %{"reviewed" => true}}], object, fn attrs,
+                                                                                        previous ->
+          assert {:ok, current} =
+                   Objects.update_object(
+                     previous.slug,
+                     Map.put(attrs, :expected_content_hash, previous.content_hash),
+                     human.uid
+                   )
+
+          assert DateTime.compare(current.updated_at, previous.updated_at) == :gt
+          assert current.links_extracted_at == current.updated_at
+          assert current.timelines_extracted_at == current.updated_at
+          current
+        end)
+
+      {:ok, retitled} =
+        Objects.update_object(
+          object.slug,
+          %{title: "New title", expected_content_hash: object.content_hash},
+          human.uid
+        )
+
+      assert retitled.links_extracted_at == retitled.updated_at
+      assert retitled.timelines_extracted_at == object.timelines_extracted_at
+
+      {:ok, edited} =
+        Objects.update_object(
+          object.slug,
+          %{body: "New body", expected_content_hash: retitled.content_hash},
+          human.uid
+        )
+
+      assert edited.links_extracted_at == retitled.links_extracted_at
+      assert edited.timelines_extracted_at == retitled.timelines_extracted_at
+
+      {:ok, pending} =
+        Objects.update_object(
+          object.slug,
+          %{meta: %{"later" => true}, expected_content_hash: edited.content_hash},
+          human.uid
+        )
+
+      assert pending.links_extracted_at == edited.links_extracted_at
+      assert pending.timelines_extracted_at == edited.timelines_extracted_at
+      assert DateTime.compare(pending.updated_at, pending.links_extracted_at) == :gt
+      assert DateTime.compare(pending.updated_at, pending.timelines_extracted_at) == :gt
+    end
+
+    test "tags share the edit baseline and audit while omitted tags remain", %{human: human} do
+      assert {:ok, object} =
+               Objects.create_object(
+                 %{
+                   slug: "notes/tagged",
+                   type: "note",
+                   title: "Tagged",
+                   tags: [" research ", "research", "AI"]
+                 },
+                 human.uid
+               )
+
+      assert Ankole.Brain.Links.tags_for_object(object.slug) == ["AI", "research"]
+
+      assert {:ok, updated} =
+               Objects.update_object(
+                 object.slug,
+                 %{title: "Revised", expected_content_hash: object.content_hash},
+                 human.uid
+               )
+
+      assert Ankole.Brain.Links.tags_for_object(object.slug) == ["AI", "research"]
+      version = Repo.get_by!(ObjectVersion, object_id: object.id)
+      assert version.tags == ["AI", "research"]
+      assert version.author.uid == human.uid
+
+      assert {:ok, cleared} =
+               Objects.update_object(
+                 object.slug,
+                 %{tags: [], expected_content_hash: updated.content_hash},
+                 human.uid
+               )
+
+      assert Ankole.Brain.Links.tags_for_object(object.slug) == []
+      refute cleared.content_hash == updated.content_hash
+
+      assert {:error, :content_hash_conflict} =
+               Objects.update_object(
+                 object.slug,
+                 %{tags: ["stale"], expected_content_hash: updated.content_hash},
+                 human.uid
+               )
+
+      assert {:error, {:invalid, "tags"}} =
+               Objects.update_object(
+                 object.slug,
+                 %{tags: [""], expected_content_hash: cleared.content_hash},
+                 human.uid
+               )
+
+      assert Ankole.Brain.Links.tags_for_object(object.slug) == []
+    end
+
     test "previously promoted types stay writable after the promotion path is removed", %{
       human: human
     } do

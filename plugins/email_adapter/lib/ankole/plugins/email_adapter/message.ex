@@ -133,7 +133,8 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
         reply_to: address_list(headers, "reply-to"),
         to: address_list(headers, "to"),
         cc: address_list(headers, "cc"),
-        subject: headers |> Mime.header("subject") |> Mime.decode_text() |> presence(),
+        subject:
+          headers |> Mime.header("subject") |> Mime.decode_text() |> Ankole.Attrs.optional_text(),
         date: headers |> Mime.header("date") |> parse_date(),
         auto_submitted: auto_submitted?(headers),
         authentication_results: Mime.headers(headers, "authentication-results")
@@ -156,7 +157,11 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
       masked
       |> Address.parse_list()
       |> Enum.map(fn mailbox ->
-        %{mailbox | name: mailbox.name |> Mime.restore_encoded_words(words) |> presence()}
+        %{
+          mailbox
+          | name:
+              mailbox.name |> Mime.restore_encoded_words(words) |> Ankole.Attrs.optional_text()
+        }
       end)
     end)
     |> Enum.uniq_by(& &1.address)
@@ -231,8 +236,14 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
     html = texts |> Enum.filter(&(elem(&1, 0) == "html")) |> Enum.map(&elem(&1, 1))
 
     case Enum.join(plain, "\n\n") |> String.trim() do
-      "" -> html |> Enum.map_join("\n\n", &HtmlText.to_text/1) |> String.trim() |> presence()
-      joined -> joined
+      "" ->
+        html
+        |> Enum.map_join("\n\n", &HtmlText.to_text/1)
+        |> String.trim()
+        |> Ankole.Attrs.optional_text()
+
+      joined ->
+        joined
     end
   end
 
@@ -244,7 +255,8 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
   defp index_attachment({attachment, index}), do: Map.put(attachment, :index, index)
 
   defp filename(%Part{} = part) do
-    presence(part.disposition_params["filename"]) || presence(part.params["name"]) ||
+    Ankole.Attrs.optional_text(part.disposition_params["filename"]) ||
+      Ankole.Attrs.optional_text(part.params["name"]) ||
       "attachment-#{part.subtype}"
   end
 
@@ -292,8 +304,4 @@ defmodule Ankole.Plugins.EmailAdapter.Message do
 
   defp downcase(nil), do: nil
   defp downcase(value), do: value |> String.trim() |> String.downcase()
-
-  defp presence(nil), do: nil
-
-  defp presence(value) when is_binary(value), do: Ankole.Attrs.optional_text(value)
 end

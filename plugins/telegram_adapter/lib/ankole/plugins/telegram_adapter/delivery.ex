@@ -347,15 +347,16 @@ defmodule Ankole.Plugins.TelegramAdapter.Delivery do
   defp uncertain?(%Client.Error{kind: kind, error_code: code}),
     do: kind == :transport or (is_integer(code) and code >= 500)
 
-  defp idempotent_absence?(method, %Client.Error{error_code: 400, description: description})
-       when method in ["deleteMessage", "editMessageText"] and is_binary(description) do
+  @doc false
+  def idempotent_absence?(method, %Client.Error{error_code: 400, description: description})
+      when method in ["deleteMessage", "editMessageText"] and is_binary(description) do
     downcased = String.downcase(description)
 
     String.contains?(downcased, "message to delete not found") or
       String.contains?(downcased, "message is not modified")
   end
 
-  defp idempotent_absence?(_method, _error), do: false
+  def idempotent_absence?(_method, _error), do: false
 
   defp integer_text(value) when is_integer(value), do: Integer.to_string(value)
   defp integer_text(value) when is_binary(value), do: value

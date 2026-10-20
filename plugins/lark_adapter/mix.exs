@@ -33,6 +33,7 @@ defmodule AnkoleLarkAdapter.MixProject do
       {:torque, "~> 0.5.0"},
       {:telemetry, "~> 1.4.2"},
       {:mint_web_socket, "~> 1.0"},
+      {:im_transport, path: "../../libs/im_transport"},
       {:plug, "~> 1.20"},
       {:ecto, "3.14.2"},
       {:oban, "~> 2.24"},

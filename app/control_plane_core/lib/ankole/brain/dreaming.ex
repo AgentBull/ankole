@@ -15,7 +15,6 @@ defmodule Ankole.Brain.Dreaming do
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
-  alias Ankole.Brain.Links
   alias Ankole.Brain.Markdoc
   alias Ankole.Brain.ModelCalls
   alias Ankole.Brain.Schemas.Claim
@@ -44,7 +43,7 @@ defmodule Ankole.Brain.Dreaming do
   @phases [
     :consolidate,
     :patterns,
-    :extract_links,
+    :extract_timelines,
     :grade_takes,
     :calibration_profile,
     :contradictions,
@@ -83,7 +82,7 @@ defmodule Ankole.Brain.Dreaming do
     case phase do
       :consolidate -> phase_consolidate()
       :patterns -> phase_patterns()
-      :extract_links -> phase_extract_links()
+      :extract_timelines -> phase_extract_timelines()
       :grade_takes -> Calibration.grade_takes()
       :calibration_profile -> Calibration.calibration_profile()
       :contradictions -> phase_contradictions()
@@ -283,12 +282,8 @@ defmodule Ankole.Brain.Dreaming do
 
   defp phase_patterns, do: Ankole.Brain.Patterns.run()
 
-  # The phase contract covers wikilinks, name mentions, and timeline events.
-  # The timeline half needs the model, so a missing model skips the whole
-  # phase without advancing the watermark: `links_extracted_at` keeps one
-  # meaning — phase 3 fully processed this body state.
   @doc false
-  def phase_extract_links do
+  def phase_extract_timelines do
     case Config.dreaming_model() do
       nil ->
         %{status: :skipped, reason: :dreaming_model_not_configured}
@@ -299,63 +294,31 @@ defmodule Ankole.Brain.Dreaming do
           |> where([object], is_nil(object.deleted_at))
           |> where(
             [object],
-            is_nil(object.links_extracted_at) or object.links_extracted_at < object.updated_at
+            is_nil(object.timelines_extracted_at) or
+              object.timelines_extracted_at < object.updated_at
           )
           |> limit(200)
           |> Repo.all()
 
         timelines =
           Enum.reduce(objects, 0, fn object, count ->
-            count + extract_object_links(model, object)
+            case extract_object_timelines(model, object) do
+              {:ok, written} ->
+                Object
+                |> where(
+                  [current],
+                  current.id == ^object.id and current.updated_at == ^object.updated_at
+                )
+                |> Repo.update_all(set: [timelines_extracted_at: object.updated_at])
+
+                count + written
+
+              :skip ->
+                count
+            end
           end)
 
         %{status: :ok, objects: length(objects), timelines: timelines}
-    end
-  end
-
-  defp extract_object_links(model, %Object{} = object) do
-    # Wikilinks materialize as markdown edges through the alias redirect.
-    object.body
-    |> Markdoc.wikilinks()
-    |> Enum.each(fn target ->
-      Links.upsert_link(%{
-        from_object_slug: object.slug,
-        to_object_slug: target,
-        link_type: "",
-        link_source: "markdown",
-        origin_object_slug: object.slug,
-        origin_field: "body",
-        resolution_type: "qualified"
-      })
-    end)
-
-    # Name mentions resolve through normalized aliases.
-    mention_targets(object)
-    |> Enum.each(fn target ->
-      Links.upsert_link(%{
-        from_object_slug: object.slug,
-        to_object_slug: target,
-        link_type: "mentions",
-        link_source: "mentions",
-        link_kind: "plain",
-        origin_object_slug: object.slug,
-        origin_field: "body",
-        resolution_type: "unqualified"
-      })
-    end)
-
-    case extract_object_timelines(model, object) do
-      {:ok, written} ->
-        object
-        |> Ecto.Changeset.change(links_extracted_at: DateTime.utc_now(:microsecond))
-        |> Repo.update!()
-
-        written
-
-      :skip ->
-        # A failed extraction leaves the watermark, so the object retries
-        # next round; the link upserts above are idempotent.
-        0
     end
   end
 
@@ -422,12 +385,6 @@ defmodule Ankole.Brain.Dreaming do
       {:error, _reason} ->
         :skip
     end
-  end
-
-  defp mention_targets(%Object{} = object) do
-    object.body
-    |> Links.match_aliases_in_text()
-    |> Enum.reject(&(&1 == object.slug))
   end
 
   defp phase_contradictions do

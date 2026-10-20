@@ -1,3 +1,4 @@
+import { editorPhrases, type EditorLabels } from '../../editor/phrases'
 import { Elt, Leaf, Mark, Node, Plot, Schema } from '../../core/doc'
 import { Decoration } from '../../core/editor'
 import { element } from '../../document/tree'
@@ -55,10 +56,13 @@ export function embedAttributes(node: Node | Plot.Tag): Record<string, string> {
 }
 
 /** The card that shows an embed, in the editor and in read-only elements. */
-export function embedCard(attrs: Record<string, string>): Elt<string> {
+export function embedCard(
+  attrs: Record<string, string>,
+  labels: Pick<EditorLabels, 'embed' | 'database' | 'unlinked'> = editorPhrases.phrases
+): Elt<string> {
   return Elt.mk('div', { class: 'embed', contenteditable: 'false' }, [
-    Elt.mk('span', [attrs.table === undefined ? '嵌入' : '数据库']),
-    Elt.mk('code', [attrs.ref ?? '未关联'])
+    Elt.mk('span', [attrs.table === undefined ? labels.embed : labels.database]),
+    Elt.mk('code', [attrs.ref ?? labels.unlinked])
   ])
 }
 
@@ -66,7 +70,16 @@ export const embed: BlockDefinition = {
   name: 'embed',
   type: Embed.type,
   schema: [Embed, EmbedRef, EmbedTable, EmbedView, Schema.Override.markTarget(Attrs, target => [target, Embed])],
-  extension: [Decoration.Tag.shape(Embed, tag => embedCard({ ...extraOf(tag), ...embedAttributes(tag) }))],
+  extension: [
+    Decoration.Tag.shape.derived(Embed.type, state => {
+      const labels = {
+        embed: editorPhrases.get(state, 'embed'),
+        database: editorPhrases.get(state, 'database'),
+        unlinked: editorPhrases.get(state, 'unlinked')
+      }
+      return tag => embedCard({ ...extraOf(tag), ...embedAttributes(tag) }, labels)
+    })
+  ],
   import: node =>
     Embed.withMarks(
       markSet([
@@ -76,8 +89,8 @@ export const embed: BlockDefinition = {
     ),
   read: node => element('embed', { ...extraOf(node), ...embedAttributes(node) }),
   insert: {
-    title: '嵌入',
-    detail: '引用另一个页面',
+    title: editorPhrases.ref('embed_title'),
+    detail: editorPhrases.ref('embed_detail'),
     keywords: 'embed',
     glyph: '⧉',
     turnInto: false,

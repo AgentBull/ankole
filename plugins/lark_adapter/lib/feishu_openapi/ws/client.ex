@@ -6,8 +6,8 @@ defmodule FeishuOpenAPI.WS.Client do
   the server, so a client that reconnects to a fixed URI cannot be used.
   Long-connection frames are already authenticated: webhook signature checks
   do not apply, and the frames carry no webhook signature.
-  `DingTalkOpenAPI.Stream.Client` shares only the Mint plumbing; the protocols
-  diverge, so there is no shared abstraction.
+  `IMTransport.WebSocket` owns the Mint connection. This module owns Feishu
+  frames, fragments, acknowledgements, and reconnect timing.
   """
 
   use GenServer
@@ -15,6 +15,7 @@ defmodule FeishuOpenAPI.WS.Client do
   require Logger
 
   alias FeishuOpenAPI.{Client, Event.Envelope, WS.Frame, WS.Protocol, Event.Dispatcher}
+  alias IMTransport.WebSocket
 
   @default_ping_interval_s 120
   @default_reconnect_interval_s 120
@@ -40,9 +41,7 @@ defmodule FeishuOpenAPI.WS.Client do
             dispatcher: nil,
             task_supervisor: nil,
             auto_reconnect: true,
-            conn: nil,
-            websocket: nil,
-            request_ref: nil,
+            socket: nil,
             service_id: 0,
             reconnect_attempt: 0,
             reconnect_interval_s: @default_reconnect_interval_s,
@@ -53,9 +52,6 @@ defmodule FeishuOpenAPI.WS.Client do
             ping_timer: nil,
             fragments: %{},
             dispatch_tasks: %{},
-            upgrade_buffer: <<>>,
-            _upgrade_status: nil,
-            _upgrade_headers: nil,
             status: :disconnected
 
   @doc """
@@ -132,7 +128,8 @@ defmodule FeishuOpenAPI.WS.Client do
   end
 
   @impl true
-  def handle_info(:connect, %{conn: conn} = state) when not is_nil(conn), do: {:noreply, state}
+  def handle_info(:connect, %{socket: socket} = state) when not is_nil(socket),
+    do: {:noreply, state}
 
   def handle_info(:connect, state) do
     state = clear_reconnect_timer(state)
@@ -209,16 +206,26 @@ defmodule FeishuOpenAPI.WS.Client do
     end
   end
 
-  def handle_info(_message, %{conn: nil} = state), do: {:noreply, state}
+  def handle_info(_message, %{socket: nil} = state), do: {:noreply, state}
 
   def handle_info(message, state) do
-    case Mint.WebSocket.stream(state.conn, message) do
-      {:ok, conn, responses} ->
-        handle_responses(responses, %{state | conn: conn})
+    case WebSocket.stream(state.socket, message) do
+      {:ok, socket, frames} ->
+        just_opened = is_nil(state.socket.websocket) and not is_nil(socket.websocket)
+        state = %{state | socket: socket}
+        state = if just_opened, do: on_open(state), else: state
+        {:noreply, Enum.reduce(frames, state, &handle_ws_frame/2)}
 
-      {:error, conn, reason, _responses} ->
+      {:error, socket, {:websocket_decode, reason}} ->
+        Logger.warning("feishu_openapi ws decode error: #{inspect(reason)}")
+        {:noreply, %{state | socket: socket}}
+
+      {:error, socket, {:upgrade, reason}} ->
+        classify_upgrade(%{state | socket: socket}, reason)
+
+      {:error, socket, reason} ->
         Logger.warning("feishu_openapi ws stream error: #{inspect(reason)}")
-        state = %{state | conn: conn} |> drop_conn()
+        state = %{state | socket: socket} |> drop_conn()
         maybe_schedule_reconnect(state, reason)
 
       :unknown ->
@@ -235,19 +242,16 @@ defmodule FeishuOpenAPI.WS.Client do
   defp do_connect(state) do
     with {:ok, endpoint, client_config} <- fetch_endpoint(state.client),
          {:ok, scheme, host, port, path} <- parse_url(endpoint),
-         {:ok, conn} <-
-           Mint.HTTP.connect(http_scheme(scheme), host, port, protocols: [:http1]),
-         {:ok, conn, ref} <-
-           Mint.WebSocket.upgrade(scheme, conn, path, headers()) do
-      state =
-        state
-        |> apply_client_config(Protocol.config_from_map(client_config))
+         {:ok, socket} <-
+           WebSocket.open(scheme, host, port, path,
+             headers: [{"user-agent", "feishu_openapi-elixir/0.1"}]
+           ) do
+      state = apply_client_config(state, Protocol.config_from_map(client_config))
 
       {:ok,
        %{
          state
-         | conn: conn,
-           request_ref: ref,
+         | socket: socket,
            service_id: Protocol.service_id_from_url(endpoint),
            reconnect_attempt: 0,
            reconnect_timer: nil,
@@ -258,9 +262,6 @@ defmodule FeishuOpenAPI.WS.Client do
         {:error, err, true}
 
       {:error, reason} ->
-        {:error, reason, false}
-
-      {:error, _conn, reason} ->
         {:error, reason, false}
     end
   end
@@ -329,88 +330,28 @@ defmodule FeishuOpenAPI.WS.Client do
   defp default_port(:ws), do: 80
   defp default_port(:wss), do: 443
 
-  defp http_scheme(:ws), do: :http
-  defp http_scheme(:wss), do: :https
+  defp on_open(state) do
+    Logger.info(
+      "feishu_openapi ws connected app_id=#{state.client.app_id} service_id=#{state.service_id} ping_interval_s=#{state.ping_interval_s}"
+    )
 
-  defp headers, do: [{"user-agent", "feishu_openapi-elixir/0.1"}]
-
-  defp handle_responses([], state), do: {:noreply, state}
-
-  defp handle_responses([{:status, ref, status} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, %{state | _upgrade_status: status})
+    state = %{state | status: :connected}
+    state = handle_send_result(send_ping(state), state, "ping")
+    schedule_ping(state)
   end
 
-  defp handle_responses([{:headers, ref, resp_headers} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, %{state | _upgrade_headers: resp_headers})
-  end
+  defp classify_upgrade(state, reason) do
+    status = state.socket.upgrade_status
+    headers = state.socket.upgrade_headers
+    state = drop_conn(state)
 
-  defp handle_responses([{:done, ref} | rest], %{request_ref: ref} = state) do
-    upgrade_status = state._upgrade_status
-    upgrade_headers = state._upgrade_headers
+    case Protocol.classify_handshake(status, headers, reason) do
+      {:fatal, reason} ->
+        Logger.error("feishu_openapi ws handshake failed: #{inspect(reason)} fatal?=true")
+        {:stop, {:shutdown, reason}, state}
 
-    case Mint.WebSocket.new(
-           state.conn,
-           ref,
-           upgrade_status,
-           upgrade_headers
-         ) do
-      {:ok, conn, websocket} ->
-        state = %{state | conn: conn, websocket: websocket, status: :connected}
-
-        Logger.info(
-          "feishu_openapi ws connected app_id=#{state.client.app_id} service_id=#{state.service_id} ping_interval_s=#{state.ping_interval_s}"
-        )
-
-        state = handle_send_result(send_ping(state), state, "ping")
-        state = schedule_ping(state)
-        state = decode_buffered_upgrade_data(state)
-        handle_responses(rest, state)
-
-      {:error, conn, reason} ->
-        state = %{state | conn: conn} |> drop_conn()
-
-        case Protocol.classify_handshake(upgrade_status, upgrade_headers, reason) do
-          {:fatal, reason} ->
-            Logger.error("feishu_openapi ws handshake failed: #{inspect(reason)} fatal?=true")
-
-            {:stop, {:shutdown, reason}, state}
-
-          {:retry, reason} ->
-            maybe_schedule_reconnect(state, reason)
-        end
-    end
-  end
-
-  # Mint can emit body bytes before `:done`.
-  defp handle_responses(
-         [{:data, ref, data} | rest],
-         %{request_ref: ref, websocket: nil} = state
-       ) do
-    handle_responses(rest, %{state | upgrade_buffer: state.upgrade_buffer <> data})
-  end
-
-  defp handle_responses([{:data, ref, data} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, decode_ws_data(data, state))
-  end
-
-  defp handle_responses([_other | rest], state) do
-    handle_responses(rest, state)
-  end
-
-  defp decode_buffered_upgrade_data(%{upgrade_buffer: <<>>} = state), do: state
-
-  defp decode_buffered_upgrade_data(state) do
-    decode_ws_data(state.upgrade_buffer, %{state | upgrade_buffer: <<>>})
-  end
-
-  defp decode_ws_data(data, state) do
-    case Mint.WebSocket.decode(state.websocket, data) do
-      {:ok, websocket, frames} ->
-        Enum.reduce(frames, %{state | websocket: websocket}, &handle_ws_frame/2)
-
-      {:error, websocket, reason} ->
-        Logger.warning("feishu_openapi ws decode error: #{inspect(reason)}")
-        %{state | websocket: websocket}
+      {:retry, reason} ->
+        maybe_schedule_reconnect(state, reason)
     end
   end
 
@@ -516,17 +457,14 @@ defmodule FeishuOpenAPI.WS.Client do
   end
 
   # The provider redelivers an event that was not acked.
-  defp send_dispatch_response(_frame, _dispatch_result, _duration_ms, %{conn: nil} = state),
-    do: state
-
-  defp send_dispatch_response(_frame, _dispatch_result, _duration_ms, %{websocket: nil} = state),
+  defp send_dispatch_response(_frame, _dispatch_result, _duration_ms, %{socket: nil} = state),
     do: state
 
   defp send_dispatch_response(
          _frame,
          _dispatch_result,
          _duration_ms,
-         %{request_ref: nil} = state
+         %{socket: %{websocket: nil}} = state
        ),
        do: state
 
@@ -624,7 +562,8 @@ defmodule FeishuOpenAPI.WS.Client do
     Enum.all?(0..(sum - 1), &Map.has_key?(parts, &1))
   end
 
-  defp send_ping(%{websocket: nil} = state), do: {:error, :not_connected, state}
+  defp send_ping(%{socket: nil} = state), do: {:error, :not_connected, state}
+  defp send_ping(%{socket: %{websocket: nil}} = state), do: {:error, :not_connected, state}
 
   # Application ping (`method: 0`), distinct from a transport ping. The server
   # can attach updated config to the pong.
@@ -654,19 +593,13 @@ defmodule FeishuOpenAPI.WS.Client do
   end
 
   defp send_websocket_frame(frame, state) do
-    case Mint.WebSocket.encode(state.websocket, frame) do
-      {:ok, websocket, data} ->
-        case Mint.WebSocket.stream_request_body(state.conn, state.request_ref, data) do
-          {:ok, conn} -> {:ok, %{state | conn: conn, websocket: websocket}}
-          {:error, conn, reason} -> {:error, reason, %{state | conn: conn, websocket: websocket}}
-        end
-
-      {:error, websocket, reason} ->
-        {:error, reason, %{state | websocket: websocket}}
+    case WebSocket.send_frame(state.socket, frame) do
+      {:ok, socket} -> {:ok, %{state | socket: socket}}
+      {:error, socket, reason} -> {:error, reason, %{state | socket: socket}}
     end
   end
 
-  defp schedule_ping(%{websocket: websocket, ping_interval_s: ping_interval_s} = state)
+  defp schedule_ping(%{socket: %{websocket: websocket}, ping_interval_s: ping_interval_s} = state)
        when not is_nil(websocket) and is_integer(ping_interval_s) and ping_interval_s > 0 do
     if state.ping_timer, do: Process.cancel_timer(state.ping_timer)
     ref = Process.send_after(self(), :ping, :timer.seconds(state.ping_interval_s))
@@ -779,24 +712,17 @@ defmodule FeishuOpenAPI.WS.Client do
 
   defp drop_conn(state) do
     if state.ping_timer, do: Process.cancel_timer(state.ping_timer)
-
-    if state.conn, do: _ = Mint.HTTP.close(state.conn)
-
+    WebSocket.close(state.socket)
     Enum.each(Map.keys(state.dispatch_tasks), &Process.demonitor(&1, [:flush]))
 
     %{
       state
-      | conn: nil,
-        websocket: nil,
-        request_ref: nil,
+      | socket: nil,
         service_id: 0,
         ping_timer: nil,
         status: :disconnected,
         fragments: %{},
-        dispatch_tasks: %{},
-        upgrade_buffer: <<>>,
-        _upgrade_status: nil,
-        _upgrade_headers: nil
+        dispatch_tasks: %{}
     }
   end
 

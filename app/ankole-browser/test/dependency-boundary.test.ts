@@ -11,7 +11,9 @@ test('browser data plane has no control-plane or Agent Computer dependency', asy
     const source = await readFile(resolve(packageRoot, file), 'utf8')
     for (const match of source.matchAll(/(?:from\s+|import\s*\()\s*['"]([^'"]+)['"]/g)) {
       const specifier = match[1]!
-      if (specifier.startsWith('@ankole/')) violations.push(`${file}: ${specifier}`)
+      if (specifier.startsWith('@ankole/') && specifier !== '@ankole/kernel') {
+        violations.push(`${file}: ${specifier}`)
+      }
       if (/control_plane|agent_computer|AppConfigure|Principal|BackgroundAgentJob/i.test(specifier)) {
         violations.push(`${file}: ${specifier}`)
       }

@@ -91,6 +91,32 @@ defmodule Ankole.WorkerFiles do
   end
 
   @doc """
+  Receives one complete Worker file and passes its temporary path to `fun`.
+
+  The stream and callback run in the calling process. The callback runs only
+  after the transfer completes. Relay failures return `{:error, reason}`;
+  other exceptions propagate. The temporary file is removed on every exit.
+  """
+  @spec with_received_file(String.t(), keyword(), (Path.t() -> result)) ::
+          result | {:error, term()}
+        when result: var
+  def with_received_file(home_relative_path, opts, fun)
+      when is_binary(home_relative_path) and is_list(opts) and is_function(fun, 1) do
+    local_path = Ankole.Files.temp_path()
+
+    try do
+      with {:ok, %{"body" => body}} <- stream(home_relative_path, opts) do
+        Enum.into(body, File.stream!(local_path))
+        fun.(local_path)
+      end
+    rescue
+      error in RelayError -> {:error, error.reason}
+    after
+      File.rm(local_path)
+    end
+  end
+
+  @doc """
   Copies several files under one directory of the Agent Home of the Worker in
   `worker:` into `target_dir` with one transfer.
 

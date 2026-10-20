@@ -69,6 +69,11 @@ The adapter accepts private chats, groups, supergroups, and independent forum
 topics. The `provider_conversation_id` includes the Bot ID and chat ID. A forum topic also
 includes `message_thread_id`, so topics remain separate Agent sessions.
 
+Reaction updates have no topic ID. The adapter reads the message's saved
+conversation before it accepts a reaction. A missing reference uses the base
+chat; a database error fails ingress and leaves the update unconfirmed for
+redelivery. It must not move a topic reaction into the base chat.
+
 A direct message is explicit input. In a group, these forms are explicit:
 
 - a structured mention of the current Bot;

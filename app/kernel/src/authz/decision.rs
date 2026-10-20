@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, OnceLock};
 
 use globset::GlobMatcher;
@@ -37,6 +37,29 @@ pub struct AuthzBatchSnapshot {
     pub actions: Vec<String>,
     #[serde(default)]
     pub context: JSONValue,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthzCheck {
+    pub resource: String,
+    pub action: String,
+    /// None uses all candidate grants. An empty list cannot grant permission.
+    #[serde(default, rename = "grantIDs")]
+    pub grant_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AuthzChecksSnapshot {
+    #[serde(flatten)]
+    pub snapshot: AuthzBatchSnapshot,
+    pub checks: Vec<AuthzCheck>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AuthzCheckDecisions {
+    pub allowed: Vec<bool>,
+    pub diagnostics: Vec<AuthzDiagnostic>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -136,15 +159,12 @@ pub fn authorize_all(snapshot: AuthzBatchSnapshot) -> KernelResult<AuthzDecision
         ));
     }
 
+    let evaluator =
+        GrantEvaluator::new(&snapshot.principal, &effective_group_ids, &snapshot.context)?;
+
     for action in &snapshot.actions {
-        let (allowed, mut action_diagnostics) = grants_allow(
-            &snapshot.principal,
-            &effective_group_ids,
-            &snapshot.grants,
-            &snapshot.resource,
-            action,
-            &snapshot.context,
-        )?;
+        let (allowed, mut action_diagnostics) =
+            evaluator.allows(&snapshot.grants, &snapshot.resource, action)?;
 
         diagnostics.append(&mut action_diagnostics);
 
@@ -179,6 +199,68 @@ pub fn authorize_all_value(snapshot: JSONValue) -> KernelResult<JSONValue> {
         .map_err(|reason| KernelError::new(format!("failed to encode authz decision: {reason}")))
 }
 
+/// Evaluates independent checks with one subject, group evaluation, and CEL environment.
+pub fn authorize_checks(input: AuthzChecksSnapshot) -> KernelResult<AuthzCheckDecisions> {
+    let snapshot = input.snapshot;
+    let (effective_group_ids, mut diagnostics) = effective_group_ids(
+        &snapshot.principal,
+        &snapshot.static_group_ids,
+        &snapshot.computed_groups,
+    )?;
+    let mut allowed = vec![false; input.checks.len()];
+
+    if snapshot.principal.status == "active" {
+        let evaluator =
+            GrantEvaluator::new(&snapshot.principal, &effective_group_ids, &snapshot.context)?;
+        let mut by_action: HashMap<&str, Vec<&SnapshotGrant>> = HashMap::new();
+        let mut by_id = HashMap::new();
+        for grant in &snapshot.grants {
+            by_action.entry(&grant.action).or_default().push(grant);
+            by_id.insert(grant.id.as_str(), grant);
+        }
+
+        for (check, allowed) in input.checks.iter().zip(&mut allowed) {
+            if check.resource.is_empty() || check.action.is_empty() {
+                continue;
+            }
+            let grants: Vec<_> = match &check.grant_ids {
+                Some(ids) => ids
+                    .iter()
+                    .filter_map(|id| by_id.get(id.as_str()).copied())
+                    .collect(),
+                None => by_action
+                    .get(check.action.as_str())
+                    .cloned()
+                    .unwrap_or_default(),
+            };
+            let (result, mut check_diagnostics) =
+                evaluator.allows(grants, &check.resource, &check.action)?;
+            *allowed = result;
+            diagnostics.append(&mut check_diagnostics);
+        }
+    }
+
+    let mut seen = HashSet::new();
+    diagnostics.retain(|diagnostic| {
+        seen.insert((
+            diagnostic.kind.clone(),
+            diagnostic.id.clone(),
+            diagnostic.reason.clone(),
+        ))
+    });
+    Ok(AuthzCheckDecisions {
+        allowed,
+        diagnostics,
+    })
+}
+
+pub fn authorize_checks_value(snapshot: JSONValue) -> KernelResult<JSONValue> {
+    let input = serde_json::from_value(snapshot)
+        .map_err(|reason| KernelError::new(format!("invalid authz checks snapshot: {reason}")))?;
+    serde_json::to_value(authorize_checks(input)?)
+        .map_err(|reason| KernelError::new(format!("failed to encode authz checks: {reason}")))
+}
+
 fn authorize_one(snapshot: &AuthzSnapshot) -> KernelResult<AuthzDecision> {
     if snapshot.action.is_empty() || snapshot.resource.is_empty() {
         return Ok(decision("invalid_request", Vec::new(), Vec::new(), None));
@@ -199,14 +281,10 @@ fn authorize_one(snapshot: &AuthzSnapshot) -> KernelResult<AuthzDecision> {
         ));
     }
 
-    let (allowed, mut grant_diagnostics) = grants_allow(
-        &snapshot.principal,
-        &effective_group_ids,
-        &snapshot.grants,
-        &snapshot.resource,
-        &snapshot.action,
-        &snapshot.context,
-    )?;
+    let evaluator =
+        GrantEvaluator::new(&snapshot.principal, &effective_group_ids, &snapshot.context)?;
+    let (allowed, mut grant_diagnostics) =
+        evaluator.allows(&snapshot.grants, &snapshot.resource, &snapshot.action)?;
     diagnostics.append(&mut grant_diagnostics);
 
     Ok(decision(
@@ -272,62 +350,78 @@ fn effective_group_ids(
 /// A grant can allow only after owner, exact action, resource pattern, and CEL
 /// condition all match. Any invalid persisted pattern or condition is skipped
 /// with diagnostics, and the default is deny.
-fn grants_allow(
-    principal: &SnapshotPrincipal,
-    effective_group_ids: &[String],
-    grants: &[SnapshotGrant],
-    resource: &str,
-    action: &str,
-    request_context: &JSONValue,
-) -> KernelResult<(bool, Vec<AuthzDiagnostic>)> {
-    let effective_group_ids: HashSet<&str> =
-        effective_group_ids.iter().map(String::as_str).collect();
-    let cel_context = cel::build_context(vec![
-        ("principal", principal_to_json(principal)),
-        ("resource", JSONValue::String(resource.to_owned())),
-        ("action", JSONValue::String(action.to_owned())),
-        ("context", normalized_context(request_context)),
-    ])?;
-    let normalized_resource = normalize_resource_for_glob(resource);
-    let mut diagnostics = Vec::new();
+struct GrantEvaluator<'a> {
+    principal_uid: &'a str,
+    effective_group_ids: HashSet<&'a str>,
+    context: ::cel::Context<'static, 'static>,
+}
 
-    for grant in grants {
-        if grant.action != action
-            || !grant_owned_by_subject(grant, &principal.uid, &effective_group_ids)
-        {
-            continue;
-        }
-
-        match cached_resource_pattern_matches(&grant.resource_pattern, &normalized_resource) {
-            Ok(false) => continue,
-            Err(reason) => {
-                diagnostics.push(grant_diagnostic(grant, "resource_pattern", reason));
-                continue;
-            }
-            Ok(true) => {}
-        }
-
-        let program = match cached_condition_program(&grant.condition) {
-            Ok(program) => program,
-            Err(reason) => {
-                diagnostics.push(grant_diagnostic(grant, "condition_compile", reason));
-                continue;
-            }
-        };
-
-        match cel::execute_bool(&program, &cel_context) {
-            Ok(true) => return Ok((true, diagnostics)),
-            Ok(false) => {}
-            Err(BoolEvalError::Execution(reason)) => {
-                diagnostics.push(grant_diagnostic(grant, "condition_execution", reason));
-            }
-            Err(BoolEvalError::ResultType(reason)) => {
-                diagnostics.push(grant_diagnostic(grant, "condition_result_type", reason));
-            }
-        }
+impl<'a> GrantEvaluator<'a> {
+    fn new(
+        principal: &'a SnapshotPrincipal,
+        effective_group_ids: &'a [String],
+        request_context: &JSONValue,
+    ) -> KernelResult<Self> {
+        Ok(Self {
+            principal_uid: &principal.uid,
+            effective_group_ids: effective_group_ids.iter().map(String::as_str).collect(),
+            context: cel::build_context(vec![
+                ("principal", principal_to_json(principal)),
+                ("context", normalized_context(request_context)),
+            ])?,
+        })
     }
 
-    Ok((false, diagnostics))
+    fn allows<'g>(
+        &self,
+        grants: impl IntoIterator<Item = &'g SnapshotGrant>,
+        resource: &str,
+        action: &str,
+    ) -> KernelResult<(bool, Vec<AuthzDiagnostic>)> {
+        let mut cel_context = self.context.new_inner_scope();
+        cel_context.add_variable_from_value("resource", resource.to_owned());
+        cel_context.add_variable_from_value("action", action.to_owned());
+        let normalized_resource = normalize_resource_for_glob(resource);
+        let mut diagnostics = Vec::new();
+
+        for grant in grants {
+            if grant.action != action
+                || !grant_owned_by_subject(grant, self.principal_uid, &self.effective_group_ids)
+            {
+                continue;
+            }
+
+            match cached_resource_pattern_matches(&grant.resource_pattern, &normalized_resource) {
+                Ok(false) => continue,
+                Err(reason) => {
+                    diagnostics.push(grant_diagnostic(grant, "resource_pattern", reason));
+                    continue;
+                }
+                Ok(true) => {}
+            }
+
+            let program = match cached_condition_program(&grant.condition) {
+                Ok(program) => program,
+                Err(reason) => {
+                    diagnostics.push(grant_diagnostic(grant, "condition_compile", reason));
+                    continue;
+                }
+            };
+
+            match cel::execute_bool(&program, &cel_context) {
+                Ok(true) => return Ok((true, diagnostics)),
+                Ok(false) => {}
+                Err(BoolEvalError::Execution(reason)) => {
+                    diagnostics.push(grant_diagnostic(grant, "condition_execution", reason));
+                }
+                Err(BoolEvalError::ResultType(reason)) => {
+                    diagnostics.push(grant_diagnostic(grant, "condition_result_type", reason));
+                }
+            }
+        }
+
+        Ok((false, diagnostics))
+    }
 }
 
 fn grant_owned_by_subject(

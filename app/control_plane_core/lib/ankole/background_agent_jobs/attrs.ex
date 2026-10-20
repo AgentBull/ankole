@@ -2,26 +2,11 @@ defmodule Ankole.BackgroundAgentJobs.Attrs do
   @moduledoc false
 
   @spec normalize(map()) :: map()
-  def normalize(map) when is_map(map) do
-    Map.new(map, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
+  defdelegate normalize(map), to: Ankole.Attrs, as: :normalize_external_attrs
 
   @spec text(map(), String.t()) :: String.t() | nil
-  def text(map, key) when is_map(map) and is_binary(key) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
-  end
+  def text(map, key) when is_map(map) and is_binary(key),
+    do: map |> Ankole.Attrs.get_truthy(key) |> Ankole.Attrs.optional_text()
 
   @spec reject_nil_values(map()) :: map()
   def reject_nil_values(map) when is_map(map) do

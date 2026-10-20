@@ -1,4 +1,6 @@
 import { t } from 'i18next'
+import { useTranslation } from 'react-i18next'
+import { editorLabels } from './state/editor-labels'
 import { BlockEditor } from '@ankole/block-editor'
 import {
   insertEmbed,
@@ -455,6 +457,8 @@ function PageContent({
 
 function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceType<typeof PageDraftModel> }) {
   useSignals()
+  const { i18n } = useTranslation()
+  const labels = useMemo(() => editorLabels(i18n.language), [i18n.language])
   const [generation, setGeneration] = useState(0)
   const [initialXML, setInitialXML] = useState(detail.content?.xml ?? '<page/>')
   const initialDocument = useMemo(() => parseXml(initialXML), [initialXML])
@@ -635,6 +639,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
       ) : (
         <BlockEditor
           key={generation}
+          labels={labels}
           initial={initialDocument}
           host={host}
           readOnly={detail.role === 'view' || model.conflict.value}

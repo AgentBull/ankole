@@ -55,13 +55,7 @@ defmodule Ankole.Plugins.SlackAdapter.Config do
   @spec binding_config_key(String.t(), String.t()) :: String.t()
   def binding_config_key(agent_uid, binding_name)
       when is_binary(agent_uid) and is_binary(binding_name) do
-    id =
-      [agent_uid, binding_name]
-      |> Ankole.JSON.encode!()
-      |> then(&:crypto.hash(:sha256, &1))
-      |> Base.encode16(case: :lower)
-
-    "signals.slack.bindings.#{id}"
+    Ankole.Signals.Bindings.binding_config_key("signals.slack.bindings", agent_uid, binding_name)
   end
 
   @spec validate_chat_config(term()) :: {:ok, chat_config()} | {:error, term()}

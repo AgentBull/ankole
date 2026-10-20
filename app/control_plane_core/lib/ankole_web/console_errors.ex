@@ -1,10 +1,48 @@
 defmodule AnkoleWeb.ConsoleErrors do
   @moduledoc """
-  Shared renderer for console REST API error envelopes.
+  Shared action fallback and renderer for console REST API errors.
   """
 
   import Plug.Conn, only: [put_status: 2]
   import Phoenix.Controller, only: [json: 2]
+
+  @behaviour Plug
+
+  @impl true
+  def init(failure), do: failure
+
+  @impl true
+  def call(conn, failure), do: fallback(conn, failure)
+
+  @doc """
+  Handles a failed Console action.
+
+  Authorization failures share one response. A controller with business errors
+  supplies its local handler for every other reason, including its existing
+  validation policy. Controllers with only common errors can use this module
+  directly as their Phoenix action fallback.
+  """
+  def fallback(conn, failure, local_error \\ nil)
+
+  def fallback(conn, {:error, :forbidden}, _local_error), do: forbidden(conn)
+
+  def fallback(conn, {:error, {:missing, key}}, nil), do: required_field(conn, key)
+
+  def fallback(conn, {:error, %Ecto.Changeset{} = changeset}, nil),
+    do: changeset(conn, changeset)
+
+  def fallback(conn, {:error, reason}, local_error) when is_function(local_error, 2),
+    do: local_error.(conn, reason)
+
+  @doc "Renders a Console authorization failure."
+  def forbidden(conn, message \\ "access denied"), do: render(conn, 403, "forbidden", message)
+
+  @doc "Renders a missing Console resource with its owning controller's message."
+  def not_found(conn, message), do: render(conn, 404, "not_found", message)
+
+  @doc "Renders a Console changeset validation failure."
+  def changeset(conn, changeset, message \\ "request validation failed"),
+    do: render(conn, 422, "validation_failed", message, changeset_details(changeset))
 
   @doc """
   Renders the console `%{error: %{code, message, details}}` envelope.
@@ -14,6 +52,10 @@ defmodule AnkoleWeb.ConsoleErrors do
     |> put_status(status)
     |> json(%{error: %{code: code, message: message, details: details}})
   end
+
+  @doc "Renders a missing required Console field."
+  def required_field(conn, key),
+    do: render(conn, 422, "validation_failed", "#{key} is required")
 
   @doc """
   Renders an unlisted error reason without leaking internal terms.

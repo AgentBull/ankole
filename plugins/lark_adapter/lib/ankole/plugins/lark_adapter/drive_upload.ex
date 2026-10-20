@@ -199,12 +199,7 @@ defmodule Ankole.Plugins.LarkAdapter.DriveUpload do
     end
   end
 
-  defp valid_url(%{"url" => url}) when is_binary(url) do
-    case String.trim(url) do
-      "" -> nil
-      url -> url
-    end
-  end
+  defp valid_url(%{"url" => url}) when is_binary(url), do: Ankole.Attrs.optional_text(url)
 
   defp valid_url(_meta), do: nil
 

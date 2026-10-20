@@ -459,18 +459,8 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     end
   end
 
-  defp required_text(map, key) do
-    case map_value(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:invalid_reply_interaction, key}}
-          value -> {:ok, value}
-        end
-
-      _value ->
-        {:error, {:invalid_reply_interaction, key}}
-    end
-  end
+  defp required_text(map, key),
+    do: Ankole.Attrs.required_text(map_value(map, key), {:invalid_reply_interaction, key})
 
   defp required_non_negative_integer(map, key) do
     case map_value(map, key) do

@@ -172,12 +172,12 @@ defmodule FeishuOpenAPI.WS.Protocol do
 
   defp parse_int(value) when is_binary(value) do
     case Integer.parse(value) do
-      {n, ""} -> {:ok, n}
-      _ -> :error
+      {integer, ""} -> {:ok, integer}
+      _invalid -> :error
     end
   end
 
-  defp parse_int(_), do: :error
+  defp parse_int(_value), do: :error
 
   defp header(headers, target) when is_map(headers) do
     Enum.find_value(headers, fn {k, v} ->
@@ -198,15 +198,9 @@ defmodule FeishuOpenAPI.WS.Protocol do
   defp header(_headers, _target), do: nil
 
   defp header_int(headers, target) do
-    case header(headers, target) do
-      nil ->
-        nil
-
-      value ->
-        case Integer.parse(value) do
-          {n, ""} -> n
-          _ -> nil
-        end
+    case headers |> header(target) |> parse_int() do
+      {:ok, integer} -> integer
+      :error -> nil
     end
   end
 

@@ -6,6 +6,8 @@ defmodule AnkoleWeb.WebhookEndpointController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Signals.Webhooks
@@ -91,8 +93,6 @@ defmodule AnkoleWeb.WebhookEndpointController do
         webhook_endpoint: Webhooks.console_projection(result.webhook_endpoint),
         token: result.token
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -101,8 +101,6 @@ defmodule AnkoleWeb.WebhookEndpointController do
          {:ok, id} <- uuid_param(params, :webhook_endpoint_id),
          {:ok, %{webhook_endpoint: endpoint}} <- Webhooks.cancel_endpoint(nil, nil, id) do
       json(conn, %{webhook_endpoint: Webhooks.console_projection(endpoint)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -118,8 +116,6 @@ defmodule AnkoleWeb.WebhookEndpointController do
         |> Enum.map(&Webhooks.console_projection/1)
 
       json(conn, %{webhook_endpoints: endpoints})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -130,8 +126,6 @@ defmodule AnkoleWeb.WebhookEndpointController do
          {:ok, %{webhook_endpoint: endpoint}} <-
            Webhooks.cancel_endpoint(agent_uid, nil, endpoint_id) do
       json(conn, %{webhook_endpoint: Webhooks.console_projection(endpoint)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -152,26 +146,28 @@ defmodule AnkoleWeb.WebhookEndpointController do
 
   defp webhook_resource(agent_uid), do: "agent:#{agent_uid}:webhooks"
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :webhook_endpoint_not_found),
-    do: error(conn, 404, "not_found", "webhook endpoint was not found")
+    do: ConsoleErrors.not_found(conn, "webhook endpoint was not found")
 
   defp error(conn, {:missing, key}) do
-    error(conn, 422, "validation_failed", "#{key} is required")
+    ConsoleErrors.required_field(conn, key)
   end
 
   defp error(conn, {:invalid_uuid, key}) do
-    error(conn, 422, "validation_failed", "#{key} must be a UUID")
+    ConsoleErrors.render(conn, 422, "validation_failed", "#{key} must be a UUID")
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_webhook_endpoint", "webhook endpoint request is invalid", [
-      %{reason: inspect(reason)}
-    ])
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
+    ConsoleErrors.render(
+      conn,
+      422,
+      "invalid_webhook_endpoint",
+      "webhook endpoint request is invalid",
+      [
+        %{reason: inspect(reason)}
+      ]
+    )
   end
 end

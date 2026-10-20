@@ -27,7 +27,7 @@ observation and delivery route, not the owner of the platform room.
 | Adapter category | `consumer_im` |
 | Signal configuration | `signals.discord.bindings.<id>` |
 | REST client | Project `Req` client against API v10 |
-| Gateway client | Project `Mint.WebSocket` client |
+| Gateway client | `IMTransport.WebSocket` through the Discord socket |
 
 The only setting is the required encrypted `botToken`. One token can belong to
 only one enabled Discord binding. The adapter does not use a Discord library.

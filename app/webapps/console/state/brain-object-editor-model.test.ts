@@ -1,89 +1,34 @@
 import { describe, expect, test } from 'bun:test'
+import type { BrainObjectPage } from '../api/generated/types.gen'
+import markdocCases from '../../../kernel/test/fixtures/brain_markdoc.json'
 import {
   BrainObjectEditorModel,
+  brainObjectSnapshot,
   emptyBrainObjectSnapshot,
   parseBrainObjectMeta,
   previewBrainObjectBody
 } from './brain-object-editor-model'
 
 describe('previewBrainObjectBody', () => {
-  test('multiline code spans keep audience tags literal in public and private text', () => {
-    for (const delimiter of ['`', '``', '````']) {
-      const code = `Example: ${delimiter}\n{% audience scope="principal:bob" %}\nliteral\n{% /audience %}\nend ${delimiter}\n`
-      expect(previewBrainObjectBody(code)).toEqual([{ scope: 'world', text: code }])
-      expect(
-        previewBrainObjectBody(`{% audience scope="principal:alice" %}\n${code}Still private\n{% /audience %}`)
-      ).toEqual([{ scope: 'principal:alice', text: `${code}Still private\n` }])
-    }
-  })
-
-  test('an unmatched code delimiter does not hide a real audience boundary', () => {
-    expect(
-      previewBrainObjectBody('Example: `\n{% audience scope="principal:alice" %}\nPrivate\n{% /audience %}')
-    ).toEqual([
-      { scope: 'world', text: 'Example: `\n' },
-      { scope: 'principal:alice', text: 'Private\n' }
-    ])
-  })
-
-  test('an explicit world block closes before an adjacent private block', () => {
-    expect(
-      previewBrainObjectBody(
-        [
-          '{% audience scope="world" %}',
-          'Public',
-          '{% /audience %}',
-          '{% audience scope="principal:alice" %}',
-          'Private',
-          '{% /audience %}',
-          'Tail'
-        ].join('\n')
-      )
-    ).toEqual([
-      { scope: 'world', text: 'Public\n' },
-      { scope: 'principal:alice', text: 'Private\n' },
-      { scope: 'world', text: 'Tail' }
-    ])
-  })
-  test('splits root audience blocks and keeps document order', () => {
-    const body = [
-      '# Public',
-      '{% audience scope="principal:alice" %}',
-      'Private',
-      '{% /audience %}',
-      'Public tail'
-    ].join('\n')
-
-    expect(previewBrainObjectBody(body)).toEqual([
-      { scope: 'world', text: '# Public\n' },
-      { scope: 'principal:alice', text: 'Private\n' },
-      { scope: 'world', text: 'Public tail' }
-    ])
-  })
-
-  test('does not treat a tag line inside a fence as a scope boundary', () => {
-    const body = [
-      '{% audience scope="principal:alice" %}',
-      'Private',
-      '~~~markdoc',
-      '{% /audience %}',
-      '~~~',
-      'Still private',
-      '{% /audience %}'
-    ].join('\n')
-
-    expect(previewBrainObjectBody(body)).toEqual([
-      {
-        scope: 'principal:alice',
-        text: `${['Private', '~~~markdoc', '{% /audience %}', '~~~', 'Still private'].join('\n')}\n`
+  for (const fixture of markdocCases) {
+    test(fixture.name, () => {
+      const result = previewBrainObjectBody(fixture.source)
+      if (fixture.error) {
+        expect(result.segments).toEqual([])
+        expect(String(result.error?.code)).toBe(fixture.error.code)
+        expect(result.error?.line).toBe(fixture.error.line)
+      } else {
+        expect(result).toEqual({ segments: fixture.segments })
       }
-    ])
-  })
+    })
+  }
 
-  test('shows wikilinks as literal Markdown text', () => {
-    expect(previewBrainObjectBody('See [[companies/acme]].')).toEqual([
-      { scope: 'world', text: 'See [[companies/acme]].' }
-    ])
+  test('invalid bodies have no scope preview', () => {
+    const model = new BrainObjectEditorModel()
+    model.body.value = 'See {% audience scope="principal:alice" %}\nprivate\n{% /audience %}'
+    expect(model.preview.value).toEqual([])
+    expect(model.previewError.value).toEqual({ code: 'misplaced_audience_tag', line: 1 })
+    model[Symbol.dispose]()
   })
 })
 
@@ -96,6 +41,7 @@ describe('BrainObjectEditorModel', () => {
     model.slug.value = 'notes/one'
     model.title.value = 'One'
     model.body.value = 'Body'
+    model.tags.value = [' research ', 'AI', 'research', '']
     model.metaText.value = '{"source":"console"}'
     model.effectiveDate.value = '2026-08-30'
     expect(model.draftError('new')).toBeUndefined()
@@ -103,13 +49,61 @@ describe('BrainObjectEditorModel', () => {
       slug: 'notes/one',
       type: 'note',
       body: 'Body',
+      tags: ['research', 'AI'],
       meta: { source: 'console' },
       effective_date: '2026-08-30'
     })
 
     model.contentHash.value = 'hash-1'
     expect(model.updateBody().expected_content_hash).toBe('hash-1')
+    model.tags.value = []
+    expect(model.updateBody().tags).toEqual([])
     expect(model.dirty.value).toBeTrue()
+    model[Symbol.dispose]()
+  })
+
+  test('preserves each tag through loading, unrelated edits, and tag edits', () => {
+    const model = new BrainObjectEditorModel()
+    const originalTags = ['alpha\nbeta', 'literal\\ntext', 'one\rtwo', 'one\r\ntwo']
+    const page: BrainObjectPage = {
+      slug: 'notes/tags',
+      type: 'note',
+      title: 'Tags',
+      body: 'Body',
+      meta: {},
+      tags: originalTags,
+      content_hash: 'hash-1',
+      editable: true,
+      contradictions: [],
+      deleted: false,
+      facts: [],
+      rendered: 'Body',
+      takes: [],
+      links: { outgoing: [], incoming: [] },
+      timelines: [],
+      subtype: null,
+      effective_date: null,
+      edit_block_reason: null
+    }
+    model.initialize('object:notes/tags', brainObjectSnapshot(page))
+    expect(model.dirty.value).toBeFalse()
+    expect(model.updateBody().tags).toEqual(originalTags)
+
+    model.title.value = 'Renamed'
+    expect(model.updateBody().tags).toEqual(originalTags)
+    model.updateTag(1, 'renamed\\ntext')
+    expect(model.updateBody().tags).toEqual(['alpha\nbeta', 'renamed\\ntext', 'one\rtwo', 'one\r\ntwo'])
+    expect(originalTags[1]).toBe('literal\\ntext')
+
+    model.addTag()
+    model.updateTag(4, 'new\nmultiline')
+    model.removeTag(1)
+    expect(model.updateBody().tags).toEqual(['alpha\nbeta', 'one\rtwo', 'one\r\ntwo', 'new\nmultiline'])
+    model.markSaved(page)
+    expect(model.tags.value).toEqual(originalTags)
+    expect(model.dirty.value).toBeFalse()
+    model.reset()
+    expect(model.tags.value).toEqual([])
     model[Symbol.dispose]()
   })
 

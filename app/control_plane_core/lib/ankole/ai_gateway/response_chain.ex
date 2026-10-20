@@ -512,7 +512,7 @@ defmodule Ankole.AIGateway.ResponseChain do
   def create_compaction_checkpoint(attrs) when is_map(attrs) do
     raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     artifact = Map.fetch!(attrs, :artifact)
-    metadata = Map.get(attrs, :metadata, Map.get(attrs, "metadata", %{}))
+    metadata = Ankole.Attrs.get(attrs, :metadata, %{})
     conversation_id = conversation_id(attrs)
     previous_response_id = previous_response_id(attrs)
 
@@ -600,10 +600,10 @@ defmodule Ankole.AIGateway.ResponseChain do
   end
 
   def previous_response_id(attrs),
-    do: Map.get(attrs, :previous_response_id, Map.get(attrs, "previous_response_id"))
+    do: Ankole.Attrs.get(attrs, :previous_response_id)
 
   def conversation_id(attrs),
-    do: Map.get(attrs, :conversation_id, Map.get(attrs, "conversation_id"))
+    do: Ankole.Attrs.get(attrs, :conversation_id)
 
   def complete_message_for_subject(subject_uid, message_id) do
     complete_message_for_subject(Repo, subject_uid, message_id)

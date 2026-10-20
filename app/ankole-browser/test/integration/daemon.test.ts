@@ -368,6 +368,18 @@ describe.skipIf(!enabled)('real daemon, Chromium, dialog, and code lease', () =>
       args: { expression: `localStorage.getItem('browser-test')` }
     })
     expect(stored.ok && stored.data).toBe('from-code')
+    const server = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      fetch: () => new Response('<main>Restored proxy connection</main>', { headers: { 'content-type': 'text/html' } })
+    })
+    try {
+      const fetched = await sendBrowserCommand(context, { name: 'fetch', args: { urls: [server.url.href] } })
+      expect(fetched.ok).toBe(true)
+      expect(JSON.stringify(fetched)).toContain('Restored proxy connection')
+    } finally {
+      server.stop(true)
+    }
   }, 20_000)
 })
 

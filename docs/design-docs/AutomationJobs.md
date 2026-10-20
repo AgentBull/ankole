@@ -45,6 +45,11 @@ inside the JavaScript safe-integer range. PostgreSQL checks the lifecycle shape
 for each state. An event can contain at most 1 MiB. Each log or error field can
 contain at most 64 KiB.
 
+`Ankole.ModelIntegerID` owns the bounds and canonical decimal input form for
+domain guards, RPC inputs, activity cursors, and Console schemas. A wire ID has
+no sign or leading zeros. Counts such as schedule occurrences keep their own
+range; they are not IDs.
+
 ## Bind a Trigger
 
 Checkbacks, cron schedules, and callback capabilities have an optional

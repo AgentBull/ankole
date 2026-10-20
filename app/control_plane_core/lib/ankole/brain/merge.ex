@@ -104,6 +104,7 @@ defmodule Ankole.Brain.Merge do
                {:ok, _alias} <- keep_duplicate_name(repo, canonical, duplicate),
                {:ok, _duplicate} <- repo.delete(duplicate),
                {:ok, _redirect} <- insert_redirect(repo, canonical, duplicate),
+               {:ok, canonical} <- Objects.refresh_content_hash_in_tx(repo, canonical),
                {:ok, _object} <- Objects.reconcile_chunks(canonical, repo: repo),
                {:ok, _suggestion} <- decide(repo, suggestion, "approved", decided_by) do
             {:ok,

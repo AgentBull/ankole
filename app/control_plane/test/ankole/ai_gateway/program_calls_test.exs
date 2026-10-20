@@ -5,7 +5,7 @@ defmodule Ankole.AIGateway.ProgramCallsTest do
   alias Ankole.AIGateway.ProgrammaticToolCalling, as: PTC
   alias Ankole.AIGateway.ToolContract.Descriptor
   alias Ankole.AIGateway.ToolSearch
-  alias Ankole.AIGateway.ToolSearch.StreamLoop
+  alias Ankole.AIGateway.HostedTools.StreamLoop
 
   defp function_tool(name, callers, extra \\ %{}) do
     Map.merge(

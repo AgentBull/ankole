@@ -7,6 +7,8 @@ defmodule Ankole.AutomationJobs do
   an automation job.
   """
 
+  require Ankole.ModelIntegerID
+
   import Ecto.Query, warn: false
 
   alias Ankole.AutomationJobs.Jobs.ExecuteRun
@@ -92,7 +94,7 @@ defmodule Ankole.AutomationJobs do
           {:ok, Job.t()} | {:error, :automation_job_not_found}
   def get_job(agent_uid, owner_session_id, job_id)
       when is_binary(agent_uid) and (is_binary(owner_session_id) or is_nil(owner_session_id)) and
-             is_integer(job_id) and job_id > 0 do
+             Ankole.ModelIntegerID.valid?(job_id) do
     query =
       Job
       |> where([job], job.id == ^job_id and job.agent_uid == ^String.downcase(agent_uid))
@@ -118,8 +120,8 @@ defmodule Ankole.AutomationJobs do
   def cancel_job(agent_uid, owner_session_id, job_id, opts \\ [])
 
   def cancel_job(agent_uid, owner_session_id, job_id, opts)
-      when is_binary(agent_uid) and is_binary(owner_session_id) and is_integer(job_id) and
-             job_id > 0 do
+      when is_binary(agent_uid) and is_binary(owner_session_id) and
+             Ankole.ModelIntegerID.valid?(job_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
@@ -164,7 +166,7 @@ defmodule Ankole.AutomationJobs do
   def validate_bindable_in_tx(_repo, nil, _agent_uid), do: :ok
 
   def validate_bindable_in_tx(repo, job_id, agent_uid)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
     normalized_agent_uid = String.downcase(agent_uid)
 
     case lock_job(repo, job_id) do
@@ -192,7 +194,7 @@ defmodule Ankole.AutomationJobs do
   def enqueue_run_in_tx(repo, job_id, agent_uid, event, opts \\ [])
 
   def enqueue_run_in_tx(repo, job_id, agent_uid, event, opts)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(event) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and is_map(event) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
@@ -218,7 +220,7 @@ defmodule Ankole.AutomationJobs do
   @spec pending_run(pos_integer()) ::
           {:ok, %{agent_uid: String.t(), waiting_since: DateTime.t(), run: Run.t()}}
           | {:error, :automation_job_run_finished | :automation_job_run_not_found}
-  def pending_run(run_id) when is_integer(run_id) and run_id > 0 do
+  def pending_run(run_id) when Ankole.ModelIntegerID.valid?(run_id) do
     Run
     |> join(:inner, [run], job in Job, on: job.id == run.automation_job_id)
     |> where([run], run.id == ^run_id)
@@ -239,7 +241,7 @@ defmodule Ankole.AutomationJobs do
   @doc false
   @spec start_attempt(pos_integer(), keyword()) ::
           {:ok, :noop | %{automation_job: Job.t(), run: Run.t()}} | {:error, term()}
-  def start_attempt(run_id, opts \\ []) when is_integer(run_id) and run_id > 0 do
+  def start_attempt(run_id, opts \\ []) when Ankole.ModelIntegerID.valid?(run_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
@@ -276,7 +278,7 @@ defmodule Ankole.AutomationJobs do
   @spec finish_attempt(pos_integer(), Ecto.UUID.t(), map(), keyword()) ::
           {:ok, Run.t() | :stale} | {:error, term()}
   def finish_attempt(run_id, attempt_id, result, opts \\ [])
-      when is_integer(run_id) and run_id > 0 and is_binary(attempt_id) and is_map(result) do
+      when Ankole.ModelIntegerID.valid?(run_id) and is_binary(attempt_id) and is_map(result) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
     Repo.transact(fn repo ->
@@ -304,7 +306,7 @@ defmodule Ankole.AutomationJobs do
           keyword()
         ) :: {:ok, Run.t() | :stale} | {:error, term()}
   def infrastructure_failure(run_id, attempt_id, reason, disposition, opts \\ [])
-      when is_integer(run_id) and run_id > 0 and is_binary(attempt_id) and
+      when Ankole.ModelIntegerID.valid?(run_id) and is_binary(attempt_id) and
              disposition in [:retry, :exhausted] do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
@@ -353,7 +355,7 @@ defmodule Ankole.AutomationJobs do
   def emit_event(agent_uid, run_id, attempt_id, payload, opts \\ [])
 
   def emit_event(agent_uid, run_id, attempt_id, payload, opts)
-      when is_binary(agent_uid) and is_integer(run_id) and run_id > 0 and
+      when is_binary(agent_uid) and Ankole.ModelIntegerID.valid?(run_id) and
              is_binary(attempt_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
@@ -527,7 +529,7 @@ defmodule Ankole.AutomationJobs do
   end
 
   defp completion_attrs(result, now) do
-    status = value(result, "status")
+    status = Ankole.Attrs.get_truthy(result, "status")
 
     if status in ["succeeded", "failed"] do
       {:ok,
@@ -535,12 +537,12 @@ defmodule Ankole.AutomationJobs do
          status: status,
          attempt_id: nil,
          finished_at: now,
-         exit_code: value(result, "exit_code"),
-         error: bounded_nullable_text(value(result, "error"), @log_max_bytes),
-         stdout: bounded_text(value(result, "stdout") || "", @log_max_bytes),
-         stderr: bounded_text(value(result, "stderr") || "", @log_max_bytes),
-         stdout_truncated: value(result, "stdout_truncated") == true,
-         stderr_truncated: value(result, "stderr_truncated") == true
+         exit_code: Ankole.Attrs.get_truthy(result, "exit_code"),
+         error: bounded_nullable_text(Ankole.Attrs.get_truthy(result, "error"), @log_max_bytes),
+         stdout: bounded_text(Ankole.Attrs.get_truthy(result, "stdout") || "", @log_max_bytes),
+         stderr: bounded_text(Ankole.Attrs.get_truthy(result, "stderr") || "", @log_max_bytes),
+         stdout_truncated: Ankole.Attrs.get_truthy(result, "stdout_truncated") == true,
+         stderr_truncated: Ankole.Attrs.get_truthy(result, "stderr_truncated") == true
        }}
     else
       {:error, :invalid_automation_job_result}
@@ -706,7 +708,7 @@ defmodule Ankole.AutomationJobs do
   defp bounded_text(text, max_bytes), do: text |> inspect() |> bounded_text(max_bytes)
 
   defp route_text(route, key) when is_map(route) do
-    case Map.get(route, key) || Map.get(route, String.to_atom(key)) do
+    case Ankole.Attrs.get_truthy(route, key) do
       value when is_binary(value) and value != "" -> value
       _value -> nil
     end
@@ -715,7 +717,7 @@ defmodule Ankole.AutomationJobs do
   defp route_text(_route, _key), do: nil
 
   defp normalize_agent_uid(attrs) do
-    case value(attrs, "agent_uid") do
+    case Ankole.Attrs.get_truthy(attrs, "agent_uid") do
       agent_uid when is_binary(agent_uid) ->
         attrs
         |> Map.delete("agent_uid")
@@ -726,9 +728,6 @@ defmodule Ankole.AutomationJobs do
         attrs
     end
   end
-
-  defp value(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, String.to_atom(key))
 
   defp bounded_limit(value, max, _default) when is_integer(value) and value > 0,
     do: min(value, max)

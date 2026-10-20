@@ -490,8 +490,9 @@ defmodule Ankole.AIAgent.ModelProfiles do
   defp normalize_profile_attrs(_profile, _attrs), do: {:error, :invalid_model_profile}
 
   defp normalize_aigateway_profile(profile, attrs) do
-    with {:ok, provider_id} <- required_text(attrs, "provider_id"),
-         {:ok, model} <- required_text(attrs, "model"),
+    with {:ok, provider_id} <-
+           Attrs.required_text(Map.get(attrs, "provider_id"), {:missing, "provider_id"}),
+         {:ok, model} <- Attrs.required_text(Map.get(attrs, "model"), {:missing, "model"}),
          {:ok, provider} <- ProviderConfigs.fetch_active_provider(provider_id),
          {:ok, provider_kind} <- Providers.fetch(provider.provider_kind),
          :ok <- validate_profile_provider(profile, provider_kind),
@@ -532,8 +533,8 @@ defmodule Ankole.AIAgent.ModelProfiles do
   defp normalize_context_length(value) when is_integer(value) and value > 0, do: {:ok, value}
 
   defp normalize_context_length(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} when integer > 0 -> {:ok, integer}
+    case Ankole.Attrs.integer_value(value) do
+      integer when is_integer(integer) and integer > 0 -> {:ok, integer}
       _value -> {:error, :invalid_context_length}
     end
   end
@@ -547,7 +548,8 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp normalize_profile_description(profile, attrs) do
     if custom_profile_name?(profile) do
-      with {:ok, description} <- required_text(attrs, "description"),
+      with {:ok, description} <-
+             Attrs.required_text(Map.get(attrs, "description"), {:missing, "description"}),
            true <- String.length(description) <= @custom_profile_description_max_length do
         {:ok, description}
       else
@@ -602,19 +604,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
       end
 
     Map.put(options, "ai_agent", Map.put(ai_agent, "models", fun.(models)))
-  end
-
-  defp required_text(attrs, key) do
-    case Map.get(attrs, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, key}}
-          value -> {:ok, value}
-        end
-
-      _value ->
-        {:error, {:missing, key}}
-    end
   end
 
   defp capability_for_profile("web_search"), do: "web_search"

@@ -7,9 +7,10 @@ defmodule AnkoleWeb.AgentWorkerController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback AnkoleWeb.ConsoleErrors
   use OpenAPISpex.ControllerSpecs
 
-  alias AnkoleWeb.ConsoleErrors
   alias AnkoleWeb.ConsolePolicy
   alias AnkoleWeb.Schemas.ConsoleAPI.AgentComputerWorkerListResponse
   alias AnkoleWeb.Schemas.ConsoleAPI.ErrorEnvelope
@@ -31,8 +32,6 @@ defmodule AnkoleWeb.AgentWorkerController do
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "agent_workers", "read") do
       json(conn, %{workers: Enum.map(Ankole.AgentWorkers.list(), &worker_json/1)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -54,10 +53,4 @@ defmodule AnkoleWeb.AgentWorkerController do
 
   defp iso8601(nil), do: nil
   defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
-
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
-  end
 end

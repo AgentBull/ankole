@@ -6,6 +6,8 @@ defmodule AnkoleWeb.AuthZGroupController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AuthZ
@@ -139,8 +141,6 @@ defmodule AnkoleWeb.AuthZGroupController do
         principal_groups:
           Enum.map(AuthZ.list_principal_groups(), &AuthZJSON.group_json(&1, summaries))
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -149,8 +149,6 @@ defmodule AnkoleWeb.AuthZGroupController do
          {:ok, attrs} <- create_attrs(conn.body_params),
          {:ok, group} <- AuthZ.create_principal_group(attrs) do
       json(conn, %{principal_group: AuthZJSON.group_json(group)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -161,8 +159,6 @@ defmodule AnkoleWeb.AuthZGroupController do
       json(conn, %{
         principal_group: AuthZJSON.group_json(group, AuthZ.summarize_principal_groups())
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -174,8 +170,6 @@ defmodule AnkoleWeb.AuthZGroupController do
       json(conn, %{
         principal_group: AuthZJSON.group_json(updated, AuthZ.summarize_principal_groups())
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -184,8 +178,6 @@ defmodule AnkoleWeb.AuthZGroupController do
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}", "delete"),
          {:ok, group} <- AuthZ.delete_principal_group(name) do
       json(conn, %{principal_group: AuthZJSON.group_json(group)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -194,8 +186,6 @@ defmodule AnkoleWeb.AuthZGroupController do
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}:members", "read"),
          {:ok, members} <- group_members(name) do
       json(conn, %{principal_group_members: Enum.map(members, &AuthZJSON.member_json/1)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -206,8 +196,6 @@ defmodule AnkoleWeb.AuthZGroupController do
          {:ok, _membership} <- AuthZ.add_principal_to_group(principal_uid, name),
          {:ok, members} <- group_members(name) do
       json(conn, %{principal_group_members: Enum.map(members, &AuthZJSON.member_json/1)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -218,8 +206,6 @@ defmodule AnkoleWeb.AuthZGroupController do
          {:ok, :deleted} <- AuthZ.remove_principal_from_group(principal_uid, name),
          {:ok, members} <- group_members(name) do
       json(conn, %{principal_group_members: Enum.map(members, &AuthZJSON.member_json/1)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -228,8 +214,6 @@ defmodule AnkoleWeb.AuthZGroupController do
          :ok <- ConsolePolicy.authorize(conn, "principal_group:#{name}:grants", "read"),
          {:ok, grants} <- AuthZ.list_group_grants(name) do
       json(conn, %{permission_grants: Enum.map(grants, &AuthZJSON.grant_json/1)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -238,8 +222,6 @@ defmodule AnkoleWeb.AuthZGroupController do
          {:ok, condition} <- condition_param(conn.body_params),
          {:ok, members} <- AuthZ.preview_computed_group_members(condition) do
       json(conn, %{principal_group_members: Enum.map(members, &AuthZJSON.member_json/1)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -286,34 +268,59 @@ defmodule AnkoleWeb.AuthZGroupController do
     end
   end
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :not_found) do
-    error(conn, 404, "not_found", "principal group, principal, or membership was not found")
+    ConsoleErrors.not_found(conn, "principal group, principal, or membership was not found")
   end
 
   defp error(conn, :built_in_group) do
-    error(conn, 409, "built_in_group", "built-in groups cannot be modified or deleted")
+    ConsoleErrors.render(
+      conn,
+      409,
+      "built_in_group",
+      "built-in groups cannot be modified or deleted"
+    )
   end
 
   defp error(conn, :computed_group) do
-    error(conn, 409, "computed_group", "computed group membership is derived from its condition")
+    ConsoleErrors.render(
+      conn,
+      409,
+      "computed_group",
+      "computed group membership is derived from its condition"
+    )
   end
 
   defp error(conn, :group_domain_mismatch) do
-    error(conn, 409, "group_domain_mismatch", "group membership is managed by directory sync")
+    ConsoleErrors.render(
+      conn,
+      409,
+      "group_domain_mismatch",
+      "group membership is managed by directory sync"
+    )
   end
 
   defp error(conn, :group_has_grants) do
-    error(conn, 409, "group_has_grants", "delete the group's permission grants first")
+    ConsoleErrors.render(
+      conn,
+      409,
+      "group_has_grants",
+      "delete the group's permission grants first"
+    )
   end
 
   defp error(conn, :last_admin_member) do
-    error(conn, 409, "last_admin_member", "the admin group must keep at least one member")
+    ConsoleErrors.render(
+      conn,
+      409,
+      "last_admin_member",
+      "the admin group must keep at least one member"
+    )
   end
 
   defp error(conn, :last_active_human_admin) do
-    error(
+    ConsoleErrors.render(
       conn,
       409,
       "last_active_human_admin",
@@ -322,38 +329,44 @@ defmodule AnkoleWeb.AuthZGroupController do
   end
 
   defp error(conn, :not_human) do
-    error(conn, 409, "not_human", "only active human Principals can join the admin group")
-  end
-
-  defp error(conn, :principal_disabled) do
-    error(conn, 409, "principal_disabled", "disabled Principals cannot join the admin group")
-  end
-
-  defp error(conn, {:missing, key}) do
-    error(conn, 422, "validation_failed", "#{key} is required")
-  end
-
-  defp error(conn, %Ecto.Changeset{} = changeset) do
-    error(
+    ConsoleErrors.render(
       conn,
-      422,
-      "validation_failed",
-      "request validation failed",
-      ConsoleErrors.changeset_details(changeset)
+      409,
+      "not_human",
+      "only active human Principals can join the admin group"
     )
   end
 
+  defp error(conn, :principal_disabled) do
+    ConsoleErrors.render(
+      conn,
+      409,
+      "principal_disabled",
+      "disabled Principals cannot join the admin group"
+    )
+  end
+
+  defp error(conn, {:missing, key}) do
+    ConsoleErrors.required_field(conn, key)
+  end
+
+  defp error(conn, %Ecto.Changeset{} = changeset) do
+    ConsoleErrors.changeset(conn, changeset)
+  end
+
   defp error(conn, reason) when is_binary(reason) do
-    error(conn, 422, "validation_failed", reason)
+    ConsoleErrors.render(conn, 422, "validation_failed", reason)
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_principal_group", "principal group request is invalid", [
-      %{reason: inspect(reason)}
-    ])
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
+    ConsoleErrors.render(
+      conn,
+      422,
+      "invalid_principal_group",
+      "principal group request is invalid",
+      [
+        %{reason: inspect(reason)}
+      ]
+    )
   end
 end

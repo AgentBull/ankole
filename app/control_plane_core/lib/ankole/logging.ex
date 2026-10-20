@@ -11,6 +11,25 @@ defmodule Ankole.Logging do
 
   @type fields :: map() | keyword()
 
+  @doc "Builds failure diagnostics without exception messages or function arguments."
+  @spec failure_fields(:error | :exit | :throw, term(), list()) :: map()
+  def failure_fields(kind, reason, stacktrace) when kind in [:error, :exit, :throw] do
+    failure =
+      if kind == :error,
+        do: Exception.normalize(kind, reason, stacktrace).__struct__,
+        else: kind
+
+    frames =
+      Enum.map(stacktrace, fn {module, function, arity_or_arguments, location} ->
+        arity =
+          if is_list(arity_or_arguments), do: length(arity_or_arguments), else: arity_or_arguments
+
+        {module, function, arity, Keyword.take(location, [:file, :line])}
+      end)
+
+    %{failure: Atom.to_string(failure), stacktrace: Exception.format_stacktrace(frames)}
+  end
+
   @spec debug(String.t() | atom(), String.t(), fields()) :: :ok
   def debug(event, message, fields \\ %{}), do: log(:debug, event, message, fields)
 

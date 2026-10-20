@@ -1138,7 +1138,7 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   defp context_value(ctx, key) when is_list(ctx), do: Keyword.get(ctx, key)
 
   defp context_value(ctx, key) when is_map(ctx) do
-    Map.get(ctx, key) || Map.get(ctx, Atom.to_string(key))
+    Ankole.Attrs.get_truthy(ctx, key)
   end
 
   defp context_value(_ctx, _key), do: nil

@@ -87,7 +87,7 @@ defmodule Ankole.Signals.Intake do
          {:ok, subject} <- optional_text(attrs, :subject),
          {:ok, occurred_at} <- instant(Ankole.Attrs.get(attrs, :time)),
          {:ok, available_at} <- instant(Ankole.Attrs.get(attrs, :available_at) || occurred_at),
-         {:ok, data} <- JSONPayload.normalize(Map.get(attrs, :data, Map.get(attrs, "data", %{}))),
+         {:ok, data} <- JSONPayload.normalize(Ankole.Attrs.get(attrs, :data, %{})),
          {:ok, extensions} <-
            JSONPayload.normalize_map(Ankole.Attrs.get(attrs, :extensions) || %{}),
          {:ok, route} <- reply_route(Ankole.Attrs.get(attrs, :reply_route)) do

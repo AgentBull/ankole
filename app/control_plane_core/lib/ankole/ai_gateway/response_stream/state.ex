@@ -10,7 +10,7 @@ defmodule Ankole.AIGateway.ResponseStream.State do
   alias Ankole.AIGateway.ResponseItems
   alias Ankole.AIGateway.ResponseStream.UpstreamProgress
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.ToolSearch.StreamLoop
+  alias Ankole.AIGateway.HostedTools.StreamLoop
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Logging
 

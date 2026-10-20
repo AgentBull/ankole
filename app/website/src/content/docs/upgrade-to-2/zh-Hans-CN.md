@@ -65,7 +65,7 @@ docker compose logs migrate migrate-agent-homes
 docker compose run --rm --no-deps --user root --entrypoint chmod \
   -v ankole_agents_data:/agents control-plane -R a+rX /agents
 docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 导入复制已安装 Skill、Automation 脚本和未发送的旧 Outbox 附件，不覆盖云盘已有路径。普通用户文件、Session 和 Job 工作区继续保留在 Home。保存导入报告；处理 `Skipped` 和缺少 `main.ts` 的 Job 后再次导入。旧卷保留到文件核验和恢复演练通过。
@@ -97,7 +97,7 @@ helm upgrade ankole ./tools/deploy/helm/ankole-agent \
   --namespace ankole --values values-production.yaml \
   --set files.importAgentHomeClaim=OLD_AGENTS_PVC --wait --timeout 15m
 kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 Deployment 使用 `Recreate`，新 Pod 的 `db-migrate` init container 先运行迁移。保持 Agent 禁用直到导入完成。核验报告后，移除 `files.importAgentHomeClaim` 再升级一次；Worker 仍需要使用旧 Home PVC，不要移除它。自定义 release、namespace 或 Deployment 名称时调整命令。完整参数见 [Helm 部署说明](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.zh-Hans.md)。

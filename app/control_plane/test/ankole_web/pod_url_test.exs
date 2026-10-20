@@ -69,6 +69,20 @@ defmodule AnkoleWeb.PodURLTest do
     end
   end
 
+  test "inactive tenants reject both slug hosts and explicit Pod IDs" do
+    for field <- [:suspended_at, :deleting_at] do
+      tenant = Ankole.DataCase.create_tenant()
+      Repo.update!(Ecto.Changeset.change(tenant, %{field => DateTime.utc_now()}))
+
+      assert :error = PodURL.local_host(URI.parse("http://#{tenant.slug}.ankole.localhost"))
+
+      Repo.without_tenant(fn ->
+        conn = put_req_header(build_conn(), "x-ankole-pod", tenant.id)
+        assert {:error, :not_found} = AnkoleWeb.Plugs.RequirePodSession.target_tenant(conn)
+      end)
+    end
+  end
+
   test "unknown content scopes retain the shell's safe Space fallback", ctx do
     {conn, _uid} =
       active_admin_conn_with_principal(%{ctx.conn | host: ctx.tenant.slug <> ".ankole.localhost"})

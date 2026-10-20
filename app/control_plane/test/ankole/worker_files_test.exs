@@ -90,6 +90,58 @@ defmodule Ankole.WorkerFilesTest do
              WorkerFiles.stream("missing.txt", worker: AgentWorkers.target(worker))
   end
 
+  test "received-file callbacks keep the caller and tenant and always remove the local file", %{
+    route: route
+  } do
+    worker = ready_worker(route)
+    WorkerFilesFake.start!(route, files: %{"a.txt" => "complete bytes"})
+    caller = self()
+    tenant_id = Repo.tenant_id!()
+    opts = [worker: AgentWorkers.target(worker)]
+
+    assert {:ok, path} =
+             WorkerFiles.with_received_file("a.txt", opts, fn path ->
+               assert self() == caller
+               assert Repo.tenant_id!() == tenant_id
+               assert File.read!(path) == "complete bytes"
+               {:ok, path}
+             end)
+
+    refute File.exists?(path)
+
+    assert_raise RuntimeError, "callback failed", fn ->
+      WorkerFiles.with_received_file("a.txt", opts, fn path ->
+        send(caller, {:failed_callback_path, path})
+        raise "callback failed"
+      end)
+    end
+
+    assert_receive {:failed_callback_path, path}
+    refute File.exists?(path)
+  end
+
+  test "received-file callbacks do not commit bytes before the final Worker acknowledgement", %{
+    route: route
+  } do
+    worker = ready_worker(route)
+
+    WorkerFilesFake.start!(route,
+      files: %{"a.txt" => "bytes arrived"},
+      push_result: {"read_failed", "Worker could not complete the source read"}
+    )
+
+    caller = self()
+
+    assert {:error, %{"code" => "read_failed"}} =
+             WorkerFiles.with_received_file(
+               "a.txt",
+               [worker: AgentWorkers.target(worker)],
+               fn path -> send(caller, {:unexpected_commit, path}) end
+             )
+
+    refute_receive {:unexpected_commit, _path}
+  end
+
   test "receive_bundle writes each file of one transfer to its own local file", %{
     route: route
   } do

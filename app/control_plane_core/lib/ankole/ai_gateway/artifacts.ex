@@ -280,7 +280,7 @@ defmodule Ankole.AIGateway.Artifacts do
   end
 
   defp validate_purpose(params) do
-    case value(params, "purpose") do
+    case Ankole.Attrs.get_truthy(params, "purpose") do
       "vision" ->
         :ok
 
@@ -299,7 +299,7 @@ defmodule Ankole.AIGateway.Artifacts do
   end
 
   defp expires_at(params) do
-    case value(params, "expires_after") do
+    case Ankole.Attrs.get_truthy(params, "expires_after") do
       nil ->
         {:ok, nil}
 
@@ -313,8 +313,8 @@ defmodule Ankole.AIGateway.Artifacts do
   end
 
   defp parse_expiry(expiry) do
-    anchor = value(expiry, "anchor")
-    seconds = Ankole.Attrs.integer_value(value(expiry, "seconds"))
+    anchor = Ankole.Attrs.get_truthy(expiry, "anchor")
+    seconds = Ankole.Attrs.integer_value(Ankole.Attrs.get_truthy(expiry, "seconds"))
 
     cond do
       anchor != "created_at" ->
@@ -371,7 +371,7 @@ defmodule Ankole.AIGateway.Artifacts do
   defp generated_expiry(_message_id), do: nil
 
   defp list_limit(params) do
-    case Ankole.Attrs.integer_value(value(params, "limit") || 10_000) do
+    case Ankole.Attrs.integer_value(Ankole.Attrs.get_truthy(params, "limit") || 10_000) do
       limit when is_integer(limit) and limit in 1..10_000 ->
         {:ok, limit}
 
@@ -382,7 +382,7 @@ defmodule Ankole.AIGateway.Artifacts do
   end
 
   defp list_order(params) do
-    case value(params, "order") || "desc" do
+    case Ankole.Attrs.get_truthy(params, "order") || "desc" do
       "asc" ->
         {:ok, :asc}
 
@@ -395,7 +395,7 @@ defmodule Ankole.AIGateway.Artifacts do
   end
 
   defp list_purpose(params) do
-    case value(params, "purpose") do
+    case Ankole.Attrs.get_truthy(params, "purpose") do
       nil ->
         :ok
 
@@ -413,7 +413,7 @@ defmodule Ankole.AIGateway.Artifacts do
   end
 
   defp list_cursor(params) do
-    case value(params, "after") do
+    case Ankole.Attrs.get_truthy(params, "after") do
       nil -> {:ok, nil}
       id -> public_uuid(id, "file_")
     end
@@ -431,7 +431,7 @@ defmodule Ankole.AIGateway.Artifacts do
       )
 
     query =
-      case value(params, "purpose") do
+      case Ankole.Attrs.get_truthy(params, "purpose") do
         purpose when is_binary(purpose) ->
           from(artifact in query, where: artifact.purpose == ^purpose)
 
@@ -494,9 +494,6 @@ defmodule Ankole.AIGateway.Artifacts do
 
   defp nullable_file_id(nil), do: nil
   defp nullable_file_id(%Artifact{} = artifact), do: public_id(artifact)
-
-  defp value(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, String.to_atom(key))
 
   defp unix_timestamp(%DateTime{} = datetime), do: DateTime.to_unix(datetime)
 

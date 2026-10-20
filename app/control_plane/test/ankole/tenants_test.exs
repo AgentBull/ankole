@@ -19,6 +19,39 @@ defmodule Ankole.TenantsTest do
     :ok
   end
 
+  test "active slug lookup follows durable lifecycle state without selecting a tenant", %{
+    tenant: selected
+  } do
+    tenant = new_tenant()
+    id = tenant.id
+
+    Repo.without_tenant(fn ->
+      assert {:ok, %{id: ^id}} = Tenants.active_by_slug(tenant.slug)
+      assert Tenants.accepting_work?(tenant)
+      assert Tenants.accepting_work?(id)
+      assert {:error, :not_found} = Tenants.active_by_slug(" " <> tenant.slug)
+      assert {:error, :not_found} = Tenants.active_by_slug("missing-#{Ecto.UUID.generate()}")
+      refute Tenants.accepting_work?(Ecto.UUID.generate())
+
+      assert {:ok, suspended} = Tenants.suspend(tenant)
+      assert {:error, :not_found} = Tenants.active_by_slug(tenant.slug)
+      refute Tenants.accepting_work?(suspended)
+      refute Tenants.accepting_work?(id)
+      assert {:ok, %{id: ^id}} = Tenants.get(id)
+
+      assert {:ok, resumed} = Tenants.resume(suspended)
+      assert {:ok, %{id: ^id}} = Tenants.active_by_slug(tenant.slug)
+      assert {:ok, deleting} = Tenants.delete(resumed)
+      assert {:error, :not_found} = Tenants.active_by_slug(tenant.slug)
+      refute Tenants.accepting_work?(deleting)
+      refute Tenants.accepting_work?(id)
+      assert {:ok, %{id: ^id}} = Tenants.get(id)
+      assert Repo.tenant_id() == nil
+    end)
+
+    assert Repo.tenant_id!() == selected.id
+  end
+
   test "inbound dispatch runs only while the tenant accepts work", %{tenant: tenant} do
     assert :processed = Tenants.dispatch_inbound(fn -> :processed end)
     Repo.update!(Ecto.Changeset.change(tenant, suspended_at: DateTime.utc_now()))

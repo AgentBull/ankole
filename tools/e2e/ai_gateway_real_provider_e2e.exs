@@ -645,7 +645,10 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
   end
 
   defp case_openai_compaction_round_trip(agent) do
-    {:ok, _config} = Ankole.AIGateway.Compaction.put_config(%{"upstream" => true})
+    definition = Ankole.AIGateway.CompactionPolicy.config_definition()
+    previous = Ankole.AppConfigure.get_global_by_key_in_tx(Ankole.Repo, definition.key)
+    merged = Map.put(Ankole.AIGateway.CompactionPolicy.config(), "upstream", true)
+    {:ok, _config} = Ankole.AppConfigure.put_global(definition, merged)
 
     try do
       token = mint_agent_token!(agent.uid)
@@ -706,7 +709,10 @@ defmodule Ankole.Tools.AIGatewayRealProviderE2E do
         replay_text: text
       }
     after
-      :ok = Ankole.AIGateway.Compaction.delete_config()
+      case previous do
+        {:ok, value} -> {:ok, _} = Ankole.AppConfigure.put_global(definition, value)
+        :error -> :ok = Ankole.AppConfigure.delete_global(definition)
+      end
     end
   end
 

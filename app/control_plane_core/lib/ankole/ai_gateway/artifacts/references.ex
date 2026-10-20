@@ -208,7 +208,8 @@ defmodule Ankole.AIGateway.Artifacts.References do
   defp castable?(uuid), do: match?({:ok, _id}, UUIDv7.cast(uuid))
 
   defp collect_reference_specs(request) do
-    input_references(value(request, "input")) ++ mask_references(value(request, "tools") || [])
+    input_references(Ankole.Attrs.get_truthy(request, "input")) ++
+      mask_references(Ankole.Attrs.get_truthy(request, "tools") || [])
   end
 
   defp input_references(items) when is_list(items) do
@@ -223,7 +224,7 @@ defmodule Ankole.AIGateway.Artifacts.References do
     do: [%{id: id, kind: :generated}]
 
   defp input_item_references(%{} = item, item_index) do
-    case value(item, "content") do
+    case Ankole.Attrs.get_truthy(item, "content") do
       content when is_list(content) ->
         content
         |> Enum.with_index()
@@ -239,13 +240,13 @@ defmodule Ankole.AIGateway.Artifacts.References do
   defp input_item_references(_item, _index), do: []
 
   defp input_part_references(%{} = part, path) do
-    if value(part, "type") == "input_image" do
+    if Ankole.Attrs.get_truthy(part, "type") == "input_image" do
       cond do
-        is_binary(value(part, "file_id")) ->
-          [%{id: value(part, "file_id"), kind: :file}]
+        is_binary(Ankole.Attrs.get_truthy(part, "file_id")) ->
+          [%{id: Ankole.Attrs.get_truthy(part, "file_id"), kind: :file}]
 
-        is_binary(value(part, "image_url")) ->
-          [%{id: path, kind: :url, url: value(part, "image_url")}]
+        is_binary(Ankole.Attrs.get_truthy(part, "image_url")) ->
+          [%{id: path, kind: :url, url: Ankole.Attrs.get_truthy(part, "image_url")}]
 
         true ->
           []
@@ -261,8 +262,8 @@ defmodule Ankole.AIGateway.Artifacts.References do
     tools
     |> Enum.with_index()
     |> Enum.flat_map(fn {tool, index} ->
-      if value(tool, "type") == "image_generation" do
-        case value(tool, "input_image_mask") do
+      if Ankole.Attrs.get_truthy(tool, "type") == "image_generation" do
+        case Ankole.Attrs.get_truthy(tool, "input_image_mask") do
           %{} = mask ->
             mask
             |> Map.put("type", "input_image")
@@ -383,7 +384,8 @@ defmodule Ankole.AIGateway.Artifacts.References do
   end
 
   defp reference_shapes(request) do
-    input_shapes(value(request, "input")) ++ mask_shapes(value(request, "tools") || [])
+    input_shapes(Ankole.Attrs.get_truthy(request, "input")) ++
+      mask_shapes(Ankole.Attrs.get_truthy(request, "tools") || [])
   end
 
   defp input_shapes(items) when is_list(items) do
@@ -400,13 +402,13 @@ defmodule Ankole.AIGateway.Artifacts.References do
   defp item_shapes(%{"type" => "image_generation_call"} = item, path), do: [{path, item}]
 
   defp item_shapes(%{} = item, path) do
-    case value(item, "content") do
+    case Ankole.Attrs.get_truthy(item, "content") do
       content when is_list(content) ->
         content
         |> Enum.with_index()
         |> Enum.flat_map(fn
           {%{} = part, index} ->
-            if value(part, "type") == "input_image",
+            if Ankole.Attrs.get_truthy(part, "type") == "input_image",
               do: [{"#{path}.content[#{index}]", part}],
               else: []
 
@@ -443,8 +445,8 @@ defmodule Ankole.AIGateway.Artifacts.References do
   end
 
   defp validate_reference_shape(path, %{} = image) do
-    file_id = value(image, "file_id")
-    image_url = value(image, "image_url")
+    file_id = Ankole.Attrs.get_truthy(image, "file_id")
+    image_url = Ankole.Attrs.get_truthy(image, "image_url")
 
     cond do
       is_binary(file_id) and file_id != "" and is_nil(image_url) ->
@@ -505,7 +507,4 @@ defmodule Ankole.AIGateway.Artifacts.References do
   defp validate_data_url_size(_payload, param) do
     {:error, OpenAIError.invalid(param, "request_too_large", "Image exceeds the 50 MiB limit.")}
   end
-
-  defp value(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, String.to_atom(key))
 end

@@ -1,6 +1,8 @@
 defmodule Ankole.BackgroundAgentJobs.Control do
   @moduledoc false
 
+  require Ankole.ModelIntegerID
+
   import Ecto.Query
 
   alias Ankole.Signals.Signal
@@ -20,7 +22,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
           {:ok, %{job: Job.t(), turn: JobTurnRef.t() | nil}}
           | {:error, term()}
   def request_stop(job_id, attrs)
-      when is_integer(job_id) and job_id > 0 and is_map(attrs) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_map(attrs) do
     attrs = Attrs.normalize(attrs)
 
     result =
@@ -67,7 +69,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
           {:ok, %{job: Job.t(), turn: JobTurnRef.t() | nil}}
           | {:error, term()}
   def request_complete(job_id, attrs)
-      when is_integer(job_id) and job_id > 0 and is_map(attrs) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_map(attrs) do
     attrs = Attrs.normalize(attrs)
 
     result =
@@ -132,7 +134,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
           {:ok, %{job: Job.t(), command_event: Signal.t()}}
           | {:error, term()}
   def send_message(job_id, attrs)
-      when is_integer(job_id) and job_id > 0 and is_map(attrs) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_map(attrs) do
     attrs = Attrs.normalize(attrs)
 
     with {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")),
@@ -169,7 +171,7 @@ defmodule Ankole.BackgroundAgentJobs.Control do
           pos_integer()
         ) :: Job.t() | nil
   def lock_ambient_handoff_target_in_tx(repo, agent_uid, job_id)
-      when is_binary(agent_uid) and is_integer(job_id) and job_id > 0 do
+      when is_binary(agent_uid) and Ankole.ModelIntegerID.valid?(job_id) do
     Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE")
   end
 

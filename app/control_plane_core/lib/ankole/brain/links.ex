@@ -11,10 +11,132 @@ defmodule Ankole.Brain.Links do
   import Ecto.Query, warn: false
 
   alias Ankole.Brain.Objects
+  alias Ankole.Brain.Markdoc
   alias Ankole.Brain.Schemas.Link
   alias Ankole.Brain.Schemas.ObjectAlias
+  alias Ankole.Brain.Schemas.Tag
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Repo
+
+  @doc "Returns the object's tags in canonical order."
+  def tags_for_object(slug, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    Tag
+    |> where([tag], tag.object_slug == ^slug)
+    |> order_by([tag], asc: tag.tag)
+    |> select([tag], tag.tag)
+    |> repo.all()
+    |> Enum.sort()
+  end
+
+  @doc false
+  def normalize_tags(tags) when is_list(tags) do
+    if Enum.all?(tags, &(is_binary(&1) and String.trim(&1) != "")),
+      do: {:ok, tags |> Enum.map(&String.trim/1) |> Enum.uniq() |> Enum.sort()},
+      else: {:error, {:invalid, "tags"}}
+  end
+
+  def normalize_tags(_tags), do: {:error, {:invalid, "tags"}}
+
+  @doc false
+  def replace_tags_in_tx(repo, slug, tags) do
+    with :ok <- Repo.require_transaction(repo) do
+      Tag
+      |> where([tag], tag.object_slug == ^slug and tag.tag not in ^tags)
+      |> repo.delete_all()
+
+      now = DateTime.utc_now(:microsecond)
+
+      rows =
+        Enum.map(tags, fn tag ->
+          %{
+            id: UUIDv7.autogenerate(),
+            tenant_id: Repo.tenant_id!(),
+            object_slug: slug,
+            tag: tag,
+            created_at: now
+          }
+        end)
+
+      repo.insert_all(Tag, rows, on_conflict: :nothing)
+      :ok
+    end
+  end
+
+  @doc "Reconciles body-owned Markdown and alias edges without a model."
+  def reconcile_object_links(slug, opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    repo.transact(fn repo ->
+      with {:ok, object} <- Objects.lock_object_in_tx(repo, slug),
+           true <- is_nil(object.deleted_at) do
+        wikilinks =
+          Enum.map(Markdoc.wikilinks(object.body), &{&1, "", "markdown", nil, "qualified"})
+
+        mentions =
+          object.body
+          |> match_aliases_in_text(repo: repo)
+          |> Enum.reject(&(&1 == slug))
+          |> Enum.map(&{&1, "mentions", "mentions", "plain", "unqualified"})
+
+        with {:ok, keys} <- insert_body_links(repo, slug, wikilinks ++ mentions),
+             :ok <- remove_stale_body_links(repo, slug, keys),
+             {:ok, _} <-
+               repo.update(Ecto.Changeset.change(object, links_extracted_at: object.updated_at)) do
+          {:ok, object}
+        end
+      else
+        false -> {:error, :object_deleted}
+        error -> error
+      end
+    end)
+  end
+
+  defp insert_body_links(repo, slug, links) do
+    Enum.reduce_while(links, {:ok, MapSet.new()}, fn {target, type, source, kind, resolution},
+                                                     {:ok, keys} ->
+      result =
+        with {:ok, target} <- Objects.resolve_slug(target, repo: repo),
+             {:ok, _} <-
+               upsert_link(
+                 %{
+                   from_object_slug: slug,
+                   to_object_slug: target.slug,
+                   link_type: type,
+                   link_source: source,
+                   link_kind: kind,
+                   origin_object_slug: slug,
+                   origin_field: "body",
+                   resolution_type: resolution
+                 },
+                 repo: repo
+               ) do
+          {:ok, {target.slug, type, source}}
+        end
+
+      case result do
+        {:ok, key} -> {:cont, {:ok, MapSet.put(keys, key)}}
+        {:error, :not_found} -> {:cont, {:ok, keys}}
+      end
+    end)
+  end
+
+  defp remove_stale_body_links(repo, slug, keys) do
+    stale_ids =
+      Link
+      |> where(
+        [link],
+        link.origin_object_slug == ^slug and link.origin_field == "body" and
+          link.link_source in ["markdown", "mentions"]
+      )
+      |> repo.all()
+      |> Enum.reject(&MapSet.member?(keys, {&1.to_object_slug, &1.link_type, &1.link_source}))
+      |> Enum.map(& &1.id)
+
+    Link |> where([link], link.id in ^stale_ids) |> repo.delete_all()
+    :ok
+  end
 
   @doc """
   Upserts one directed edge; the dedup key treats equal NULLs as equal, so

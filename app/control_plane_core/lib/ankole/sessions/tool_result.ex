@@ -35,7 +35,7 @@ defmodule Ankole.Sessions.ToolResult do
     |> Map.from_struct()
     |> Map.drop([:web_cache])
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+    |> Ankole.Attrs.normalize_external_attrs()
     |> encode_cursor(result.cursor)
     |> encode_outcome(result.outcome)
   end

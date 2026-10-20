@@ -220,7 +220,7 @@ defmodule Ankole.IdentityProviders do
   @spec fetch_adapter(String.t()) :: {:ok, map()} | {:error, term()}
   def fetch_adapter(adapter_id) do
     adapter_declarations()
-    |> Enum.find(&(value(&1, :id) == adapter_id))
+    |> Enum.find(&(Ankole.Attrs.get(&1, :id) == adapter_id))
     |> case do
       nil -> {:error, {:unknown_identity_provider_adapter, adapter_id}}
       adapter -> {:ok, adapter}
@@ -250,7 +250,7 @@ defmodule Ankole.IdentityProviders do
   @doc false
   @spec adapter_module(map()) :: {:ok, module()} | {:error, term()}
   def adapter_module(adapter) do
-    case value(adapter, :module) do
+    case Ankole.Attrs.get(adapter, :module) do
       module when is_atom(module) and not is_nil(module) -> {:ok, module}
       value -> {:error, {:invalid_identity_provider_module, value}}
     end
@@ -260,7 +260,7 @@ defmodule Ankole.IdentityProviders do
   @spec adapter_capabilities(map()) :: [String.t()]
   def adapter_capabilities(adapter) do
     adapter
-    |> value(:capabilities)
+    |> Ankole.Attrs.get(:capabilities)
     |> case do
       capabilities when is_list(capabilities) -> Enum.filter(capabilities, &is_binary/1)
       _value -> []
@@ -282,7 +282,7 @@ defmodule Ankole.IdentityProviders do
 
   defp builtin_adapters do
     Enum.map(builtin_adapter_declarations(), fn declaration ->
-      adapter_projection(value(declaration, :plugin_id), declaration)
+      adapter_projection(Ankole.Attrs.get(declaration, :plugin_id), declaration)
     end)
   end
 
@@ -297,18 +297,18 @@ defmodule Ankole.IdentityProviders do
   end
 
   defp adapter_projection(plugin_id, declaration) do
-    adapter_id = value(declaration, :id)
+    adapter_id = Ankole.Attrs.get(declaration, :id)
 
     %{
       adapter_id: adapter_id,
       plugin_id: plugin_id,
-      display_name: value(declaration, :display_name) || default_text(adapter_id),
+      display_name: Ankole.Attrs.get(declaration, :display_name) || default_text(adapter_id),
       capabilities: adapter_capabilities(declaration),
-      fields: value(declaration, :fields) || [],
-      config_key_pattern: value(declaration, :config_key_pattern),
+      fields: Ankole.Attrs.get(declaration, :fields) || [],
+      config_key_pattern: Ankole.Attrs.get(declaration, :config_key_pattern),
       default_provider_id: "#{adapter_id}-main",
-      module: value(declaration, :module),
-      connection_reconciler: value(declaration, :connection_reconciler)
+      module: Ankole.Attrs.get(declaration, :module),
+      connection_reconciler: Ankole.Attrs.get(declaration, :connection_reconciler)
     }
   end
 
@@ -390,10 +390,10 @@ defmodule Ankole.IdentityProviders do
     end
   end
 
-  defp contract?(map, contract_id), do: value(map, :contract_id) == contract_id
+  defp contract?(map, contract_id), do: Ankole.Attrs.get(map, :contract_id) == contract_id
 
   defp identity_adapter_module(declaration) do
-    case value(declaration, :module) do
+    case Ankole.Attrs.get(declaration, :module) do
       module when is_atom(module) and not is_nil(module) ->
         case Code.ensure_loaded(module) do
           {:module, ^module} -> {:ok, module}
@@ -449,7 +449,7 @@ defmodule Ankole.IdentityProviders do
   end
 
   defp validate_connection_reconciler(declaration) do
-    case value(declaration, :connection_reconciler) do
+    case Ankole.Attrs.get(declaration, :connection_reconciler) do
       nil ->
         :ok
 
@@ -458,16 +458,6 @@ defmodule Ankole.IdentityProviders do
 
       value ->
         {:error, {:invalid_identity_provider_connection_reconciler, value}}
-    end
-  end
-
-  defp value(map, key) when is_map(map) do
-    string_key = Atom.to_string(key)
-
-    cond do
-      Map.has_key?(map, key) -> Map.fetch!(map, key)
-      Map.has_key?(map, string_key) -> Map.fetch!(map, string_key)
-      true -> nil
     end
   end
 

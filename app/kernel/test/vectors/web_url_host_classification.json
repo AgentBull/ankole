@@ -1,5 +1,5 @@
 {
-  "description": "Shared host classification vectors for the web URL SSRF policy. The kernel classifier in src/common/web_url.rs owns these tables; the ankole-browser navigation guard cannot link the native module and mirrors them in TypeScript. The Rust, Elixir, and Bun suites all assert every entry so the tables cannot drift apart. `input` is a literal IP address as it appears after WHATWG URL normalization or DNS resolution; `class` is the HostClass verdict: metadata endpoints are always rejected, private addresses only when security.ssrf_filter is enabled.",
+  "description": "Shared vectors for the Rust web URL classifier and its Elixir and Node-API bindings. Addresses are literal DNS answers; URLs also check host normalization and protected DNS names. Metadata is always rejected. Private hosts are rejected when security.ssrf_filter is enabled.",
   "addresses": [
     { "input": "169.254.169.254", "class": "metadata" },
     { "input": "169.254.169.250", "class": "metadata" },
@@ -35,5 +35,16 @@
     { "input": "::", "class": "public" },
     { "input": "2001:db8::1", "class": "public" },
     { "input": "::ffff:8.8.8.8", "class": "public" }
-  ]
+  ],
+  "urls": [
+    { "input": "https://metadata/latest/", "class": "metadata" },
+    { "input": "https://metadata.google.internal./latest/", "class": "metadata" },
+    { "input": "https://METADATA./", "class": "metadata" },
+    { "input": "https://LOCALHOST./", "class": "private" },
+    { "input": "https://svc.localhost./", "class": "private" },
+    { "input": "https://0x7f000001/", "class": "private" },
+    { "input": "https://2130706433/", "class": "private" },
+    { "input": "https://Example.COM/", "class": "public" }
+  ],
+  "invalid_urls": ["not a url", "https://", "https://999.999.999.999/", "https://[::zz]/"]
 }

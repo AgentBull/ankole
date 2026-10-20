@@ -483,7 +483,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     end
   end
 
-  # Legacy bytes must enter Files through AgentHomeImport before a new send.
+  # Legacy bytes must enter Files through Upgrade202610.import_agent_home/1 before a new send.
   # This gate keeps the stored attempt count and recovery evidence unchanged.
   defp attachments_migrated(%Intent{payload: payload}) do
     legacy? =

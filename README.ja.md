@@ -201,7 +201,7 @@ Ankole は本番環境で稼働しています。Ankole の Agent も、会社�
 
 - 1 つのデプロイメントは 1 つの組織だけに使います。信頼境界を共有しない組織は、別々にデプロイする必要があります。
 - Worker コンテナーが、その Agent の唯一の隔離境界です。Ankole は Agent 自身の操作から Worker を守りません。
-- Alibaba Cloud Function Compute のプロバイダーは、まだクラウド上で Worker のライフサイクル全体を検証していません。[Agent Workers](docs/design-docs/AgentWorkers.md#provider-implementations)（英語）に、各プラットフォームが通過したチェックを記載しています。
+- Worker プロバイダーごとにクラウド検証の範囲が異なります。[Agent Workers](docs/design-docs/AgentWorkers.md#provider-verification-evidence)（英語）に、記録された根拠と未検証の項目をまとめています。
 
 ## ドキュメント
 

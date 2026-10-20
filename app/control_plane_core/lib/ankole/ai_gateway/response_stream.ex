@@ -23,7 +23,7 @@ defmodule Ankole.AIGateway.ResponseStream do
   alias Ankole.AIGateway.ResponseStream.Supervisor
   alias Ankole.AIGateway.ResponseStream.UpstreamProgress
   alias Ankole.AIGateway.StatefulLifecycle
-  alias Ankole.AIGateway.ToolSearch.StreamLoop, as: ToolSearchStreamLoop
+  alias Ankole.AIGateway.HostedTools.StreamLoop
   alias Ankole.AIGateway.UniversalAIRequest
   alias Ankole.AIGateway.UsageLedger
   alias Ankole.Kernel.UniversalAIClient
@@ -206,11 +206,11 @@ defmodule Ankole.AIGateway.ResponseStream do
       )
       when is_map(prepared_request) and is_list(output) do
     {tool_loop, _prepared_request} = pop_tool_loop(prepared_request)
-    loop = ToolSearchStreamLoop.new(tool_loop)
+    loop = StreamLoop.new(tool_loop)
 
     %{
       upstream_response
-      | body: Map.put(body, "output", ToolSearchStreamLoop.rewrite_public_items(loop, output))
+      | body: Map.put(body, "output", StreamLoop.rewrite_public_items(loop, output))
     }
   end
 
@@ -285,14 +285,14 @@ defmodule Ankole.AIGateway.ResponseStream do
     prepared_request = Keyword.get(opts, :prepared_request, %{})
     {attempt_context, attempt_spec} = CredentialAttempts.prepare_stream(prepared_request)
     raw_tool_loop = Keyword.get(opts, :tool_loop)
-    loop = ToolSearchStreamLoop.new(raw_tool_loop)
+    loop = StreamLoop.new(raw_tool_loop)
     meta = resolver_meta(prepared_request)
     stateful = Keyword.get(opts, :stateful)
     request = Keyword.fetch!(opts, :request)
 
     state = %{
-      phase: if(ToolSearchStreamLoop.initial_local_effect?(loop), do: :ready, else: :opening),
-      public_open?: ToolSearchStreamLoop.initial_local_effect?(loop),
+      phase: if(StreamLoop.initial_local_effect?(loop), do: :ready, else: :opening),
+      public_open?: StreamLoop.initial_local_effect?(loop),
       ref: make_ref(),
       receiver: receiver,
       owner_monitor: owner_monitor,
@@ -342,9 +342,9 @@ defmodule Ankole.AIGateway.ResponseStream do
 
   @impl true
   def handle_continue(:open_native_stream, state) do
-    loop = ToolSearchStreamLoop.new(state.semantic.tool_loop)
+    loop = StreamLoop.new(state.semantic.tool_loop)
 
-    if ToolSearchStreamLoop.initial_local_effect?(loop) do
+    if StreamLoop.initial_local_effect?(loop) do
       start_initial_local_effect(state)
     else
       open_initial_stream(state, loop)
@@ -696,7 +696,7 @@ defmodule Ankole.AIGateway.ResponseStream do
       ImageGeneration.pop_credential_attempt(prepared_request)
 
     {attempt_context, attempt_spec} = CredentialAttempts.prepare_stream(prepared_request)
-    loop = ToolSearchStreamLoop.new(tool_loop)
+    loop = StreamLoop.new(tool_loop)
     meta = resolver_meta(prepared_request)
 
     state =
@@ -717,10 +717,15 @@ defmodule Ankole.AIGateway.ResponseStream do
 
     state = %{state | semantic: new_semantic(state, meta, loop)}
     begin_open_episode(state, :initial, attempt_context, attempt_spec)
-  rescue
-    _error -> do_finish_open_failure(state, original_reason)
   catch
-    :exit, _reason -> do_finish_open_failure(state, original_reason)
+    kind, reason when kind in [:error, :exit] ->
+      Ankole.Logging.warning(
+        "ai_gateway.replay_recovery.failed",
+        "Replay recovery failed; the original stream failure is retained",
+        Ankole.Logging.failure_fields(kind, reason, __STACKTRACE__)
+      )
+
+      do_finish_open_failure(state, original_reason)
   end
 
   defp clear_opening(%{opening: nil} = state), do: state

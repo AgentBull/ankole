@@ -129,7 +129,7 @@ defmodule Ankole.Logging.JSONFormatter do
 
   defp timestamp(metadata) do
     metadata
-    |> metadata_get(:time)
+    |> Ankole.Attrs.get_truthy(:time)
     |> timestamp_value()
   end
 
@@ -155,7 +155,7 @@ defmodule Ankole.Logging.JSONFormatter do
 
   defp event(metadata) do
     metadata
-    |> metadata_get(:event)
+    |> Ankole.Attrs.get_truthy(:event)
     |> event_value()
   end
 
@@ -166,7 +166,7 @@ defmodule Ankole.Logging.JSONFormatter do
 
   defp labels(metadata, config) do
     default_labels(config)
-    |> Map.merge(label_map(metadata_get(metadata, :labels)))
+    |> Map.merge(label_map(Ankole.Attrs.get_truthy(metadata, :labels)))
   end
 
   defp default_labels(config) do
@@ -201,7 +201,7 @@ defmodule Ankole.Logging.JSONFormatter do
     payload =
       metadata
       |> metadata_payload()
-      |> Map.merge(payload_field(metadata_get(metadata, :payload)))
+      |> Map.merge(payload_field(Ankole.Attrs.get_truthy(metadata, :payload)))
       |> drop_reserved_payload()
 
     Map.merge(entry, payload)
@@ -226,7 +226,7 @@ defmodule Ankole.Logging.JSONFormatter do
   end
 
   defp put_promoted(entry, metadata, metadata_key, json_key) do
-    case metadata_get(metadata, metadata_key) || Map.get(metadata, json_key) do
+    case Ankole.Attrs.get_truthy(metadata, metadata_key) || Map.get(metadata, json_key) do
       nil -> entry
       value -> Map.put(entry, json_key, json_safe(value))
     end
@@ -239,16 +239,12 @@ defmodule Ankole.Logging.JSONFormatter do
       MapSet.member?(@special_metadata_keys, name)
   end
 
-  defp metadata_get(metadata, key) do
-    Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
-  end
-
   defp metadata_map(metadata) when is_map(metadata), do: metadata
   defp metadata_map(metadata) when is_list(metadata), do: Map.new(metadata)
   defp metadata_map(_metadata), do: %{}
 
   defp config_get(config, key, default) when is_map(config) do
-    Map.get(config, key) || Map.get(config, Atom.to_string(key)) || default
+    Ankole.Attrs.get_truthy(config, key) || default
   end
 
   defp config_get(config, key, default) when is_list(config),

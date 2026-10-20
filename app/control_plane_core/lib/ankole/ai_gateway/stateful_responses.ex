@@ -231,7 +231,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
     do: {:error, :invalid_compaction_plan}
 
   defp response_run_request_items(attrs),
-    do: Map.get(attrs, :request_items, Map.get(attrs, "request_items", []))
+    do: Ankole.Attrs.get(attrs, :request_items, [])
 
   defp response_run_metadata(attrs) do
     case Map.take(attrs, [:metadata, "metadata"]) do

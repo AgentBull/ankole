@@ -12,6 +12,21 @@ export class Coords {
 // Given a position in the document model, get a bounding box of the
 // character at that position, relative to the window.
 export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
+  const textblock = wg.state.doc.resolve(pos).textblockParent
+  const map = textblock ? wg.state.textblockMap(textblock) : null
+
+  // Treat position pointing out of a textblock specially if the bidi
+  // span at that side isn't in the block's main direction.
+  if (
+    textblock &&
+    textblock.node.contentLength &&
+    ((pos == textblock.start && assoc < 0) || (pos == textblock.end && assoc > 0))
+  ) {
+    const span = map!.order[pos == textblock.start ? 0 : map!.order.length - 1]!
+    if (span.ltr != map!.ltr) pos = textblock.start + (pos == textblock.start ? span.to : span.from)
+    else assoc = -assoc as -1 | 1
+  }
+
   const resolved = wg.docTile.resolve(pos, assoc)
   const tilePos = resolved.pos
   let { offset, tile } = resolved
@@ -24,7 +39,7 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
     else from--
     return new Coords(
       tile,
-      flattenV(singleRect(textRange(tile.dom, from, to), side, true), side < 0 == ltrAt(wg.state, pos, assoc))
+      flattenV(singleRect(textRange(tile.dom, from, to), side, true), side < 0 == ltrAt(wg.state, pos, assoc, map))
     )
   }
 
@@ -38,7 +53,10 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
     if (tile.widget.type.inFlow) {
       const rect = singleRect(tile.dom, after ? 1 : -1)
       if (rect.width || rect.height) {
-        return new Coords(tile, horizontal ? flattenH(rect, !after) : flattenV(rect, ltrAt(wg.state, pos, 1) == !after))
+        return new Coords(
+          tile,
+          horizontal ? flattenH(rect, !after) : flattenV(rect, ltrAt(wg.state, pos, 1, map) == !after)
+        )
       }
     }
     if (!tile.parent) return new Coords(tile, new DOMRect())
@@ -57,7 +75,7 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
         if (before.dom.nodeName == 'BR') break
         const rect = singleRect(before.dom, 1)
         if (rect.width || rect.height) {
-          return new Coords(before, horizontal ? flattenH(rect, false) : flattenV(rect, !ltrAt(wg.state, pos, 1)))
+          return new Coords(before, horizontal ? flattenH(rect, false) : flattenV(rect, !ltrAt(wg.state, pos, 1, map)))
         }
       }
     } else {
@@ -67,7 +85,7 @@ export function coordsAtPos(wg: Wordgard, pos: number, assoc: -1 | 1): Coords {
         if (after instanceof WidgetTile && !after.widget.type.inFlow) continue
         const rect = singleRect(after.dom, -1)
         if (rect.width || rect.height) {
-          return new Coords(after, horizontal ? flattenH(rect, true) : flattenV(rect, ltrAt(wg.state, pos, 1)))
+          return new Coords(after, horizontal ? flattenH(rect, true) : flattenV(rect, ltrAt(wg.state, pos, 1, map)))
         }
       }
     }

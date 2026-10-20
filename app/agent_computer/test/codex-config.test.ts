@@ -9,12 +9,14 @@ import { join } from 'node:path'
 import { AIGatewayAPIKeyResponseSchema } from '../src/fabric/generated/ankole/runtime_fabric/v1/rpc_pb'
 import { codexJobThreadConfig } from '../src/core/codex-runner/job/thread-config'
 import {
+  encodeAIGatewayModelBinding,
   codexAIGatewayTokenPath,
   codexConfigCLIOverrides,
   materializeCodexConfig,
   refreshCodexAgentRuntimeCredential
 } from '../src/core/codex-runner/runtime/agent-home-config'
 import type { CodexRuntimeConfig } from '../src/core/codex-runner/runtime-config'
+import bindingVectors from '../../kernel/proto/ankole/runtime_fabric/v1/codex_model_binding_vectors.json'
 
 function aigatewayRuntime(): CodexRuntimeConfig {
   return {
@@ -42,6 +44,36 @@ function aigatewayRuntime(): CodexRuntimeConfig {
 }
 
 describe('@ankole/agent-computer Codex config', () => {
+  it('encodes the exact binding headers consumed by the control-plane shared corpus', () => {
+    for (const vector of bindingVectors.valid) {
+      const binding = vector.binding
+      const runtime = aigatewayRuntime()
+      runtime.modelProfile = {
+        model: 'fixture-model',
+        selector: binding.selector,
+        providerOptions: binding.provider_options,
+        supportsParallelToolCalls: binding.supports_parallel_tool_calls,
+        inputModalities: binding.input_modalities,
+        ...('vision_fallback' in binding && binding.vision_fallback
+          ? {
+              visionFallback: {
+                selector: binding.vision_fallback.selector,
+                providerOptions: binding.vision_fallback.provider_options,
+                inputModalities: binding.vision_fallback.input_modalities
+              }
+            }
+          : {})
+      }
+      if ('brain' in binding && binding.brain) {
+        runtime.brain = {
+          operations: binding.brain.operations as Array<'recall' | 'get_page'>,
+          signalID: binding.brain.signal_id
+        }
+      }
+      expect(encodeAIGatewayModelBinding(runtime)).toBe(vector.encoded)
+    }
+  })
+
   it('keeps Codex Home in Agent Home and SQLite on the separate cache', () => {
     const agentHomeRoot = mkdtempSync(join(tmpdir(), 'ankole-codex-config-'))
     const previousStateRoot = process.env.CODEX_SQLITE_HOME

@@ -30,6 +30,7 @@ mod atoms {
         metadata,
         private,
         public,
+        invalid,
         applet_runtime,
         call,
     }
@@ -344,6 +345,14 @@ pub fn authz_authorize_all_nif(snapshot: Term<'_>) -> NIFResult<String> {
     let decision = with_cel_stack(|| authz::authorize_all_value(snapshot)).map_err(error)?;
 
     encode_json(decision)
+}
+
+/// Evaluates independent resource/action checks with one encoded snapshot.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn authz_authorize_checks_nif(snapshot: Term<'_>) -> NIFResult<String> {
+    let snapshot = decode_json(snapshot, "snapshot")?;
+    let decisions = with_cel_stack(|| authz::authorize_checks_value(snapshot)).map_err(error)?;
+    encode_json(decisions)
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -802,6 +811,49 @@ pub fn web_url_facts_nif(url: Term<'_>) -> NIFResult<WebURLFactsNIF> {
             common::HostClass::Public => atoms::public(),
         }),
     })
+}
+
+#[rustler::nif]
+pub fn validate_web_url_nif<'a>(
+    env: Env<'a>,
+    url: Term<'a>,
+    schemes: Vec<String>,
+    ssrf_filter: bool,
+) -> NIFResult<Term<'a>> {
+    let url = decode_string(url, "url")?;
+    let schemes: Vec<&str> = schemes.iter().map(String::as_str).collect();
+    Ok(web_url_verdict(
+        env,
+        common::validate_web_url(&url, &schemes, ssrf_filter),
+    ))
+}
+
+#[rustler::nif]
+pub fn validate_ip_addresses_nif<'a>(
+    env: Env<'a>,
+    addresses: Vec<String>,
+    ssrf_filter: bool,
+) -> Term<'a> {
+    let addresses: Result<Vec<std::net::IpAddr>, _> =
+        addresses.iter().map(|address| address.parse()).collect();
+    let verdict = addresses
+        .map_err(|_| common::WebURLRejection::Invalid)
+        .and_then(|addresses| common::validate_ip_addresses(&addresses, ssrf_filter));
+    web_url_verdict(env, verdict)
+}
+
+fn web_url_verdict<'a>(env: Env<'a>, verdict: Result<(), common::WebURLRejection>) -> Term<'a> {
+    match verdict {
+        Ok(()) => atoms::ok().encode(env),
+        Err(reason) => {
+            let atom = match reason {
+                common::WebURLRejection::Metadata => atoms::metadata(),
+                common::WebURLRejection::Private => atoms::private(),
+                common::WebURLRejection::Invalid => atoms::invalid(),
+            };
+            (atoms::error(), atom).encode(env)
+        }
+    }
 }
 
 /// Generates a random 32-byte hex key for kernel cryptographic helpers.

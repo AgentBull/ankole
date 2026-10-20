@@ -187,6 +187,98 @@ defmodule Ankole.Brain.GetPageTest do
     assert Enum.count(page.facts) == 2
   end
 
+  test "contradiction reads have constant query cost and retain the newest twenty findings",
+       context do
+    {:ok, %{claim: own}} = write_group_fact(context.member, "world", "Baseline estimate")
+    first = add_contradiction(context.member, own, "Estimate 0")
+    assert {:ok, _} = GetPage.get_page_admin(context.object.slug)
+    {small, small_queries} = page_with_query_count(context.object.slug)
+    assert [finding] = small.contradictions
+    assert finding.counterpart.id == first.id
+
+    others =
+      Enum.map(1..24, fn index ->
+        add_contradiction(context.member, own, "Estimate #{index}")
+      end)
+
+    {large, large_queries} = page_with_query_count(context.object.slug)
+    assert small_queries > 0
+    assert large_queries == small_queries
+
+    expected = others |> Enum.reverse() |> Enum.take(20) |> Enum.map(& &1.id)
+    assert Enum.map(large.contradictions, & &1.counterpart.id) == expected
+  end
+
+  test "a batched contradiction counterpart still requires reader and disclosure access",
+       context do
+    {:ok, %{claim: own}} = write_group_fact(context.member, "world", "Public estimate")
+
+    hidden =
+      add_contradiction(context.member, own, "Private estimate", "group:#{context.group.name}")
+
+    assert {:ok, member_page} = GetPage.get_page(context.member.uid, context.object.slug)
+    assert [finding] = member_page.contradictions
+    assert finding.counterpart.id == hidden.id
+
+    assert {:ok, outsider_page} = GetPage.get_page(context.outsider.uid, context.object.slug)
+    assert outsider_page.contradictions == []
+
+    disclosure = %{
+      mode: :strict,
+      asker_uid: context.member.uid,
+      present_uids: [context.member.uid, context.outsider.uid]
+    }
+
+    assert {:ok, shared_page} =
+             GetPage.get_page(context.member.uid, context.object.slug, disclosure: disclosure)
+
+    assert shared_page.contradictions == []
+  end
+
+  defp add_contradiction(member, own, text, scope \\ "world") do
+    {:ok, %{claim: other}} = write_group_fact(member, scope, text)
+
+    assert :ok =
+             Ankole.Brain.Dreaming.record_contradiction_verdict(
+               own.id,
+               other.id,
+               "contradiction",
+               0.9,
+               %{"axis" => "estimate", "severity" => "high"}
+             )
+
+    other
+  end
+
+  defp page_with_query_count(slug) do
+    handler = {__MODULE__, self(), make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:ankole, :repo, :query],
+        fn _event, _measurements, _metadata, owner ->
+          if self() == owner, do: send(owner, :page_query)
+        end,
+        self()
+      )
+
+    try do
+      assert {:ok, page} = GetPage.get_page_admin(slug)
+      {page, drain_query_count(0)}
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  defp drain_query_count(count) do
+    receive do
+      :page_query -> drain_query_count(count + 1)
+    after
+      0 -> count
+    end
+  end
+
   defp write_group_fact(member, scope, text) do
     Ankole.Brain.Claims.write_fact(
       %{

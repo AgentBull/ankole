@@ -437,7 +437,13 @@ function isForward(dir: 'left' | 'right' | 'forward' | 'backward', state: GardSt
 }
 
 function asTextSel(sel: GardSelection, forward: boolean): GardSelection.Text {
-  if (sel instanceof GardSelection.Text) return sel
+  if (sel instanceof GardSelection.Text) {
+    return sel.directional
+      ? sel
+      : forward
+        ? GardSelection.range(sel.from, sel.to)
+        : GardSelection.range(sel.to, sel.from)
+  }
   const { from, to } = sel.replacementRange
   return forward ? GardSelection.range(from, to) : GardSelection.range(to, from)
 }
@@ -538,8 +544,8 @@ function pageHeight(wg: Wordgard) {
  */
 export const moveByPage: Command<{ dir: 'up' | 'down'; extend?: boolean }> = (wg, { dir, extend }) => {
   const { state } = wg
-  const { selection } = state
-  const forward = dir == 'down'
+  const forward = dir == 'down',
+    selection = asTextSel(state.selection, forward)
   const moved =
     selection.empty || extend
       ? nextVertical(wg, selection, forward, pageHeight(wg), !extend)
@@ -558,8 +564,8 @@ export const moveToLineSide: Command<{
   dir: 'left' | 'right' | 'forward' | 'backward'
   extend?: boolean
 }> = (wg, { dir, extend }) => {
-  const forward = isForward(dir, wg.state)
-  const { selection } = wg.state
+  const forward = isForward(dir, wg.state),
+    selection = asTextSel(wg.state.selection, forward)
   const pos = wg.moveToLineBoundary(selection, forward)
   return pos
     ? setSelection(extend ? extendSel(selection, pos) : pos)
@@ -579,8 +585,9 @@ export const moveToTextblockSide: Command<{
   const { state } = wg
   const block = state.sel.head.textblockParent
   if (!block) return false
-  const pos = isForward(dir, wg.state) ? GardSelection.atEnd(state, block) : GardSelection.atStart(state, block)
-  return setSelection(extend ? extendSel(wg.state.selection, pos) : pos)
+  const forward = isForward(dir, wg.state)
+  const pos = forward ? GardSelection.atEnd(state, block) : GardSelection.atStart(state, block)
+  return setSelection(extend ? extendSel(asTextSel(wg.state.selection, forward), pos) : pos)
 }
 
 /** Move to the start or end of the document. */
@@ -588,7 +595,7 @@ export const moveToDocSide: Command.Pure<{ side: 'start' | 'end'; extend?: boole
   const { state } = target
   const pos = side == 'start' ? GardSelection.atStart(state) : GardSelection.atEnd(state)
   if (state.selection.empty && pos.head == state.selection.head) return false
-  return setSelection(extend ? extendSel(state.selection, pos) : pos)
+  return setSelection(extend ? extendSel(asTextSel(state.selection, side == 'end'), pos) : pos)
 }
 
 /** Select the entire document. */

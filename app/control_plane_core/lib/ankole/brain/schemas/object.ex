@@ -24,6 +24,7 @@ defmodule Ankole.Brain.Schemas.Object do
     field :chunking_signature, :string
     field :last_retrieved_at, :utc_datetime_usec
     field :links_extracted_at, :utc_datetime_usec
+    field :timelines_extracted_at, :utc_datetime_usec
     field :deleted_at, :utc_datetime_usec
 
     # Non-nil marks a body projection owned by one Brain Source. The shared
@@ -57,6 +58,8 @@ defmodule Ankole.Brain.Schemas.Object do
       :chunking_signature,
       :last_retrieved_at,
       :links_extracted_at,
+      :timelines_extracted_at,
+      :updated_at,
       :deleted_at
     ])
     |> validate_required([:slug, :type, :title])

@@ -26,7 +26,7 @@ defmodule Ankole.Conversations.MessageInput do
        data: supplement_payload(Signal.envelope(event), entries, event.id, now)["data"],
        occurred_at: now,
        provider_message_id: merged_entry_summary(entries)["provider_message_id"],
-       available_at: supplement_available_at(entries, now)
+       available_at: pending_attachment_deadline(entries, now) || now
      }}
   end
 
@@ -87,7 +87,8 @@ defmodule Ankole.Conversations.MessageInput do
     end)
   end
 
-  defp supplement_available_at(entries, now) do
+  @doc "Returns the earliest pending attachment deadline, or nil when none remain."
+  def pending_attachment_deadline(entries, now) do
     entries
     |> Enum.filter(&(attachment_materialization_state(&1) == "pending"))
     |> Enum.map(fn entry ->
@@ -98,17 +99,21 @@ defmodule Ankole.Conversations.MessageInput do
 
       DateTime.add(anchor, @attachment_materialization_hard_cap_ms, :millisecond)
     end)
-    |> Enum.min_by(&DateTime.to_unix(&1, :microsecond), fn -> now end)
+    |> Enum.min_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
   end
 
-  def attachment_observed_at(entry) do
+  def attachment_observed_at(entry) when is_map(entry) do
     entry
     |> get_in(["metadata", "attachment_materialization", "observed_at"])
     |> parse_datetime()
   end
 
-  def attachment_materialization_state(entry),
+  def attachment_observed_at(_entry), do: nil
+
+  def attachment_materialization_state(entry) when is_map(entry),
     do: get_in(entry, ["metadata", "attachment_materialization", "state"])
+
+  def attachment_materialization_state(_entry), do: nil
 
   defp source_entry_retraction(entries, %Signal{}, provider_message_id)
        when is_list(entries) and entries != [] do
@@ -209,7 +214,7 @@ defmodule Ankole.Conversations.MessageInput do
     |> put_nonempty("mentions", merged_entry_list(entries, "mentions"))
   end
 
-  defp merged_entry_text(entries) do
+  def merged_entry_text(entries) do
     entries
     |> Enum.map(& &1["text"])
     |> Enum.filter(&is_binary/1)
@@ -217,7 +222,7 @@ defmodule Ankole.Conversations.MessageInput do
     |> Enum.join("\n")
   end
 
-  defp merged_entry_list(entries, key) do
+  def merged_entry_list(entries, key) do
     Enum.flat_map(entries, fn entry ->
       case entry[key] do
         values when is_list(values) -> values

@@ -149,6 +149,20 @@ defmodule AnkoleWeb.WorkerProviderControllerTest do
     created = conn |> recycle_api() |> post(~p"/api/v1/agents", agent_attrs) |> json_response(200)
     assert created["agent"]["worker_provider_id"] == "local"
     agent_uid = created["agent"]["uid"]
+
+    blank_provider =
+      conn
+      |> recycle_api()
+      |> put(~p"/api/v1/agents/#{agent_uid}/worker-provider", %{provider_id: "  "})
+
+    assert json_response(blank_provider, 422) == %{
+             "error" => %{
+               "code" => "validation_failed",
+               "message" => "provider_id is required",
+               "details" => []
+             }
+           }
+
     assert Repo.get!(AgentWorker, agent_uid).provider_id == "local"
     listed = conn |> recycle_api() |> get(~p"/api/v1/agents") |> json_response(200)
 

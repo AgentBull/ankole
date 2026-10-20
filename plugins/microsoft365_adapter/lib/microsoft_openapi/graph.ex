@@ -30,10 +30,11 @@ defmodule MicrosoftOpenAPI.Graph do
   defp request(client, http_method, path, opts) do
     {token_opt, opts} = Keyword.pop(opts, :token)
 
-    with {:ok, token} <- resolve_token(client, token_opt) do
+    with {:ok, url} <- build_url(client.graph_base_url, path),
+         {:ok, token} <- resolve_token(client, token_opt) do
       MicrosoftOpenAPI.request(
         http_method,
-        build_url(client.graph_base_url, path),
+        url,
         opts
         |> Keyword.put(:headers, MicrosoftOpenAPI.bearer_headers(token))
         |> Keyword.put(:req_options, merged_req_options(client, opts))
@@ -46,11 +47,26 @@ defmodule MicrosoftOpenAPI.Graph do
   defp resolve_token(client, nil),
     do: EntraAuth.client_credentials_token(client, scope: default_scope(client))
 
-  defp build_url(_graph_base_url, "http://" <> _rest = url), do: url
-  defp build_url(_graph_base_url, "https://" <> _rest = url), do: url
+  defp build_url(graph_base_url, "http://" <> _rest = url),
+    do: validate_absolute_url(graph_base_url, url)
+
+  defp build_url(graph_base_url, "https://" <> _rest = url),
+    do: validate_absolute_url(graph_base_url, url)
 
   defp build_url(graph_base_url, path),
-    do: graph_base_url <> "/v1.0/" <> String.trim_leading(path, "/")
+    do: {:ok, graph_base_url <> "/v1.0/" <> String.trim_leading(path, "/")}
+
+  defp validate_absolute_url(graph_base_url, url) do
+    if origin(URI.parse(url)) == origin(URI.parse(graph_base_url)) do
+      {:ok, url}
+    else
+      {:error, %Error{reason: :invalid_graph_url}}
+    end
+  end
+
+  defp origin(%URI{scheme: scheme, host: host, port: port}) do
+    {scheme, host, port || if(is_binary(scheme), do: URI.default_port(scheme))}
+  end
 
   defp merged_req_options(client, opts),
     do: Keyword.merge(client.req_options, Keyword.get(opts, :req_options, []))

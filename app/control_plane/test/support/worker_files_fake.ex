@@ -19,6 +19,7 @@ defmodule Ankole.WorkerFilesFake do
       answer with `rpc_error`;
     * `:http` — uses a real HTTP request for push integration tests; defaults to ConnTest.
     * `:tamper_token` — when true, the relay request carries a wrong token.
+    * `:push_result` — final RPC error `{code, message}` after a successful PUT.
 
   A push with `bundle_paths` answers with the bundle of those files, as the
   Worker relay does.
@@ -46,6 +47,7 @@ defmodule Ankole.WorkerFilesFake do
       on_bundle: Keyword.get(opts, :on_bundle),
       fail: Keyword.get(opts, :fail, %{}),
       tamper_token: Keyword.get(opts, :tamper_token, false),
+      push_result: Keyword.get(opts, :push_result),
       http: Keyword.get(opts, :http, false)
     }
 
@@ -178,7 +180,13 @@ defmodule Ankole.WorkerFilesFake do
           end
 
         if status == 200 do
-          {{:ok, %FabricProto.WorkerFileTransferResponse{size: byte_size(content)}}, state}
+          case state.push_result do
+            {code, message} ->
+              {{:error, code, message}, state}
+
+            nil ->
+              {{:ok, %FabricProto.WorkerFileTransferResponse{size: byte_size(content)}}, state}
+          end
         else
           {{:error, "relay_failed", "relay PUT answered #{status}"}, state}
         end

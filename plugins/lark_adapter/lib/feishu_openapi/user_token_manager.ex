@@ -13,10 +13,9 @@ defmodule FeishuOpenAPI.UserTokenManager do
   use GenServer
 
   alias FeishuOpenAPI.{Auth, Client, Error}
+  alias IMTransport.TokenCache
 
   @table :feishu_openapi_user_tokens
-  @expiry_delta_ms :timer.minutes(3)
-  @call_timeout :timer.seconds(15)
   @default_task_supervisor FeishuOpenAPI.EventTaskSupervisor
 
   @type entry :: %{
@@ -75,7 +74,7 @@ defmodule FeishuOpenAPI.UserTokenManager do
         {:ok, token}
 
       :refresh ->
-        GenServer.call(__MODULE__, {:refresh, client, user_key, key}, @call_timeout)
+        GenServer.call(__MODULE__, {:refresh, client, user_key, key}, TokenCache.call_timeout())
 
       :miss ->
         missing_error(user_key)
@@ -392,14 +391,12 @@ defmodule FeishuOpenAPI.UserTokenManager do
 
   defp fresh?(expires_at), do: System.monotonic_time(:millisecond) < expires_at
 
-  # Same margin as `FeishuOpenAPI.TokenManager`.
-  defp expires_at(expires_in) when is_integer(expires_in) do
-    System.monotonic_time(:millisecond) + :timer.seconds(expires_in) - @expiry_delta_ms
-  end
+  defp expires_at(expires_in) when is_integer(expires_in),
+    do: TokenCache.expires_at_ms(expires_in)
 
   defp expires_at(_), do: expired_at()
 
-  defp expired_at, do: System.monotonic_time(:millisecond) - @expiry_delta_ms
+  defp expired_at, do: System.monotonic_time(:millisecond) - TokenCache.expiry_delta_ms()
 
   defp task_supervisor do
     Application.get_env(

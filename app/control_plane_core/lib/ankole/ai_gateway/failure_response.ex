@@ -454,7 +454,7 @@ defmodule Ankole.AIGateway.FailureResponse do
       :provider_error_type,
       :retryable
     ])
-    |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+    |> Ankole.Attrs.normalize_external_attrs()
     |> put_stage(Keyword.get(opts, :stage))
   end
 

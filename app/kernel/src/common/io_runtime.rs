@@ -1,4 +1,4 @@
-//! The shared Tokio runtime for native I/O that BEAM callers start and then wait for.
+//! The shared Tokio runtime for native I/O from BEAM and Node-API callers.
 
 use std::sync::OnceLock;
 
@@ -6,30 +6,26 @@ use tokio::runtime::{Builder, Runtime};
 
 use crate::common::{KernelError, KernelResult};
 
-static RUNTIME: OnceLock<Runtime> = OnceLock::new();
+static RUNTIME: OnceLock<Result<Runtime, std::io::Error>> = OnceLock::new();
 
 pub fn runtime() -> KernelResult<&'static Runtime> {
-    if let Some(runtime) = RUNTIME.get() {
-        return Ok(runtime);
-    }
-
-    // OpenDAL's PostgreSQL driver also enables ring. Select the HTTP client's
-    // provider before TLS starts; keep a provider that the host already set.
-    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-
-    let runtime = Builder::new_multi_thread()
-        .thread_name("ankole-kernel-io")
-        .enable_all()
-        .build()
-        .map_err(|reason| KernelError::new(format!("failed to start Tokio runtime: {reason}")))?;
-
-    let _ = RUNTIME.set(runtime);
     RUNTIME
-        .get()
-        .ok_or_else(|| KernelError::new("failed to initialize Tokio runtime"))
+        .get_or_init(|| {
+            // OpenDAL's PostgreSQL driver also enables ring. Keep a provider
+            // that the host already set before native HTTP starts.
+            #[cfg(any(feature = "universal_ai_client", feature = "object_store"))]
+            let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
+            Builder::new_multi_thread()
+                .thread_name("ankole-kernel-io")
+                .enable_all()
+                .build()
+        })
+        .as_ref()
+        .map_err(|reason| KernelError::new(format!("failed to start Tokio runtime: {reason}")))
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "universal_ai_client", feature = "object_store")))]
 mod tests {
     #[test]
     fn runtime_has_usable_tls_defaults() {

@@ -1,6 +1,6 @@
 defmodule AnkoleWeb.PodURL do
   @moduledoc "Canonical tenant origins and browser paths; durable IDs stay UUIDs."
-  alias Ankole.{Kernel, Repo, Tenants}
+  alias Ankole.{Kernel, Tenants}
 
   @host_policy Application.compile_env(:ankole, :host_policy)
 
@@ -31,8 +31,8 @@ defmodule AnkoleWeb.PodURL do
     if String.ends_with?(host, suffix) do
       slug = String.replace_suffix(host, suffix, "")
 
-      case Repo.get_by(Tenants.Tenant, slug: slug) do
-        %Tenants.Tenant{suspended_at: nil, deleting_at: nil} = tenant ->
+      case Tenants.active_by_slug(slug) do
+        {:ok, tenant} ->
           {:ok, {:pod, tenant.id}}
 
         _ ->

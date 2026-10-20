@@ -17,6 +17,6 @@ pub use cel::validate_condition_source;
 pub use decision::{
     AuthzBatchSnapshot, AuthzDecision, AuthzDiagnostic, AuthzSnapshot, SnapshotComputedGroup,
     SnapshotGrant, SnapshotPrincipal, authorize, authorize_all, authorize_all_value,
-    authorize_value,
+    authorize_checks_value, authorize_value,
 };
 pub use resource_pattern::{pattern_matches, validate_pattern_source};

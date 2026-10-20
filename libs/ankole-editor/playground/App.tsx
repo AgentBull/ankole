@@ -16,8 +16,10 @@ import {
 } from '@remixicon/react'
 import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react'
 import { BlockEditor } from '@ankole/block-editor'
-import { PageSession, type Editor, type PageWrite } from '@ankole/block-editor/editor'
-import { parseMarkdown, printXml, type SourceFormat } from '@ankole/block-editor/document'
+import { PageSession, type Editor } from '@ankole/block-editor/editor'
+import { parseMarkdown, printXml } from '@ankole/block-editor/document'
+import type { PageWrite } from '../src/editor/page-session'
+import type { SourceFormat } from '../src/document/tree'
 import { sampleMarkdown } from './sample'
 
 const storageKey = 'ankole.block-lab.markdown.v2'

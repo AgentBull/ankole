@@ -22,7 +22,7 @@ defmodule Ankole.Sessions.Wait do
     wait
     |> Map.from_struct()
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
-    |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+    |> Ankole.Attrs.normalize_external_attrs()
     |> Map.put("kind", Atom.to_string(wait.kind))
     |> Map.put("started_at", if(wait.started_at, do: DateTime.to_iso8601(wait.started_at)))
   end

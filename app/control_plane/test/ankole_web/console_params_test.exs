@@ -59,6 +59,10 @@ defmodule AnkoleWeb.ConsoleParamsTest do
   describe "text/2" do
     test "returns the trimmed text" do
       assert ConsoleParams.text(%{name: " ops "}, :name) == {:ok, "ops"}
+      assert ConsoleParams.text(%{"name" => "string-only"}, :name) == {:error, {:missing, :name}}
+
+      assert ConsoleParams.text(%{:name => nil, "name" => "string"}, :name) ==
+               {:error, {:missing, :name}}
     end
 
     test "treats an empty or blank string as missing" do

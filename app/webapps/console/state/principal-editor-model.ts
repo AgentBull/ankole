@@ -1,5 +1,5 @@
 import { batch, computed, createModel, signal } from '@preact/signals-react'
-import * as v from 'valibot'
+import { z } from 'zod'
 import type { PrincipalCreateRequest, PrincipalUpdateRequest } from '../api/generated/types.gen'
 
 export type PrincipalEditorDraft = {
@@ -10,7 +10,7 @@ export type PrincipalEditorDraft = {
 /** Client-side draft problems; the pages translate the code at render. */
 export type PrincipalDraftError = 'display_name_required' | 'email_required' | 'email_invalid'
 
-const emailSchema = v.pipe(v.string(), v.email())
+const emailSchema = z.email()
 
 /** Shared draft for the create and edit pages of a local human user. */
 export const PrincipalEditorModel = createModel(() => {
@@ -64,7 +64,7 @@ export const PrincipalEditorModel = createModel(() => {
       if (!displayName.value.trim()) return 'display_name_required'
       const trimmedEmail = email.value.trim()
       if (!trimmedEmail) return emailRequired ? 'email_required' : undefined
-      if (!v.is(emailSchema, trimmedEmail)) return 'email_invalid'
+      if (!emailSchema.safeParse(trimmedEmail).success) return 'email_invalid'
       return undefined
     },
     createBody(): PrincipalCreateRequest {

@@ -65,7 +65,7 @@ Agent は無効のままにします。旧バージョンにドライブがな�
 docker compose run --rm --no-deps --user root --entrypoint chmod \
   -v ankole_agents_data:/agents control-plane -R a+rX /agents
 docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 インポートは Skill、Automation スクリプト、未送信の旧 Outbox 添付をコピーし、既存ドライブパスを上書きしません。他のユーザーファイル、Session と Job の作業領域は Home に残ります。レポートを保存し、`Skipped` や `main.ts` のない Job を修正して再実行します。ファイル検証と復元演習が成功するまで旧 volume を保持してください。
@@ -97,7 +97,7 @@ helm upgrade ankole ./tools/deploy/helm/ankole-agent \
   --namespace ankole --values values-production.yaml \
   --set files.importAgentHomeClaim=OLD_AGENTS_PVC --wait --timeout 15m
 kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 Deployment は `Recreate` を使い、新 Pod の `db-migrate` init container が先に migration を実行します。インポート完了まで Agent は無効にします。レポート確認後、`files.importAgentHomeClaim` を削除して再度アップグレードします。Worker 用の旧 Home PVC は引き続き必要です。独自 release、namespace、Deployment 名はコマンドを調整してください。[Helm ガイド](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md)に全パラメータがあります。

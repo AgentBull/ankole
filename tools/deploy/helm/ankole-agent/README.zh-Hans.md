@@ -276,7 +276,7 @@ kubectl -n ankole run ankole-agent-home-prepare --rm -i --restart=Never \
 
 ```sh
 kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 之后去掉这个值再升级一次。导入会复制每个 Agent 的已安装 Skill 和 Automation Job

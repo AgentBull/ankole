@@ -225,7 +225,7 @@ function getCursorInfo(wg: Wordgard, plugin: CursorLayer, cont: (info: CursorInf
   // Create a temporary node to measure
   const target = sel.head.parent.node.isDoc ? wg.contentDOM : wg.nodeDOM(sel.head.parent.before)!
   wg.scheduleDOMWrite(() => {
-    const temp = renderMarks(marks, 'M')
+    const temp = renderMarks(wg.state, marks, 'M')
     ;(temp as HTMLElement).style.position = 'absolute'
     wg.observer.ignore(() => target.insertBefore(temp, target.firstChild))
     wg.scheduleDOMRead(() => {

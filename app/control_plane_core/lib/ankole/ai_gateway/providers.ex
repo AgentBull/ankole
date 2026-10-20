@@ -140,7 +140,7 @@ defmodule Ankole.AIGateway.Providers do
   """
   @spec normalize_connection_options(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def normalize_connection_options(provider_kind, options) when is_map(options) do
-    options = normalize_option_keys(options)
+    options = Ankole.Attrs.normalize_external_attrs(options)
 
     with {:ok, provider} <- fetch(provider_kind),
          :ok <-
@@ -163,7 +163,7 @@ defmodule Ankole.AIGateway.Providers do
   """
   @spec normalize_credential_options(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def normalize_credential_options(provider_kind, options) when is_map(options) do
-    options = normalize_option_keys(options)
+    options = Ankole.Attrs.normalize_external_attrs(options)
 
     with {:ok, provider} <- fetch(provider_kind),
          :ok <-
@@ -205,7 +205,7 @@ defmodule Ankole.AIGateway.Providers do
   """
   @spec validate_runtime_provider_options(String.t(), map()) :: :ok | {:error, term()}
   def validate_runtime_provider_options(provider_kind, options) when is_map(options) do
-    options = normalize_option_keys(options)
+    options = Ankole.Attrs.normalize_external_attrs(options)
 
     with {:ok, provider} <- fetch(provider_kind),
          :ok <-
@@ -722,18 +722,11 @@ defmodule Ankole.AIGateway.Providers do
 
   defp normalize_id(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
 
-  defp normalize_option_keys(options) do
-    Map.new(options, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
-
   defp reject_unknown_keys(options, allowed, error_tag) do
     allowed = MapSet.new(allowed)
 
     options
-    |> normalize_option_keys()
+    |> Ankole.Attrs.normalize_external_attrs()
     |> Map.keys()
     |> Enum.reject(&MapSet.member?(allowed, &1))
     |> case do

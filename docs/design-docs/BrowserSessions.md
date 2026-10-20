@@ -209,6 +209,10 @@ these operations to refresh a proof.
 minting an authentication. A private handoff can use this one-use boundary; it
 still owns its origin, state, and parent-proof checks.
 
+The handoff owner computes and stores its code digest. It uses the login
+transaction's ten-minute expiry and preserves the stored digest format while
+pending transactions can still be consumed.
+
 `AnkoleWeb.Session` seals each handoff's browser state in a separate host-only
 cookie. Its random name lets concurrent entries keep independent state. A
 successful handoff can write the already verified parent authentication with
@@ -253,3 +257,8 @@ when a tenant failed. Browser Sessions removes expired transactions and expired
 groups with no retained RP association. Foreign keys then remove their
 independent authentications and proofs. Tenant deletion removes its access
 proofs and native authentication rows through the existing deletion owner.
+
+The edition Host policy declares classification, the shared cookie domain,
+tenant origins, and canonical origins through `RequestHost` callbacks. FOSS
+origins retain the request scheme and port. SaaS route admission is an explicit
+Host policy; a route declaration alone does not grant access from a Pod Host.

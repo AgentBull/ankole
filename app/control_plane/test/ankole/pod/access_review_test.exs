@@ -140,6 +140,119 @@ defmodule Ankole.Pod.AccessReviewTest do
     assert {:ok, _} = Pages.get(ctx.member.uid, page.id)
   end
 
+  test "CEL conditions and general resource globs use the same decisions in navigation", ctx do
+    {:ok, private} = Pages.create(ctx.owner.uid, %{private_owner_uid: ctx.owner.uid})
+    {:ok, child} = Pages.create(ctx.owner.uid, %{parent_id: private.id})
+    {:ok, hidden} = Pages.create(ctx.owner.uid, %{private_owner_uid: ctx.owner.uid})
+
+    for {action, condition} <- [
+          {"page_view", "true && true"},
+          {"page_edit",
+           ~s(resource == "pod:private:#{ctx.owner.uid}:#{private.id}:#{child.id}:page")}
+        ] do
+      {:ok, _} =
+        Ankole.AuthZ.create_permission_grant(%{
+          group_id: ctx.group.id,
+          resource_pattern: "pod:private:#{ctx.owner.uid}:#{private.id}:**",
+          action: action,
+          condition: condition
+        })
+    end
+
+    for actor <- [ctx.member, ctx.agent] do
+      {:ok, listed} = Pages.list(actor.uid)
+      assert MapSet.new(listed, & &1.id) |> MapSet.member?(private.id)
+      refute Enum.any?(listed, &(&1.id == hidden.id))
+
+      for page <- [private, child] do
+        {:ok, detail} = Pages.get(actor.uid, page.id)
+        assert Enum.find(listed, &(&1.id == page.id)).role == detail.role
+      end
+
+      assert {:ok, %{role: "view"}} = Pages.get(actor.uid, private.id)
+      assert {:ok, %{role: "edit"}} = Pages.get(actor.uid, child.id)
+    end
+  end
+
+  test "conditional direct shares retain Shared and trash semantics", ctx do
+    {:ok, private} = Pages.create(ctx.owner.uid, %{private_owner_uid: ctx.owner.uid})
+    {:ok, child} = Pages.create(ctx.owner.uid, %{parent_id: private.id})
+
+    for action <- Access.page_actions() do
+      {:ok, _} =
+        Ankole.AuthZ.create_permission_grant(%{
+          principal_uid: ctx.member.uid,
+          resource_pattern: "pod:**:#{child.id}:**",
+          action: action,
+          condition: "true && true"
+        })
+    end
+
+    assert {:ok, [shared]} = Pages.list(ctx.member.uid, %{scope: "shared"})
+    assert shared.id == child.id
+    assert shared.role == "manage"
+
+    assert {:ok, _} = Pages.delete(ctx.owner.uid, child.id)
+    assert {:ok, []} = Pages.list(ctx.member.uid, %{scope: "shared"})
+    assert {:ok, [trashed]} = Pages.list(ctx.member.uid, %{scope: "trash"})
+    assert trashed.id == child.id
+
+    assert {:ok, _} = Pages.delete(ctx.owner.uid, private.id)
+    assert {:ok, []} = Pages.list(ctx.member.uid, %{scope: "trash"})
+  end
+
+  test "conditional navigation evaluates a large page tree with one native snapshot", ctx do
+    now = DateTime.utc_now(:microsecond)
+
+    pages =
+      for index <- 1..1000 do
+        %{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
+          tenant_id: ctx.tenant.id,
+          type: :doc,
+          title: "Page #{index}",
+          position: Integer.to_string(index),
+          created_by: Ankole.ActorRef.from_principal(ctx.member),
+          created_at: now,
+          updated_at: now
+        }
+      end
+
+    Repo.insert_all(Ankole.Pod.Page, pages)
+
+    grants =
+      for page <- pages do
+        %{
+          id: Ankole.Ecto.UUIDv7.autogenerate(),
+          tenant_id: ctx.tenant.id,
+          principal_uid: ctx.member.uid,
+          resource_pattern: "pod:**:#{page.id}:**",
+          action: "page_view",
+          condition: "true",
+          metadata: %{},
+          inserted_at: now,
+          updated_at: now
+        }
+      end
+
+    Repo.insert_all(Ankole.AuthZ.Grant, grants)
+    assert {:ok, canonical} = Access.navigation(ctx.member.uid)
+    assert map_size(canonical) == 1000
+
+    assert {:ok, _} =
+             Ankole.AuthZ.update_permission_grant(hd(grants).id, %{condition: "true && true"})
+
+    function = {Ankole.Kernel, :authz_authorize_checks, 1}
+    :erlang.trace_pattern(function, true, [:call_count])
+
+    try do
+      assert {:ok, ^canonical} = Access.navigation(ctx.member.uid)
+      assert :erlang.trace_info(function, :call_count) == {:call_count, 1}
+    after
+      :erlang.trace_pattern(function, false, [:call_count])
+    end
+  end
+
   test "Shared includes the current subject's direct grants only when its parent is invisible",
        ctx do
     {:ok, space} = Pages.create(ctx.owner.uid, %{})
@@ -176,6 +289,9 @@ defmodule Ankole.Pod.AccessReviewTest do
     :ok = Phoenix.PubSub.subscribe(Ankole.PubSub, "pod-page:" <> page.id)
     assert {:ok, _} = Pages.update(ctx.owner.uid, page.id, %{title: "Renamed"})
     assert_receive {:page_committed, _}
+    refute_receive :recheck_access
+
+    assert {:error, :invalid_principal} = Pages.space_agent(ctx.owner.uid, ctx.member.uid, "view")
     refute_receive :recheck_access
 
     assert {:ok, _} =

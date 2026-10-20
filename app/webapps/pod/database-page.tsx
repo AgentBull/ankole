@@ -234,7 +234,7 @@ function TableWorkspace({
   const effective: ConfiguredView = {
     ...(view ?? fallback),
     type: inline?.config ? (inline.config.type ?? 'grid') : (view?.type ?? 'grid'),
-    config: configuration.success ? configuration.output : {}
+    config: configuration.success ? configuration.data : {}
   }
   const query = {
     filter: effective.config.filter,
@@ -321,7 +321,7 @@ function TableWorkspace({
                     model.select(view.id)
                     if (inline) {
                       const config = parseViewConfig(view.config)
-                      if (config.success) inline.configure({ ...config.output, type: view.type })
+                      if (config.success) inline.configure({ ...config.data, type: view.type })
                     }
                     model.draft.value = undefined
                     updateView.reset()

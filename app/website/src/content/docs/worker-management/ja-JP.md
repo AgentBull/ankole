@@ -55,7 +55,7 @@ Agent 作成時は provider の選択と Worker 行を保存し、インスタ�
 | Lambda MicroVMs | EFS の Agent ディレクトリ | メモリを保持して休止 |
 | Function Compute | Agent ごとの AgenticSpace または OSS prefix | メモリを保持して休止 |
 
-Vercel の `sessionTimeoutSeconds` はアカウントの上限内に設定します。既定値は 86400 秒、上限が 45 分の場合は 2700 秒です。Lambda のメモリクォータは、実行中と休止中の Worker に加えて、ストレージ削除用インスタンスの分も確保してください。デプロイ前に、リポジトリの CONTRIBUTING のコマンドで対象環境を検証してください。Function Compute は実環境で、メモリを保持した休止と再開を含む OSS のライフサイクル検証に合格しました。再開は Worker イメージ内の OSS 再接続ヘルパーに依存するため、対応するバージョンの Worker イメージと制御プレーンを一緒にデプロイしてください。AgenticFS も実環境での検証が必要です。ACS は既定のメモリ保持が未確認のため未登録です。
+Vercel の `sessionTimeoutSeconds` はアカウントの上限内に設定します。既定値は 86400 秒、上限が 45 分の場合は 2700 秒です。Lambda のメモリクォータは、実行中と休止中の Worker に加えて、ストレージ削除用インスタンスの分も確保してください。デプロイ前に、リポジトリの CONTRIBUTING のコマンドで対象環境を検証してください。[プロバイダー検証の根拠](https://github.com/AgentBull/ankole/blob/main/docs/design-docs/AgentWorkers.md#provider-verification-evidence) に、各プロバイダーのクラウド検証と未検証の項目をまとめています。再開は Worker イメージ内の OSS 再接続ヘルパーに依存するため、対応するバージョンの Worker イメージと制御プレーンを一緒にデプロイしてください。AgenticFS も実環境での検証が必要です。ACS は既定のメモリ保持が未確認のため未登録です。
 
 Home はインスタンス削除やイメージ変更後も残ります。Codex スレッドは `/workspace/.codex`、SQLite キャッシュは `/var/cache/ankole/codex` にあります。再構築ではキャッシュだけを削除します。Docker のローカル volume はホスト消失に耐えません。Cloudflare の強制停止では最終バックアップ後の書き込みを失う場合があります。Home と [Agent ドライブ](../file-management/) の両方をバックアップしてください。
 

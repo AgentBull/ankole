@@ -65,7 +65,7 @@ Keep Agents disabled. If the old version had no drive, make the old volume reada
 docker compose run --rm --no-deps --user root --entrypoint chmod \
   -v ankole_agents_data:/agents control-plane -R a+rX /agents
 docker compose run --rm --no-deps -v ankole_agents_data:/agents:ro control-plane \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 The import copies installed Skills, Automation scripts, and unsent legacy Outbox attachments. It does not overwrite existing drive paths. Other user files and Session and Job workspaces stay in Home. Save the report. Repair `Skipped` files and Jobs without `main.ts`, then repeat the import. Keep the old volume until file checks and a restore rehearsal pass.
@@ -97,7 +97,7 @@ helm upgrade ankole ./tools/deploy/helm/ankole-agent \
   --namespace ankole --values values-production.yaml \
   --set files.importAgentHomeClaim=OLD_AGENTS_PVC --wait --timeout 15m
 kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 The Deployment uses `Recreate`; the new Pod's `db-migrate` init container runs migrations first. Keep Agents disabled until import completes. Check the report, remove `files.importAgentHomeClaim`, and upgrade again. Workers still need the old Home PVC: keep it. Adjust commands for custom release, namespace, or Deployment names. See the [Helm deployment guide](https://github.com/AgentBull/ankole/blob/main/tools/deploy/helm/ankole-agent/README.md).

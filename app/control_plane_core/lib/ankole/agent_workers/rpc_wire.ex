@@ -16,10 +16,8 @@ defmodule Ankole.AgentWorkers.RPCWire do
   @doc """
   Reads a possibly string-keyed or atom-keyed value without creating atoms.
   """
-  def value(map, key) when is_map(map) and is_binary(key) do
-    Map.get(map, key) || atom_key_value(map, key)
-  end
 
+  def value(map, key) when is_map(map) and is_binary(key), do: Ankole.Attrs.get_truthy(map, key)
   def value(_map, _key), do: nil
 
   @doc """
@@ -29,10 +27,7 @@ defmodule Ankole.AgentWorkers.RPCWire do
     case value(map, key) do
       value when is_binary(value) ->
         if Keyword.get(opts, :trim, true) do
-          case String.trim(value) do
-            "" -> nil
-            trimmed -> trimmed
-          end
+          Ankole.Attrs.optional_text(value)
         else
           value
         end
@@ -141,10 +136,4 @@ defmodule Ankole.AgentWorkers.RPCWire do
   defp encode_optional_json(value) when value == %{}, do: ""
   defp encode_optional_json(value) when value == [], do: ""
   defp encode_optional_json(value), do: Torque.encode!(value)
-
-  defp atom_key_value(map, key) do
-    Map.get(map, String.to_existing_atom(key))
-  rescue
-    ArgumentError -> nil
-  end
 end

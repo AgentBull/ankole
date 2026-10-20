@@ -55,7 +55,7 @@ const config: KnipConfig = {
       ]
     },
     'app/kernel': {
-      entry: ['src/applet_runtime/bootstrap.js!']
+      entry: ['src/applet_runtime/bootstrap.js!', 'scripts/build-node-addon.ts!']
     },
     'libs/uikit': {
       entry: ['src/index.ts!'],

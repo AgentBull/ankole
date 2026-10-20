@@ -14,6 +14,15 @@ defmodule Ankole.Conversations.InboundBatches do
 
   alias Ankole.Signals.Signal
   alias Ankole.Repo
+
+  import Ankole.Conversations.MessageInput,
+    only: [
+      pending_attachment_deadline: 2,
+      attachment_observed_at: 1,
+      merged_entry_text: 1,
+      merged_entry_list: 2
+    ]
+
   alias Ankole.Conversations.Envelope
   alias Ankole.Conversations.InputRevisions
   alias Ankole.Conversations.InboundBatch
@@ -25,7 +34,6 @@ defmodule Ankole.Conversations.InboundBatches do
   @addressed_text_window_ms 1_000
   @neutral_text_window_ms 600
   @addressed_attachment_window_ms 1_200
-  @attachment_materialization_hard_cap_ms 4_000
   @addressed_long_text_window_ms 2_000
   @addressed_long_text_threshold 3_000
   @addressed_text_budget 4_000
@@ -121,9 +129,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
   def apply_im_entry_policy(repo, binding, fact, policy, type, now) do
     with :ok <- lock_in_tx(repo, fact),
-         {:ok, channel} <-
-           repo.get_by(Conversation, id: fact.conversation_id)
-           |> then(fn convo -> {:ok, convo} end) do
+         %Conversation{} = channel <- repo.get_by(Conversation, id: fact.conversation_id) do
       batch = open_inbound_batch(fact, repo)
 
       case mirrored_outside_open_batch?(repo, fact, batch) do
@@ -187,6 +193,9 @@ defmodule Ankole.Conversations.InboundBatches do
              |> maybe_put_result(:message_observation, mirror_entry)}
           end
       end
+    else
+      nil -> {:error, :conversation_not_found}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -1367,33 +1376,6 @@ defmodule Ankole.Conversations.InboundBatches do
       else: @neutral_text_window_ms
   end
 
-  defp pending_attachment_deadline(entries, now) do
-    entries
-    |> Enum.filter(&(attachment_materialization_state(&1) == "pending"))
-    |> Enum.map(fn entry ->
-      anchor =
-        attachment_observed_at(entry) ||
-          parse_datetime(entry["received_at"]) ||
-          now
-
-      DateTime.add(anchor, @attachment_materialization_hard_cap_ms, :millisecond)
-    end)
-    |> Enum.min_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
-  end
-
-  defp attachment_observed_at(entry) when is_map(entry) do
-    entry
-    |> get_in(["metadata", "attachment_materialization", "observed_at"])
-    |> parse_datetime()
-  end
-
-  defp attachment_observed_at(_entry), do: nil
-
-  defp attachment_materialization_state(entry) when is_map(entry),
-    do: get_in(entry, ["metadata", "attachment_materialization", "state"])
-
-  defp attachment_materialization_state(_entry), do: nil
-
   defp entry_has_attachments?(entry) do
     case entry["attachments"] do
       [_ | _] -> true
@@ -1411,24 +1393,6 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp requester_sender_key(_mode, _entries), do: nil
-
-  defp merged_entry_text(entries) do
-    entries
-    |> Enum.map(& &1["text"])
-    |> Enum.filter(&is_binary/1)
-    |> Enum.reject(&(String.trim(&1) == ""))
-    |> Enum.join("\n")
-  end
-
-  defp merged_entry_list(entries, key) do
-    entries
-    |> Enum.flat_map(fn entry ->
-      case entry[key] do
-        values when is_list(values) -> values
-        _value -> []
-      end
-    end)
-  end
 
   defp merged_entry_attachments(entries) do
     entries

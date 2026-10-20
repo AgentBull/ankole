@@ -1,6 +1,7 @@
 import type { Node, Plot, Schema } from '../core/doc'
 import type { Wordgard } from '../core/editor'
 import type { GardState } from '../core/state'
+import type { PhraseSet } from '../core/phrases'
 import type { Element, Node as PageNode } from '../document/tree'
 
 /** Imports the child elements of a block element. */
@@ -9,8 +10,8 @@ export type BlockImport = { blocks(nodes: readonly PageNode[]): Node[] }
 export type BlockRead = { children(node: Plot): PageNode[] }
 
 export type BlockInsert = {
-  title: string
-  detail: string
+  title: PhraseSet.Ref
+  detail: PhraseSet.Ref
   /** Search aliases, kept out of the visible menu description. */
   keywords?: string
   glyph: string

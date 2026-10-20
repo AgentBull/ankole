@@ -112,8 +112,17 @@ defmodule AnkoleWeb.RequestLogger do
   defp request_id(conn), do: List.first(Plug.Conn.get_resp_header(conn, "x-request-id"))
 
   defp route(conn) do
-    conn.private[:phoenix_route] || redacted_path(conn.request_path)
+    conn.private[:phoenix_route] || router_route(conn) || redacted_path(conn.request_path)
   end
+
+  defp router_route(%{private: %{phoenix_router: router}} = conn) when is_atom(router) do
+    case Phoenix.Router.route_info(router, conn.method, conn.path_info, conn.host) do
+      %{route: route} when is_binary(route) -> route
+      _ -> nil
+    end
+  end
+
+  defp router_route(_conn), do: nil
 
   defp redacted_path("/webhooks/v1/event-callbacks/" <> _token),
     do: "/webhooks/v1/event-callbacks/[REDACTED]"

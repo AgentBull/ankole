@@ -12,31 +12,12 @@ defmodule Ankole.SubtractionUpgradeTest do
   @moduletag timeout: 180_000
   @migrations Path.expand("../priv/repo/migrations", __DIR__)
   @migration 20_261_019_130_000
+  @brain_split 20_261_020_103_000
+  @brain_tags 20_261_020_103_100
   @tenant "019a2b00-0000-7000-8000-000000000001"
 
   test "upgrade retains imported records and never revives an expired Job" do
-    config = Repo.config()
-
-    config =
-      config
-      |> Keyword.merge(Ecto.Repo.Supervisor.parse_url(config[:url] || ""))
-      |> Keyword.delete(:url)
-      |> Keyword.put(
-        :database,
-        "ankole_subtraction_upgrade_#{System.unique_integer([:positive])}"
-      )
-      |> Keyword.put(:pool, DBConnection.ConnectionPool)
-      |> Keyword.put(:pool_size, 2)
-      |> Keyword.put(:log, false)
-
-    assert :ok = Ecto.Adapters.Postgres.storage_up(config)
-    {:ok, pid} = UpgradeRepo.start_link(config)
-    Process.unlink(pid)
-
-    on_exit(fn ->
-      if Process.alive?(pid), do: Supervisor.stop(pid)
-      assert :ok = Ecto.Adapters.Postgres.storage_down(config)
-    end)
+    start_upgrade_repo!()
 
     Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: @migration - 1, log: false)
     uid = Ankole.Ecto.UUIDv7.autogenerate()
@@ -115,5 +96,140 @@ defmodule Ankole.SubtractionUpgradeTest do
              ((table_name = 'automation_jobs' AND column_name = 'expires_at') OR
               (table_name = 'db_records' AND column_name = 'external_id'))
            """).rows == []
+  end
+
+  test "Brain upgrade keeps timeline progress and tag content baselines" do
+    start_upgrade_repo!()
+    allow_cache_database_access()
+    Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: @brain_split - 1, log: false)
+
+    created_at = ~N[2026-10-18 10:00:00.000000]
+    extracted_at = ~N[2026-10-19 10:00:00.000000]
+    tagged_id = Ankole.Ecto.UUIDv7.autogenerate()
+    untagged_id = Ankole.Ecto.UUIDv7.autogenerate()
+    version_id = Ankole.Ecto.UUIDv7.autogenerate()
+    title = "Upgrade memory"
+    body = "Persisted memory body."
+    meta = %{"source" => "upgrade"}
+
+    canonical_meta =
+      meta
+      |> Enum.sort_by(fn {key, _} -> to_string(key) end)
+      |> inspect(limit: :infinity, printable_limit: :infinity)
+
+    old_hash =
+      Ankole.Kernel.xxh3_128_hex("#{title}\u0000#{body}\u0000#{canonical_meta}\u0000\u0000")
+
+    for {id, slug} <- [{tagged_id, "notes/tagged-upgrade"}, {untagged_id, "notes/plain-upgrade"}] do
+      SQL.query!(
+        UpgradeRepo,
+        """
+        INSERT INTO brain_objects
+          (id, tenant_id, slug, type, title, body, meta, content_hash,
+           created_at, updated_at, links_extracted_at)
+        VALUES ($1::text::uuid, $2::text::uuid, $3, 'note', $4, $5, $6, $7, $8, $8, $9)
+        """,
+        [id, @tenant, slug, title, body, meta, old_hash, created_at, extracted_at]
+      )
+    end
+
+    for tag <- ["研究", "AI"] do
+      SQL.query!(
+        UpgradeRepo,
+        """
+        INSERT INTO brain_tags (id, tenant_id, object_slug, tag, created_at)
+        VALUES ($1::text::uuid, $2::text::uuid, 'notes/tagged-upgrade', $3, $4)
+        """,
+        [Ankole.Ecto.UUIDv7.autogenerate(), @tenant, tag, created_at]
+      )
+    end
+
+    SQL.query!(
+      UpgradeRepo,
+      """
+      INSERT INTO brain_object_versions (id, tenant_id, object_id, body, meta, snapshot_at)
+      VALUES ($1::text::uuid, $2::text::uuid, $3::text::uuid, 'Historical body', $4, $5)
+      """,
+      [version_id, @tenant, tagged_id, %{"historical" => true}, created_at]
+    )
+
+    assert Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: @brain_tags, log: false) ==
+             [@brain_split, @brain_tags]
+
+    rows =
+      SQL.query!(UpgradeRepo, """
+      SELECT slug, title, body, meta, links_extracted_at, timelines_extracted_at, content_hash
+      FROM brain_objects WHERE slug IN ('notes/tagged-upgrade', 'notes/plain-upgrade')
+      ORDER BY slug
+      """).rows
+
+    assert [
+             ["notes/plain-upgrade", ^title, ^body, ^meta, nil, ^extracted_at, ^old_hash],
+             ["notes/tagged-upgrade", ^title, ^body, ^meta, nil, ^extracted_at, tagged_hash]
+           ] = rows
+
+    refute tagged_hash == old_hash
+
+    assert SQL.query!(UpgradeRepo, """
+           SELECT tag FROM brain_tags WHERE object_slug = 'notes/tagged-upgrade' ORDER BY tag COLLATE "C"
+           """).rows == [["AI"], ["研究"]]
+
+    assert SQL.query!(
+             UpgradeRepo,
+             """
+             SELECT body, meta, tags FROM brain_object_versions WHERE id = $1::text::uuid
+             """,
+             [version_id]
+           ).rows == [["Historical body", %{"historical" => true}, []]]
+
+    Repo.with_tenant(@tenant, fn ->
+      # A no-content-change save computes the runtime baseline from the real
+      # stored tags. It must agree with the frozen migration encoding.
+      assert {:ok, object} =
+               Ankole.Brain.Objects.update_object(
+                 "notes/tagged-upgrade",
+                 %{expected_content_hash: tagged_hash},
+                 :system,
+                 repo: UpgradeRepo
+               )
+
+      assert object.content_hash == tagged_hash
+
+      assert SQL.query!(
+               UpgradeRepo,
+               """
+               SELECT tags FROM brain_object_versions
+               WHERE object_id = $1::text::uuid AND id <> $2::text::uuid
+               """,
+               [tagged_id, version_id]
+             ).rows == [[["AI", "研究"]]]
+    end)
+
+    assert Ecto.Migrator.run(UpgradeRepo, @migrations, :up, to: @brain_tags, log: false) == []
+  end
+
+  defp start_upgrade_repo! do
+    config = Repo.config()
+
+    config =
+      config
+      |> Keyword.merge(Ecto.Repo.Supervisor.parse_url(config[:url] || ""))
+      |> Keyword.delete(:url)
+      |> Keyword.put(
+        :database,
+        "ankole_subtraction_upgrade_#{System.unique_integer([:positive])}"
+      )
+      |> Keyword.put(:pool, DBConnection.ConnectionPool)
+      |> Keyword.put(:pool_size, 2)
+      |> Keyword.put(:log, false)
+
+    assert :ok = Ecto.Adapters.Postgres.storage_up(config)
+    {:ok, pid} = UpgradeRepo.start_link(config)
+    Process.unlink(pid)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Supervisor.stop(pid)
+      assert :ok = Ecto.Adapters.Postgres.storage_down(config)
+    end)
   end
 end

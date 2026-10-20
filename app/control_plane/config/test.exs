@@ -4,7 +4,9 @@ config :ankole, Ankole.Repo,
   template: "template0",
   pool: Ecto.Adapters.SQL.Sandbox,
   ownership_timeout: 3_600_000,
-  pool_size: System.schedulers_online() * 2
+  # Startup children keep automatic Sandbox checkouts until test_helper switches
+  # the pool to manual mode. Small CI runners need enough connections to boot.
+  pool_size: max(20, System.schedulers_online() * 2)
 
 config :ankole, AnkoleWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],

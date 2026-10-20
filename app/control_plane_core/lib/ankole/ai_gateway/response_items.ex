@@ -162,6 +162,25 @@ defmodule Ankole.AIGateway.ResponseItems do
   @spec new() :: t()
   def new, do: %__MODULE__{}
 
+  @doc "Returns list content from message items in order, without choosing roles or text types."
+  @spec message_content_parts(term()) :: [term()]
+  def message_content_parts(items) when is_list(items) do
+    Enum.flat_map(items, fn
+      %{"type" => "message", "content" => content} when is_list(content) -> content
+      _item -> []
+    end)
+  end
+
+  def message_content_parts(_items), do: []
+
+  @doc "Returns binary text fields in order, with their original whitespace."
+  @spec text_parts(term()) :: [String.t()]
+  def text_parts(parts) when is_list(parts) do
+    for %{"text" => text} <- parts, is_binary(text), do: text
+  end
+
+  def text_parts(_parts), do: []
+
   @spec expected_output_type(String.t()) :: String.t() | nil
   def expected_output_type(call_type), do: Map.get(@call_output_types, call_type)
 

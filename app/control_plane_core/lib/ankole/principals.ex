@@ -144,7 +144,7 @@ defmodule Ankole.Principals do
         agent_attrs = take_attrs(attrs, @agent_fields)
 
         provider_id =
-          Map.get(attrs, :worker_provider_id, Map.get(attrs, "worker_provider_id"))
+          Ankole.Attrs.get(attrs, :worker_provider_id)
 
         with {:ok, provider_id} <-
                Ankole.AgentWorkers.Providers.select_in_tx(
@@ -1087,14 +1087,7 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp normalize_required_text(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> {:error, :invalid_text}
-      trimmed -> {:ok, trimmed}
-    end
-  end
-
-  defp normalize_required_text(_value), do: {:error, :invalid_text}
+  defp normalize_required_text(value), do: Ankole.Attrs.required_text(value, :invalid_text)
 
   defp metadata_attrs(attrs) do
     case fetch_attr(attrs, :metadata) do

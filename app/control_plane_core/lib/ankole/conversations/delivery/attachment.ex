@@ -138,10 +138,7 @@ defmodule Ankole.Conversations.Delivery.Attachment do
   defp required_text(map, key) do
     case Map.get(map, key) do
       value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:reply_attachment_required_text_blank, key}}
-          value -> {:ok, value}
-        end
+        Ankole.Attrs.required_text(value, {:reply_attachment_required_text_blank, key})
 
       _value ->
         {:error, {:reply_attachment_required_text_missing, key}}

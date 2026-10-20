@@ -2,7 +2,6 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
   defdelegate platform_application(config), to: Ankole.Plugins.GoogleWorkspaceAdapter.Config
   @moduledoc false
 
-  alias Ankole.AuthZ
   alias Ankole.IdentityProviders.Directory, as: IdentityDirectory
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Plugins.GoogleWorkspaceAdapter.Config
@@ -106,28 +105,18 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
   defp sync_users(provider_id, config, user_index) do
     client = Config.identity_client(config)
 
-    with {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id) do
-      Directory.stream_users(client, customer: "my_customer", maxResults: page_size(config))
-      |> Enum.reduce_while({:ok, 0}, fn
-        {:ok, user}, {:ok, count} ->
-          if directory_user?(user, config) do
-            user_id = Map.get(user, "id")
+    users = Directory.stream_users(client, customer: "my_customer", maxResults: page_size(config))
 
-            case upsert_user(provider_id, user,
-                   directory_group_index: directory_group_index,
-                   group_external_ids: Map.get(user_index, user_id, [])
-                 ) do
-              {:ok, _observed} -> {:cont, {:ok, count + 1}}
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-          else
-            {:cont, {:ok, count}}
-          end
-
-        {:error, reason}, _acc ->
-          {:halt, {:error, reason}}
-      end)
-    end
+    IdentityDirectory.sync_users(provider_id, users, fn user, directory_group_index ->
+      if directory_user?(user, config) do
+        upsert_user(provider_id, user,
+          directory_group_index: directory_group_index,
+          group_external_ids: Map.get(user_index, Map.get(user, "id"), [])
+        )
+      else
+        :skip
+      end
+    end)
   end
 
   # Direct USER members only: nested groups are not expanded, matching the

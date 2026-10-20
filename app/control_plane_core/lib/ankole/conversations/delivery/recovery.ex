@@ -303,7 +303,7 @@ defmodule Ankole.Conversations.Delivery.Recovery do
 
   defp delivery_failure_code(%{} = detail) do
     detail
-    |> Map.get(:code, Map.get(detail, "code"))
+    |> Ankole.Attrs.get(:code)
     |> normalize_log_code()
   end
 

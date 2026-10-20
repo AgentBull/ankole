@@ -533,15 +533,6 @@ defmodule Ankole.Plugins.LineAdapter.Inbound do
            ))
     )
     |> Repo.exists?()
-  rescue
-    exception ->
-      Logging.warning(
-        "line_adapter.inbound.quote_lookup_failed",
-        "LINE quoted message lookup failed",
-        %{binding: consumer.context.binding_name, reason: Exception.message(exception)}
-      )
-
-      false
   end
 
   defp material_message?(text, attachments), do: is_binary(text) or attachments != []

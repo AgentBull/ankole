@@ -260,6 +260,7 @@ export function createDatabaseAPI(client: QueryClient, realtime: PodRealtime): D
           .catch(joinFailed)
       }
       entry.callbacks.add(callback)
+      if (entry.revoked) callback({ access_revoked: true })
       const owned = entry
       return () => {
         owned.callbacks.delete(callback)

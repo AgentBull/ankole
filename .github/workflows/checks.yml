@@ -44,6 +44,42 @@ jobs:
       - run: bun run --filter @ankole/block-editor test
       - run: cargo test --locked --manifest-path app/kernel/Cargo.toml --no-default-features page_document
       - run: bun run --filter @ankole/block-editor test:rust
+      - run: bun run --filter @ankole/kernel test:node
+
+  mix-projects:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - plugins/lark_adapter
+          - plugins/dingtalk_adapter
+          - plugins/wecom_adapter
+          - plugins/slack_adapter
+          - plugins/microsoft365_adapter
+          - plugins/google_workspace_adapter
+          - libs/im_transport
+          - libs/feishu_protocol
+          - tools/fake-feishu
+          - app/kernel
+    env:
+      MIX_ENV: test
+      ANKOLE_EDITION: foss
+    defaults:
+      run:
+        working-directory: ${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: '29'
+          elixir-version: '1.20.4'
+      - run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - run: rustup toolchain install 1.98.1 --profile minimal
+      - run: rustup default 1.98.1
+      - run: mix local.hex --force && mix local.rebar --force && mix deps.get
+      - run: mix test
 
   control-plane:
     runs-on: ubuntu-24.04
@@ -94,5 +130,5 @@ jobs:
         working-directory: app/control_plane
       - run: mix test
         working-directory: app/control_plane
-      - run: mix test integration/subtraction_upgrade_test.exs
+      - run: mix test integration/subtraction_upgrade_test.exs integration/fake_feishu_standalone_e2e_test.exs
         working-directory: app/control_plane

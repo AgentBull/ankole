@@ -91,9 +91,9 @@ defmodule Ankole.AIGateway.CompactionPrompt do
 
   @spec build_history_user_prompt(map()) :: binary()
   def build_history_user_prompt(input) when is_map(input) do
-    conversation_text = map_get(input, :conversation_text) || ""
-    previous_chat_history = map_get(input, :previous_chat_history)
-    recent_context_verbatim = map_get(input, :recent_context_verbatim)
+    conversation_text = Map.get(input, :conversation_text) || ""
+    previous_chat_history = Map.get(input, :previous_chat_history)
+    recent_context_verbatim = Map.get(input, :recent_context_verbatim)
 
     task_prompt =
       if present?(previous_chat_history),
@@ -142,8 +142,4 @@ defmodule Ankole.AIGateway.CompactionPrompt do
 
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_value), do: false
-
-  defp map_get(map, key) when is_atom(key) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
-  end
 end

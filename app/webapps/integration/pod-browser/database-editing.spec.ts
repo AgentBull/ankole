@@ -1,7 +1,7 @@
 import { state, requestWithSharingVersion as request } from './fixtures'
 import { pageRoute } from './routes'
 import { expect, test, type Page } from '@playwright/test'
-import type { DatabaseField, DatabaseView, RecordsResult, TableSchema } from '@ankole/applet-sdk/types'
+import type { DatabaseField, DatabaseRecord, DatabaseView, RecordsResult, TableSchema } from '@ankole/applet-sdk/types'
 
 const location = (id: string) => `${state.base_url}${pageRoute(id)}`
 
@@ -28,6 +28,64 @@ async function choose(page: Page, name: string, option: string) {
     .click()
   await expect(trigger).toHaveAttribute('aria-expanded', 'false')
 }
+
+test('an upload transport failure releases the edit snapshot before the next attachment change', async ({
+  browser
+}) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  let pageID: string | undefined
+  try {
+    const saved = await database(page, 'Attachment upload recovery')
+    pageID = saved.pageID
+    const { field } = await request<{ field: DatabaseField }>(page, `/tables/${saved.tableID}/fields`, 'POST', {
+      name: 'Evidence',
+      type: 'attachment',
+      config: {}
+    })
+    const { records } = await request<{ records: DatabaseRecord[] }>(page, `/tables/${saved.tableID}/records`, 'POST', {
+      creates: [{ data: { [saved.primary.id]: 'Before upload', [field.id]: [] } }]
+    })
+    const record = records[0]!
+    await page.goto(location(saved.pageID))
+    const row = page.locator(`[data-grid-record="${record.id}"]`)
+    const file = row.getByLabel('添加附件', { exact: true })
+    const uploadURL = `**/.internal-apis/pod/pages/${saved.pageID}/files`
+    await page.route(uploadURL, route => route.abort('connectionfailed'), { times: 1 })
+    await file.setInputFiles({ name: 'interrupted.txt', mimeType: 'text/plain', buffer: Buffer.from('Interrupted') })
+    await expect(row.getByRole('alert')).toBeVisible()
+    await expect(file).toBeEnabled()
+
+    await request(page, `/tables/${saved.tableID}/records`, 'POST', {
+      updates: [
+        {
+          id: record.id,
+          data: { [saved.primary.id]: 'Changed elsewhere', [field.id]: null },
+          expected_versions: record.versions
+        }
+      ]
+    })
+    await expect(row.getByRole('textbox', { name: saved.primary.name, exact: true })).toHaveValue('Changed elsewhere')
+    const current = (await request<RecordsResult>(page, `/tables/${saved.tableID}/query`, 'POST', { ids: [record.id] }))
+      .records[0]!
+    expect(current.versions[field.id]).not.toBe(record.versions[field.id])
+
+    await file.setInputFiles({
+      name: 'recovered.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('Saved after recovery')
+    })
+    await expect(row.getByRole('link', { name: 'recovered.txt', exact: true })).toBeVisible()
+    await expect(row.getByRole('alert')).toHaveCount(0)
+    const result = (await request<RecordsResult>(page, `/tables/${saved.tableID}/query`, 'POST', { ids: [record.id] }))
+      .records[0]!
+    expect(result.data[field.id]).toEqual([expect.objectContaining({ name: 'recovered.txt' })])
+  } finally {
+    if (pageID) await request(page, `/pages/${pageID}`, 'DELETE').catch(() => {})
+    await context.close()
+  }
+})
 
 test('new-record dialog retains failed answers, freezes a pending submission, and resets every successful response', async ({
   browser

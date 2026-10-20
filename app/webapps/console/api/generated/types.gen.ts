@@ -153,6 +153,7 @@ export type BrainObjectUpdateRequest = {
   }
   slug: string
   subtype?: string | null
+  tags?: Array<string>
   title: string
 }
 
@@ -2243,6 +2244,7 @@ export type BrainObjectVersion = {
     [key: string]: unknown
   }
   snapshot_at: string
+  tags?: Array<string>
 }
 
 /**
@@ -3070,6 +3072,7 @@ export type BrainObjectCreateRequest = {
   }
   slug: string
   subtype?: string | null
+  tags?: Array<string>
   title: string
   type: string
 }

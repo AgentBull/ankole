@@ -213,6 +213,7 @@ defmodule Ankole.Brain.Objects do
     meta = attrs[:meta] || %{}
 
     with :ok <- validate_slug(slug),
+         {:ok, tags} <- Links.normalize_tags(Map.get(attrs, :tags, [])),
          {:ok, type} <- validate_type(attrs[:type], repo),
          :ok <- validate_body_scopes(body, writer),
          :ok <- validate_slug_available(slug, repo) do
@@ -229,9 +230,10 @@ defmodule Ankole.Brain.Objects do
             effective_date: attrs[:effective_date],
             updated_at: DateTime.utc_now(:microsecond)
           }
-          |> with_content_hash()
+          |> content_changes(%{}, tags)
 
-        with {:ok, object} <- repo.insert(Object.changeset(object, %{})) do
+        with {:ok, object} <- repo.insert(Object.changeset(object, %{})),
+             :ok <- Links.replace_tags_in_tx(repo, object.slug, tags) do
           reconcile_chunks(object, repo: repo)
         end
       end)
@@ -257,6 +259,7 @@ defmodule Ankole.Brain.Objects do
       with {:ok, object} <- lock_object_in_tx(repo, slug),
            :ok <- guard_editable(object, repo),
            :ok <- verify_content_hash(object, expected_hash),
+           {:ok, tags} <- updated_tags(attrs, object, repo),
            new_title = Map.get(attrs, :title, object.title),
            new_body = Map.get(attrs, :body, object.body),
            new_meta = Map.get(attrs, :meta, object.meta),
@@ -272,9 +275,10 @@ defmodule Ankole.Brain.Objects do
             effective_date: Map.get(attrs, :effective_date, object.effective_date),
             updated_at: DateTime.utc_now(:microsecond)
           }
-          |> with_content_hash(object)
+          |> content_changes(object, tags)
 
-        with {:ok, object} <- repo.update(Object.changeset(object, changes)) do
+        with {:ok, object} <- repo.update(Object.changeset(object, changes)),
+             :ok <- Links.replace_tags_in_tx(repo, object.slug, tags) do
           reconcile_chunks(object, repo: repo)
         end
       end
@@ -414,7 +418,7 @@ defmodule Ankole.Brain.Objects do
 
         changes =
           %{deleted_at: DateTime.utc_now(:microsecond), meta: meta}
-          |> with_content_hash(object)
+          |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
 
         object
         |> Ecto.Changeset.change(changes)
@@ -445,7 +449,7 @@ defmodule Ankole.Brain.Objects do
             meta: version.meta,
             updated_at: DateTime.utc_now(:microsecond)
           }
-          |> with_content_hash(object)
+          |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
 
         with {:ok, object} <- repo.update(Object.changeset(object, changes)) do
           reconcile_chunks(object, repo: repo)
@@ -501,7 +505,9 @@ defmodule Ankole.Brain.Objects do
            :ok <- guard_unmanaged(object, repo) do
         meta = Map.drop(object.meta, ["forgotten_reason", "forgotten_by"])
 
-        changes = %{deleted_at: nil, meta: meta} |> with_content_hash(object)
+        changes =
+          %{deleted_at: nil, meta: meta}
+          |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
 
         object
         |> Ecto.Changeset.change(changes)
@@ -543,7 +549,7 @@ defmodule Ankole.Brain.Objects do
         created_at: DateTime.utc_now(:microsecond),
         updated_at: DateTime.utc_now(:microsecond)
       }
-      |> with_content_hash()
+      |> content_changes(%{}, [])
 
     repo.insert_all(Object, [Map.put(row, :tenant_id, Repo.tenant_id!())],
       on_conflict: :nothing,
@@ -559,19 +565,67 @@ defmodule Ankole.Brain.Objects do
   # A token covers every field replaced by an ordinary content save. Status
   # and retrieval projections do not enter it. The migration freezes this
   # encoding so installed rows and new writes have the same baseline.
-  defp content_hash(object) do
+  defp content_hash(object, tags) do
     canonical_meta =
       object.meta
       |> Enum.sort_by(fn {key, _value} -> to_string(key) end)
       |> inspect(limit: :infinity, printable_limit: :infinity)
 
-    NativeKernel.xxh3_128_hex(
+    encoded =
       "#{object.title}\u0000#{object.body}\u0000#{canonical_meta}\u0000#{Map.get(object, :subtype)}\u0000#{Map.get(object, :effective_date)}"
-    )
+
+    encoded =
+      if tags == [],
+        do: encoded,
+        else:
+          encoded <> "\u0000tags:" <> inspect(tags, limit: :infinity, printable_limit: :infinity)
+
+    NativeKernel.xxh3_128_hex(encoded)
   end
 
-  defp with_content_hash(changes, object \\ %{}) do
-    Map.put(changes, :content_hash, content_hash(Map.merge(object, changes)))
+  defp content_changes(changes, object, tags) do
+    changes
+    |> Map.put(:content_hash, content_hash(Map.merge(object, changes), tags))
+    |> preserve_extraction_progress(object)
+  end
+
+  # Keep completed projections current when none of their inputs changed.
+  # A pending projection stays pending, including work for an earlier body.
+  defp preserve_extraction_progress(%{updated_at: _} = changes, %{body: body} = object) do
+    if Map.get(changes, :body, body) == body do
+      changes = carry_extraction_watermark(changes, object, :links_extracted_at)
+
+      if Map.get(changes, :title, object.title) == object.title,
+        do: carry_extraction_watermark(changes, object, :timelines_extracted_at),
+        else: changes
+    else
+      changes
+    end
+  end
+
+  defp preserve_extraction_progress(changes, _object), do: changes
+
+  defp carry_extraction_watermark(changes, object, key) do
+    case Map.get(object, key) do
+      %DateTime{} = extracted_at ->
+        if DateTime.compare(extracted_at, object.updated_at) in [:eq, :gt],
+          do: Map.put(changes, key, changes.updated_at),
+          else: changes
+
+      nil ->
+        changes
+    end
+  end
+
+  @doc false
+  def refresh_content_hash_in_tx(repo, object) do
+    with :ok <- Repo.require_transaction(repo) do
+      object
+      |> Object.changeset(
+        content_changes(%{}, object, Links.tags_for_object(object.slug, repo: repo))
+      )
+      |> repo.update()
+    end
   end
 
   @doc """
@@ -884,7 +938,7 @@ defmodule Ankole.Brain.Objects do
         managed_by_source_id: source.id,
         updated_at: DateTime.utc_now(:microsecond)
       }
-      |> with_content_hash()
+      |> content_changes(%{}, [])
 
     with {:ok, object} <- repo.insert(Object.changeset(object, %{})) do
       reconcile_chunks(object, repo: repo)
@@ -899,17 +953,16 @@ defmodule Ankole.Brain.Objects do
         title: page.title,
         body: page.body,
         meta: %{},
-        deleted_at: nil
+        deleted_at: nil,
+        updated_at: DateTime.utc_now(:microsecond)
       }
-      |> with_content_hash(object)
+      |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
 
     if object.content_hash == changes.content_hash and object.deleted_at == nil and
          object.type == page.type do
       add_library_aliases(repo, page)
       {:ok, :unchanged}
     else
-      changes = Map.put(changes, :updated_at, DateTime.utc_now(:microsecond))
-
       with {:ok, object} <- repo.update(Ecto.Changeset.change(object, changes)),
            {:ok, _object} <- reconcile_chunks(object, repo: repo) do
         add_library_aliases(repo, page)
@@ -936,7 +989,7 @@ defmodule Ankole.Brain.Objects do
         deleted_at: nil,
         updated_at: DateTime.utc_now(:microsecond)
       }
-      |> with_content_hash(object)
+      |> content_changes(object, Links.tags_for_object(object.slug, repo: repo))
 
     with {:ok, object} <- repo.update(Object.changeset(object, changes)) do
       reconcile_chunks(object, repo: repo)
@@ -1001,6 +1054,13 @@ defmodule Ankole.Brain.Objects do
     end
   end
 
+  defp updated_tags(attrs, object, repo) do
+    case Map.fetch(attrs, :tags) do
+      {:ok, tags} -> Links.normalize_tags(tags)
+      :error -> {:ok, Links.tags_for_object(object.slug, repo: repo)}
+    end
+  end
+
   defp snapshot_version(repo, %Object{} = object, author) do
     repo.insert(%ObjectVersion{
       id: UUIDv7.autogenerate(),
@@ -1008,6 +1068,7 @@ defmodule Ankole.Brain.Objects do
       author: author,
       body: object.body,
       meta: object.meta,
+      tags: Links.tags_for_object(object.slug, repo: repo),
       snapshot_at: DateTime.utc_now(:microsecond)
     })
   end

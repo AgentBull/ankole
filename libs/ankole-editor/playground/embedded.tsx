@@ -6,7 +6,8 @@ import {
   toggleFormat,
   undo,
   type Editor,
-  type EditorHost
+  type EditorHost,
+  type EditorLabels
 } from '@ankole/block-editor/editor'
 import { StrictMode, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -48,6 +49,7 @@ function EmbeddedHost() {
   const [target, setTarget] = useState<'first' | 'second'>('second')
   const [writeResult, setWriteResult] = useState('')
   const [toolbarVisible, setToolbarVisible] = useState(true)
+  const [labels, setLabels] = useState<Partial<EditorLabels>>()
   const [collaboration, setCollaboration] = useState({ revision: 0, pending: false })
   const host = useMemo<EditorHost>(
     () => ({
@@ -109,6 +111,22 @@ function EmbeddedHost() {
         <button onClick={() => setReadOnly(value => !value)}>Toggle read only</button>
         <button onClick={() => setToolbarVisible(value => !value)}>Toggle second toolbar</button>
         <button
+          onClick={() =>
+            setLabels({
+              paragraph_title: 'Text',
+              paragraph_detail: 'Plain paragraph',
+              number_title: 'Numbered list',
+              number_detail: 'Ordered items',
+              check_title: 'Checklist',
+              check_detail: 'Track tasks',
+              slash_menu: 'Insert block',
+              add_content: 'Add content',
+              block_actions: 'Block actions'
+            })
+          }>
+          Translate second editor
+        </button>
+        <button
           onClick={() => {
             const page = pages.current.second!
             page.apply({
@@ -164,6 +182,7 @@ function EmbeddedHost() {
         <div data-testid="second-editor" className="embedding-panel">
           <BlockEditor
             ariaLabel="Second document"
+            labels={labels}
             host={host}
             initial={'# Second\n\nBeta text'}
             onReady={editor => ready('second', editor)}

@@ -10,6 +10,7 @@ import { attachHost, hostExtension, type EditorHost } from '../editor/host'
 import { EditorToolbar } from './EditorToolbar'
 import { SelectionToolbar } from './SelectionToolbar'
 import { SlashMenu, slashMenu } from './SlashMenu'
+import { editorPhrases, type EditorLabels } from '../editor/phrases'
 
 export type BlockEditorProps = {
   /** Initial content is read once. Use PageSession for edits, or a new key for a new document. */
@@ -22,6 +23,8 @@ export type BlockEditorProps = {
   readOnly?: boolean
   ariaLabel?: string
   placeholder?: string
+  /** Host translations for the editor interface; document parsing is unchanged. */
+  labels?: Partial<EditorLabels>
   className?: string
   header?: ReactNode
   footer?: ReactNode
@@ -32,9 +35,21 @@ export type BlockEditorProps = {
   host?: EditorHost
 }
 
-type Options = { readOnly: boolean; ariaLabel: string; placeholder: string }
+type Options = { readOnly: boolean; ariaLabel?: string; placeholder?: string; labels?: Partial<EditorLabels> }
 
 const editable = GardState.Compartment.define()
+const interfaceLabels = GardState.Compartment.define()
+
+function labelExtension({ labels, ariaLabel, placeholder }: Omit<Options, 'readOnly'>) {
+  return [
+    editorPhrases.translatePartial(labels ?? {}),
+    Wordgard.contentAttributes.of(editor => ({
+      'aria-label': ariaLabel ?? editorPhrases.get(editor.state, 'document'),
+      'aria-placeholder': placeholder ?? editorPhrases.get(editor.state, 'placeholder')
+    })),
+    emptyPageHint(state => placeholder ?? editorPhrases.get(state, 'placeholder'))
+  ]
+}
 
 const editableExtension = (readOnly: boolean) => [Wordgard.editable.of(!readOnly), GardState.readOnly.of(readOnly)]
 
@@ -67,13 +82,9 @@ function createHandle(
       host ? hostExtension(host) : [],
       editorExtension(),
       editable.of(editableExtension(options.readOnly)),
+      interfaceLabels.of(labelExtension(options)),
       Wordgard.editorAttributes.of({ class: 'editor-view' }),
-      Wordgard.contentAttributes.of({
-        class: 'editor-content',
-        'aria-label': options.ariaLabel,
-        'aria-placeholder': options.placeholder
-      }),
-      emptyPageHint(options.placeholder),
+      Wordgard.contentAttributes.of({ class: 'editor-content' }),
       indentStyles,
       blockMenus,
       // Hosts hear of a change when it is dispatched. React components read the DOM, so they
@@ -104,8 +115,9 @@ export function BlockEditor({
   onChange,
   onError,
   readOnly = false,
-  ariaLabel = '文档编辑器',
-  placeholder = '输入 / 添加 Block，或直接开始写作…',
+  ariaLabel,
+  placeholder,
+  labels,
   className = '',
   header,
   footer,
@@ -125,7 +137,7 @@ export function BlockEditor({
   const [handle] = useState(() =>
     createHandle(
       initial,
-      { readOnly, ariaLabel, placeholder },
+      { readOnly, ariaLabel, placeholder, labels },
       () => changed(),
       error => failed(error),
       host
@@ -152,6 +164,9 @@ export function BlockEditor({
   useEffect(() => {
     editor.dispatch({ effects: editable.reconfigure(editableExtension(readOnly)) })
   }, [editor, readOnly])
+  useEffect(() => {
+    editor.dispatch({ effects: interfaceLabels.reconfigure(labelExtension({ labels, ariaLabel, placeholder })) })
+  }, [editor, labels, ariaLabel, placeholder])
 
   return (
     <EditorContext.Provider value={handle}>

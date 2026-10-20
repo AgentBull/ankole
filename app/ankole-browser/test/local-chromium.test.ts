@@ -12,6 +12,15 @@ afterEach(async () => {
 })
 
 describe('local Chromium ownership', () => {
+  test('rejects backend arguments that would bypass the managed proxy', async () => {
+    const root = await mkdtemp('/tmp/ankole-browser-proxy-args-')
+    roots.push(root)
+    const material = localMaterial(root, '/bin/false')
+    if (material.backend.kind !== 'local_chromium') throw new Error('local backend required')
+    material.backend.args = ['--no-proxy-server']
+    await expect(connectLocalChromium(material, 'default')).rejects.toMatchObject({ code: 'invalid_material' })
+  })
+
   test('unreachable persisted CDP preserves the profile and never signals an unrelated live PID', async () => {
     const root = await mkdtemp('/tmp/ankole-browser-pid-')
     roots.push(root)

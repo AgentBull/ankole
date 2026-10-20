@@ -376,8 +376,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobItem do
       properties: %{
         id: %Schema{
           type: :integer,
-          minimum: 1000,
-          maximum: 9_007_199_254_740_991
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum()
         },
         agent_uid: %Schema{type: :string},
         owner_session_id: %Schema{type: :string},
@@ -463,8 +463,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobListItem do
       properties: %{
         id: %Schema{
           type: :integer,
-          minimum: 1000,
-          maximum: 9_007_199_254_740_991
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum()
         },
         agent_uid: %Schema{type: :string},
         title: %Schema{type: :string},

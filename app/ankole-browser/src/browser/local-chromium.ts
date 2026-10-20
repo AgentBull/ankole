@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process'
 import { cp, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { chromium, type Browser } from 'playwright-core'
+import { startWebProxy, type WebProxy } from '@ankole/kernel'
 import type { BrowserMaterial } from '../protocol'
 import { BrowserDataError, isFileNotFound } from '../errors'
 import { dismissOrphanDialogsBeforeAttach } from './raw-cdp'
@@ -11,6 +12,8 @@ type LiveMetadata = {
   endpoint: string
   profile_dir: string
   started_at: string
+  proxy_port?: number
+  ssrf_filter?: boolean
 }
 
 export type LocalChromiumHandle = {
@@ -29,9 +32,11 @@ export async function connectLocalChromium(material: BrowserMaterial, session: s
   await mkdir(sessionRoot, { recursive: true })
   await initializeProfile(profileDir, material.profile.seed_path)
 
-  const recovered = await recoverLiveBrowser(livePath, 30_000)
+  validateProxyArguments(material.backend.args)
+  const recovered = await recoverLiveBrowser(livePath, 30_000, material.navigation.ssrf_filter)
   if (recovered) return recovered
 
+  const proxy = startWebProxy(material.navigation.ssrf_filter)
   const child = spawn(
     material.backend.executable,
     [
@@ -47,6 +52,11 @@ export async function connectLocalChromium(material: BrowserMaterial, session: s
       '--remote-debugging-port=0',
       `--user-data-dir=${profileDir}`,
       ...material.backend.args,
+      `--proxy-server=socks5://127.0.0.1:${proxy.port}`,
+      '--proxy-bypass-list=<-loopback>',
+      '--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1',
+      '--disable-quic',
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
       'about:blank'
     ],
     {
@@ -67,13 +77,16 @@ export async function connectLocalChromium(material: BrowserMaterial, session: s
       pid,
       endpoint,
       profile_dir: profileDir,
-      started_at: new Date().toISOString()
+      started_at: new Date().toISOString(),
+      proxy_port: proxy.port,
+      ssrf_filter: material.navigation.ssrf_filter
     }
     await atomicJSON(livePath, metadata)
-    return handle(browser, endpoint, pid, livePath, child)
+    return handle(browser, endpoint, pid, livePath, child, proxy)
   } catch (error) {
     await browser?.close().catch(() => undefined)
     await stopChild(child)
+    await proxy.close()
     await rm(livePath, { force: true })
     throw error
   }
@@ -87,7 +100,11 @@ export async function purgeDetachedLocalChromium(material: BrowserMaterial, sess
   if (recovered) await recovered.stop()
 }
 
-async function recoverLiveBrowser(livePath: string, timeout: number): Promise<LocalChromiumHandle | undefined> {
+async function recoverLiveBrowser(
+  livePath: string,
+  timeout: number,
+  ssrfFilter?: boolean
+): Promise<LocalChromiumHandle | undefined> {
   let metadata: LiveMetadata
   try {
     metadata = JSON.parse(await readFile(livePath, 'utf8')) as LiveMetadata
@@ -99,11 +116,29 @@ async function recoverLiveBrowser(livePath: string, timeout: number): Promise<Lo
     await rm(livePath, { force: true })
     return undefined
   }
+  let proxy: WebProxy | undefined
   try {
+    if (
+      ssrfFilter !== undefined &&
+      metadata.ssrf_filter === ssrfFilter &&
+      Number.isInteger(metadata.proxy_port) &&
+      metadata.proxy_port! > 0 &&
+      metadata.proxy_port! <= 65535
+    ) {
+      proxy = startWebProxy(ssrfFilter, metadata.proxy_port)
+    }
     await dismissOrphanDialogsBeforeAttach(metadata.endpoint)
     const browser = await chromium.connectOverCDP(metadata.endpoint, { timeout })
-    return handle(browser, metadata.endpoint, metadata.pid, livePath)
+    const recovered = handle(browser, metadata.endpoint, metadata.pid, livePath, undefined, proxy)
+    // A pre-proxy browser or a changed network policy needs a new process. Keep
+    // its profile, and close only through its verified CDP connection.
+    if (ssrfFilter !== undefined && !proxy) {
+      await recovered.stop()
+      return undefined
+    }
+    return recovered
   } catch (cause) {
+    await proxy?.close()
     throw new BrowserDataError(
       'backend_unavailable',
       'Saved Chromium is unreachable. Profile and live metadata were retained; restore CDP or stop that browser before retrying',
@@ -117,7 +152,8 @@ function handle(
   endpoint: string,
   pid: number,
   livePath: string,
-  child?: ChildProcess
+  child?: ChildProcess,
+  proxy?: WebProxy
 ): LocalChromiumHandle {
   return {
     browser,
@@ -126,21 +162,45 @@ function handle(
     endpoint,
     stop: async () => {
       try {
-        const session = await browser.newBrowserCDPSession()
-        await session.send('Browser.close')
-      } catch (cause) {
-        if (!child) {
-          throw new BrowserDataError(
-            'backend_unavailable',
-            'Chromium could not be closed through its saved CDP connection; profile and live metadata were retained',
-            { cause }
-          )
+        try {
+          const session = await browser.newBrowserCDPSession()
+          await session.send('Browser.close')
+        } catch (cause) {
+          if (!child) {
+            throw new BrowserDataError(
+              'backend_unavailable',
+              'Chromium could not be closed through its saved CDP connection; profile and live metadata were retained',
+              { cause }
+            )
+          }
         }
+        if (child) await stopChild(child)
+        await browser.close().catch(() => undefined)
+        await rm(livePath, { force: true })
+      } finally {
+        await proxy?.close()
       }
-      if (child) await stopChild(child)
-      await browser.close().catch(() => undefined)
-      await rm(livePath, { force: true })
     }
+  }
+}
+
+function validateProxyArguments(args: string[]): void {
+  const managed = new Set([
+    '--proxy-server',
+    '--proxy-bypass-list',
+    '--proxy-pac-url',
+    '--proxy-auto-detect',
+    '--no-proxy-server',
+    '--host-resolver-rules',
+    '--enable-quic',
+    '--force-webrtc-ip-handling-policy'
+  ])
+  const conflict = args.find(arg => managed.has(arg.split('=')[0]!))
+  if (conflict) {
+    throw new BrowserDataError(
+      'invalid_material',
+      `Chromium argument conflicts with the browser network policy: ${conflict}`
+    )
   }
 }
 

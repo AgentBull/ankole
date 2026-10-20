@@ -28,6 +28,7 @@ export { Mark } from './mark'
 // DOM/HTML structure) can be defined with these data structures.
 
 export { Elt, Attributes } from './shape'
+export type { Shape } from './shape'
 
 // ### Schema
 

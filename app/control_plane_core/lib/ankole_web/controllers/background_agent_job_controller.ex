@@ -6,6 +6,8 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.BackgroundAgentJobs
@@ -65,7 +67,11 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     parameters: [
       job_id: [
         in: :path,
-        schema: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
+        schema: %Schema{
+          type: :integer,
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum()
+        },
         required: true
       ],
       cursor: [
@@ -87,7 +93,11 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     parameters: [
       job_id: [
         in: :path,
-        schema: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
+        schema: %Schema{
+          type: :integer,
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum()
+        },
         required: true
       ]
     ],
@@ -111,7 +121,11 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     parameters: [
       job_id: [
         in: :path,
-        schema: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
+        schema: %Schema{
+          type: :integer,
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum()
+        },
         required: true
       ]
     ],
@@ -135,16 +149,12 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
         jobs: Enum.map(page.jobs, &BackgroundAgentJobs.console_list_projection/1),
         next_cursor: page.next_cursor
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
   def health(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "background_agent_jobs", "read") do
       json(conn, BackgroundAgentJobs.health_metrics())
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -154,8 +164,8 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
          {:ok, detail} <- detail_projection(job, params[:cursor]) do
       json(conn, %{job: detail})
     else
-      nil -> error(conn, :not_found)
-      {:error, reason} -> error(conn, reason)
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -176,9 +186,9 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
          {:ok, detail} <- detail_projection(completed, nil) do
       json(conn, %{job: detail})
     else
-      nil -> error(conn, :not_found)
-      {:error, :background_agent_job_terminal} -> error(conn, :conflict)
-      {:error, reason} -> error(conn, reason)
+      nil -> {:error, :not_found}
+      {:error, :background_agent_job_terminal} -> {:error, :conflict}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -196,8 +206,8 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
          {:ok, detail} <- detail_projection(cancelled, nil) do
       json(conn, %{job: detail})
     else
-      nil -> error(conn, :not_found)
-      {:error, reason} -> error(conn, reason)
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -212,14 +222,14 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
     end
   end
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :not_found),
-    do: error(conn, 404, "not_found", "background Agent Job was not found")
+    do: ConsoleErrors.not_found(conn, "background Agent Job was not found")
 
   defp error(conn, :conflict),
     do:
-      error(
+      ConsoleErrors.render(
         conn,
         409,
         "background_agent_job_terminal",
@@ -227,7 +237,7 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
       )
 
   defp error(conn, reason) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "invalid_background_agent_job_request",
@@ -236,9 +246,5 @@ defmodule AnkoleWeb.BackgroundAgentJobController do
         %{reason: inspect(reason)}
       ]
     )
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

@@ -160,10 +160,10 @@ export class PointSet<T extends PointSet.Value> implements Set<T> {
    */
   at(pos: number): T | undefined {
     for (const chunk of this.chunks) {
-      if (chunk.end > pos) break
-      if (chunk.start > pos) continue
-      const index = findAbove(chunk.pos, 0, pos - 1)
-      if (index < chunk.pos.length && chunk.pos[index] == pos) return chunk.value[index]
+      if (chunk.start > pos) break
+      if (chunk.end < pos) continue
+      const index = findAbove(chunk.pos, 0, pos - chunk.start - 1)
+      if (index < chunk.pos.length && chunk.pos[index]! + chunk.start == pos) return chunk.value[index]
     }
     return undefined
   }

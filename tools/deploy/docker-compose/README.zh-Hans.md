@@ -208,7 +208,7 @@ docker compose ps
 docker compose run --rm --no-deps --user root --entrypoint chmod \
   -v ankole_agents_data:/agents control-plane -R a+rX /agents
 docker compose run --rm -v ankole_agents_data:/agents control-plane \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 导入不会覆盖云盘已有文件，并会报告无法读取的文件。确认迁移后的 Agent Home 与导入

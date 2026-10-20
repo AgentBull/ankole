@@ -20,6 +20,15 @@ defmodule Ankole.Signals.Webhooks.RPCBrokerTest do
       expires_at: DateTime.to_iso8601(expires_at)
     }
 
+    for id <- ["999", "01000", "+1000", "9007199254740992"] do
+      assert {:error, %{"code" => "invalid_positive_integer"}} =
+               RPCBroker.handle_create(
+                 turn_ref,
+                 %{request | automation_job_id: id},
+                 rpc_ctx("invalid-id")
+               )
+    end
+
     assert {:ok,
             %{
               "status" => "created",

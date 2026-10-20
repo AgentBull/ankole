@@ -351,27 +351,15 @@ defmodule Ankole.Schedule.Normalizer do
   end
 
   defp optional_positive_integer(attrs, key) do
-    case Map.fetch(attrs, key) do
-      :error ->
+    case Map.get(attrs, key) do
+      nil ->
         {:ok, nil}
 
-      {:ok, nil} ->
-        {:ok, nil}
-
-      {:ok, value} when is_integer(value) and value > 0 and value <= 9_007_199_254_740_991 ->
-        {:ok, value}
-
-      {:ok, value} when is_binary(value) ->
-        case Integer.parse(value) do
-          {integer, ""} when integer > 0 and integer <= 9_007_199_254_740_991 ->
-            {:ok, integer}
-
-          _invalid ->
-            {:error, {:invalid_positive_integer, key}}
+      value ->
+        case Ankole.ModelIntegerID.parse(value) do
+          {:ok, id} -> {:ok, id}
+          :error -> {:error, {:invalid_positive_integer, key}}
         end
-
-      {:ok, _value} ->
-        {:error, {:invalid_positive_integer, key}}
     end
   end
 end

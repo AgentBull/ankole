@@ -35,6 +35,37 @@ defmodule Ankole.Pod.RPCBrokerTest do
     }
   end
 
+  for operation <- ["pages.write", "files.upload"] do
+    test "#{operation} reports the final relay error without changing the page", ctx do
+      operation = unquote(operation)
+      type = if operation == "files.upload", do: "file", else: "doc"
+      {:ok, page} = Pages.create(ctx.owner, %{type: type, title: "Unchanged"})
+
+      {:ok, _} =
+        Ankole.Pod.PagesFixtures.set_sharing(ctx.owner, page.id, %{
+          grants: [%{principal_uid: ctx.agent, role: "edit"}]
+        })
+
+      WorkerFilesFake.start!(ctx.route,
+        files: %{"source.xml" => "<page><p>New content</p></page>"},
+        push_result: {"read_failed", "Worker could not complete the source read"}
+      )
+
+      params = %{
+        id: page.id,
+        base_revision: 0,
+        xml_home_relative_path: "source.xml",
+        home_relative_path: "source.xml"
+      }
+
+      assert {:error, %{"code" => "validation_failed"}} =
+               RPCBroker.handle_write(ctx.ref, request(operation, params), ctx.ctx)
+
+      assert {:ok, detail} = Pages.get(ctx.owner, page.id)
+      assert detail.page.revision == 0
+    end
+  end
+
   test "document RPC transfers canonical XML over the signed relay and keeps CAS at its owner",
        ctx do
     {:ok, page} = Pages.create(ctx.owner, %{title: "Agent report"})

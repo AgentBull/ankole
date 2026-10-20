@@ -3,6 +3,19 @@ defmodule Ankole.AIGateway.CompletedOutputTextTest do
 
   alias Ankole.AIGateway
 
+  test "machine text keeps its existing part policy and newline separator" do
+    body = %{
+      "status" => "completed",
+      "output" => [
+        %{"type" => "message", "role" => "user", "content" => [%{"text" => " first "}]},
+        %{"type" => "message", "content" => "historical string"},
+        %{"type" => "message", "content" => [%{"type" => "text", "text" => "second "}]}
+      ]
+    }
+
+    assert {:ok, "first \nsecond"} = AIGateway.completed_output_text(body)
+  end
+
   test "returns the joined trimmed text of a completed response" do
     body = %{
       "status" => "completed",

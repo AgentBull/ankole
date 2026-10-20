@@ -104,7 +104,7 @@ defmodule AnkoleWeb.SetupController do
          {:ok, expected_code} <- SetupConfig.bootstrap_activation_code(),
          submitted_code <-
            normalize_activation_code(params["activationCode"] || params["activation_code"]),
-         true <- secure_equal?(submitted_code, expected_code),
+         true <- Plug.Crypto.secure_compare(submitted_code, expected_code),
          # The locale write comes after code verification so an unauthenticated
          # caller cannot change installation state.
          :ok <- maybe_put_locale(params["locale"]) do
@@ -623,12 +623,6 @@ defmodule AnkoleWeb.SetupController do
   end
 
   defp normalize_activation_code(_code), do: ""
-
-  defp secure_equal?(left, right) when is_binary(left) and is_binary(right) do
-    # `secure_compare/2` requires equal-length binaries. The explicit byte-size
-    # check avoids raising while still keeping the actual comparison constant-time.
-    byte_size(left) == byte_size(right) and Plug.Crypto.secure_compare(left, right)
-  end
 
   defp persist_enabled_plugin_ids(plugin_ids) do
     selected = MapSet.new(plugin_ids)

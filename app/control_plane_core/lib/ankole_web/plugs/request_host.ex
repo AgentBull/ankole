@@ -2,7 +2,10 @@ defmodule AnkoleWeb.Plugs.RequestHost do
   @moduledoc "The build-selected Host classification for HTTP and Worker connections."
   @behaviour Plug
 
-  @callback classify(URI.t()) :: {:ok, :site | :public | {:pod, Ecto.UUID.t()}} | :error
+  @callback classify(URI.t()) :: {:ok, :site | {:pod, Ecto.UUID.t()}} | :error
+  @callback domain() :: String.t()
+  @callback pod_origin(%Ankole.Tenants.Tenant{}) :: String.t()
+  @callback canonical_origin(:site | {:pod, Ecto.UUID.t()}) :: String.t()
   @policy Application.compile_env(:ankole, :host_policy)
 
   @doc "Returns the origin of the proxy-normalized request."
@@ -24,8 +27,8 @@ defmodule AnkoleWeb.Plugs.RequestHost do
           :ok = Ankole.Repo.put_tenant_id(tenant_id)
           Plug.Conn.assign(conn, :host_context, context)
 
-        {:ok, context} when context in [:site, :public] ->
-          Plug.Conn.assign(conn, :host_context, context)
+        {:ok, :site} ->
+          Plug.Conn.assign(conn, :host_context, :site)
 
         _ ->
           conn |> Plug.Conn.send_resp(400, "Invalid host") |> Plug.Conn.halt()

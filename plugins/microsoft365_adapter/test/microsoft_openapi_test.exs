@@ -192,4 +192,20 @@ defmodule MicrosoftOpenAPITest do
     assert [{:error, %Error{reason: "Authorization_RequestDenied"}}] =
              Pagination.stream(client(tenant_id: "tenant-pgerr"), "users") |> Enum.to_list()
   end
+
+  test "graph rejects absolute URLs outside the configured graph origin" do
+    Req.Test.stub(__MODULE__, fn _conn ->
+      flunk("unexpected request for untrusted origin")
+    end)
+
+    assert {:error, %Error{reason: :invalid_graph_url}} =
+             Graph.get(client(), "https://evil.example.test/v1.0/users",
+               token: {:bearer, "delegated-1"}
+             )
+
+    assert {:error, %Error{reason: :invalid_graph_url}} =
+             Graph.get(client(), "https://graph.microsoft.test:8443/v1.0/users",
+               token: {:bearer, "delegated-1"}
+             )
+  end
 end

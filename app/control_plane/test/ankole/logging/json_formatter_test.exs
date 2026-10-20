@@ -14,11 +14,44 @@ defmodule Ankole.Logging.JSONFormatterTest do
     }
   }
 
+  test "failure diagnostics retain call sites without function arguments or exception messages" do
+    secret = "diagnostic-secret-should-not-escape"
+
+    try do
+      :erlang.binary_to_integer(secret)
+    rescue
+      error in ArgumentError ->
+        assert inspect(__STACKTRACE__) =~ secret
+        fields = Ankole.Logging.failure_fields(:error, error, __STACKTRACE__)
+        assert fields.failure == "Elixir.ArgumentError"
+        assert fields.stacktrace =~ ":erlang.binary_to_integer/1"
+        assert fields.stacktrace =~ "json_formatter_test.exs:"
+        refute inspect(fields) =~ secret
+    else
+      _ -> flunk("Expected an invalid integer error")
+    end
+  end
+
   test "application startup attaches the Phoenix request log handler" do
     assert Enum.any?(
              :telemetry.list_handlers([:phoenix, :endpoint, :stop]),
              &(&1.id == AnkoleWeb.RequestLogger)
            )
+  end
+
+  test "raw caught failures share classification without disclosing their reason" do
+    secret = "caught-secret-should-not-escape"
+
+    for {kind, expected} <- [error: "Elixir.ErlangError", exit: "exit", throw: "throw"] do
+      try do
+        :erlang.raise(kind, secret, [])
+      catch
+        ^kind, reason ->
+          fields = Ankole.Logging.failure_fields(kind, reason, __STACKTRACE__)
+          assert fields.failure == expected
+          refute inspect(fields) =~ secret
+      end
+    end
   end
 
   test "attachment replaces a handler from an earlier application start" do
@@ -270,6 +303,16 @@ defmodule Ankole.Logging.JSONFormatterTest do
     assert fields.duration_ms == 65_000
     assert fields.route == "/api/v1/ai-gateway/responses"
     assert fields.http_request["latency"] == "65.000000s"
+
+    routed_conn =
+      :get
+      |> Plug.Test.conn("/.internal-apis/pod/pages/123")
+      |> Map.put(:host, "ankole.test")
+      |> Map.put(:status, 200)
+      |> Plug.Conn.put_private(:phoenix_router, AnkoleWeb.Router)
+
+    assert {:info, %{route: "/.internal-apis/pod/pages/:id"}} =
+             AnkoleWeb.RequestLogger.build_log(%{duration: 0}, %{conn: routed_conn})
   end
 
   test "Phoenix request logger never emits callback capability tokens" do

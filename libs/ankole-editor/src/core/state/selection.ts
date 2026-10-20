@@ -187,7 +187,7 @@ export abstract class GardSelection {
 
   /** Create a cursor text selection at the given position. */
   static cursor(pos: number, side?: -1 | 1, goalColumn?: number) {
-    return GardSelection.Text.createInner(pos, pos, side, goalColumn)
+    return GardSelection.Text.createInner(pos, pos, side, true, goalColumn)
   }
 
   /** Find a normal cursor near the given position. */
@@ -198,7 +198,12 @@ export abstract class GardSelection {
 
   /** Create a text selection. */
   static range(anchor: number, head?: number, headSide?: -1 | 1, goalColumn?: number) {
-    return GardSelection.Text.createInner(anchor, head ?? anchor, headSide, goalColumn)
+    return GardSelection.Text.createInner(anchor, head ?? anchor, headSide, true, goalColumn)
+  }
+
+  /** Create a text selection without a direction. */
+  static undirectionalRange(from: number, to: number) {
+    return GardSelection.Text.createInner(from, to, 1, false)
   }
 
   /** Create a node selection. */
@@ -245,9 +250,9 @@ export abstract class GardSelection {
    */
   static atEnd(cx: GardSelection.Context, block?: Pos.Plot) {
     const found = block
-      ? TextblockMap.get(cx, block.start, block.node).visualSide(false)
+      ? ({ pos: block.end, side: 1 } as const)
       : cx.doc.inlineContent
-        ? TextblockMap.get(cx, 0, cx.doc).visualSide(false)
+        ? ({ pos: cx.doc.length, side: 1 } as const)
         : findNormalAt(cx, cx.doc.length, -1)
     return GardSelection.cursor(found.pos, found.side)
   }
@@ -283,6 +288,13 @@ export namespace GardSelection {
       anchor: number,
       head: number,
       private _headSide: -1 | 1,
+      /**
+       * When `false`, indicates that this selection may swap `head`
+       * and `anchor` when extended. Used for things like selections
+       * created by double-clicking, which don't have a clearly
+       * defined anchor.
+       */
+      readonly directional: boolean,
       goalColumn: number | undefined,
       /**
        * A set of active marks that should be applied to content
@@ -297,8 +309,15 @@ export namespace GardSelection {
     }
 
     /** @internal */
-    static createInner(anchor: number, head: number, side?: -1 | 1, goalColumn?: number, marks?: Mark.Set) {
-      return new Text(anchor, head, side ?? (head > anchor ? -1 : 1), goalColumn, marks)
+    static createInner(
+      anchor: number,
+      head: number,
+      side: -1 | 1 | undefined,
+      directional: boolean,
+      goalColumn?: number,
+      marks?: Mark.Set
+    ) {
+      return new Text(anchor, head, side ?? (head > anchor ? -1 : 1), directional, goalColumn, marks)
     }
 
     get headSide() {
@@ -312,7 +331,7 @@ export namespace GardSelection {
     /** Create a text selection. */
     static create(spec: GardSelection.Text.Spec) {
       const { anchor, head = anchor } = spec
-      return Text.createInner(anchor, head, spec.headSide, spec.goalColumn, spec.marks)
+      return Text.createInner(anchor, head, spec.headSide, spec.directional !== false, spec.goalColumn, spec.marks)
     }
 
     map(change: ChangeSet, _cx: GardSelection.Context, assoc: -1 | 1 = -1): GardSelection {
@@ -325,8 +344,8 @@ export namespace GardSelection {
       }
       // Keep the direction: the head of a backward selection stays in front.
       return this.head < this.anchor
-        ? Text.createInner(to, from, this.headSide, this.goalColumn, this.marks)
-        : Text.createInner(from, to, this.headSide, this.goalColumn, this.marks)
+        ? Text.createInner(to, from, this.headSide, this.directional, this.goalColumn, this.marks)
+        : Text.createInner(from, to, this.headSide, this.directional, this.goalColumn, this.marks)
     }
 
     eq(other: GardSelection) {
@@ -378,6 +397,11 @@ export namespace GardSelection {
        * used for things like toggling emphasis on a cursor selection.
        */
       marks?: Mark.Set
+      /**
+       * Set to `false` to indicate that this selection isn't {@link
+       * GardSelection.Text.directional directional}.
+       */
+      directional?: boolean
     }
 
     /** The representation of a text selection when serialized to JSON. */
@@ -385,6 +409,7 @@ export namespace GardSelection {
       anchor: number
       head?: number
       side?: -1 | 1
+      directional?: boolean
       marks?: Record<string, any>
     }
 
@@ -413,6 +438,7 @@ export namespace GardSelection {
           anchor,
           head,
           json.side == 1 || json.side == -1 ? json.side : undefined,
+          json.directional !== false,
           undefined,
           marks
         )
@@ -552,9 +578,9 @@ export namespace GardSelection {
 
 export function cursorAtStart(cx: GardSelection.Context, block?: Pos.Plot) {
   const found = block
-    ? TextblockMap.get(cx, block.start, block.node).visualSide(true)
+    ? ({ pos: block.start, side: -1 } as const)
     : cx.doc.inlineContent
-      ? TextblockMap.get(cx, 0, cx.doc).visualSide(true)
+      ? ({ pos: 0, side: -1 } as const)
       : findNormalAt(cx, 0, 1)
   return GardSelection.cursor(found.pos, found.side)
 }
@@ -616,10 +642,7 @@ function scanNormalFrom(
   const step = forward ? 1 : -1
   for (let { parent, index } = pos, p = pos.pos; ;) {
     const { node, parent: next } = parent
-    if (node.inlineContent) {
-      if (cx.config.visualCursorMotion) return TextblockMap.get(cx, parent.start, parent.node).visualSide(forward)
-      return { pos: p, side: forward ? 1 : -1 }
-    }
+    if (node.inlineContent) return { pos: p, side: forward ? -1 : 1 }
     if (index == (forward ? node.content.length : 0)) {
       const barrier = !next || isBarrier(cx, node)
       if (bottom != from && pastBarrier && barrier) return { pos: bottom, side: forward ? -1 : 1 }
@@ -664,7 +687,7 @@ function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): { p
   // valid inline position, and tracking the lowest block pos between
   // the nearest barriers as fallback.
   for (let pass = 0; pass < 2; pass++) {
-    const dir = !pass ? bias : -bias
+    const dir: -1 | 1 = !pass ? bias : (-bias as -1 | 1)
     let { parent, index } = res,
       curPos = pos
     for (;;) {
@@ -678,10 +701,7 @@ function findNormalAt(cx: GardSelection.Context, pos: number, bias: -1 | 1): { p
         const nextIndex = index + (dir > 0 ? 0 : -1),
           next = parent.node.content[nextIndex]!
         if (next.isLeaf || isBarrier(cx, next)) break
-        if (!parent.node.inlineContent && next.inlineContent && cx.config.visualCursorMotion) {
-          const startPos = curPos - (dir > 0 ? 0 : next.length) + 1
-          return TextblockMap.get(cx, startPos, next).visualSide(dir > 0)
-        }
+        if (!parent.node.inlineContent && next.inlineContent) return { pos: curPos + dir, side: -dir as -1 | 1 }
         parent = Pos.Plot.create(parent, next, curPos, nextIndex)
         index = dir > 0 ? 0 : next.content.length
         curPos += dir
@@ -706,11 +726,7 @@ function skipWord(cx: GardSelection.Context, start: number, side: -1 | 1, forwar
       const next = map.skipWord(pos, side, forward, visually)
       if (next) return next
       if (!block.parent) return last
-      const end: { pos: number; side: -1 | 1 } = visually
-        ? map.visualSide(!forward)
-        : forward
-          ? { pos: block.end, side: -1 }
-          : { pos: block.start, side: 1 }
+      const end: { pos: number; side: -1 | 1 } = forward ? { pos: block.end, side: 1 } : { pos: block.start, side: -1 }
       if (end.pos != start) last = end
       pos = forward ? block.after : block.before
     }
@@ -762,6 +778,6 @@ export function wordAt(state: GardState, pos: number, bias: -1 | 1) {
     }
   }
   return best
-    ? GardSelection.range(start + best.index, start + best.index + best.segment.length)
+    ? GardSelection.undirectionalRange(start + best.index, start + best.index + best.segment.length)
     : GardSelection.cursor(pos, bias)
 }

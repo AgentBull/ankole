@@ -46,7 +46,7 @@ defmodule Ankole.Conversations.Delivery.ClarifyPrompt do
   end
 
   defp normalize_output(%{"tool" => @tool_name} = output, call_id) do
-    with {:ok, question} <- required_text(output, "question"),
+    with {:ok, question} <- required_text(output, :question),
          {:ok, choices} <- normalize_choices(Map.get(output, "choices", [])) do
       fallback =
         ReplyPresentation.clarification_text(
@@ -88,7 +88,7 @@ defmodule Ankole.Conversations.Delivery.ClarifyPrompt do
 
   defp normalize_choice(choice, index) do
     with {:ok, choice} <- JSONPayload.normalize_map(choice),
-         {:ok, label} <- required_text(choice, "label") do
+         {:ok, label} <- required_text(choice, :label) do
       {:ok,
        %{
          "id" => "choice-#{index}",
@@ -102,16 +102,6 @@ defmodule Ankole.Conversations.Delivery.ClarifyPrompt do
     end
   end
 
-  defp required_text(map, key) do
-    case Map.get(map, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {String.to_atom(key), :required}}
-          value -> {:ok, value}
-        end
-
-      _value ->
-        {:error, {String.to_atom(key), :required}}
-    end
-  end
+  defp required_text(map, key),
+    do: Ankole.Attrs.required_text(Map.get(map, Atom.to_string(key)), {key, :required})
 end

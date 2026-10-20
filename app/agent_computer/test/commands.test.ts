@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdirAgentSync, isRootWorker } from '../src/common/agent-user'
+import { createdDirectories, mkdirAgent, mkdirAgentSync, isRootWorker } from '../src/common/agent-user'
 import { runWorkspaceCommand, runWorkspaceProcess, type CommandInput } from '../src/tools/computer/commands'
 
 let home: string
@@ -181,4 +181,21 @@ test('workspace Python modules and caller Python configuration do not change the
   })
   expect(result.exitCode).toBe(0)
   expect(await result.output()).toBe(`${home}\n/missing-python-home`)
+})
+
+test('mkdirAgent normalizes parent segments and rejects non-ancestor firstCreated paths', async () => {
+  mkdirAgentSync(`${home}/first/../target/leaf`)
+  expect(existsSync(join(home, 'target', 'leaf'))).toBe(true)
+  expect(existsSync(join(home, 'first'))).toBe(false)
+
+  await mkdirAgent(`${home}/second/../async-target/leaf`)
+  expect(existsSync(join(home, 'async-target', 'leaf'))).toBe(true)
+  expect(existsSync(join(home, 'second'))).toBe(false)
+
+  expect(createdDirectories(join(home, 'a', 'b', 'c'), join(home, 'a'))).toEqual([
+    join(home, 'a', 'b', 'c'),
+    join(home, 'a', 'b'),
+    join(home, 'a')
+  ])
+  expect(() => createdDirectories(join(home, 'target', 'leaf'), join(home, 'first'))).toThrow('is not an ancestor of')
 })

@@ -1,47 +1,37 @@
-import * as v from 'valibot'
 import type { DatabaseView } from '@ankole/applet-sdk/types'
+import { z } from 'zod'
 
-const value = v.union([
-  v.string(),
-  v.number(),
-  v.boolean(),
-  v.null(),
-  v.array(v.unknown()),
-  v.record(v.string(), v.unknown())
+const value = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  z.null(),
+  z.array(z.unknown()),
+  z.record(z.string(), z.unknown())
 ])
-const configSchema = v.looseObject({
-  type: v.optional(v.picklist(['grid', 'kanban', 'gallery'])),
-  visible_fields: v.optional(v.array(v.string())),
-  group_field_id: v.optional(v.string()),
-  cover_field_id: v.optional(v.string()),
-  filter: v.optional(
-    v.object({
-      conjunction: v.picklist(['and', 'or']),
-      conditions: v.array(
-        v.object({
-          field_id: v.string(),
-          operator: v.picklist([
-            'is',
-            'contains',
-            'is_empty',
-            'is_not_empty',
-            'gt',
-            'gte',
-            'lt',
-            'lte',
-            'text_contains'
-          ]),
-          value: v.optional(value)
+const configSchema = z.looseObject({
+  type: z.enum(['grid', 'kanban', 'gallery']).optional(),
+  visible_fields: z.array(z.string()).optional(),
+  group_field_id: z.string().optional(),
+  cover_field_id: z.string().optional(),
+  filter: z
+    .object({
+      conjunction: z.enum(['and', 'or']),
+      conditions: z.array(
+        z.object({
+          field_id: z.string(),
+          operator: z.enum(['is', 'contains', 'is_empty', 'is_not_empty', 'gt', 'gte', 'lt', 'lte', 'text_contains']),
+          value: value.optional()
         })
       )
     })
-  ),
-  sort: v.optional(v.array(v.object({ field_id: v.string(), direction: v.picklist(['asc', 'desc']) })))
+    .optional(),
+  sort: z.array(z.object({ field_id: z.string(), direction: z.enum(['asc', 'desc']) })).optional()
 })
 
-export type ViewConfig = v.InferOutput<typeof configSchema>
+export type ViewConfig = z.infer<typeof configSchema>
 export type ConfiguredView = Omit<DatabaseView, 'config'> & { config: ViewConfig }
-export const parseViewConfig = (input: unknown) => v.safeParse(configSchema, input)
+export const parseViewConfig = (input: unknown) => configSchema.safeParse(input)
 
 export type EmbedView = { kind: 'saved'; id?: string } | { kind: 'inline'; config: ViewConfig } | { kind: 'invalid' }
 
@@ -52,7 +42,7 @@ export function parseEmbedView(raw?: string): EmbedView {
   if (!text.startsWith('{') && !text.startsWith('[')) return { kind: 'saved', id: text }
   try {
     const result = parseViewConfig(JSON.parse(text))
-    return result.success ? { kind: 'inline', config: result.output } : { kind: 'invalid' }
+    return result.success ? { kind: 'inline', config: result.data } : { kind: 'invalid' }
   } catch {
     return { kind: 'invalid' }
   }

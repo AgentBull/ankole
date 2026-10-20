@@ -181,7 +181,7 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
     with :ok <- validate_url(url, ssrf_filter?),
          uri <- URI.parse(url),
          {:ok, addresses} <- image_addresses(uri.host),
-         :ok <- validate_addresses(uri, addresses, ssrf_filter?) do
+         :ok <- validate_addresses(addresses, ssrf_filter?) do
       address = hd(addresses)
       target = URI.to_string(%{uri | host: to_string(:inet.ntoa(address)), authority: nil})
       pool_tag = {__MODULE__, uri.host}
@@ -217,15 +217,11 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
     end
   end
 
-  defp validate_addresses(uri, addresses, ssrf_filter?) do
-    Enum.reduce_while(addresses, :ok, fn address, :ok ->
-      url = URI.to_string(%{uri | host: to_string(:inet.ntoa(address)), authority: nil})
-
-      case validate_url(url, ssrf_filter?) do
-        :ok -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
+  defp validate_addresses(addresses, ssrf_filter?) do
+    addresses
+    |> Enum.map(&to_string(:inet.ntoa(&1)))
+    |> NativeKernel.validate_ip_addresses(ssrf_filter?)
+    |> image_url_verdict()
   end
 
   defp collect_image_body({:data, chunk}, {request, response}) when is_binary(chunk) do
@@ -253,7 +249,13 @@ defmodule Ankole.Plugins.LarkAdapter.CardKit.ImageResolver do
   end
 
   defp validate_url(url, ssrf_filter?) do
-    case NativeKernel.validate_web_url(url, ["http", "https"], ssrf_filter?) do
+    url
+    |> NativeKernel.validate_web_url(["http", "https"], ssrf_filter?)
+    |> image_url_verdict()
+  end
+
+  defp image_url_verdict(verdict) do
+    case verdict do
       :ok -> :ok
       {:error, :metadata} -> {:error, :cloud_metadata_image_url_blocked}
       {:error, :private} -> {:error, :private_network_image_url_blocked}

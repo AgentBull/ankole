@@ -311,7 +311,7 @@ claim read-only at `/agents` in the control plane, and run the import:
 
 ```sh
 kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
-  /app/bin/ankole eval 'Ankole.Release.import_agent_home("/agents")'
+  /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
 Then upgrade again without the value. The import copies each Agent's

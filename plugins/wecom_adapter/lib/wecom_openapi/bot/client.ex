@@ -1,6 +1,4 @@
 defmodule WeComOpenAPI.Bot.Client do
-  import IMTransport.WebSocket, only: [parse_url: 1]
-
   @moduledoc """
   Supervised WeCom AI-bot long connection.
 
@@ -29,7 +27,8 @@ defmodule WeComOpenAPI.Bot.Client do
   official SDK does the same. Plain socket loss still reconnects with backoff.
 
   The WeCom gateway requires canonical HTTP/1 upgrade header names.
-  No shared client with DingTalk: auth and acks diverge.
+  `IMTransport.WebSocket` owns the Mint connection. This module owns WeCom
+  authentication, acknowledgements, and reconnect timing.
   """
 
   use GenServer
@@ -38,6 +37,7 @@ defmodule WeComOpenAPI.Bot.Client do
 
   alias WeComOpenAPI.Bot.{Dispatcher, Event}
   alias WeComOpenAPI.Error
+  alias IMTransport.WebSocket
 
   @default_ws_url "wss://openws.work.weixin.qq.com"
   @user_agent "wecom_openapi-elixir/0.1"
@@ -53,12 +53,7 @@ defmodule WeComOpenAPI.Bot.Client do
             dispatcher: nil,
             task_supervisor: nil,
             auto_reconnect: true,
-            conn: nil,
-            websocket: nil,
-            request_ref: nil,
-            upgrade_buffer: <<>>,
-            upgrade_status: nil,
-            upgrade_headers: nil,
+            socket: nil,
             status: :disconnected,
             reconnect_attempt: 0,
             reconnect_timer: nil,
@@ -165,7 +160,8 @@ defmodule WeComOpenAPI.Bot.Client do
   end
 
   @impl true
-  def handle_info(:connect, %{conn: conn} = state) when not is_nil(conn), do: {:noreply, state}
+  def handle_info(:connect, %{socket: socket} = state) when not is_nil(socket),
+    do: {:noreply, state}
 
   def handle_info(:connect, state) do
     state = clear_reconnect_timer(state)
@@ -256,15 +252,23 @@ defmodule WeComOpenAPI.Bot.Client do
     end
   end
 
-  def handle_info(_message, %{conn: nil} = state), do: {:noreply, state}
+  def handle_info(_message, %{socket: nil} = state), do: {:noreply, state}
 
   def handle_info(message, state) do
-    case Mint.WebSocket.stream(state.conn, message) do
-      {:ok, conn, responses} ->
-        handle_responses(responses, %{state | conn: conn})
+    case WebSocket.stream(state.socket, message) do
+      {:ok, socket, frames} ->
+        just_opened = is_nil(state.socket.websocket) and not is_nil(socket.websocket)
+        state = %{state | socket: socket}
+        state = if just_opened, do: send_auth(state), else: state
+        reduce_frames(frames, state)
 
-      {:error, conn, reason, _responses} ->
-        state = %{state | conn: conn} |> drop_conn(reason)
+      {:error, socket, {:websocket_decode, reason}} ->
+        Logger.warning("wecom_openapi bot decode failed: #{inspect(reason)}")
+        {:noreply, %{state | socket: socket}}
+
+      {:error, socket, reason} ->
+        reason = unwrap_upgrade(reason)
+        state = %{state | socket: socket} |> drop_conn(reason)
         maybe_schedule_reconnect(state, reason)
 
       :unknown ->
@@ -279,121 +283,31 @@ defmodule WeComOpenAPI.Bot.Client do
   end
 
   defp connect(state) do
-    with {:ok, scheme, host, port, path} <- parse_url(state.ws_url),
-         {:ok, conn} <-
-           Mint.HTTP.connect(http_scheme(scheme), host, port,
-             protocols: [:http1],
-             case_sensitive_headers: true
-           ),
-         {:ok, conn, ref} <- wecom_websocket_upgrade(scheme, conn, path) do
-      emit([:connect], %{duration_ms: 0}, %{host: host})
-
-      {:ok,
-       %{
-         state
-         | conn: conn,
-           request_ref: ref,
-           status: :upgrading,
-           reconnect_timer: nil
-       }}
-    else
-      {:error, reason} -> {:error, reason}
-      {:error, _conn, reason} -> {:error, reason}
-    end
-  end
-
-  defp wecom_websocket_upgrade(scheme, conn, path) do
-    nonce = :crypto.strong_rand_bytes(16) |> Base.encode64()
-
-    conn =
-      conn
-      |> Mint.HTTP.put_private(:scheme, scheme)
-      |> Mint.HTTP.put_private(:sec_websocket_key, nonce)
-      |> Mint.HTTP.put_private(:extensions, [])
-
-    headers = [
-      {"Upgrade", "websocket"},
-      {"Connection", "Upgrade"},
-      {"Sec-WebSocket-Version", "13"},
-      {"Sec-WebSocket-Key", nonce},
-      {"User-Agent", @user_agent}
-    ]
-
-    Mint.HTTP.request(conn, "GET", path, headers, nil)
-  end
-
-  defp http_scheme(:ws), do: :http
-  defp http_scheme(:wss), do: :https
-
-  defp handle_responses([], state), do: {:noreply, state}
-
-  defp handle_responses([{:status, ref, status} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, %{state | upgrade_status: status})
-  end
-
-  defp handle_responses([{:headers, ref, headers} | rest], %{request_ref: ref} = state) do
-    handle_responses(rest, %{state | upgrade_headers: headers})
-  end
-
-  defp handle_responses([{:done, ref} | rest], %{request_ref: ref} = state) do
-    case Mint.WebSocket.new(
-           state.conn,
-           ref,
-           state.upgrade_status,
-           state.upgrade_headers
+    case WebSocket.connect(state.ws_url,
+           headers: [{"User-Agent", @user_agent}],
+           upgrade: :canonical,
+           mint_options: [case_sensitive_headers: true]
          ) do
-      {:ok, conn, websocket} ->
-        state = %{state | conn: conn, websocket: websocket}
-        state = send_auth(state)
+      {:ok, socket} ->
+        emit([:connect], %{duration_ms: 0}, %{host: URI.parse(state.ws_url).host})
+        {:ok, %{state | socket: socket, status: :upgrading, reconnect_timer: nil}}
 
-        case decode_buffered_upgrade_data(state) do
-          {:stop, _reason, _state} = stop -> stop
-          state -> handle_responses(rest, state)
-        end
-
-      {:error, conn, reason} ->
-        state = %{state | conn: conn} |> drop_conn(reason)
-        maybe_schedule_reconnect(state, reason)
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp handle_responses([{:data, ref, data} | rest], %{request_ref: ref, websocket: nil} = state) do
-    handle_responses(rest, %{state | upgrade_buffer: state.upgrade_buffer <> data})
+  defp reduce_frames(frames, state) do
+    Enum.reduce_while(frames, {:noreply, state}, fn frame, {:noreply, acc} ->
+      case handle_frame(frame, acc) do
+        {:stop, _reason, _state} = stop -> {:halt, stop}
+        next -> {:cont, {:noreply, next}}
+      end
+    end)
   end
 
-  defp handle_responses([{:data, ref, data} | rest], %{request_ref: ref} = state) do
-    case decode_ws_data(data, state) do
-      {:stop, _reason, _state} = stop -> stop
-      state -> handle_responses(rest, state)
-    end
-  end
-
-  defp handle_responses([_response | rest], state), do: handle_responses(rest, state)
-
-  defp decode_buffered_upgrade_data(%{upgrade_buffer: <<>>} = state), do: state
-
-  defp decode_buffered_upgrade_data(state) do
-    case decode_ws_data(state.upgrade_buffer, %{state | upgrade_buffer: <<>>}) do
-      {:stop, _reason, _state} = stop -> stop
-      state -> state
-    end
-  end
-
-  defp decode_ws_data(data, state) do
-    case Mint.WebSocket.decode(state.websocket, data) do
-      {:ok, websocket, frames} ->
-        Enum.reduce_while(frames, %{state | websocket: websocket}, fn frame, acc ->
-          case handle_frame(frame, acc) do
-            {:stop, _reason, _state} = stop -> {:halt, stop}
-            next -> {:cont, next}
-          end
-        end)
-
-      {:error, websocket, reason} ->
-        Logger.warning("wecom_openapi bot decode failed: #{inspect(reason)}")
-        %{state | websocket: websocket}
-    end
-  end
+  defp unwrap_upgrade({:upgrade, reason}), do: reason
+  defp unwrap_upgrade(reason), do: reason
 
   defp handle_frame({:text, json}, state) do
     sanitized = String.replace(json, ~r/[\x00-\x08\x0B-\x1F]/, "")
@@ -538,23 +452,16 @@ defmodule WeComOpenAPI.Bot.Client do
     %{state | heartbeat_timer: timer}
   end
 
-  defp send_ws_frame(_frame, %{websocket: nil} = state), do: state
+  defp send_ws_frame(_frame, %{socket: nil} = state), do: state
+  defp send_ws_frame(_frame, %{socket: %{websocket: nil}} = state), do: state
 
   defp send_ws_frame(frame, state) do
-    case Mint.WebSocket.encode(state.websocket, frame) do
-      {:ok, websocket, data} ->
-        case Mint.WebSocket.stream_request_body(state.conn, state.request_ref, data) do
-          {:ok, conn} ->
-            %{state | conn: conn, websocket: websocket}
+    case WebSocket.send_frame(state.socket, frame) do
+      {:ok, socket} ->
+        %{state | socket: socket}
 
-          {:error, conn, reason} ->
-            %{state | conn: conn, websocket: websocket}
-            |> drop_conn(reason)
-            |> schedule_reconnect_async(reason)
-        end
-
-      {:error, websocket, reason} ->
-        %{state | websocket: websocket}
+      {:error, socket, reason} ->
+        %{state | socket: socket}
         |> drop_conn(reason)
         |> schedule_reconnect_async(reason)
     end
@@ -606,7 +513,7 @@ defmodule WeComOpenAPI.Bot.Client do
   end
 
   defp drop_conn(state, reason) do
-    if state.conn, do: Mint.HTTP.close(state.conn)
+    WebSocket.close(state.socket)
     if state.heartbeat_timer, do: Process.cancel_timer(state.heartbeat_timer)
     if state.auth_timer, do: Process.cancel_timer(state.auth_timer)
     Enum.each(Map.keys(state.dispatch_tasks), &Process.demonitor(&1, [:flush]))
@@ -614,10 +521,7 @@ defmodule WeComOpenAPI.Bot.Client do
 
     %{
       state
-      | conn: nil,
-        websocket: nil,
-        request_ref: nil,
-        upgrade_buffer: <<>>,
+      | socket: nil,
         status: :disconnected,
         heartbeat_timer: nil,
         auth_timer: nil,

@@ -304,12 +304,8 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
     end
   end
 
-  defp stored_reply_time(%{"last_interactive_reply_at" => value}) when is_binary(value) do
-    case DateTime.from_iso8601(value) do
-      {:ok, at, _offset} -> at
-      _invalid -> nil
-    end
-  end
+  defp stored_reply_time(%{"last_interactive_reply_at" => value}) when is_binary(value),
+    do: Ankole.Attrs.parse_datetime(value)
 
   defp stored_reply_time(_metadata), do: nil
 
@@ -436,10 +432,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
     do: {:error, :provider_download_limit}
 
   defp within_download_limit(size) when is_binary(size) do
-    case Integer.parse(size) do
-      {value, ""} -> within_download_limit(value)
-      _invalid -> :ok
-    end
+    size |> Ankole.Attrs.integer_value() |> within_download_limit()
   end
 
   defp within_download_limit(_size), do: :ok
@@ -515,10 +508,7 @@ defmodule Ankole.Plugins.WhatsAppAdapter.Inbound do
   end
 
   defp unix_seconds(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {seconds, ""} -> unix_seconds(seconds)
-      _invalid -> nil
-    end
+    value |> Ankole.Attrs.integer_value() |> unix_seconds()
   end
 
   defp unix_seconds(_value), do: nil

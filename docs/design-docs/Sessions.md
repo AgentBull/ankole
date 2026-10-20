@@ -6,6 +6,13 @@ retry, and completion. AIGateway owns the exact model input/output, provider
 artifacts, branches, and compaction. Conversations owns public statements;
 Signals owns durable stimuli. These records have different writers and lifetimes.
 
+`Prompt.Delimiters` owns the quoted conversation, external event, environment,
+and recalled-memory boundaries. It preserves each input policy: conversation
+and event text replace reserved delimiters; memory text escapes its reserved
+tags; environment fields also stay on one line. Input builders use the same
+boundary names. This encoding does not replace Skill lesson admission rules
+or authorization checks.
+
 Each Agent participant in a conversation uses `conversation:<public_uuid>` as
 its Session ID. Two Agents in one external room therefore share public history
 and keep separate Sessions and model states. A cron rule uses its own stable

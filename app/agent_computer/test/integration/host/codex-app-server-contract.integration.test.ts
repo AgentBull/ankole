@@ -4,7 +4,7 @@ import { TOML } from 'bun'
 import { describe, expect, it } from 'bun:test'
 import { create } from '@bufbuild/protobuf'
 import { isRecord, type JsonObject as JSONObject } from '@agentbull/active-support'
-import { encode } from 'gpt-tokenizer/encoding/o200k_base'
+import { estimateO200kBaseTokens } from '../../../../kernel/test/node/o200k-base-tokens'
 import {
   AIGatewayAPIKeyResponseSchema,
   AgentPluginCatalogEntrySchema
@@ -431,14 +431,14 @@ describe('@ankole/agent-computer Codex app-server protocol contract', () => {
       const modelLimitedOutput = customToolOutputTexts(requests[1]!, modelLimitedExecOutputCallID).at(-1)
       expect(modelLimitedOutput).toBeString()
       expect(modelLimitedOutput).toContain('tokens truncated')
-      const modelLimitedTokens = encode(modelLimitedOutput!).length
+      const modelLimitedTokens = estimateO200kBaseTokens(modelLimitedOutput!)
       expect(modelLimitedTokens).toBeGreaterThan(9_000)
       expect(modelLimitedTokens).toBeLessThanOrEqual(10_100)
 
       const requestLimitedOutput = customToolOutputTexts(requests[2]!, requestLimitedExecOutputCallID).at(-1)
       expect(requestLimitedOutput).toBeString()
       expect(requestLimitedOutput).toContain('tokens truncated')
-      const requestLimitedTokens = encode(requestLimitedOutput!).length
+      const requestLimitedTokens = estimateO200kBaseTokens(requestLimitedOutput!)
       expect(requestLimitedTokens).toBeGreaterThan(3_500)
       expect(requestLimitedTokens).toBeLessThanOrEqual(4_100)
     } catch (error) {

@@ -140,6 +140,15 @@ variables.
 
 The Browser Skill exposes the preconfigured `ankole-browser` CLI. Browser commands and Playwright scripts attach to the same default session.
 
+The `snapshot` command returns Playwright's AI accessibility snapshot. With `-i`,
+it selects controls and elements with a pointer cursor from Playwright's JSON
+snapshot before it applies the output budget. Static page text cannot use that
+budget before the controls. Each command captures one snapshot and retains its
+Playwright refs. Commands resolve `@eN` refs from the latest snapshot. A ref in
+an iframe uses the form `@f1e3`. A missing ref or a detached element returns
+`stale_ref`. Snapshot capture uses the remaining command deadline. An unmatched
+selector returns a retryable `timeout` instead of an unbounded Playwright wait.
+
 Codex cannot select backend credentials or change which Job owns the browser
 session. The route record contains only opaque resume data and hashes.
 
@@ -158,11 +167,34 @@ destinations when the operator enables `security.ssrf_filter`.
 The site setting defaults to `false` to permit enterprise intranet access.
 Cloud metadata endpoints remain blocked at either value.
 
-The browser checks every main page URL and every resolved address. It applies
-the same metadata and private-address rules.
-
-The Rust classifier and browser checks use the same URL test vectors from
+Rust owns URL parsing, host classification, and admission. Elixir loads the NIF;
+the browser daemon loads the Node-API build. Callers supply allowed schemes and
+the private-network setting. Metadata names, including names with a final dot,
+and metadata addresses are always blocked. Invalid addresses and empty DNS
+results fail admission. All bindings use the shared URL test vectors in
 `app/kernel/test/vectors/web_url_host_classification.json`.
+
+Local Chromium sends web TCP traffic through a loopback Rust SOCKS5 proxy.
+The proxy resolves each destination, checks every returned IPv4 and IPv6
+address, and connects with a numeric socket address. Chromium cannot resolve
+the checked host again for that connection. Redirects, subresources, iframes,
+and WebSockets use the same proxy. TLS stays in Chromium, with the original
+hostname for SNI and certificate verification. QUIC and non-proxied WebRTC UDP
+are disabled. Backend arguments cannot override the managed proxy settings.
+
+The saved local-browser metadata includes the proxy port and private-network
+setting. After a daemon crash, the new daemon binds that port before it resumes
+the saved browser. If the port is unavailable, recovery fails. An older browser
+without proxy metadata, or a browser with a different private-network setting,
+is closed through CDP and restarted with its existing profile.
+
+Remote CDP and provider-created persistent contexts own their SSRF policy and
+DNS environment. Ankole checks URL syntax and supported protocols for these
+backends. It does not resolve or classify their destinations on the Worker.
+
+The Lark image resolver uses the same Rust admission functions and retains its
+Req/Finch adapter. It connects to a checked IP, keeps the original Host and TLS
+hostname, and checks each redirect again.
 
 Treat provider responses and page text as untrusted input. Reading a page does
 not turn its text into a system instruction or a stored fact.

@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom'
 import { Leaf } from '../core/doc'
 import { Wordgard } from '../core/editor'
 import { GardSelection, GardState, Transaction } from '../core/state'
+import { PhraseSet } from '../core/phrases'
 import * as T from '../core/types'
 import { applyBlockType, blockOptions, type BlockOption } from '../editor/block-actions'
-import { useEditor, useEditorState } from './context'
+import { useEditor, useEditorLabel, useEditorState } from './context'
 
 /*
  * The slash menu (SPEC §7.6). `/` opens it at the start of a text run (for example right after bold
@@ -41,11 +42,12 @@ function find(state: GardState, previous: Slash | null): Slash | null {
   if (!match) return null
   const text = match[1]!.toLowerCase()
   const options = blockOptions.filter(option =>
-    `${option.title} ${option.detail} ${option.keywords ?? ''}`.toLowerCase().includes(text)
+    `${option.title(state)} ${option.detail(state)} ${option.keywords ?? ''}`.toLowerCase().includes(text)
   )
   if (!options.length) return null
   const from = selection.head - match[1]!.length - 1
-  const index = previous && previous.from === from && previous.query === match[1] ? previous.index : 0
+  const index =
+    previous && previous.from === from && previous.query === match[1] ? Math.min(previous.index, options.length - 1) : 0
   return { from, to: selection.head, query: match[1]!, options, index }
 }
 
@@ -59,7 +61,13 @@ const slashField = GardState.Field.define<Slash | null>({
     const focus = tr.annotation(Wordgard.isFocusChange)
     if (focus === false) return null
     // Escape keeps the menu closed until the text, the caret or the focus changes.
-    if (focus === undefined && !tr.docChanged && !tr.selection && tr.state.readOnly === tr.startState.readOnly) {
+    if (
+      focus === undefined &&
+      !tr.docChanged &&
+      !tr.selection &&
+      !PhraseSet.didChange(tr.state, tr.startState) &&
+      tr.state.readOnly === tr.startState.readOnly
+    ) {
       return value
     }
     return find(tr.state, value)
@@ -112,6 +120,7 @@ export const slashMenu: GardState.Extension = [
 ]
 
 export function SlashMenu() {
+  const label = useEditorLabel()
   const editor = useEditor()
   const menu = useEditorState(state => (editor.hasFocus ? (state.field(slashField, false) ?? null) : null))
   const list = useRef<HTMLDivElement>(null)
@@ -156,9 +165,9 @@ export function SlashMenu() {
       id={`${editor.contentDOM.id}-slash`}
       className="slash-menu ankole-editor-overlay ceramic ceramic-primary"
       role="listbox"
-      aria-label="插入 Block"
+      aria-label={label('slash_menu')}
       style={position ?? { visibility: 'hidden' }}>
-      <div className="menu-label">添加内容</div>
+      <div className="menu-label">{label('add_content')}</div>
       {menu.options.map((option, index) => (
         <button
           key={option.type}
@@ -177,8 +186,8 @@ export function SlashMenu() {
           onClick={() => choose(editor, option)}>
           <span className="menu-icon">{option.glyph}</span>
           <span>
-            {option.title}
-            <small>{option.detail}</small>
+            {option.title(editor.state)}
+            <small>{option.detail(editor.state)}</small>
           </span>
         </button>
       ))}

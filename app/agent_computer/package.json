@@ -18,7 +18,7 @@
     "lint": "bun run fmt:check && bun run type-check",
     "test": "bun test --path-ignore-patterns=test/integration/**",
     "test:docker": "cd ../.. && bun run kit agent-computer-test --suite unit",
-    "test:integration": "TMPDIR=/tmp bun test ./test/integration/host",
+    "test:integration": "bun ../kernel/scripts/build-node-addon.ts && TMPDIR=/tmp bun test ./test/integration/host",
     "test:integration:linux": "TMPDIR=/tmp bun test ./test/integration/linux",
     "test:integration:docker": "cd ../.. && bun run kit agent-computer-test --suite image",
     "gen:golden": "bun scripts/gen-golden.ts"
@@ -42,7 +42,6 @@
     "@bufbuild/protoc-gen-es": "2.16.0",
     "@types/bun": "1.4.3",
     "@types/phoenix": "^1.6.7",
-    "gpt-tokenizer": "4.0.3",
     "openai": "7.38.0"
   }
 }

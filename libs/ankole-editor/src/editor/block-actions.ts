@@ -14,6 +14,8 @@ import { compareNames } from '../document/tree'
 import { Attrs, markSet, markValue, type Pairs } from './attributes'
 import { blockInsertion, compose, dispatchStep, isContainer, isList, isListItem, withLeadingEdit } from './block-insert'
 import * as S from './schema'
+import type { PhraseSet } from '../core/phrases'
+import { editorPhrases } from './phrases'
 
 /** Block types of the core vocabulary. Block definitions add their own names. */
 export const coreBlockTypes = [
@@ -33,8 +35,8 @@ export type BlockType = CoreBlockType | (typeof blocks)[number]['name']
 
 export type BlockOption = {
   type: BlockType
-  title: string
-  detail: string
+  title: PhraseSet.Ref
+  detail: PhraseSet.Ref
   keywords?: string
   glyph: string
   turnInto: boolean
@@ -42,23 +44,86 @@ export type BlockOption = {
 
 /** Menu entries in SPEC §7.6 order: the core block types, then the installed blocks. */
 export const blockOptions: readonly BlockOption[] = [
-  { type: 'paragraph', title: '正文', detail: '普通段落', keywords: 'text paragraph', glyph: 'T', turnInto: true },
-  { type: 'h1', title: '一级标题', detail: '大标题', keywords: 'heading h1', glyph: 'H₁', turnInto: true },
-  { type: 'h2', title: '二级标题', detail: '中标题', keywords: 'heading h2', glyph: 'H₂', turnInto: true },
-  { type: 'h3', title: '三级标题', detail: '小标题', keywords: 'heading h3', glyph: 'H₃', turnInto: true },
-  { type: 'bullet', title: '项目列表', detail: '组织要点', keywords: 'bullet list', glyph: '≡', turnInto: true },
-  { type: 'number', title: '编号列表', detail: '有序步骤', keywords: 'numbered list', glyph: '1.', turnInto: true },
+  {
+    type: 'paragraph',
+    title: editorPhrases.ref('paragraph_title'),
+    detail: editorPhrases.ref('paragraph_detail'),
+    keywords: 'text paragraph',
+    glyph: 'T',
+    turnInto: true
+  },
+  {
+    type: 'h1',
+    title: editorPhrases.ref('h1_title'),
+    detail: editorPhrases.ref('h1_detail'),
+    keywords: 'heading h1',
+    glyph: 'H₁',
+    turnInto: true
+  },
+  {
+    type: 'h2',
+    title: editorPhrases.ref('h2_title'),
+    detail: editorPhrases.ref('h2_detail'),
+    keywords: 'heading h2',
+    glyph: 'H₂',
+    turnInto: true
+  },
+  {
+    type: 'h3',
+    title: editorPhrases.ref('h3_title'),
+    detail: editorPhrases.ref('h3_detail'),
+    keywords: 'heading h3',
+    glyph: 'H₃',
+    turnInto: true
+  },
+  {
+    type: 'bullet',
+    title: editorPhrases.ref('bullet_title'),
+    detail: editorPhrases.ref('bullet_detail'),
+    keywords: 'bullet list',
+    glyph: '≡',
+    turnInto: true
+  },
+  {
+    type: 'number',
+    title: editorPhrases.ref('number_title'),
+    detail: editorPhrases.ref('number_detail'),
+    keywords: 'numbered list',
+    glyph: '1.',
+    turnInto: true
+  },
   {
     type: 'check',
-    title: '待办列表',
-    detail: '可以勾选的事项',
+    title: editorPhrases.ref('check_title'),
+    detail: editorPhrases.ref('check_detail'),
     keywords: 'todo checklist',
     glyph: '☑',
     turnInto: true
   },
-  { type: 'quote', title: '引用', detail: '突出一段话', keywords: 'quote', glyph: '❞', turnInto: true },
-  { type: 'code', title: '代码块', detail: '保留空格和换行', keywords: 'code', glyph: '<>', turnInto: true },
-  { type: 'divider', title: '分割线', detail: '分隔内容', keywords: 'divider', glyph: '—', turnInto: false },
+  {
+    type: 'quote',
+    title: editorPhrases.ref('quote_title'),
+    detail: editorPhrases.ref('quote_detail'),
+    keywords: 'quote',
+    glyph: '❞',
+    turnInto: true
+  },
+  {
+    type: 'code',
+    title: editorPhrases.ref('code_title'),
+    detail: editorPhrases.ref('code_detail'),
+    keywords: 'code',
+    glyph: '<>',
+    turnInto: true
+  },
+  {
+    type: 'divider',
+    title: editorPhrases.ref('divider_title'),
+    detail: editorPhrases.ref('divider_detail'),
+    keywords: 'divider',
+    glyph: '—',
+    turnInto: false
+  },
   ...blocks.map(block => ({
     type: block.name,
     title: block.insert.title,

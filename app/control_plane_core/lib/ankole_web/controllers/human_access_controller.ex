@@ -1,6 +1,8 @@
 defmodule AnkoleWeb.HumanAccessController do
   @moduledoc "Console operations for Human restrictions and reviewed recovery."
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenApiSpex.ControllerSpecs
   import Ecto.Query
   alias Ankole.{AuthZ, Principals, Repo}
@@ -88,8 +90,6 @@ defmodule AnkoleWeb.HumanAccessController do
   def show(conn, %{uid: uid}) do
     with :ok <- ConsolePolicy.authorize(conn, "principal:#{uid}", "read") do
       access(conn, uid)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -99,8 +99,6 @@ defmodule AnkoleWeb.HumanAccessController do
     with :ok <- ConsolePolicy.authorize(conn, "principal:#{uid}", "update"),
          {:ok, _} <- HumanAccess.disable(uid, body.reason, actor(conn), body.operation_id) do
       access(conn, uid)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -111,8 +109,6 @@ defmodule AnkoleWeb.HumanAccessController do
          {:ok, _} <-
            HumanAccess.clear_restriction(uid, id, actor(conn), body.reason, body.operation_id) do
       access(conn, uid)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -131,8 +127,8 @@ defmodule AnkoleWeb.HumanAccessController do
            ) do
       access(conn, uid)
     else
-      false -> error(conn, :identity_review_required)
-      {:error, reason} -> error(conn, reason)
+      false -> {:error, :identity_review_required}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -142,16 +138,14 @@ defmodule AnkoleWeb.HumanAccessController do
          :ok <- WorkCleanup.enqueue_in_tx(uid, principal.access_version) do
       access(conn, uid)
     else
-      {:ok, _} -> error(conn, :not_human)
-      {:error, reason} -> error(conn, reason)
+      {:ok, _} -> {:error, :not_human}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   def unresolved_work(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "principals", "update") do
       json(conn, Ankole.JSON.plain(%{work: WorkAccess.list_unresolved()}))
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -165,8 +159,8 @@ defmodule AnkoleWeb.HumanAccessController do
          {:ok, _} <- WorkAccess.classify(body.kind, body.id, human_uid, actor(conn), body.reason) do
       json(conn, Ankole.JSON.plain(%{work: WorkAccess.list_unresolved()}))
     else
-      false -> error(conn, :human_uid_required)
-      {:error, reason} -> error(conn, reason)
+      false -> {:error, :human_uid_required}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -239,16 +233,19 @@ defmodule AnkoleWeb.HumanAccessController do
         })
       )
     else
-      {:ok, _} -> error(conn, :not_human)
-      {:error, reason} -> error(conn, reason)
+      {:ok, _} -> {:error, :not_human}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   defp actor(conn), do: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
-  defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "Access denied")
+
+  defp fallback(conn, {:error, :forbidden}), do: ConsoleErrors.forbidden(conn, "Access denied")
+
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :not_found),
-    do: ConsoleErrors.render(conn, 404, "not_found", "Human or restriction was not found")
+    do: ConsoleErrors.not_found(conn, "Human or restriction was not found")
 
   defp error(conn, :tenant_deleting),
     do:
@@ -269,14 +266,7 @@ defmodule AnkoleWeb.HumanAccessController do
       )
 
   defp error(conn, %Ecto.Changeset{} = changeset),
-    do:
-      ConsoleErrors.render(
-        conn,
-        422,
-        "validation_failed",
-        "The access change is invalid",
-        ConsoleErrors.changeset_details(changeset)
-      )
+    do: ConsoleErrors.changeset(conn, changeset, "The access change is invalid")
 
   defp error(conn, reason),
     do: ConsoleErrors.unexpected(conn, "principals.access_api.unexpected_error", reason)

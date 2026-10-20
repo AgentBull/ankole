@@ -214,6 +214,13 @@ without a manual mapping. An address that is already bound elsewhere stays
 there; the write logs `identity_providers.directory.email_already_bound` and
 continues.
 
+`IdentityProviders.Directory.sync_users/3` owns user-stream traversal for Slack,
+Google Workspace, and Microsoft 365. Each adapter retains provider pagination,
+user selection, and profile mapping. The shared loop loads the directory-group
+index once, counts successful writes, and stops on the first page or write
+error. Each user keeps its own transaction; a later failure does not undo prior
+users. WeCom retains its department traversal and user deduplication.
+
 If another Principal owns the supplied email or mobile number, Ankole ignores
 that field and logs `principals.platform_subject.contact_conflict`. It still
 stores the remaining identity data.

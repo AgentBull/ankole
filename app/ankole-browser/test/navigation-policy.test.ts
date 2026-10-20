@@ -47,9 +47,28 @@ describe('validateNavigationURL', () => {
     }
   })
 
-  test('blocks hostnames that resolve to private addresses', async () => {
+  test('blocks localhost names with the shared host rules', async () => {
     await expect(validateNavigationURL('localhost/', filterOn)).rejects.toThrow('private address')
     await expect(validateNavigationURL('localhost/', filterOff)).resolves.toBeInstanceOf(URL)
+  })
+
+  test('remote backends leave DNS and SSRF admission to their provider', async () => {
+    const remote: BrowserMaterial = {
+      ...filterOn,
+      backend: {
+        kind: 'remote_cdp',
+        endpoint: 'http://127.0.0.1:9222',
+        headers: {},
+        connect_timeout_ms: 1000,
+        session_identity: 'remote-test'
+      }
+    }
+    for (const url of ['http://not-resolved-on-worker.invalid/', 'http://10.0.0.1/', 'http://metadata/']) {
+      await expect(validateNavigationURL(url, remote)).resolves.toBeInstanceOf(URL)
+    }
+    await expect(validateNavigationURL('ftp://example.com/', remote)).rejects.toThrow(
+      'unsupported browser URL protocol'
+    )
   })
 
   test('allows file URLs only when the material opts in', async () => {

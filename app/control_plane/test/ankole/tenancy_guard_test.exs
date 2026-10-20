@@ -42,10 +42,6 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:cleanup_expired" => 1,
     "across_tenants:../control_plane_core/lib/ankole/conversations/delivery/dispatch.ex:reconcile_wakeups" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/files/agent_home_import.ex:agents" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/files/agent_home_import.ex:legacy_jobs" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/files/agent_home_import.ex:legacy_intents" =>
-      1,
     "across_tenants:../control_plane_core/lib/ankole/oidc/logout.ex:deliver_browser" => 1,
     "across_tenants:../control_plane_core/lib/ankole/oidc/rp_logout.ex:confirmation" => 1,
     "across_tenants:../control_plane_core/lib/ankole/oidc/rp_logout.ex:prepare" => 1,
@@ -75,7 +71,10 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "across_tenants:../control_plane_core/lib/ankole/signals/webhooks.ex:receive_at_endpoint" =>
       1,
+    "across_tenants:lib/ankole/upgrade_202610.ex:agents" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:backfill_application_identities" => 1,
+    "across_tenants:lib/ankole/upgrade_202610.ex:legacy_intents" => 1,
+    "across_tenants:lib/ankole/upgrade_202610.ex:legacy_jobs" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_binding_configurations" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_shared_key" => 1,
     "across_tenants:../control_plane_core/lib/ankole/workflow.ex:reconcile_run_wakeups" => 1,
@@ -120,7 +119,7 @@ defmodule Ankole.TenancyGuardTest do
     # Reviewed owner queries bind tenant at every recursive and DML entry;
     # lock_tree binds the tenant advisory key, and conversions/copies also bind table.
     "raw_sql:../control_plane_core/lib/ankole/pod/access.ex:path" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/pod/access.ex:navigation" => 1,
+    "raw_sql:../control_plane_core/lib/ankole/pod/access.ex:canonical_navigation" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/access.ex:subtree_preserves_permissions?" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/pages.ex:lock_tree" => 1,
     "raw_sql:../control_plane_core/lib/ankole/pod/database_schema.ex:convert_values" => 1,

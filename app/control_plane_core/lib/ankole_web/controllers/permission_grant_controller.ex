@@ -6,6 +6,8 @@ defmodule AnkoleWeb.PermissionGrantController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AuthZ
@@ -68,8 +70,6 @@ defmodule AnkoleWeb.PermissionGrantController do
          {:ok, attrs} <- create_attrs(conn.body_params),
          {:ok, grant} <- AuthZ.create_permission_grant(attrs) do
       json(conn, %{permission_grant: AuthZJSON.grant_json(grant)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -78,8 +78,6 @@ defmodule AnkoleWeb.PermissionGrantController do
          :ok <- ConsolePolicy.authorize(conn, "permission_grant:#{id}", "read"),
          {:ok, grant} <- AuthZ.get_permission_grant(id) do
       json(conn, %{permission_grant: AuthZJSON.grant_json(grant)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -90,8 +88,6 @@ defmodule AnkoleWeb.PermissionGrantController do
          {:ok, attrs} <- update_attrs(grant, conn.body_params),
          {:ok, updated} <- AuthZ.update_permission_grant(grant, attrs) do
       json(conn, %{permission_grant: AuthZJSON.grant_json(updated)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -102,8 +98,6 @@ defmodule AnkoleWeb.PermissionGrantController do
          :ok <- reject_page_action(grant.action),
          {:ok, grant} <- AuthZ.delete_permission_grant(id) do
       json(conn, %{permission_grant: AuthZJSON.grant_json(grant)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -162,18 +156,18 @@ defmodule AnkoleWeb.PermissionGrantController do
     end
   end
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :not_found) do
-    error(conn, 404, "not_found", "permission grant or owner group was not found")
+    ConsoleErrors.not_found(conn, "permission grant or owner group was not found")
   end
 
   defp error(conn, {:missing, key}) do
-    error(conn, 422, "validation_failed", "#{key} is required")
+    ConsoleErrors.required_field(conn, key)
   end
 
   defp error(conn, {:reserved_action, action}) do
-    error(conn, 422, "validation_failed", "action is reserved for the Pod", [
+    ConsoleErrors.render(conn, 422, "validation_failed", "action is reserved for the Pod", [
       %{
         path: "action",
         kind: "reserved",
@@ -183,7 +177,7 @@ defmodule AnkoleWeb.PermissionGrantController do
   end
 
   defp error(conn, {:page_grant_shape, fields}) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "validation_failed",
@@ -193,22 +187,18 @@ defmodule AnkoleWeb.PermissionGrantController do
   end
 
   defp error(conn, %Ecto.Changeset{} = changeset) do
-    error(
-      conn,
-      422,
-      "validation_failed",
-      "request validation failed",
-      ConsoleErrors.changeset_details(changeset)
-    )
+    ConsoleErrors.changeset(conn, changeset)
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_permission_grant", "permission grant request is invalid", [
-      %{reason: inspect(reason)}
-    ])
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
+    ConsoleErrors.render(
+      conn,
+      422,
+      "invalid_permission_grant",
+      "permission grant request is invalid",
+      [
+        %{reason: inspect(reason)}
+      ]
+    )
   end
 end

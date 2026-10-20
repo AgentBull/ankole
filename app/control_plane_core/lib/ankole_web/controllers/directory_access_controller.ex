@@ -1,6 +1,8 @@
 defmodule AnkoleWeb.DirectoryAccessController do
   @moduledoc "Console review of provider directory evidence."
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenApiSpex.ControllerSpecs
   alias Ankole.IdentityProviders.DirectoryAccess
   alias AnkoleWeb.{ConsoleErrors, ConsolePolicy}
@@ -49,8 +51,6 @@ defmodule AnkoleWeb.DirectoryAccessController do
   def show(conn, %{provider_id: id}) do
     with :ok <- ConsolePolicy.authorize(conn, "identity_provider:#{id}", "read") do
       state(conn, id)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -67,8 +67,6 @@ defmodule AnkoleWeb.DirectoryAccessController do
              body.confirm_removals
            ) do
       state(conn, id)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -87,9 +85,9 @@ defmodule AnkoleWeb.DirectoryAccessController do
            ) do
       state(conn, id)
     else
-      nil -> error(conn, :not_found)
-      %{provider_id: _} -> error(conn, :not_found)
-      {:error, reason} -> error(conn, reason)
+      nil -> {:error, :not_found}
+      %{provider_id: _} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -148,10 +146,12 @@ defmodule AnkoleWeb.DirectoryAccessController do
   defp actor_projection(nil), do: nil
   defp actor_projection(reference), do: Map.from_struct(reference)
 
-  defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "Access denied")
+  defp fallback(conn, {:error, :forbidden}), do: ConsoleErrors.forbidden(conn, "Access denied")
+
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :not_found),
-    do: ConsoleErrors.render(conn, 404, "not_found", "Directory event was not found")
+    do: ConsoleErrors.not_found(conn, "Directory event was not found")
 
   defp error(conn, reason) when is_atom(reason),
     do:

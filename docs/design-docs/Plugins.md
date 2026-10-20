@@ -274,11 +274,24 @@ project; the test helper starts only that client's supervisor.
 ### Share an implementation only when its contract matches
 
 `im_transport` owns shared JSON body primitives, request-body selection,
-Retry-After parsing, download filename parsing, and WebSocket URL decomposition.
-These functions retain their callers' existing error and empty-value behavior.
-DingTalk and WeCom keep their empty-body mapping. Feishu keeps its URL error and
-filename rules. Response envelopes, error classifications, token state machines,
-and reconnect callbacks remain provider-owned.
+Retry-After parsing, download filename parsing, WebSocket URL decomposition,
+and the Mint WebSocket connection. These HTTP functions retain their callers'
+existing error and empty-value behavior. DingTalk and WeCom keep their
+empty-body mapping. Feishu keeps its filename rules.
+
+`IMTransport.WebSocket` opens the socket, completes the upgrade, decodes frames,
+and sends frames. It does not choose reconnect timing, heartbeats, or frame
+meaning. A canonical HTTP/1 upgrade header form is a connection option for a
+gateway that requires conventional header names. Feishu keeps its own URL
+error. Discord reports the shared URL error.
+
+`IMTransport.TokenCache` owns one ETS row `{key, token, expires_at}`, the
+three-minute expiry margin, the thirty-second refresh lead, and the single-key
+fetch that joins concurrent misses into one upstream request. DingTalk and
+WeCom use that fetch. Each still owns its token HTTP request and its error
+struct. Feishu keeps its multi-key token state machine and uses the same expiry
+margin. Microsoft and Google keep last-write-wins caches. Response envelopes,
+error classifications, and reconnect callbacks remain provider-owned.
 
 `feishu_protocol` owns the Feishu WebSocket frame codec. Both the Lark Plugin
 and `tools/fake-feishu` depend on it; the fake platform does not depend on the
@@ -437,3 +450,21 @@ see [Conversations](Conversations.md) for shared history and Delivery, and
 - Keep new Control Plane Plugins inactive on completed installations until an
   operator enables them.
 - Keep durable state with its owning subsystem.
+
+Shared input transforms use `Ankole.Attrs`. `MapHelpers` reads external JSON
+string keys; `ConsoleParams` reads the atom keys from OpenAPI casting. Required
+text callers retain their domain error reason. Presence-based and truthy key
+fallback are separate operations: `Attrs.get/3` preserves an explicit atom-key
+`nil` or `false`, while `Attrs.get_truthy/2` uses the preferred key type to set
+lookup order. Neither string-key reader creates atoms from external input.
+Adapter configuration keys use `Signals.Bindings.binding_config_key/3`; each
+adapter keeps its stored prefix and the JSON/SHA256/lowercase-hex format.
+
+Console REST actions return failed domain results to Phoenix `action_fallback`.
+`AnkoleWeb.ConsoleErrors` owns the shared authorization response, resource and
+validation renderers, and error envelope. Controllers retain resource messages,
+special validation rules, and their existing handling of unlisted errors.
+Manual identity mappings retain their error envelope without a `details` field.
+Their unlisted errors return a generic 500 message; the server log records the
+internal reason. A blank Worker provider selection is a field validation error.
+OpenAI-compatible and Pod-specific response contracts keep their own handlers.

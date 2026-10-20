@@ -4,7 +4,7 @@ defmodule Ankole.Repo.Migrations.MoveAutomationScriptsToDrive do
   # An Automation Job script now lives in the Agent's drive at `drive_prefix`.
   # Existing jobs get the folder `automation/<id>`; `legacy_directory_path`
   # keeps their old Agent Home directory so that the one-time import
-  # (`mix ankole.files.import_agent_home`) can copy each script into that
+  # (`Ankole.Upgrade202610.import_agent_home/1`) can copy each script into that
   # folder and clear the column. A later release drops the column once no
   # instance has a job that still needs the import.
   def up do

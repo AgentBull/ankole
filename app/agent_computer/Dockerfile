@@ -29,18 +29,21 @@ FROM --platform=linux/amd64 cloudflare/sandbox:1.0.0 AS directory-backup
 
 FROM ${BASE_IMAGE} AS build
 
+ARG TARGETARCH
+
 WORKDIR /repo
 
 COPY package.json bun.lock ./
 COPY app/agent_computer/package.json ./app/agent_computer/package.json
 COPY app/ankole-browser/package.json ./app/ankole-browser/package.json
+COPY app/kernel/package.json ./app/kernel/package.json
 COPY libs/ankole-editor/package.json ./libs/ankole-editor/package.json
 COPY libs/ankole-editor/patches ./libs/ankole-editor/patches
 COPY libs/applet-sdk/package.json ./libs/applet-sdk/package.json
 COPY libs/uikit/package.json ./libs/uikit/package.json
 
 # Only the Worker and its workspace dependencies are present in this image.
-RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser", "libs/ankole-editor", "libs/applet-sdk", "libs/uikit"]; await Bun.write("package.json", JSON.stringify(p));'
+RUN bun -e 'const p = await Bun.file("package.json").json(); p.workspaces = ["app/agent_computer", "app/ankole-browser", "app/kernel", "libs/ankole-editor", "libs/applet-sdk", "libs/uikit"]; await Bun.write("package.json", JSON.stringify(p));'
 
 RUN --mount=type=cache,target=/root/.bun/install/cache \
   set -eux; \
@@ -53,6 +56,9 @@ RUN --mount=type=cache,target=/root/.bun/install/cache \
 
 COPY app/agent_computer ./app/agent_computer
 COPY app/ankole-browser ./app/ankole-browser
+COPY app/kernel/Cargo.toml app/kernel/Cargo.lock app/kernel/build.rs app/kernel/node.ts ./app/kernel/
+COPY app/kernel/src ./app/kernel/src
+COPY app/kernel/scripts ./app/kernel/scripts
 COPY libs/ankole-editor/src ./libs/ankole-editor/src
 COPY libs/ankole-editor/upstream ./libs/ankole-editor/upstream
 COPY libs/applet-sdk/src ./libs/applet-sdk/src
@@ -60,7 +66,11 @@ COPY libs/uikit/src ./libs/uikit/src
 
 WORKDIR /repo/app/ankole-browser
 
-RUN bun run build \
+RUN --mount=type=cache,target=/root/.cargo/registry \
+  --mount=type=cache,id=ankole-kernel-${TARGETARCH},target=/repo/app/kernel/target \
+  bun ../kernel/scripts/build-node-addon.ts --release \
+  && rm -rf dist \
+  && bun build src/cli/main.ts src/daemon/main.ts src/runner/bootstrap.ts --target=bun --outdir dist --external playwright-core \
   && mkdir -p /tmp/ankole-browser-runtime/node_modules \
   && cp package.json /tmp/ankole-browser-runtime/package.json \
   && cp -R dist /tmp/ankole-browser-runtime/dist \

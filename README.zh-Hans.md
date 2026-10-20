@@ -205,7 +205,7 @@ Ankole 已在生产环境中运行。一个 Ankole Agent 也在参与维护本�
 
 - 一个部署实例只服务一个组织。不共享信任边界的组织需要分别部署。
 - Worker 容器是对应 Agent 唯一的隔离边界，Ankole 不防范 Agent 改动或破坏自己的 Worker。
-- 阿里云函数计算的 Worker 提供方还没有在云上完整运行过 Worker 生命周期。[Agent Workers](docs/design-docs/AgentWorkers.md#provider-implementations)（英文）列出了每个平台已经通过的检查。
+- 各 Worker 提供方的云端验证范围不同。[Agent Workers](docs/design-docs/AgentWorkers.md#provider-verification-evidence)（英文）统一记录已有证据和待验证项。
 
 ## 文档
 

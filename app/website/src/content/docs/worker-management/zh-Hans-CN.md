@@ -55,7 +55,7 @@ order: 52
 | Lambda MicroVMs | EFS 上的 Agent 目录 | 保留内存暂停 |
 | 函数计算 | 每个 Agent 的 AgenticSpace 或 OSS 前缀 | 保留内存暂停 |
 
-Vercel 的 `sessionTimeoutSeconds` 必须符合账户实际限额：默认 86400 秒；限额为 45 分钟时设为 2700 秒。Lambda 的内存配额须同时容纳运行中、暂停中的 Worker 和存储删除辅助实例。部署前按仓库 CONTRIBUTING 的命令检查目标环境。函数计算已实测通过 OSS 完整生命周期，包括保留内存的暂停与恢复。恢复依赖 Worker 镜像内的 OSS 重连辅助程序，请同时部署匹配版本的 Worker 镜像和控制面。AgenticFS 仍需实测。ACS 的默认内存保留尚未确认，当前未注册。
+Vercel 的 `sessionTimeoutSeconds` 必须符合账户实际限额：默认 86400 秒；限额为 45 分钟时设为 2700 秒。Lambda 的内存配额须同时容纳运行中、暂停中的 Worker 和存储删除辅助实例。部署前按仓库 CONTRIBUTING 的命令检查目标环境。[提供方验证证据](https://github.com/AgentBull/ankole/blob/main/docs/design-docs/AgentWorkers.md#provider-verification-evidence) 统一记录各提供方的云端检查和待验证项。恢复依赖 Worker 镜像内的 OSS 重连辅助程序，请同时部署匹配版本的 Worker 镜像和控制面。AgenticFS 仍需实测。ACS 的默认内存保留尚未确认，当前未注册。
 
 删除实例与换镜像都会保留 Home。Codex 线程文件在 `/workspace/.codex`，SQLite 缓存在 `/var/cache/ankole/codex`；重建只删除缓存。Docker 本地卷不能抵御宿主丢失；Cloudflare 被平台强制停止时可能丢失最后一次备份之后的写入。持久 Home 和 [Agent 云盘](../file-management/) 都需要备份。
 

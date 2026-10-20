@@ -70,7 +70,7 @@ export function rangeForClick(wg: Wordgard, pos: CoordPos, type: number): GardSe
     // Triple click
     const cx = wg.state.doc.resolve(pos.pos),
       block = cx.textblockParent
-    if (block) return GardSelection.range(block.start, block.end)
+    if (block) return GardSelection.undirectionalRange(block.start, block.end)
     else return GardSelection.near(wg.state, pos.pos, pos.side || -1)
   }
 }
@@ -204,11 +204,19 @@ export function moveToLineBoundary(wg: Wordgard, start: GardSelection, forward: 
   const ltr = wg.state.textblockLTR(block.node)
   const y = (startCoords.top + startCoords.bottom) / 2
   const left = forward != ltr
-  let { pos } = wg.posAtCoords({ x: left ? -1e7 : 1e7, y })
+  let { pos, side } = wg.posAtCoords({ x: left ? -1e7 : 1e7, y })
   if (pos < block.start || pos > block.end) {
     const blockRect = (wg.docTile.nodeTile(block.before)!.dom as Element).getBoundingClientRect()
     const result = wg.posAtCoords({ x: left ? blockRect.left + 0.2 : blockRect.right - 0.2, y })
-    pos = Math.max(block.start, Math.min(block.end, result.pos))
+    if (result.pos < block.start) {
+      pos = block.start
+      side = -1
+    } else if (result.pos > block.end) {
+      pos = block.end
+      side = 1
+    } else {
+      ;({ pos, side } = result)
+    }
   }
-  return GardSelection.cursor(pos, forward ? -1 : 1)
+  return GardSelection.cursor(pos, side)
 }

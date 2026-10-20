@@ -102,11 +102,21 @@ defmodule Ankole.Pod.Database.Records do
     end)
   end
 
+  defp delete(write, []), do: {:ok, write}
+
   defp delete(write, attrs) do
+    links =
+      Repo.all(
+        from f in DbField,
+          join: t in DbTable,
+          on: t.id == f.table_id,
+          where: t.page_id == ^write.table.page_id and f.type == :link
+      )
+
     Enum.reduce_while(attrs, {:ok, write}, fn attrs, {:ok, write} ->
       with {:ok, record} <- fetch(write.table.id, Ankole.Attrs.get(attrs, :id)),
            true <- Ankole.Attrs.get(attrs, :expected_versions) == record.versions,
-           {:ok, write} <- clean_incoming(write, record.id),
+           {:ok, write} <- clean_incoming(write, links, record.id),
            {:ok, _} <- Repo.delete(record) do
         {:cont, {:ok, Write.touch(write, write.table.id, deleted: [record.id], delta: -1)}}
       else
@@ -196,15 +206,7 @@ defmodule Ankole.Pod.Database.Records do
     end
   end
 
-  defp clean_incoming(write, id) do
-    links =
-      Repo.all(
-        from f in DbField,
-          join: t in DbTable,
-          on: t.id == f.table_id,
-          where: t.page_id == ^write.table.page_id and f.type == :link
-      )
-
+  defp clean_incoming(write, links, id) do
     Enum.reduce_while(links, {:ok, write}, fn field, {:ok, write} ->
       records =
         if field.config["table_id"] == write.table.id do

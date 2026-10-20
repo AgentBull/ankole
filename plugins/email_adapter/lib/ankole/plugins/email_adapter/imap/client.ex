@@ -335,12 +335,7 @@ defmodule Ankole.Plugins.EmailAdapter.Imap.Client do
   defp take_atom("", acc), do: {List.to_string(Enum.reverse(acc)), ""}
   defp take_atom(<<char, rest::binary>>, acc), do: take_atom(rest, [char | acc])
 
-  defp atom_token(atom) do
-    case Integer.parse(atom) do
-      {integer, ""} -> integer
-      _other -> atom
-    end
-  end
+  defp atom_token(atom), do: Ankole.Attrs.integer_value(atom) || atom
 
   defp close_all([current]), do: Enum.reverse(current)
 

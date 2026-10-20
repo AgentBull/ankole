@@ -815,3 +815,9 @@ RuntimeFabric is not any of these systems:
 - A file-chunk protocol inside the worker connection.
 - A conversation-history RPC service.
 - A second set of domain records written by the worker.
+
+The frozen Codex model binding header is base64url-encoded UTF-8 JSON without
+padding. Worker encoding and Control Plane decoding use the same vectors in
+`app/kernel/proto/ankole/runtime_fabric/v1/codex_model_binding_vectors.json`.
+The vectors include nested Provider options, image fallback, hosted Brain
+operations, and Unicode. Selector fields retain their existing routing roles.

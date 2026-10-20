@@ -132,12 +132,7 @@ defmodule Ankole.Plugins.WeComAdapter.TemplateCard do
 
   def parse_managed_key(_key), do: :unmanaged
 
-  defp parse_integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> integer
-      _other -> 0
-    end
-  end
+  defp parse_integer(value) when is_binary(value), do: Ankole.Attrs.integer_value(value) || 0
 
   defp action_value(interaction, version, control, option, value) do
     %{

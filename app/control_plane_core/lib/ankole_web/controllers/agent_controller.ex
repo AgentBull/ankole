@@ -7,6 +7,8 @@ defmodule AnkoleWeb.AgentController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Principals
@@ -179,8 +181,6 @@ defmodule AnkoleWeb.AgentController do
       agents = Principals.list_agents()
       providers = Providers.provider_ids(Enum.map(agents, & &1.principal.uid))
       json(conn, %{agents: Enum.map(agents, &agent_json(&1, providers))})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -189,8 +189,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, attrs} <- create_attrs(conn.body_params, conn.assigns.current_principal),
          {:ok, result} <- Principals.create_agent(attrs) do
       json(conn, %{agent: agent_json(result)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -199,8 +197,6 @@ defmodule AnkoleWeb.AgentController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}", "read"),
          {:ok, result} <- Principals.get_agent(agent_uid) do
       json(conn, %{agent: agent_json(result)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -210,8 +206,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, attrs} <- update_attrs(conn.body_params),
          {:ok, result} <- Principals.update_agent(agent_uid, attrs) do
       json(conn, %{agent: agent_json(result)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -221,8 +215,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
          {:ok, %Principal{} = principal} <- Principals.delete_agent(agent_uid) do
       json(conn, %{agent: agent_json(%{principal: principal, agent: agent})})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -232,8 +224,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, %{agent: agent}} <- Principals.get_agent(agent_uid),
          {:ok, %Principal{} = principal} <- Principals.enable_agent(agent_uid) do
       json(conn, %{agent: agent_json(%{principal: principal, agent: agent})})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -245,8 +235,6 @@ defmodule AnkoleWeb.AgentController do
         model_profiles: profiles,
         provider_hosted: provider_hosted_payload(agent_uid)
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -256,8 +244,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, capabilities} <-
            ModelProfiles.put_provider_hosted_capabilities(agent_uid, conn.body_params) do
       json(conn, %{provider_hosted: normalized_provider_hosted(capabilities)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -285,8 +271,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, %{profile: profile_attrs}} <-
            ModelProfiles.put_model_profile(agent_uid, profile, conn.body_params) do
       json(conn, %{model_profile: model_profile_payload(profile, profile_attrs)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -298,8 +282,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, %{profile: profile_attrs}} <-
            ModelProfiles.put_model_profile(agent_uid, profile, nil) do
       json(conn, %{model_profile: model_profile_payload(profile, profile_attrs)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -308,8 +290,6 @@ defmodule AnkoleWeb.AgentController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:token_quota", "read"),
          {:ok, status} <- TokenQuota.status(agent_uid) do
       json(conn, token_quota_payload(status))
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -319,8 +299,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, _quota} <- TokenQuota.put(agent_uid, conn.body_params),
          {:ok, status} <- TokenQuota.status(agent_uid) do
       json(conn, token_quota_payload(status))
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -330,8 +308,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, nil} <- TokenQuota.delete(agent_uid),
          {:ok, status} <- TokenQuota.status(agent_uid) do
       json(conn, token_quota_payload(status))
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -341,8 +317,6 @@ defmodule AnkoleWeb.AgentController do
          {:ok, _quota} <- TokenQuota.reset(agent_uid),
          {:ok, status} <- TokenQuota.status(agent_uid) do
       json(conn, token_quota_payload(status))
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -382,18 +356,8 @@ defmodule AnkoleWeb.AgentController do
 
   defp update_attrs(_attrs), do: {:error, :invalid_agent}
 
-  defp required_text(attrs, key) when is_atom(key) do
-    case Map.get(attrs, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, {:missing, Atom.to_string(key)}}
-          text -> {:ok, text}
-        end
-
-      _value ->
-        {:error, {:missing, Atom.to_string(key)}}
-    end
-  end
+  defp required_text(attrs, key) when is_atom(key),
+    do: Ankole.Attrs.required_text(Map.get(attrs, key), {:missing, Atom.to_string(key)})
 
   defp normalize_optional_display_name(attrs) do
     if Map.has_key?(attrs, :display_name) do
@@ -442,9 +406,11 @@ defmodule AnkoleWeb.AgentController do
     }
   end
 
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
   defp error(conn, :worker_provider_required),
     do:
-      error(
+      ConsoleErrors.render(
         conn,
         422,
         "worker_provider_required",
@@ -453,14 +419,18 @@ defmodule AnkoleWeb.AgentController do
 
   defp error(conn, :worker_provider_not_found),
     do:
-      error(conn, 422, "worker_provider_not_found", "The selected Worker provider was not found")
+      ConsoleErrors.render(
+        conn,
+        422,
+        "worker_provider_not_found",
+        "The selected Worker provider was not found"
+      )
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
-  defp error(conn, :not_found), do: error(conn, 404, "not_found", "agent was not found")
-  defp error(conn, :not_agent), do: error(conn, 404, "not_found", "agent was not found")
+  defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "agent was not found")
+  defp error(conn, :not_agent), do: ConsoleErrors.not_found(conn, "agent was not found")
 
   defp error(conn, :image_model_unavailable) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "image_model_unavailable",
@@ -469,7 +439,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   defp error(conn, :image_model_catalog_unavailable) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "image_model_catalog_unavailable",
@@ -478,7 +448,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   defp error(conn, :ai_agent_options_not_writable) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "validation_failed",
@@ -487,7 +457,7 @@ defmodule AnkoleWeb.AgentController do
   end
 
   defp error(conn, :token_quota_not_writable_at_creation) do
-    error(
+    ConsoleErrors.render(
       conn,
       422,
       "validation_failed",
@@ -496,38 +466,52 @@ defmodule AnkoleWeb.AgentController do
   end
 
   defp error(conn, :invalid_period_days),
-    do: error(conn, 422, "validation_failed", "period_days must be an integer of at least 1")
+    do:
+      ConsoleErrors.render(
+        conn,
+        422,
+        "validation_failed",
+        "period_days must be an integer of at least 1"
+      )
 
   defp error(conn, :invalid_period_start_at),
-    do: error(conn, 422, "validation_failed", "period_start_at must be an ISO 8601 instant")
+    do:
+      ConsoleErrors.render(
+        conn,
+        422,
+        "validation_failed",
+        "period_start_at must be an ISO 8601 instant"
+      )
 
   defp error(conn, :invalid_limit_tokens),
-    do: error(conn, 422, "validation_failed", "limit_tokens must be an integer of at least 1")
+    do:
+      ConsoleErrors.render(
+        conn,
+        422,
+        "validation_failed",
+        "limit_tokens must be an integer of at least 1"
+      )
 
   defp error(conn, :token_quota_not_configured),
-    do: error(conn, 422, "token_quota_not_configured", "agent has no token quota to reset")
+    do:
+      ConsoleErrors.render(
+        conn,
+        422,
+        "token_quota_not_configured",
+        "agent has no token quota to reset"
+      )
 
   defp error(conn, {:missing, key}) do
-    error(conn, 422, "validation_failed", "#{key} is required")
+    ConsoleErrors.required_field(conn, key)
   end
 
   defp error(conn, %Ecto.Changeset{} = changeset) do
-    error(
-      conn,
-      422,
-      "validation_failed",
-      "request validation failed",
-      ConsoleErrors.changeset_details(changeset)
-    )
+    ConsoleErrors.changeset(conn, changeset)
   end
 
   defp error(conn, reason) do
-    error(conn, 422, "invalid_agent", "agent configuration is invalid", [
+    ConsoleErrors.render(conn, 422, "invalid_agent", "agent configuration is invalid", [
       %{reason: inspect(reason)}
     ])
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

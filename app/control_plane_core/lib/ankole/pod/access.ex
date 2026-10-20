@@ -333,55 +333,142 @@ defmodule Ankole.Pod.Access do
         Repo.all(
           from g in Grant,
             where:
-              g.action in ^@actions and g.condition == "true" and
+              g.action in ^@actions and
                 (g.principal_uid == ^uid or g.group_id in ^group_ids)
         )
 
-      starts = Enum.reduce(grants, %{space: 0, private: %{}, shared: %{}}, &grant_start/2)
-      space = if AuthZ.allowed?(uid, "pod:space", "update"), do: 7, else: starts.space
-
-      result =
-        Repo.query!(
-          """
-          WITH RECURSIVE tree AS (
-            SELECT p.id, p.private_owner_uid AS root_owner,
-              p.deleted_at IS NOT NULL AS deleted, false AS ancestor_deleted,
-              COALESCE(($2::jsonb ->> p.id::text)::integer, 0) AS direct_actions,
-              COALESCE(($2::jsonb ->> p.id::text)::integer, 0) |
-                CASE WHEN NOT p.inherit_permissions THEN 0
-                  WHEN p.private_owner_uid IS NULL THEN $4::integer
-                  ELSE COALESCE(($3::jsonb ->> p.private_owner_uid)::integer, 0) END AS actions
-            FROM pages p WHERE p.tenant_id = $1::text::uuid AND p.parent_id IS NULL
-            UNION ALL
-            SELECT c.id, t.root_owner, c.deleted_at IS NOT NULL,
-              t.ancestor_deleted OR t.deleted,
-              COALESCE(($2::jsonb ->> c.id::text)::integer, 0),
-              COALESCE(($2::jsonb ->> c.id::text)::integer, 0) |
-                CASE WHEN c.inherit_permissions THEN t.actions ELSE 0 END
-            FROM tree t JOIN pages c ON c.parent_id = t.id AND c.tenant_id = $1::text::uuid
-          ) SELECT id::text, root_owner, deleted, ancestor_deleted, direct_actions, actions FROM tree
-          """,
-          [
-            Repo.tenant_id!(),
-            starts.shared,
-            starts.private,
-            space
-          ]
-        )
-
-      {:ok,
-       Map.new(result.rows, fn [id, owner, deleted, ancestor_deleted, direct, actions] ->
-         {id,
-          %{
-            root_private_owner_uid: owner,
-            deleted: deleted,
-            ancestor_deleted: ancestor_deleted,
-            directly_shared: band(direct, 1) != 0,
-            actions: actions,
-            role: role_for_actions(actions)
-          }}
-       end)}
+      if Enum.all?(grants, &canonical_grant?/1),
+        do: canonical_navigation(uid, grants),
+        else: evaluated_navigation(uid, grants)
     end
+  end
+
+  defp canonical_navigation(uid, grants) do
+    starts = Enum.reduce(grants, %{space: 0, private: %{}, shared: %{}}, &grant_start/2)
+    space = if AuthZ.allowed?(uid, "pod:space", "update"), do: 7, else: starts.space
+
+    result =
+      Repo.query!(
+        """
+        WITH RECURSIVE tree AS (
+          SELECT p.id, p.private_owner_uid AS root_owner,
+            p.deleted_at IS NOT NULL AS deleted, false AS ancestor_deleted,
+            COALESCE(($2::jsonb ->> p.id::text)::integer, 0) AS direct_actions,
+            COALESCE(($2::jsonb ->> p.id::text)::integer, 0) |
+              CASE WHEN NOT p.inherit_permissions THEN 0
+                WHEN p.private_owner_uid IS NULL THEN $4::integer
+                ELSE COALESCE(($3::jsonb ->> p.private_owner_uid)::integer, 0) END AS actions
+          FROM pages p WHERE p.tenant_id = $1::text::uuid AND p.parent_id IS NULL
+          UNION ALL
+          SELECT c.id, t.root_owner, c.deleted_at IS NOT NULL,
+            t.ancestor_deleted OR t.deleted,
+            COALESCE(($2::jsonb ->> c.id::text)::integer, 0),
+            COALESCE(($2::jsonb ->> c.id::text)::integer, 0) |
+              CASE WHEN c.inherit_permissions THEN t.actions ELSE 0 END
+          FROM tree t JOIN pages c ON c.parent_id = t.id AND c.tenant_id = $1::text::uuid
+        ) SELECT id::text, root_owner, deleted, ancestor_deleted, direct_actions, actions FROM tree
+        """,
+        [
+          Repo.tenant_id!(),
+          starts.shared,
+          starts.private,
+          space
+        ]
+      )
+
+    {:ok,
+     Map.new(result.rows, fn [id, owner, deleted, ancestor_deleted, direct, actions] ->
+       {id,
+        %{
+          root_private_owner_uid: owner,
+          deleted: deleted,
+          ancestor_deleted: ancestor_deleted,
+          directly_shared: band(direct, 1) != 0,
+          actions: actions,
+          role: role_for_actions(actions)
+        }}
+     end)}
+  end
+
+  defp evaluated_navigation(uid, grants) do
+    entries = Repo.all(Page) |> navigation_entries() |> Map.to_list()
+
+    direct_grants =
+      grants
+      |> Enum.filter(&(&1.action == "page_view"))
+      |> Enum.group_by(& &1.resource_pattern, & &1.id)
+
+    checks =
+      Enum.flat_map(entries, fn {id, entry} ->
+        Enum.map(@actions, &%{resource: entry.resource, action: &1}) ++
+          [
+            %{
+              resource: entry.resource,
+              action: "page_view",
+              grant_ids: Map.get(direct_grants, "pod:**:#{id}:**", [])
+            }
+          ]
+      end)
+
+    with {:ok, [space | allowed]} <-
+           AuthZ.authorize_checks(uid, [
+             %{resource: "pod:space", action: "update"} | checks
+           ]) do
+      navigation =
+        entries
+        |> Enum.zip(Enum.chunk_every(allowed, 4))
+        |> Map.new(fn {entry, allowed} -> evaluated_navigation_entry(entry, allowed, space) end)
+
+      {:ok, navigation}
+    end
+  end
+
+  defp evaluated_navigation_entry({id, entry}, [view, edit, manage, direct], space) do
+    actions =
+      if space and entry.space_fallback do
+        7
+      else
+        @actions
+        |> Enum.zip([view, edit, manage])
+        |> Enum.reduce(0, fn {action, allowed}, bits ->
+          if allowed, do: bor(bits, action_bit(action)), else: bits
+        end)
+      end
+
+    {id,
+     entry
+     |> Map.drop([:resource, :space_fallback])
+     |> Map.merge(%{
+       directly_shared: direct,
+       actions: actions,
+       role: role_for_actions(actions)
+     })}
+  end
+
+  defp navigation_entries(pages) do
+    children = Enum.group_by(pages, & &1.parent_id)
+
+    Enum.reduce(Map.get(children, nil, []), %{}, fn root, entries ->
+      add_navigation_entry(root, children, [], entries)
+    end)
+  end
+
+  defp add_navigation_entry(page, children, ancestors, entries) do
+    reversed_path = [page | ancestors]
+    path = Enum.reverse(reversed_path)
+
+    entry = %{
+      resource: resource(path),
+      root_private_owner_uid: hd(path).private_owner_uid,
+      deleted: not is_nil(page.deleted_at),
+      ancestor_deleted: Enum.any?(ancestors, & &1.deleted_at),
+      space_fallback: space_fallback?(path)
+    }
+
+    Enum.reduce(Map.get(children, page.id, []), Map.put(entries, page.id, entry), fn child,
+                                                                                     entries ->
+      add_navigation_entry(child, children, reversed_path, entries)
+    end)
   end
 
   defp role_for_actions(actions) do

@@ -1,5 +1,72 @@
 # Changelog
 
+## Version 2.0.0-alpha.15 (2026-10-20)
+
+- Sync the block editor engine with Wordgard through `83844a0`. Double-click
+  and triple-click selections extend toward either side. Decorations can
+  override how marks render. A state with no custom key bindings keeps the
+  default keymap. Point lookups, decoration updates from several sources, and
+  caret positions at the edges of bidirectional text blocks are fixed.
+- Translate Pod editor menus, toolbars, prompts, and accessible names through
+  the shared locale catalogs. Changing labels preserves the document and undo
+  history.
+- Notify new table subscribers when access was already revoked. Release an
+  attachment cell's edit snapshot after an upload failure so the next edit can
+  use current field versions. Failed saves retain their explicit retry path.
+- Keep LINE quote and Telegram reaction lookup failures retryable instead of
+  accepting an incorrect classification or channel. Log unexpected context,
+  replay recovery, and cancellation failures without exception messages or
+  function arguments.
+
+- Use one tenant admission check for Pod hosts and login. Suspended, deleting,
+  and missing tenants remain unavailable; maintenance and slug ownership checks
+  still see existing tenants.
+
+- Share the Mint WebSocket connection and the single-key token fetch across
+  provider clients. Each provider keeps its frames, acknowledgements, reconnect
+  timing, and token request. Discord uses the shared connection. A bad Discord
+  gateway URL reports `:invalid_websocket_url`.
+
+- Keep local browser connections on validated IP addresses, including page
+  resources, redirects, and WebSockets. Cloud metadata stays blocked when
+  intranet access is enabled. Custom Chromium proxy arguments now fail; Ankole
+  manages that proxy. Remote browser providers still own their connection policy.
+
+- Browser snapshots now use Playwright's AI snapshot. Refs such as `@e2` and
+  iframe refs such as `@f1e3` come from that snapshot. A missing or detached
+  ref still returns `stale_ref`. Interactive snapshots keep controls visible
+  when long static text would fill the output budget.
+  Selector snapshots use the remaining command deadline instead of waiting
+  without a Playwright timeout.
+
+- Edit Brain page tags in the Console. Tags take part in concurrent edit checks
+  and version records. Each tag has its own field, so embedded line breaks stay
+  inside the tag. Reload an open tagged page after this upgrade.
+- Refresh derived Brain links and timeline work after page edits. Markdown and
+  alias links no longer require a Dreaming model; the upgrade schedules one
+  model-free link rebuild and preserves completed timeline work.
+  Tag and metadata edits retain completed extraction work; pending body or
+  title changes still require extraction.
+- Keep Pod navigation consistent with page permissions for conditional and
+  wildcard grants. Evaluate large page trees with one authorization snapshot.
+  Show invalid audience markup in the editor preview.
+- Preserve cached and reasoning token details in stored compaction responses.
+  Retain an explicit total token count of zero from the Provider.
+  Return normal upload errors when a Worker transfer fails during streaming.
+- Return field validation for a blank Worker provider selection and keep
+  internal identity mapping errors out of Console responses. A concurrent token
+  refresh survives cleanup by a reader that saw an older expired token.
+- Use packaged application fonts without a public font service. Reject
+  Automation Job IDs below 1000 at the API boundary and show blank schedule
+  fields as validation errors.
+- Include private SaaS frontend utility styles in packaged assets.
+- Run the one-time Agent Home drive import with
+  `Ankole.Upgrade202610.import_agent_home("/agents")`.
+- Reject non-Agent Principals in Pod Space Agent grants, skip deleted
+  conversations during Brain slice finalization, normalize Agent directory paths
+  before changing ownership, and keep non-absent Telegram preview deletion
+  errors visible.
+
 ## Version 2.0.0-alpha.14 (2026-10-20)
 
 - Make each control-plane Plugin a local Mix project and place each provider

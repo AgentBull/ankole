@@ -38,6 +38,31 @@ defmodule Ankole.IdentityProviders.Directory do
   end
 
   @doc """
+  Imports a lazy provider user stream and counts successful writes.
+
+  The adapter callback owns filtering and normalization. It receives the shared
+  directory-group index and returns `{:ok, user}`, `:skip`, or `{:error, reason}`.
+  A stream or write error stops enumeration. Each user keeps its own transaction.
+  """
+  @spec sync_users(String.t(), Enumerable.t(), (map(), map() -> tuple() | :skip)) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def sync_users(provider_id, users, sync_user) when is_function(sync_user, 2) do
+    with {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id) do
+      Enum.reduce_while(users, {:ok, 0}, fn
+        {:ok, user}, {:ok, count} ->
+          case sync_user.(user, directory_group_index) do
+            {:ok, _observed} -> {:cont, {:ok, count + 1}}
+            :skip -> {:cont, {:ok, count}}
+            {:error, _reason} = error -> {:halt, error}
+          end
+
+        {:error, _reason} = error, _acc ->
+          {:halt, error}
+      end)
+    end
+  end
+
+  @doc """
   Upserts one normalized directory human and optionally syncs group memberships.
 
   `attrs` is the `Principals.upsert_platform_subject_human/1` attribute map the

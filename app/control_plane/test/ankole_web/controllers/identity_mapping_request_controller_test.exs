@@ -30,7 +30,8 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
 
     conn = get(conn, ~p"/api/v1/identity-mapping-requests")
 
-    assert %{"error" => %{"code" => "forbidden"}} = json_response(conn, 403)
+    assert json_response(conn, 403) ==
+             %{"error" => %{"code" => "forbidden", "message" => "access denied"}}
   end
 
   test "admin lists, binds, and dismisses pending mapping requests", %{conn: conn} do
@@ -99,7 +100,12 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
         "principal_uid" => agent.uid
       })
 
-    assert %{"error" => %{"code" => "invalid_principal"}} = json_response(conn, 422)
+    assert json_response(conn, 422) == %{
+             "error" => %{
+               "code" => "invalid_principal",
+               "message" => "identities bind to human principals only"
+             }
+           }
   end
 
   test "a malformed mapping request id answers not found in the console envelope", %{conn: conn} do
@@ -142,6 +148,26 @@ defmodule AnkoleWeb.IdentityMappingRequestControllerTest do
              Principals.resolve_platform_subject("lark-main", "ou_proactive_console")
 
     assert resolved.uid == target.uid
+  end
+
+  test "an unhandled domain error does not expose the internal reason", %{conn: conn} do
+    conn =
+      conn
+      |> console_conn()
+      |> post(~p"/api/v1/identity-mappings", %{
+        "principal_uid" => "   ",
+        "provider" => "lark-main",
+        "external_id" => "ou_unhandled_console"
+      })
+
+    assert json_response(conn, 500) == %{
+             "error" => %{
+               "code" => "internal_error",
+               "message" => "the request failed for an unexpected reason; check the server log"
+             }
+           }
+
+    refute conn.resp_body =~ "invalid_uid"
   end
 
   test "admin cannot reassign a provider subject", %{conn: conn} do

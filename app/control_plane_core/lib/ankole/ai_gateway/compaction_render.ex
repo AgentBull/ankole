@@ -64,24 +64,26 @@ defmodule Ankole.AIGateway.CompactionRender do
 
   def item_text(%{"type" => "message", "role" => role, "content" => content}, opts) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
-    "#{role}: #{content_text(content, cap_tokens: cap(caps, :message_text))}"
+    "#{role}: #{content_text(content, cap_tokens: Map.get(caps, :message_text))}"
   end
 
   def item_text(%{"type" => "message", "content" => content}, opts) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
-    content_text(content, cap_tokens: cap(caps, :message_text))
+    content_text(content, cap_tokens: Map.get(caps, :message_text))
   end
 
   def item_text(%{"role" => role, "content" => content}, opts) when is_binary(role) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
-    "#{role}: #{content_text(content, cap_tokens: cap(caps, :message_text))}"
+    "#{role}: #{content_text(content, cap_tokens: Map.get(caps, :message_text))}"
   end
 
   def item_text(%{"type" => "function_call", "name" => name} = item, opts) do
     caps = Keyword.get(opts, :caps, @item_caps_tokens)
     call_ref = Keyword.get(opts, :call_ref) || "(none)"
     args = Map.get(item, "arguments") || Map.get(item, "input") || ""
-    args = stringify(args) |> truncate_text(cap(caps, :function_call_arguments))
+
+    args =
+      stringify(args) |> truncate_text(Map.get(caps, :function_call_arguments))
 
     "function_call #{tool_path(item, name)} call_ref=#{call_ref} arguments=#{args}"
   end
@@ -91,7 +93,9 @@ defmodule Ankole.AIGateway.CompactionRender do
     call_ref = Keyword.get(opts, :call_ref) || "(none)"
 
     output =
-      Map.get(item, "output") |> stringify() |> truncate_text(cap(caps, :function_call_output))
+      Map.get(item, "output")
+      |> stringify()
+      |> truncate_text(Map.get(caps, :function_call_output))
 
     "function_call_output call_ref=#{call_ref} output=#{output}"
   end
@@ -101,7 +105,9 @@ defmodule Ankole.AIGateway.CompactionRender do
     call_ref = Keyword.get(opts, :call_ref) || "(none)"
 
     input =
-      Map.get(item, "input") |> stringify() |> truncate_text(cap(caps, :function_call_arguments))
+      Map.get(item, "input")
+      |> stringify()
+      |> truncate_text(Map.get(caps, :function_call_arguments))
 
     "custom_tool_call #{tool_path(item, name)} call_ref=#{call_ref} input=#{input}"
   end
@@ -111,7 +117,9 @@ defmodule Ankole.AIGateway.CompactionRender do
     call_ref = Keyword.get(opts, :call_ref) || "(none)"
 
     output =
-      Map.get(item, "output") |> stringify() |> truncate_text(cap(caps, :function_call_output))
+      Map.get(item, "output")
+      |> stringify()
+      |> truncate_text(Map.get(caps, :function_call_output))
 
     "custom_tool_call_output call_ref=#{call_ref} output=#{output}"
   end
@@ -121,7 +129,9 @@ defmodule Ankole.AIGateway.CompactionRender do
     call_ref = Keyword.get(opts, :call_ref) || "(none)"
 
     code =
-      Map.get(item, "code") |> stringify() |> truncate_text(cap(caps, :function_call_arguments))
+      Map.get(item, "code")
+      |> stringify()
+      |> truncate_text(Map.get(caps, :function_call_arguments))
 
     "program call_ref=#{call_ref} code=#{code}"
   end
@@ -132,7 +142,9 @@ defmodule Ankole.AIGateway.CompactionRender do
     status = Map.get(item, "status") || "unknown"
 
     result =
-      Map.get(item, "result") |> stringify() |> truncate_text(cap(caps, :function_call_output))
+      Map.get(item, "result")
+      |> stringify()
+      |> truncate_text(Map.get(caps, :function_call_output))
 
     "program_output call_ref=#{call_ref} status=#{status} result=#{result}"
   end
@@ -145,7 +157,7 @@ defmodule Ankole.AIGateway.CompactionRender do
     arguments =
       Map.get(item, "arguments")
       |> stringify()
-      |> truncate_text(cap(caps, :function_call_arguments))
+      |> truncate_text(Map.get(caps, :function_call_arguments))
 
     "tool_search_call execution=#{execution} call_ref=#{call_ref} arguments=#{arguments}"
   end
@@ -159,7 +171,7 @@ defmodule Ankole.AIGateway.CompactionRender do
     tools =
       Map.get(item, "tools")
       |> stringify()
-      |> truncate_text(cap(caps, :function_call_output))
+      |> truncate_text(Map.get(caps, :function_call_output))
 
     "tool_search_output execution=#{execution} call_ref=#{call_ref} status=#{status} tools=#{tools}"
   end
@@ -172,7 +184,7 @@ defmodule Ankole.AIGateway.CompactionRender do
     arguments =
       Map.get(item, "arguments")
       |> stringify()
-      |> truncate_text(cap(caps, :function_call_arguments))
+      |> truncate_text(Map.get(caps, :function_call_arguments))
 
     "brain_call operation=#{operation} call_ref=#{call_ref} arguments=#{arguments}"
   end
@@ -186,7 +198,7 @@ defmodule Ankole.AIGateway.CompactionRender do
     output =
       Map.get(item, "output")
       |> stringify()
-      |> truncate_text(cap(caps, :function_call_output))
+      |> truncate_text(Map.get(caps, :function_call_output))
 
     "brain_output operation=#{operation} call_ref=#{call_ref} status=#{status} output=#{output}"
   end
@@ -198,7 +210,7 @@ defmodule Ankole.AIGateway.CompactionRender do
       (reasoning_texts(item["summary"]) ++ reasoning_texts(item["content"]))
       |> Enum.join("\n")
       |> String.trim()
-      |> truncate_text(cap(caps, :reasoning))
+      |> truncate_text(Map.get(caps, :reasoning))
 
     if readable == "", do: "", else: "reasoning summary: #{readable}"
   end
@@ -361,8 +373,6 @@ defmodule Ankole.AIGateway.CompactionRender do
 
   defp user_message_item?(_item), do: false
 
-  defp cap(caps, key), do: Map.get(caps, key) || Map.get(caps, Atom.to_string(key))
-
   defp tool_path(item, name) do
     name = name || "(unknown)"
 
@@ -388,7 +398,7 @@ defmodule Ankole.AIGateway.CompactionRender do
         "status"
       ])
       |> stringify()
-      |> truncate_text(cap(caps, cap_key))
+      |> truncate_text(Map.get(caps, cap_key))
 
     "#{item["type"]} call_ref=#{call_ref} payload=#{payload}"
   end

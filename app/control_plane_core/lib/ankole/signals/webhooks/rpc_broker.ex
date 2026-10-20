@@ -133,8 +133,8 @@ defmodule Ankole.Signals.Webhooks.RPCBroker do
   defp optional_positive_integer(value, _key) when value in [nil, ""], do: {:ok, nil}
 
   defp optional_positive_integer(value, key) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} when integer in 1000..9_007_199_254_740_991 -> {:ok, integer}
+    case Ankole.ModelIntegerID.parse(value) do
+      {:ok, integer} -> {:ok, integer}
       _invalid -> {:error, {:invalid_positive_integer, key}}
     end
   end
@@ -142,12 +142,7 @@ defmodule Ankole.Signals.Webhooks.RPCBroker do
   defp optional_positive_integer(_value, key),
     do: {:error, {:invalid_positive_integer, key}}
 
-  defp required_text(value, key) do
-    case Ankole.Attrs.optional_text(value) do
-      text when is_binary(text) -> {:ok, text}
-      nil -> {:error, {:missing_text, key}}
-    end
-  end
+  defp required_text(value, key), do: Ankole.Attrs.required_text(value, {:missing_text, key})
 
   defp list_limit(value) when is_integer(value) and value > 0, do: min(value, 100)
   defp list_limit(_value), do: 100

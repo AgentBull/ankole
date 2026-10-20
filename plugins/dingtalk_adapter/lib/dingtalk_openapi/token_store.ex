@@ -22,13 +22,7 @@ defmodule DingTalkOpenAPI.TokenStore do
 
   @impl true
   def init(_) do
-    _ =
-      if :ets.info(@table) == :undefined do
-        :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
-      else
-        @table
-      end
-
+    IMTransport.TokenCache.ensure_table(@table)
     {:ok, %{}}
   end
 end

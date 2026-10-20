@@ -261,9 +261,11 @@ defmodule Ankole.ScheduleTest do
 
     test "an update while the wake job executes leaves one fire" do
       %{principal: agent} = Ankole.PrincipalsFixtures.agent_fixture()
+      # Oban compares due_at with its real insertion clock.
+      now = DateTime.utc_now(:microsecond)
 
       assert {:ok, %{scheduled_event: event}} =
-               Schedule.create_check_back_later(checkback_attrs(agent.uid, []), now: @base_time)
+               Schedule.create_check_back_later(checkback_attrs(agent.uid, []), now: now)
 
       jobs =
         from j in Oban.Job,
@@ -280,7 +282,7 @@ defmodule Ankole.ScheduleTest do
         )
 
       assert {:ok, %{scheduled_event: updated}} =
-               Schedule.update_checkback(event.id, attrs, now: @base_time)
+               Schedule.update_checkback(event.id, attrs, now: now)
 
       assert updated.id == event.id
       assert Enum.sort(Repo.all(from j in jobs, select: j.state)) == ["executing", "scheduled"]

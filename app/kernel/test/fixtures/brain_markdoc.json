@@ -1,0 +1,320 @@
+[
+  {
+    "name": "plain text",
+    "source": "See [[companies/acme]].",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "See [[companies/acme]]."
+      }
+    ]
+  },
+  {
+    "name": "root blocks preserve CRLF and text",
+    "source": "# 明湖 AI\r\npublic\r\n{% audience scope=\"principal:alice\" %}\r\nprivate\r\n{% /audience %}\r\ntail",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "# 明湖 AI\r\npublic\r\n"
+      },
+      {
+        "scope": "principal:alice",
+        "text": "\nprivate\r\n"
+      },
+      {
+        "scope": "world",
+        "text": "\ntail"
+      }
+    ]
+  },
+  {
+    "name": "adjacent explicit scopes",
+    "source": "{% audience scope=\"world\" %}\nPublic\n{% /audience %}\n{% audience scope=\"principal:alice\" %}\nPrivate\n{% /audience %}\nTail",
+    "segments": [
+      {
+        "scope": "world",
+        "text": ""
+      },
+      {
+        "scope": "world",
+        "text": "\nPublic\n"
+      },
+      {
+        "scope": "world",
+        "text": "\n"
+      },
+      {
+        "scope": "principal:alice",
+        "text": "\nPrivate\n"
+      },
+      {
+        "scope": "world",
+        "text": "\nTail"
+      }
+    ]
+  },
+  {
+    "name": "code span 1",
+    "source": "Example: `\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend `\n",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "Example: `\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend `\n"
+      }
+    ]
+  },
+  {
+    "name": "private code span 1",
+    "source": "{% audience scope=\"principal:alice\" %}\nExample: `\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend `\nStill private\n{% /audience %}",
+    "segments": [
+      {
+        "scope": "world",
+        "text": ""
+      },
+      {
+        "scope": "principal:alice",
+        "text": "\nExample: `\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend `\nStill private\n"
+      },
+      {
+        "scope": "world",
+        "text": ""
+      }
+    ]
+  },
+  {
+    "name": "code span 2",
+    "source": "Example: ``\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend ``\n",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "Example: ``\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend ``\n"
+      }
+    ]
+  },
+  {
+    "name": "private code span 2",
+    "source": "{% audience scope=\"principal:alice\" %}\nExample: ``\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend ``\nStill private\n{% /audience %}",
+    "segments": [
+      {
+        "scope": "world",
+        "text": ""
+      },
+      {
+        "scope": "principal:alice",
+        "text": "\nExample: ``\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend ``\nStill private\n"
+      },
+      {
+        "scope": "world",
+        "text": ""
+      }
+    ]
+  },
+  {
+    "name": "code span 4",
+    "source": "Example: ````\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend ````\n",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "Example: ````\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend ````\n"
+      }
+    ]
+  },
+  {
+    "name": "private code span 4",
+    "source": "{% audience scope=\"principal:alice\" %}\nExample: ````\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend ````\nStill private\n{% /audience %}",
+    "segments": [
+      {
+        "scope": "world",
+        "text": ""
+      },
+      {
+        "scope": "principal:alice",
+        "text": "\nExample: ````\n{% audience scope=\"principal:bob\" %}\nliteral\n{% /audience %}\nend ````\nStill private\n"
+      },
+      {
+        "scope": "world",
+        "text": ""
+      }
+    ]
+  },
+  {
+    "name": "code block 0",
+    "source": "```markdoc\n{% audience scope=\"world\" %}\n{% /audience %}\n```\n",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "```markdoc\n{% audience scope=\"world\" %}\n{% /audience %}\n```\n"
+      }
+    ]
+  },
+  {
+    "name": "code block 1",
+    "source": "~~~ text\n{% audience scope=\"world\" %}\n{% /audience %}\n~~~~\n",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "~~~ text\n{% audience scope=\"world\" %}\n{% /audience %}\n~~~~\n"
+      }
+    ]
+  },
+  {
+    "name": "code block 2",
+    "source": "    {% audience scope=\"world\" %}\n    {% /audience %}\n",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "    {% audience scope=\"world\" %}\n    {% /audience %}\n"
+      }
+    ]
+  },
+  {
+    "name": "code block 3",
+    "source": "- item\n\n  ```markdoc\n  {% audience scope=\"world\" %}\n  ```\n",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "- item\n\n  ```markdoc\n  {% audience scope=\"world\" %}\n  ```\n"
+      }
+    ]
+  },
+  {
+    "name": "unmatched code delimiter",
+    "source": "Example: `\n{% audience scope=\"principal:alice\" %}\nPrivate\n{% /audience %}",
+    "segments": [
+      {
+        "scope": "world",
+        "text": "Example: `\n"
+      },
+      {
+        "scope": "principal:alice",
+        "text": "\nPrivate\n"
+      },
+      {
+        "scope": "world",
+        "text": ""
+      }
+    ]
+  },
+  {
+    "name": "fenced close stays literal",
+    "source": "{% audience scope=\"principal:alice\" %}\nPrivate\n~~~markdoc\n{% /audience %}\n~~~\nStill private\n{% /audience %}",
+    "segments": [
+      {
+        "scope": "world",
+        "text": ""
+      },
+      {
+        "scope": "principal:alice",
+        "text": "\nPrivate\n~~~markdoc\n{% /audience %}\n~~~\nStill private\n"
+      },
+      {
+        "scope": "world",
+        "text": ""
+      }
+    ]
+  },
+  {
+    "name": "inline",
+    "source": "prefix {% audience scope=\"world\" %}\n",
+    "error": {
+      "code": "misplaced_audience_tag",
+      "line": 1
+    }
+  },
+  {
+    "name": "heading",
+    "source": "# {% audience scope=\"world\" %}\n",
+    "error": {
+      "code": "misplaced_audience_tag",
+      "line": 1
+    }
+  },
+  {
+    "name": "blockquote",
+    "source": "> {% /audience %}\n",
+    "error": {
+      "code": "misplaced_audience_tag",
+      "line": 1
+    }
+  },
+  {
+    "name": "list",
+    "source": "- {% audience scope=\"world\" %}\n",
+    "error": {
+      "code": "misplaced_audience_tag",
+      "line": 1
+    }
+  },
+  {
+    "name": "indent",
+    "source": "  {% audience scope=\"world\" %}\n",
+    "error": {
+      "code": "misplaced_audience_tag",
+      "line": 1
+    }
+  },
+  {
+    "name": "HTML",
+    "source": "<div>\n{% audience scope=\"world\" %}\n</div>\n",
+    "error": {
+      "code": "misplaced_audience_tag",
+      "line": 2
+    }
+  },
+  {
+    "name": "continued text",
+    "source": "text\ncontinued {% /audience %}\n",
+    "error": {
+      "code": "misplaced_audience_tag",
+      "line": 2
+    }
+  },
+  {
+    "name": "single quotes",
+    "source": "{% audience scope='world' %}\n",
+    "error": {
+      "code": "misplaced_audience_tag",
+      "line": 1
+    }
+  },
+  {
+    "name": "vertical whitespace",
+    "source": "{%\taudience\u000bscope=\"world\" %}\n",
+    "error": {
+      "code": "misplaced_audience_tag",
+      "line": 1
+    }
+  },
+  {
+    "name": "close without open",
+    "source": "{% /audience %}\n",
+    "error": {
+      "code": "unopened_audience_tag",
+      "line": 1
+    }
+  },
+  {
+    "name": "missing close",
+    "source": "x\n{% audience scope=\"world\" %}\ny\n",
+    "error": {
+      "code": "unclosed_audience_tag",
+      "line": 2
+    }
+  },
+  {
+    "name": "nested blocks",
+    "source": "{% audience scope=\"world\" %}\n{% audience scope=\"group:a\" %}\n{% /audience %}\n{% /audience %}\n",
+    "error": {
+      "code": "nested_audience_tag",
+      "line": 2
+    }
+  },
+  {
+    "name": "close only inside code",
+    "source": "{% audience scope=\"principal:alice\" %}\nprivate\n~~~markdoc\n{% /audience %}\n~~~\ntail that must stay private\n",
+    "error": {
+      "code": "unclosed_audience_tag",
+      "line": 1
+    }
+  }
+]

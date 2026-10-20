@@ -1,6 +1,8 @@
 defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @moduledoc false
 
+  require Ankole.ModelIntegerID
+
   import Ecto.Query
 
   alias Ecto.Adapters.SQL
@@ -41,7 +43,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @spec upsert_turn_from_worker(pos_integer(), String.t(), map(), JobTurnRef.t(), String.t()) ::
           {:ok, Turn.t()} | {:error, term()}
   def upsert_turn_from_worker(job_id, agent_uid, attrs, %JobTurnRef{} = turn_ref, worker_id)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(attrs) and
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and is_map(attrs) and
              is_binary(worker_id) do
     Repo.transact(fn repo ->
       with {:ok, :authorized} <-
@@ -83,7 +85,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         turn_start_spec,
         max_running_per_agent
       )
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 and
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
     with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Job, job_id),
          :ok <- lock_agent_slots(repo, agent_uid),
@@ -114,7 +116,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         turn_start_spec,
         max_running_per_agent
       )
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and expected_attempt > 0 and
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and expected_attempt > 0 and
              is_map(turn_start_spec) do
     with :ok <- Ankole.Principals.WorkAccess.check_record_in_tx(repo, Job, job_id),
          :ok <- lock_agent_slots(repo, agent_uid),
@@ -139,7 +141,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   # requeue keeps the claim, so a persistent storm runs into the total-claims
   # cap and fails with the infrastructure verdict instead of a task verdict.
   def requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
     with :ok <- lock_agent_slots(repo, agent_uid),
          %Job{status: "running", attempts: attempts} = job when attempts > 0 <-
            Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE") do
@@ -157,7 +159,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
   @spec requeue_retryable_attempt_in_tx(module(), pos_integer(), String.t(), keyword()) ::
           {:ok, Job.t() | nil} | {:error, term()}
   def requeue_retryable_attempt_in_tx(repo, job_id, agent_uid, opts \\ [])
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
     charge? = Keyword.get(opts, :charge, false)
 
     with :ok <- lock_agent_slots(repo, agent_uid) do
@@ -182,7 +184,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
           {:ok, %{job: Job.t(), wakeup_event: Signal.t() | nil}}
           | {:error, term()}
   def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ [])
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_map(attrs) and
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and is_map(attrs) and
              is_list(opts) do
     result =
       with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
@@ -908,7 +910,7 @@ defmodule Ankole.BackgroundAgentJobs.Lifecycle do
         {:error, :background_agent_job_terminal}
 
       next ->
-        if JobState.transition_allowed?(current, next) do
+        if JobState.worker_transition_allowed?(current, next) do
           :ok
         else
           {:error, {:invalid_background_agent_job_status_transition, current, next}}

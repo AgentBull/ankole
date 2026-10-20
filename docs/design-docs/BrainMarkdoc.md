@@ -139,6 +139,14 @@ Objects 校验写入作用域并按 segment 分块。GetPage 按读取与披露�
 | `POST /brain/objects` | 创建租户自有 Object | slug、type、subtype、title、body、meta、effective_date |
 | `PUT /brain/objects` | 更新租户自有 Object | slug、可变字段、`expected_content_hash` |
 
+Create and update accept an optional `tags` array through the same
+`brain:update` authority as other Object content. Omission preserves tags on
+update; an explicit empty array removes all tags. The editor uses one field
+per tag, including tags with embedded line breaks. Tags are part of the
+compare-and-swap baseline and the previous tag set enters the existing
+author-attributed version snapshot. Rollback continues to restore body and
+meta only.
+
 创建和更新要求 `brain:update`；raw body 只在 `brain:read` 管理边界返回。
 语法错误返回 422，包含错误码和正文行号；content hash 冲突返回 409。
 
@@ -150,12 +158,18 @@ fenced、indented 和跨行 inline code 的源码范围，再按范围外的标�
 预览 segment，`MarkdownBody` 渲染正文并显示 scope badge；
 `[[slug]]` 在预览中显示为字面文本。
 
-本地分段只服务预览。保存时服务端重新分析全文；预览与服务端不一致时，以服务端
-结果为准。Problems 区显示服务端的语法错误和行号。
+The local preview checks misplaced, nested, unopened, and unclosed audience
+syntax. An invalid body shows its diagnostic and line number instead of scope
+badges. Native parser tests and Console tests read the same corpus at
+`app/kernel/test/fixtures/brain_markdoc.json`. Valid segments retain the source
+text, including line endings. The preview hides segments that contain only
+whitespace. The server parses the body again on save and remains authoritative
+for grammar, scope validity, and write authority. The Problems area shows
+server diagnostics.
 
 保存携带加载时的 `expected_content_hash`。409 时保留本地草稿；操作员可加载
 最新版本对比并更新保存基线，不自动覆盖正文。离开有未保存修改的页面时提示。
-并发基线覆盖同次保存替换的 title、body、meta、subtype 和 effective_date；检索、
+并发基线覆盖同次保存替换的 title、body、meta、tags、subtype 和 effective_date；检索、
 embedding 等派生状态不改变它。升级会转换已有基线，升级前打开的草稿可能需要
 重新加载最新基线。已删除页的普通保存和版本回滚在持有 Object 锁时拒绝，返回
 `object_deleted`；必须先显式恢复。历史版本仍只回滚 body 和 meta。

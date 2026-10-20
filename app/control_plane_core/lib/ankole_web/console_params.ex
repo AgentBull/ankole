@@ -18,12 +18,7 @@ defmodule AnkoleWeb.ConsoleParams do
   parameter is absent, is not a string, or is blank.
   """
   @spec text(map(), atom()) :: {:ok, String.t()} | {:error, {:missing, atom()}}
-  def text(params, key) do
-    case optional_text(params, key) do
-      nil -> {:error, {:missing, key}}
-      text -> {:ok, text}
-    end
-  end
+  def text(params, key), do: Ankole.Attrs.required_text(Map.get(params, key), {:missing, key})
 
   @doc """
   Reads an optional text parameter.
@@ -32,18 +27,7 @@ defmodule AnkoleWeb.ConsoleParams do
   string, or is blank.
   """
   @spec optional_text(map(), atom()) :: String.t() | nil
-  def optional_text(params, key) do
-    case Map.get(params, key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          text -> text
-        end
-
-      _value ->
-        nil
-    end
-  end
+  def optional_text(params, key), do: Ankole.Attrs.optional_text(Map.get(params, key))
 
   @doc """
   Reads an optional boolean parameter.

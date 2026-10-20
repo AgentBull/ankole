@@ -25,19 +25,32 @@ export async function chownAgentPath(path: string): Promise<void> {
 
 /** Creates Agent-writable directories without changing existing file owners. */
 export function mkdirAgentSync(path: string, mode = 0o755): void {
-  const firstCreated = mkdirSync(path, { recursive: true, mode })
-  for (const directory of createdDirectories(path, firstCreated)) chownAgentPathSync(directory)
+  const target = resolve(path)
+  const firstCreated = mkdirSync(target, { recursive: true, mode })
+  for (const directory of createdDirectories(target, firstCreated)) chownAgentPathSync(directory)
 }
 
 export async function mkdirAgent(path: string, mode = 0o755): Promise<void> {
-  const firstCreated = await mkdir(path, { recursive: true, mode })
-  for (const directory of createdDirectories(path, firstCreated)) await chownAgentPath(directory)
+  const target = resolve(path)
+  const firstCreated = await mkdir(target, { recursive: true, mode })
+  for (const directory of createdDirectories(target, firstCreated)) await chownAgentPath(directory)
 }
 
-function createdDirectories(path: string, firstCreated: string | undefined): string[] {
-  const directories = [resolve(path)]
+export function createdDirectories(path: string, firstCreated: string | undefined): string[] {
+  const target = resolve(path)
+  const directories = [target]
   if (!firstCreated) return directories
   const first = resolve(firstCreated)
-  while (directories.at(-1) !== first) directories.push(dirname(directories.at(-1)!))
+  if (target !== first && !target.startsWith(first === '/' ? '/' : `${first}/`)) {
+    throw new Error(`Created directory ${first} is not an ancestor of ${target}`)
+  }
+  while (directories.at(-1) !== first) {
+    const current = directories.at(-1)!
+    const parent = dirname(current)
+    if (parent === current) {
+      throw new Error(`Created directory ${first} is not an ancestor of ${target}`)
+    }
+    directories.push(parent)
+  }
   return directories
 }

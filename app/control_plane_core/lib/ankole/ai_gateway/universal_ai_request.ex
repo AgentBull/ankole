@@ -536,7 +536,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   defp atomize_keys(_value), do: %{}
 
   defp map_get(map, key) when is_map(map) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+    Ankole.Attrs.get_truthy(map, key)
   end
 
   defp map_get(_value, _key), do: nil
@@ -573,7 +573,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   def ready_timeout_ms(_spec), do: @default_timeout_ms + @receive_grace_ms
 
   defp positive_timeout(timeout, key) when is_map(timeout) do
-    case Map.get(timeout, key) || Map.get(timeout, Atom.to_string(key)) do
+    case Ankole.Attrs.get_truthy(timeout, key) do
       value when is_integer(value) and value > 0 -> value
       _value -> nil
     end
@@ -587,7 +587,7 @@ defmodule Ankole.AIGateway.UniversalAIRequest do
   defp get_in_any(map, []), do: map
 
   defp get_in_any(map, [key | rest]) when is_map(map) do
-    value = Map.get(map, key) || Map.get(map, Atom.to_string(key))
+    value = Ankole.Attrs.get_truthy(map, key)
     get_in_any(value, rest)
   end
 

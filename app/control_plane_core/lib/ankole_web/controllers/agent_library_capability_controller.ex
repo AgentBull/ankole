@@ -6,6 +6,8 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AIAgent.Library
@@ -85,8 +87,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
     with :ok <- ConsolePolicy.authorize(conn, "agent_library", "read"),
          {:ok, capabilities} <- Library.global_capabilities() do
       json(conn, capabilities)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -97,8 +97,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
          {:ok, capabilities} <- Library.global_capabilities(),
          :ok <- RuntimeCapabilityChanges.notify_global({:agent_plugin, id}) do
       json(conn, capabilities)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -109,8 +107,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
          {:ok, capabilities} <- Library.global_capabilities(),
          :ok <- RuntimeCapabilityChanges.notify_global({:skill, id}) do
       json(conn, capabilities)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -119,8 +115,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
          :ok <- ConsolePolicy.authorize(conn, "agent:#{agent_uid}:library", "read"),
          {:ok, capabilities} <- Library.capabilities_for_agent(agent_uid) do
       json(conn, capabilities)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -136,8 +130,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
              capabilities: capabilities
            ) do
       json(conn, capabilities)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -153,8 +145,6 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
              capabilities: capabilities
            ) do
       json(conn, capabilities)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -165,14 +155,14 @@ defmodule AnkoleWeb.AgentLibraryCapabilityController do
     end
   end
 
-  defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :not_found),
-    do: ConsoleErrors.render(conn, 404, "not_found", "agent was not found")
+    do: ConsoleErrors.not_found(conn, "agent was not found")
 
   defp error(conn, reason)
        when reason in [:agent_plugin_not_found, :skill_not_found] do
-    ConsoleErrors.render(conn, 404, "not_found", "Agent Library capability was not found")
+    ConsoleErrors.not_found(conn, "Agent Library capability was not found")
   end
 
   defp error(conn, reason) do

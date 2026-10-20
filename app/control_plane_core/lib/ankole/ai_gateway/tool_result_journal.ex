@@ -25,7 +25,7 @@ defmodule Ankole.AIGateway.ToolResultJournal do
   def record_tool_results_in_tx(repo, attrs) when is_map(attrs) do
     raw_subject_uid = Map.fetch!(attrs, :subject_uid)
     previous_response_id = previous_response_id(attrs)
-    request_items = Map.get(attrs, :request_items, Map.get(attrs, "request_items", []))
+    request_items = Ankole.Attrs.get(attrs, :request_items, [])
 
     extra_metadata =
       attrs

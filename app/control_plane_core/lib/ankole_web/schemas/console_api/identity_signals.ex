@@ -779,8 +779,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.WebhookEndpointItem do
         source_provenance: JSONValue,
         automation_job_id: %Schema{
           type: :integer,
-          minimum: 1000,
-          maximum: 9_007_199_254_740_991,
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum(),
           nullable: true
         },
         label: %Schema{type: :string},

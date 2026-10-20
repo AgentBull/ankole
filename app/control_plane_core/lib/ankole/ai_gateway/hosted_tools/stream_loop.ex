@@ -1,15 +1,15 @@
-defmodule Ankole.AIGateway.ToolSearch.StreamLoop do
+defmodule Ankole.AIGateway.HostedTools.StreamLoop do
   @moduledoc """
-  Per-stream tool search state over one public response.
+  Coordinates hosted tools over one public response.
 
   The loop rewrites provider `function_call` events for the synthesized search
-  tool into public `tool_search_call` items, executes server-mode searches, and
-  turns intermediate provider terminals into continuation rounds. One public
-  response can span several provider responses. The loop accumulates raw
-  provider items for the continuation input.
+  tool into public `tool_search_call` items and executes search, Brain, and
+  program effects. It turns intermediate provider terminals into continuation
+  rounds. One public response can span several provider responses. The loop
+  accumulates raw provider items for the continuation input.
 
-  Internal rounds share one budget: search and program continuations cannot
-  amplify provider spend independently.
+  Internal rounds share one budget: search, Brain, and program continuations
+  cannot amplify provider spend independently.
   """
 
   alias Ankole.AIGateway.HostedTools.Brain

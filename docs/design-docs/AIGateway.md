@@ -869,6 +869,10 @@ can subscribe and use its own metadata to select relevant events.
 
 ## Run Tool Search and Program Calls
 
+`HostedTools.StreamLoop` coordinates search, Brain, and program effects over
+one public Response. It owns continuation rounds and their shared budgets.
+Each tool keeps its own plan and execution rules.
+
 AIGateway normalizes the executable tool contract before the first provider
 round. One descriptor keeps `namespace` and `name` as the canonical tool
 identity. It also keeps the input and output schemas, codec, deferred-loading
@@ -892,6 +896,11 @@ scope in pair identity. Streaming, persistence, compaction, truncation, and the
 tool budget use this registry instead of separate item-type lists. An unknown
 provider item can pass through as opaque content, but it is not executable or
 pair-aware until the registry declares its contract.
+
+The same owner reads ordered message content and raw text fields. Callers keep
+their presentation rules: machine text joins with newlines and trims, Applet
+generation preserves raw output text, and chat Delivery selects assistant text
+and removes Provider citation markers.
 
 Tool Search uses one synthesized provider function and exposes
 `tool_search_call` plus `tool_search_output` in the public Response. Server mode
@@ -1174,11 +1183,24 @@ deletion removes only the rows that AIGateway validated.
 
 ## Shorten Long History
 
+`AIGateway.Usage` owns the token usage shape for stored Responses and compaction
+artifacts. Counts are nonnegative integers. Canonical nested cached and reasoning
+counts take priority over older Provider detail names and flat fields, including
+an explicit zero. An explicit total of zero is also retained. A missing or
+invalid total uses input plus output.
+Normalizing a canonical value again preserves it. Artifact storage and public
+replay use this same contract; no historical count is inferred from a lost value.
+
 Compaction has one protocol and one owner. Every caller asks for it the same
 way: a Responses request whose input carries a `compaction_trigger` item.
 AIGateway answers that request itself and never forwards the item alone, so no
 caller depends on a Provider understanding it. The reply is a completed
 Response carrying exactly one `compaction` output item.
+
+The internal `create_response/3` result for a compaction trigger contains only
+`:body`. A normal model response also contains `:status` and `:model_ref`.
+Transport callers consume the body for either result. A compaction trigger does
+not invent a model reference.
 
 The trigger is a request item, not a transport event, so every transport
 answers it: HTTP returns the Response body, SSE and the WebSocket render the
@@ -1480,6 +1502,11 @@ capability, provider, model, resolver, upstream host, duration, safe provider
 status, and retry classification. The image-generation path logs all eligible
 provider endpoints and logs failures with separate provider and public HTTP
 statuses plus the execution stage.
+
+Unexpected replay recovery and program cancellation failures emit warnings
+with the failure class and stack locations. Logs omit exception messages and
+function arguments. Recovery keeps the original Provider failure, and
+cancellation keeps its existing best-effort result.
 
 One failure diagnostic owner normalizes synchronous, streaming, and hosted-tool
 failures. Provider 4xx rejections and explicit consumer cancellations use

@@ -1,6 +1,8 @@
 defmodule Ankole.BackgroundAgentJobs.Queries do
   @moduledoc false
 
+  require Ankole.ModelIntegerID
+
   import Ecto.Query
 
   alias Ankole.BackgroundAgentJobs.Schemas.Job
@@ -212,7 +214,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   end
 
   @spec get(pos_integer()) :: Job.t() | nil
-  def get(job_id) when is_integer(job_id) and job_id > 0, do: Repo.get(Job, job_id)
+  def get(job_id) when Ankole.ModelIntegerID.valid?(job_id), do: Repo.get(Job, job_id)
 
   @doc "Lists live Job ids owned by any of the given Sessions."
   @spec live_job_ids_for_owner_sessions([String.t()], String.t()) :: [pos_integer()]
@@ -235,14 +237,14 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   def get_for_agent(nil, _agent_uid), do: nil
 
   def get_for_agent(job_id, agent_uid)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
     get_for_agent(Repo, job_id, agent_uid, [])
   end
 
   @doc false
   @spec get_for_agent(module(), pos_integer(), String.t(), keyword()) :: Job.t() | nil
   def get_for_agent(repo, job_id, agent_uid, opts)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) do
     query =
       from(job in Job,
         where: job.id == ^job_id and job.agent_uid == ^agent_uid
@@ -266,7 +268,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
           }
           | nil
   def get_result_window_for_agent(job_id, agent_uid, offset)
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_integer(offset) and
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and is_integer(offset) and
              offset >= 0 do
     query =
       from(job in Job,
@@ -307,7 +309,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
            }}
           | {:error, term()}
   def get_summary_for_agent(job_id, agent_uid, opts \\ [])
-      when is_integer(job_id) and job_id > 0 and is_binary(agent_uid) and is_list(opts) do
+      when Ankole.ModelIntegerID.valid?(job_id) and is_binary(agent_uid) and is_list(opts) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid),
          %Job{} = job <- get_for_agent(job_id, agent_uid),
          {:ok, execution} <- Turns.execution_projection(job, opts) do
@@ -407,7 +409,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
          [@list_cursor_version, ^status, updated_at_text, id] <-
            String.split(decoded, "|", parts: 4),
          {:ok, updated_at, _offset} <- DateTime.from_iso8601(updated_at_text),
-         {:ok, id} <- parse_cursor_id(id) do
+         {:ok, id} <- Ankole.ModelIntegerID.parse(id) do
       {:ok, {updated_at, id}}
     else
       _reason -> {:error, :invalid_background_agent_job_cursor}
@@ -466,8 +468,8 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   defp maybe_filter_console_search(query, search) do
     pattern = "%#{Repo.escape_like(search)}%"
 
-    case Integer.parse(search) do
-      {id, ""} when id in 1000..9_007_199_254_740_991 ->
+    case Ankole.ModelIntegerID.parse(search) do
+      {:ok, id} ->
         where(query, [job], job.id == ^id or ilike(job.title, ^pattern))
 
       _not_an_id ->
@@ -500,7 +502,7 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
     with {:ok, decoded} <- Base.url_decode64(cursor, padding: false),
          [queued_at_text, id] <- String.split(decoded, "|", parts: 2),
          {:ok, queued_at, _offset} <- DateTime.from_iso8601(queued_at_text),
-         {:ok, id} <- parse_cursor_id(id) do
+         {:ok, id} <- Ankole.ModelIntegerID.parse(id) do
       {:ok, {queued_at, id}}
     else
       _reason -> {:error, :invalid_background_agent_job_cursor}
@@ -508,13 +510,6 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
   end
 
   defp decode_console_cursor(_cursor), do: {:error, :invalid_background_agent_job_cursor}
-
-  defp parse_cursor_id(value) do
-    case Integer.parse(value) do
-      {id, ""} when id in 1000..9_007_199_254_740_991 -> {:ok, id}
-      _parsed -> :error
-    end
-  end
 
   defp duration_seconds(job) do
     case {job.started_at || job.queued_at, job.completed_at} do

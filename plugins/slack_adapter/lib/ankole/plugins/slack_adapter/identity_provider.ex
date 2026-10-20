@@ -124,28 +124,18 @@ defmodule Ankole.Plugins.SlackAdapter.IdentityProvider do
     client = Config.client(config)
     page_size = get_in(config, ["sync", "pageSize"]) || 200
 
-    with {:ok, directory_group_index} <- AuthZ.external_directory_group_index(provider_id) do
-      Pagination.stream(client, "users.list", query: [limit: page_size], items: ["members"])
-      |> Enum.reduce_while({:ok, 0}, fn
-        {:ok, user}, {:ok, count} ->
-          if directory_human?(user) do
-            user_id = Map.get(user, "id")
+    users = Pagination.stream(client, "users.list", query: [limit: page_size], items: ["members"])
 
-            case upsert_user(provider_id, user,
-                   directory_group_index: directory_group_index,
-                   group_external_ids: Map.get(user_index, user_id, [])
-                 ) do
-              {:ok, _observed} -> {:cont, {:ok, count + 1}}
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-          else
-            {:cont, {:ok, count}}
-          end
-
-        {:error, reason}, _acc ->
-          {:halt, {:error, reason}}
-      end)
-    end
+    Directory.sync_users(provider_id, users, fn user, directory_group_index ->
+      if directory_human?(user) do
+        upsert_user(provider_id, user,
+          directory_group_index: directory_group_index,
+          group_external_ids: Map.get(user_index, Map.get(user, "id"), [])
+        )
+      else
+        :skip
+      end
+    end)
   end
 
   defp handle_event(consumer, event_type, event)

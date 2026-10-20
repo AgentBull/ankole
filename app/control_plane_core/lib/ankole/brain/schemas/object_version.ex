@@ -15,6 +15,7 @@ defmodule Ankole.Brain.Schemas.ObjectVersion do
     field :author, Ankole.Ecto.ActorRef
     field :body, :string
     field :meta, :map, default: %{}
+    field :tags, {:array, :string}, default: []
     field :snapshot_at, :utc_datetime_usec
   end
 end

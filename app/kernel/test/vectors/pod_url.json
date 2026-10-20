@@ -1,0 +1,105 @@
+{
+  "description": "Shared vectors for the Pod browser URL grammar. The Elixir control plane normalizes incoming browser URLs. The browser mirror in app/webapps/common/browser-context.ts builds outgoing browser URLs. Both read these vectors. The Rust kernel owns the UUID codec in uuid_url.json, not this grammar.",
+  "routes": [
+    {
+      "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
+      "query": {},
+      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": {}
+    },
+    {
+      "path": "/conversations/00112233-4455-6677-8899-aabbccddeeff",
+      "query": {},
+      "expected_path": "/conversations/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": {}
+    },
+    {
+      "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
+      "query": { "tenant_id": "01a15007-9b83-70f3-8830-060ec9b8419f", "chat": "01a15007-9b83-70f3-8830-060ec9b8419f" },
+      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" }
+    },
+    {
+      "path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" },
+      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" }
+    },
+    {
+      "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
+      "query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" },
+      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" }
+    },
+    {
+      "path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "query": { "chat": "01a15007-9b83-70f3-8830-060ec9b8419f" },
+      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": { "chat": "AaFQB5uDcPOIMAYOybhBnw" }
+    },
+    {
+      "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
+      "query": { "chat": "new" },
+      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": { "chat": "new" }
+    },
+    {
+      "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
+      "query": { "chat": "AAAAAAAAAAAAAAAAAAAAAB" },
+      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": { "chat": "AAAAAAAAAAAAAAAAAAAAAB" }
+    },
+    {
+      "path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "query": { "tenant_id": "01a15007-9b83-70f3-8830-060ec9b8419f" },
+      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": {}
+    },
+    {
+      "path": "/pages/00112233-4455-6677-8899-aabbccddeeff",
+      "query": { "foo": "bar" },
+      "expected_path": "/pages/ABEiM0RVZneImaq7zN3u_w",
+      "expected_query": { "foo": "bar" }
+    },
+    {
+      "path": "/",
+      "query": {},
+      "expected_path": "/",
+      "expected_query": {}
+    },
+    {
+      "path": "/content/space",
+      "query": {},
+      "expected_path": "/content/space",
+      "expected_query": {}
+    },
+    {
+      "path": "/content/space",
+      "query": { "chat": "00112233-4455-6677-8899-aabbccddeeff" },
+      "expected_path": "/content/space",
+      "expected_query": { "chat": "ABEiM0RVZneImaq7zN3u_w" }
+    }
+  ],
+  "invalid_routes": [
+    {
+      "path": "/pages/AAAAAAAAAAAAAAAAAAAAAB",
+      "query": {}
+    },
+    {
+      "path": "/pages/not-a-uuid",
+      "query": {}
+    },
+    {
+      "path": "/conversations/00112233445566778899aabbccddeeff",
+      "query": {}
+    },
+    {
+      "path": "/pages/00112233-4455-6677-8899-AABBCCDDEEFF",
+      "query": {}
+    },
+    {
+      "path": "/conversations/not-a-uuid",
+      "query": { "chat": "new" }
+    }
+  ]
+}

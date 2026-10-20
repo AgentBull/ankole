@@ -120,7 +120,7 @@ defmodule Ankole.Sessions.TurnEnvelope do
   end
 
   defp turn_model_ref(turn_start_spec) do
-    case map_get(turn_start_spec, :model_ref) do
+    case Ankole.Attrs.get_truthy(turn_start_spec, :model_ref) do
       %{} = model_ref -> normalize_turn_model_ref(model_ref)
       _value -> nil
     end
@@ -128,15 +128,17 @@ defmodule Ankole.Sessions.TurnEnvelope do
 
   defp normalize_turn_model_ref(model_ref) do
     %FabricProto.TurnModelRef{
-      provider_id: map_get(model_ref, :provider_id) || "",
-      provider_kind: map_get(model_ref, :provider_kind) || "",
-      model: map_get(model_ref, :model) || "",
-      input_modalities: map_get(model_ref, :input_modalities) || [],
-      provider_options_json: json_bytes_or_empty(map_get(model_ref, :provider_options) || %{}),
-      supports_parallel_tool_calls: map_get(model_ref, :supports_parallel_tool_calls) == true,
-      context_length: positive_integer(map_get(model_ref, :context_length)),
+      provider_id: Ankole.Attrs.get_truthy(model_ref, :provider_id) || "",
+      provider_kind: Ankole.Attrs.get_truthy(model_ref, :provider_kind) || "",
+      model: Ankole.Attrs.get_truthy(model_ref, :model) || "",
+      input_modalities: Ankole.Attrs.get_truthy(model_ref, :input_modalities) || [],
+      provider_options_json:
+        json_bytes_or_empty(Ankole.Attrs.get_truthy(model_ref, :provider_options) || %{}),
+      supports_parallel_tool_calls:
+        Ankole.Attrs.get_truthy(model_ref, :supports_parallel_tool_calls) == true,
+      context_length: positive_integer(Ankole.Attrs.get_truthy(model_ref, :context_length)),
       vision_fallback_model_ref:
-        case map_get(model_ref, :vision_fallback_model_ref) do
+        case Ankole.Attrs.get_truthy(model_ref, :vision_fallback_model_ref) do
           %{} = fallback -> normalize_turn_model_ref(fallback)
           _value -> nil
         end
@@ -155,14 +157,14 @@ defmodule Ankole.Sessions.TurnEnvelope do
 
   defp turn_request_context(turn_start_spec, turn_ref) do
     Map.put(
-      map_get(turn_start_spec, :request_context) || %{},
+      Ankole.Attrs.get_truthy(turn_start_spec, :request_context) || %{},
       "original_human_request",
       Ankole.Sessions.Prompt.original_human_request(turn_ref)
     )
   end
 
   defp turn_runtime_env(turn_start_spec) do
-    case map_get(turn_start_spec, :runtime_env) do
+    case Ankole.Attrs.get_truthy(turn_start_spec, :runtime_env) do
       %{} = runtime_env ->
         Map.new(runtime_env, fn
           {name, value} when is_binary(name) and is_binary(value) -> {name, value}
@@ -178,7 +180,7 @@ defmodule Ankole.Sessions.TurnEnvelope do
   end
 
   defp turn_hosted_tools(turn_start_spec) do
-    case map_get(turn_start_spec, :hosted_tools) do
+    case Ankole.Attrs.get_truthy(turn_start_spec, :hosted_tools) do
       [_ | _] = tools ->
         normalized = Enum.map(tools, &normalize_turn_hosted_tool/1)
 
@@ -197,7 +199,7 @@ defmodule Ankole.Sessions.TurnEnvelope do
   end
 
   defp normalize_turn_hosted_tool(%{} = tool) do
-    case map_get(tool, :type) do
+    case Ankole.Attrs.get_truthy(tool, :type) do
       "image_generation" -> :HOSTED_TOOL_IMAGE_GENERATION
       "web_search" -> :HOSTED_TOOL_WEB_SEARCH
       "brain" -> :HOSTED_TOOL_BRAIN
@@ -207,10 +209,6 @@ defmodule Ankole.Sessions.TurnEnvelope do
 
   defp normalize_turn_hosted_tool(tool) do
     raise ArgumentError, "invalid turn hosted tool: #{inspect(tool)}"
-  end
-
-  defp map_get(map, key) when is_atom(key) and is_map(map) do
-    Map.get(map, key) || Map.get(map, Atom.to_string(key))
   end
 
   defp signal_envelope(%Signal{} = signal, turn_ref) do

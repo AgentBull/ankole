@@ -97,16 +97,16 @@ defmodule Ankole.MixProject do
   defp patch_boruta(_args) do
     Mix.Task.run("deps.loadpaths")
     patch = Path.join(__DIR__, "patches/boruta-2.3.8.patch")
-    args = ["--directory=app/control_plane/deps/boruta", patch]
-    opts = [cd: Path.expand("../..", __DIR__), stderr_to_stdout: true]
-    {_, status} = System.cmd("git", ["apply", "--check" | args], opts)
+    args = [patch]
+    opts = [cd: Map.fetch!(Mix.Project.deps_paths(), :boruta), stderr_to_stdout: true]
+    {_, status} = System.cmd("git", ["--work-tree=.", "apply", "--check" | args], opts)
 
     command =
       if status == 0,
         do: ["apply" | args],
         else: ["apply", "--reverse", "--check" | args]
 
-    {output, status} = System.cmd("git", command, opts)
+    {output, status} = System.cmd("git", ["--work-tree=." | command], opts)
     if status != 0, do: Mix.raise("Boruta 2.3.8 protocol patch does not match:\n#{output}")
 
     Mix.Task.reenable("deps.compile")
@@ -144,7 +144,7 @@ defmodule Ankole.MixProject do
     if edition() == :saas do
       for {key, callbacks} <- [
             http_entry: [init: 1, call: 2, __routes__: 0],
-            host_policy: [classify: 1],
+            host_policy: [classify: 1, domain: 0, pod_origin: 1, canonical_origin: 1],
             edition_config: [definitions: 0, patterns: 0, runtime_config: 1]
           ] do
         module = Application.fetch_env!(:ankole, key)

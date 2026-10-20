@@ -31,32 +31,16 @@ defmodule Ankole.Schedule.Attrs do
   end
 
   @spec required_text(map(), String.t()) :: {:ok, String.t()} | {:error, term()}
-  def required_text(map, key) when is_map(map) do
-    case map_text(map, key) do
-      value when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:missing_text, key}}
-    end
-  end
+  def required_text(map, key) when is_map(map),
+    do: Ankole.Attrs.required_text(map_text(map, key), {:missing_text, key})
 
   @spec map_text(map() | nil, String.t()) :: String.t() | nil
-  def map_text(map, key) when is_map(map) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
 
-      _value ->
-        nil
-    end
-  end
-
-  def map_text(_map, _key), do: nil
+  def map_text(map, key), do: map |> map_value(key) |> Ankole.Attrs.optional_text()
 
   @spec map_value(map() | nil, String.t()) :: term()
   def map_value(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, String.to_atom(key))
+    do: Ankole.Attrs.get_truthy(map, key)
 
   def map_value(_map, _key), do: nil
 
@@ -84,7 +68,7 @@ defmodule Ankole.Schedule.Attrs do
   defdelegate collect_results(results), to: Ankole.Attrs
 
   defp integer_value(map, key) when is_map(map) do
-    case Map.get(map, key) || Map.get(map, String.to_atom(key)) do
+    case Ankole.Attrs.get_truthy(map, key) do
       value when is_integer(value) -> {:ok, value}
       value when is_binary(value) -> parse_integer(value)
       _value -> {:error, {:missing_integer, key}}
@@ -92,9 +76,9 @@ defmodule Ankole.Schedule.Attrs do
   end
 
   defp parse_integer(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> {:ok, integer}
-      _value -> {:error, :invalid_integer}
+    case Ankole.Attrs.integer_value(value) do
+      nil -> {:error, :invalid_integer}
+      integer -> {:ok, integer}
     end
   end
 end

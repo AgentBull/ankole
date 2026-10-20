@@ -132,8 +132,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         {:ignore, :provider_self_sender}
 
       false ->
-        with {:ok, provider_message_id} <- required_text(message, "message_id"),
-             {:ok, chat_id} <- required_text(message, "chat_id"),
+        with {:ok, provider_message_id} <- MapHelpers.required_string(message, "message_id"),
+             {:ok, chat_id} <- MapHelpers.required_string(message, "chat_id"),
              {:ok, author} <- author(sender, sender_ids, event, consumer),
              {:ok, raw_text} <- message_text(message),
              {:ok, attachments} <- attachments(message),
@@ -323,8 +323,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     content = event.content || %{}
     message = fetch_map(content, "message", content)
 
-    with {:ok, provider_message_id} <- required_text(message, "message_id"),
-         {:ok, chat_id} <- required_text(message, "chat_id") do
+    with {:ok, provider_message_id} <- MapHelpers.required_string(message, "message_id"),
+         {:ok, chat_id} <- MapHelpers.required_string(message, "chat_id") do
       input = %{
         source_event_id: event.id || "recall:#{provider_message_id}",
         provider_conversation_id: provider_conversation_id(chat_id),
@@ -360,8 +360,8 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
         optional_text(content, "operator_open_id")
 
     with {:ok, actor_key} <- operator_actor_key(operator_id),
-         {:ok, provider_message_id} <- required_text(message, "message_id"),
-         {:ok, chat_id} <- required_text(message, "chat_id"),
+         {:ok, provider_message_id} <- MapHelpers.required_string(message, "message_id"),
+         {:ok, chat_id} <- MapHelpers.required_string(message, "chat_id"),
          raw_reaction_key <- reaction_key(content) do
       input = %{
         source_event_id: event.id || "reaction:#{action}:#{provider_message_id}:#{actor_key}",
@@ -1165,10 +1165,7 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
   end
 
   defp parse_provider_time(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {integer, ""} -> parse_provider_time(integer)
-      _other -> nil
-    end
+    value |> Ankole.Attrs.integer_value() |> parse_provider_time()
   end
 
   defp parse_provider_time(_value), do: nil
@@ -1314,19 +1311,5 @@ defmodule Ankole.Plugins.LarkAdapter.Inbound do
     end
   end
 
-  defp required_text(map, key) do
-    case optional_text(map, key) do
-      value when is_binary(value) -> {:ok, value}
-      nil -> {:error, {:missing, key}}
-    end
-  end
-
-  defp required_text_value(value, key) when is_binary(value) do
-    case String.trim(value) do
-      "" -> {:error, {:missing, key}}
-      value -> {:ok, value}
-    end
-  end
-
-  defp required_text_value(_value, key), do: {:error, {:missing, key}}
+  defp required_text_value(value, key), do: Ankole.Attrs.required_text(value, {:missing, key})
 end

@@ -5,7 +5,6 @@ defmodule Ankole.Release do
 
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
-  alias Ankole.Files.AgentHomeImport
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Principals.LocalPasswordResetText
   alias Ankole.Repo
@@ -96,25 +95,6 @@ defmodule Ankole.Release do
           end
       end
     end)
-  end
-
-  @doc """
-  Copies the files that Agents kept in their Agent Homes under `agents_root`
-  into their drives, and prints a report. See `Ankole.Files.AgentHomeImport`.
-  """
-  @spec import_agent_home(String.t()) :: :ok
-  def import_agent_home(agents_root) when is_binary(agents_root) do
-    load_app()
-    {:ok, _apps} = Application.ensure_all_started(:ankole_kernel)
-
-    with_repo(fn _repo ->
-      case AgentHomeImport.run(agents_root) do
-        {:ok, report} -> IO.puts(AgentHomeImport.format_report(report))
-        {:error, reason} -> raise "Agent Home import failed: #{inspect(reason)}"
-      end
-    end)
-
-    :ok
   end
 
   defp start_child!(module) do

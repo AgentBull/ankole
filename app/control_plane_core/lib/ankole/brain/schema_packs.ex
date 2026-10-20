@@ -34,6 +34,16 @@ defmodule Ankole.Brain.SchemaPacks do
   @spec industry_packs() :: [String.t()]
   def industry_packs, do: @industry_packs
 
+  @doc "Lists installed relation names and inverses as extraction vocabulary."
+  def relation_vocabulary(opts \\ []) do
+    repo = Keyword.get(opts, :repo, Repo)
+
+    SchemaLinkType
+    |> order_by([type], asc: type.name)
+    |> select([type], %{name: type.name, inverse: type.inverse})
+    |> repo.all()
+  end
+
   @doc """
   Loads one pack seed from the repository.
   """

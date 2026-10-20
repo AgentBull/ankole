@@ -115,8 +115,8 @@ defmodule Ankole.AIGateway.Resolver do
   defp build_runtime(subject_uid, capability, selector, binding, request) do
     request_context = Map.get(request, "__ankole_request_context", %{})
 
-    with {:ok, provider_id} <- binding_text(binding, "provider_id"),
-         {:ok, model} <- binding_text(binding, "model"),
+    with {:ok, provider_id} <- binding_text(binding, :provider_id),
+         {:ok, model} <- binding_text(binding, :model),
          {:ok, provider} <- ProviderConfigs.fetch_active_provider(provider_id),
          {:ok, provider_kind} <- Providers.fetch(provider.provider_kind),
          :ok <- Providers.ensure_capability_supported(provider_kind, capability),
@@ -202,7 +202,7 @@ defmodule Ankole.AIGateway.Resolver do
     with {:ok, overrides} <- request_provider_options(request) do
       options =
         defaults
-        |> normalize_option_keys()
+        |> Ankole.Attrs.normalize_external_attrs()
         |> Map.merge(overrides)
 
       with :ok <- Providers.validate_runtime_provider_options(provider_kind, options) do
@@ -212,46 +212,39 @@ defmodule Ankole.AIGateway.Resolver do
   end
 
   defp request_provider_options(request) when is_map(request) do
-    case fetch_any(request, "provider_options") do
+    case fetch_any(request, :provider_options) do
       :error -> {:ok, %{}}
       {:ok, nil} -> {:ok, %{}}
-      {:ok, options} when is_map(options) -> {:ok, normalize_option_keys(options)}
+      {:ok, options} when is_map(options) -> {:ok, Ankole.Attrs.normalize_external_attrs(options)}
       {:ok, _value} -> {:error, :invalid_provider_options}
     end
   end
 
   defp request_provider_options(_request), do: {:ok, %{}}
 
-  defp normalize_option_keys(options) when is_map(options) do
-    Map.new(options, fn
-      {key, value} when is_atom(key) -> {Atom.to_string(key), value}
-      {key, value} -> {key, value}
-    end)
-  end
-
   defp binding_text(binding, key) when is_map(binding) do
     case fetch_any(binding, key) do
       {:ok, value} when is_binary(value) and value != "" -> {:ok, value}
-      _value -> {:error, {:invalid_model_binding, key}}
+      _value -> {:error, {:invalid_model_binding, Atom.to_string(key)}}
     end
   end
 
   defp binding_provider_options(binding) when is_map(binding) do
-    case fetch_any(binding, "provider_options") do
+    case fetch_any(binding, :provider_options) do
       {:ok, options} when is_map(options) -> options
       _value -> %{}
     end
   end
 
   defp maybe_put_profile(runtime, binding) do
-    case fetch_any(binding, "profile") do
+    case fetch_any(binding, :profile) do
       {:ok, profile} when is_binary(profile) -> Map.put(runtime, "profile", profile)
       _value -> runtime
     end
   end
 
   defp maybe_put_context_length(runtime, binding) do
-    case fetch_any(binding, "context_length") do
+    case fetch_any(binding, :context_length) do
       {:ok, context_length} when is_integer(context_length) and context_length > 0 ->
         Map.put(runtime, "context_length", context_length)
 
@@ -260,10 +253,10 @@ defmodule Ankole.AIGateway.Resolver do
     end
   end
 
-  defp fetch_any(map, key) when is_map(map) and is_binary(key) do
-    case Map.fetch(map, key) do
+  defp fetch_any(map, key) when is_map(map) and is_atom(key) do
+    case Map.fetch(map, Atom.to_string(key)) do
       {:ok, value} -> {:ok, value}
-      :error -> Map.fetch(map, String.to_atom(key))
+      :error -> Map.fetch(map, key)
     end
   end
 

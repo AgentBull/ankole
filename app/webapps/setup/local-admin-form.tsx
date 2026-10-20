@@ -1,10 +1,10 @@
 import { Button, Field, FieldError as UiFieldError, FieldGroup, FieldLabel, Input } from '@ankole/uikit'
-import { Field as FormField, Form, useForm } from '@formisch/react'
+import { revalidateLogic, useForm } from '@tanstack/react-form'
 import { RiLoaderLine, RiLoginCircleLine } from '@remixicon/react'
 import { useMutation } from '@tanstack/react-query'
 import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
-import * as v from 'valibot'
+import { z } from 'zod'
 import { defaultConfig } from '../common/config-fields'
 import { ErrorBlock } from '../common/error-block'
 import i18n from '../common/i18n'
@@ -13,30 +13,19 @@ import { PasswordInput } from '../common/password-input'
 import { PasswordStrengthMeter } from '../common/password-strength-meter'
 import type { IdentityAdapter } from './app'
 
-const adminSchema = v.pipe(
-  v.object({
-    displayName: v.string(),
-    email: v.pipe(
-      v.string(),
-      v.email(() => i18n.t('common.email_invalid'))
-    ),
-    password: v.pipe(
-      v.string(),
-      v.minLength(6, () => i18n.t('common.password_too_short'))
-    ),
-    confirmPassword: v.string()
-  }),
-  v.forward(
-    v.partialCheck(
-      [['password'], ['confirmPassword']],
-      input => input.password === input.confirmPassword,
-      () => i18n.t('common.password_mismatch')
-    ),
-    ['confirmPassword']
-  )
-)
+const adminSchema = z
+  .object({
+    displayName: z.string(),
+    email: z.email({ error: () => i18n.t('common.email_invalid') }),
+    password: z.string().min(6, { error: () => i18n.t('common.password_too_short') }),
+    confirmPassword: z.string()
+  })
+  .refine(input => input.password === input.confirmPassword, {
+    error: () => i18n.t('common.password_mismatch'),
+    path: ['confirmPassword']
+  })
 
-type AdminInput = v.InferOutput<typeof adminSchema>
+type AdminInput = z.infer<typeof adminSchema>
 
 /**
  * Creates the first administrator for the built-in local provider and
@@ -50,12 +39,6 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
   const emailID = useId()
   const passwordID = useId()
   const confirmPasswordID = useId()
-  const form = useForm({
-    schema: adminSchema,
-    initialInput: { displayName: '', email: '', password: '', confirmPassword: '' },
-    validate: 'submit',
-    revalidate: 'input'
-  })
   const mutation = useMutation({
     mutationFn: async (input: AdminInput) => {
       await putSetupIdentityProvider({
@@ -72,6 +55,14 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
     },
     onSuccess: result => window.location.assign(result.returnTo)
   })
+  const form = useForm({
+    defaultValues: { displayName: '', email: '', password: '', confirmPassword: '' },
+    validationLogic: revalidateLogic(),
+    validators: { onDynamic: adminSchema },
+    onSubmit: ({ value }) => {
+      mutation.mutate(value)
+    }
+  })
 
   return (
     <section className="grid gap-5">
@@ -82,74 +73,94 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
         <p className="text-sm leading-6 text-muted-foreground">{t('setup.admin_section_hint')}</p>
       </div>
       <ErrorBlock error={mutation.error} />
-      <Form className="grid gap-6" of={form} onSubmit={output => mutation.mutate(output)}>
+      <form
+        className="grid gap-6"
+        noValidate
+        onSubmit={event => {
+          event.preventDefault()
+          event.stopPropagation()
+          void form.handleSubmit()
+        }}>
         <FieldGroup className="grid grid-cols-1 gap-5 md:grid-cols-2">
-          <FormField of={form} path={['displayName']}>
+          <form.Field name="displayName">
             {field => (
               <Field className="md:col-span-2">
                 <FieldLabel htmlFor={displayNameID}>{t('setup.admin_display_name')}</FieldLabel>
                 <Input
-                  {...field.props}
                   autoComplete="name"
                   id={displayNameID}
-                  value={String(field.input ?? '')}
-                  onChange={event => field.onChange(event.target.value)}
+                  name={field.name}
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={event => field.handleChange(event.target.value)}
                 />
               </Field>
             )}
-          </FormField>
-          <FormField of={form} path={['email']}>
-            {field => (
-              <Field className="md:col-span-2">
-                <FieldLabel htmlFor={emailID}>{t('setup.admin_email')}</FieldLabel>
-                <Input
-                  {...field.props}
-                  aria-invalid={field.errors ? true : undefined}
-                  autoComplete="username"
-                  id={emailID}
-                  type="email"
-                  value={String(field.input ?? '')}
-                  onChange={event => field.onChange(event.target.value)}
-                />
-                {field.errors ? <UiFieldError>{field.errors[0]}</UiFieldError> : null}
-              </Field>
-            )}
-          </FormField>
+          </form.Field>
+          <form.Field name="email">
+            {field => {
+              const error = field.state.meta.errors[0]?.message
+              return (
+                <Field className="md:col-span-2">
+                  <FieldLabel htmlFor={emailID}>{t('setup.admin_email')}</FieldLabel>
+                  <Input
+                    aria-invalid={error ? true : undefined}
+                    autoComplete="username"
+                    id={emailID}
+                    name={field.name}
+                    type="email"
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={event => field.handleChange(event.target.value)}
+                  />
+                  {error ? <UiFieldError>{error}</UiFieldError> : null}
+                </Field>
+              )
+            }}
+          </form.Field>
 
-          <FormField of={form} path={['password']}>
-            {field => (
-              <Field>
-                <FieldLabel htmlFor={passwordID}>{t('setup.admin_password')}</FieldLabel>
-                <PasswordInput
-                  {...field.props}
-                  aria-invalid={field.errors ? true : undefined}
-                  autoComplete="new-password"
-                  id={passwordID}
-                  value={String(field.input ?? '')}
-                  onChange={event => field.onChange(event.target.value)}
-                />
-                <PasswordStrengthMeter password={String(field.input ?? '')} />
-                {field.errors ? <UiFieldError>{field.errors[0]}</UiFieldError> : null}
-              </Field>
-            )}
-          </FormField>
+          <form.Field name="password">
+            {field => {
+              const error = field.state.meta.errors[0]?.message
+              return (
+                <Field>
+                  <FieldLabel htmlFor={passwordID}>{t('setup.admin_password')}</FieldLabel>
+                  <PasswordInput
+                    aria-invalid={error ? true : undefined}
+                    autoComplete="new-password"
+                    id={passwordID}
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={event => field.handleChange(event.target.value)}
+                  />
+                  <PasswordStrengthMeter password={field.state.value} />
+                  {error ? <UiFieldError>{error}</UiFieldError> : null}
+                </Field>
+              )
+            }}
+          </form.Field>
 
-          <FormField of={form} path={['confirmPassword']}>
-            {field => (
-              <Field>
-                <FieldLabel htmlFor={confirmPasswordID}>{t('setup.admin_password_confirm')}</FieldLabel>
-                <PasswordInput
-                  {...field.props}
-                  aria-invalid={field.errors ? true : undefined}
-                  autoComplete="new-password"
-                  id={confirmPasswordID}
-                  value={String(field.input ?? '')}
-                  onChange={event => field.onChange(event.target.value)}
-                />
-                {field.errors ? <UiFieldError>{field.errors[0]}</UiFieldError> : null}
-              </Field>
-            )}
-          </FormField>
+          <form.Field name="confirmPassword">
+            {field => {
+              const error = field.state.meta.errors[0]?.message
+              return (
+                <Field>
+                  <FieldLabel htmlFor={confirmPasswordID}>{t('setup.admin_password_confirm')}</FieldLabel>
+                  <PasswordInput
+                    aria-invalid={error ? true : undefined}
+                    autoComplete="new-password"
+                    id={confirmPasswordID}
+                    name={field.name}
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={event => field.handleChange(event.target.value)}
+                  />
+                  {error ? <UiFieldError>{error}</UiFieldError> : null}
+                </Field>
+              )
+            }}
+          </form.Field>
         </FieldGroup>
 
         <div className="flex flex-wrap items-center gap-3 border-t border-border/70 pt-5">
@@ -162,7 +173,7 @@ export function LocalAdminForm({ adapter }: { adapter: IdentityAdapter }) {
             )}
           </Button>
         </div>
-      </Form>
+      </form>
     </section>
   )
 }

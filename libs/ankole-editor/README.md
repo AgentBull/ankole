@@ -7,7 +7,10 @@ share React 19.3.0 with the editor.
 [Specification](SPEC.md) defines the document formats, editing behavior,
 public APIs, host responsibilities, and supported browsers. The package owns
 editing and document conversion. Hosts own persistence, document selection,
-and recovery. `playground/` is an example host and is not in the package tarball.
+and recovery. Hosts can pass `labels` to translate the interface. The editor
+keeps Chinese defaults for omitted labels. A label change preserves the current
+document, selection, and undo history. `playground/` is an example host and is
+not in the package tarball.
 
 ## Use in an Ankole workspace
 
@@ -33,9 +36,9 @@ Use the public entry points:
 
 | Entry point | Purpose |
 | --- | --- |
-| `@ankole/block-editor` | React editor, toolbar, and editor hooks |
-| `@ankole/block-editor/document` | Document tree, Markdown, XML, normalization, and errors |
-| `@ankole/block-editor/editor` | Headless state, page snapshots and writes, and editing commands |
+| `@ankole/block-editor` | React editor and the current editor hook |
+| `@ankole/block-editor/document` | Markdown and XML readers and writers |
+| `@ankole/block-editor/editor` | Page sessions, collaboration, host types, and editing commands |
 | `@ankole/block-editor/styles.css` | Styles scoped to the editor and its overlays |
 
 Import UI Kit styles before editor styles in the host's Tailwind CSS entry:

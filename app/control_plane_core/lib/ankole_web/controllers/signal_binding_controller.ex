@@ -6,6 +6,8 @@ defmodule AnkoleWeb.SignalBindingController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.Sessions.AmbientCuration
@@ -155,8 +157,6 @@ defmodule AnkoleWeb.SignalBindingController do
     with :ok <- ConsolePolicy.authorize(conn, "signals_adapters", "read"),
          {:ok, adapters} <- Ankole.Signals.Bindings.list_adapters() do
       json(conn, %{signal_adapters: adapters})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -169,8 +169,6 @@ defmodule AnkoleWeb.SignalBindingController do
         signal_bindings: Enum.map(bindings, &signal_binding_json/1),
         delivery_failures: Enum.map(failures, &signal_delivery_json/1)
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -186,8 +184,6 @@ defmodule AnkoleWeb.SignalBindingController do
         config: result.config,
         stored_secret_paths: result.stored_secret_paths
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -205,8 +201,6 @@ defmodule AnkoleWeb.SignalBindingController do
              conn.body_params
            ) do
       json(conn, %{signal_binding: signal_binding_json(result)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -223,8 +217,6 @@ defmodule AnkoleWeb.SignalBindingController do
              conn.body_params
            ) do
       json(conn, %{signal_binding: signal_binding_json(result)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -235,8 +227,6 @@ defmodule AnkoleWeb.SignalBindingController do
            ConsolePolicy.authorize(conn, "agent:#{agent_uid}:signal_bindings", "delete"),
          {:ok, binding} <- Ankole.Signals.Bindings.disable_binding(agent_uid, binding_name) do
       json(conn, %{signal_binding: signal_binding_json(binding)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -249,8 +239,6 @@ defmodule AnkoleWeb.SignalBindingController do
          {:ok, _intent} <-
            Ankole.Conversations.Delivery.requeue(agent_uid, binding_name, outbound_key) do
       json(conn, %{requeued: true})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -259,8 +247,6 @@ defmodule AnkoleWeb.SignalBindingController do
          :ok <- ConsolePolicy.authorize(conn, "conversations", "read"),
          {:ok, standing_orders} <- AmbientCuration.conversation_standing_orders(conversation_id) do
       json(conn, %{standing_orders: standing_orders_json(standing_orders)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -275,8 +261,6 @@ defmodule AnkoleWeb.SignalBindingController do
              to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal))
            ) do
       json(conn, %{standing_orders: standing_orders_json(standing_orders)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -363,9 +347,11 @@ defmodule AnkoleWeb.SignalBindingController do
     end
   end
 
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+
   defp error(conn, {:platform_application_identity_unavailable, reference}),
     do:
-      error(
+      ConsoleErrors.render(
         conn,
         422,
         "platform_application_identity_unavailable",
@@ -375,7 +361,7 @@ defmodule AnkoleWeb.SignalBindingController do
 
   defp error(conn, :platform_application_identity_unavailable),
     do:
-      error(
+      ConsoleErrors.render(
         conn,
         422,
         "platform_application_identity_unavailable",
@@ -384,34 +370,39 @@ defmodule AnkoleWeb.SignalBindingController do
 
   defp error(conn, :platform_app_bound_to_another_tenant),
     do:
-      error(
+      ConsoleErrors.render(
         conn,
         409,
         "platform_app_bound_to_another_tenant",
         "This platform application belongs to another tenant"
       )
 
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
-  defp error(conn, :agent_not_found), do: error(conn, 404, "not_found", "agent was not found")
-  defp error(conn, :binding_not_found), do: error(conn, 404, "not_found", "binding was not found")
-  defp error(conn, :intent_not_found), do: error(conn, 404, "not_found", "delivery was not found")
+  defp error(conn, :agent_not_found), do: ConsoleErrors.not_found(conn, "agent was not found")
+  defp error(conn, :binding_not_found), do: ConsoleErrors.not_found(conn, "binding was not found")
+  defp error(conn, :intent_not_found), do: ConsoleErrors.not_found(conn, "delivery was not found")
 
   defp error(conn, reason)
        when reason in [:intent_not_requeueable, :intent_ambiguous_delivery_not_requeueable],
-       do: error(conn, 409, "conflict", "delivery cannot be retried")
+       do: ConsoleErrors.render(conn, 409, "conflict", "delivery cannot be retried")
 
   defp error(conn, :binding_target_conflict),
-    do: error(conn, 409, "conflict", "target agent already has an enabled binding with this name")
+    do:
+      ConsoleErrors.render(
+        conn,
+        409,
+        "conflict",
+        "target agent already has an enabled binding with this name"
+      )
 
   defp error(conn, :binding_conflict),
-    do: error(conn, 409, "conflict", "binding changed while it was being updated")
+    do: ConsoleErrors.render(conn, 409, "conflict", "binding changed while it was being updated")
 
   defp error(conn, {:signal_adapter_not_found, _adapter_id}),
-    do: error(conn, 404, "not_found", "signal adapter was not found")
+    do: ConsoleErrors.not_found(conn, "signal adapter was not found")
 
   defp error(conn, :signal_adapter_registry_unavailable),
     do:
-      error(
+      ConsoleErrors.render(
         conn,
         503,
         "service_unavailable",
@@ -419,23 +410,25 @@ defmodule AnkoleWeb.SignalBindingController do
       )
 
   defp error(conn, :missing_config),
-    do: error(conn, 422, "validation_failed", "config is required")
+    do: ConsoleErrors.render(conn, 422, "validation_failed", "config is required")
 
   # An atom key names a request parameter. A string key names a binding config
   # field, which the fallback clause renders with its field path.
   defp error(conn, {:missing, key}) when is_atom(key) do
-    error(conn, 422, "validation_failed", "#{key} is required")
+    ConsoleErrors.required_field(conn, key)
   end
 
   defp error(conn, reason) do
     with :unhandled <- ConsoleErrors.render_config_field_error(conn, reason) do
-      error(conn, 422, "invalid_value", "signal binding configuration is invalid", [
-        %{reason: inspect(reason)}
-      ])
+      ConsoleErrors.render(
+        conn,
+        422,
+        "invalid_value",
+        "signal binding configuration is invalid",
+        [
+          %{reason: inspect(reason)}
+        ]
+      )
     end
-  end
-
-  defp error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
   end
 end

@@ -226,8 +226,8 @@ defmodule Ankole.Principals.WorkAccess do
   defp from_event(_repo, _id), do: fields(nil)
 
   def inherit(repo, attrs) do
-    source_id = value(attrs, :source_signal_id)
-    created_by = value(attrs, :created_by) || %{}
+    source_id = Ankole.Attrs.get_truthy(attrs, :source_signal_id)
+    created_by = Ankole.Attrs.get_truthy(attrs, :created_by) || %{}
 
     authorization =
       cond do
@@ -257,7 +257,7 @@ defmodule Ankole.Principals.WorkAccess do
       do:
         Map.merge(
           attrs,
-          Map.new(authorization, fn {key, value} -> {Atom.to_string(key), value} end)
+          Ankole.Attrs.normalize_external_attrs(authorization)
         ),
       else: Map.merge(attrs, authorization)
   end
@@ -290,8 +290,6 @@ defmodule Ankole.Principals.WorkAccess do
   end
 
   def check_attrs_in_tx(repo, attrs) do
-    check_in_tx(repo, Map.new(@fields, &{&1, value(attrs, &1)}))
+    check_in_tx(repo, Map.new(@fields, &{&1, Ankole.Attrs.get_truthy(attrs, &1)}))
   end
-
-  defp value(attrs, key), do: Map.get(attrs, key) || Map.get(attrs, Atom.to_string(key))
 end

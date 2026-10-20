@@ -42,9 +42,7 @@ defmodule FeishuOpenAPI.WS.ClientTest do
     :sys.replace_state(pid, fn state ->
       %{
         state
-        | conn: nil,
-          websocket: nil,
-          request_ref: nil,
+        | socket: nil,
           dispatch_tasks: %{
             ref => {frame, "im.message.receive_v1", System.monotonic_time(:millisecond)}
           }
@@ -174,7 +172,7 @@ defmodule FeishuOpenAPI.WS.ClientTest do
     end)
 
     assert Process.alive?(pid)
-    assert :sys.get_state(pid).websocket == nil
+    assert :sys.get_state(pid).socket == nil
   end
 
   test "decodes a WebSocket frame received with the HTTP upgrade response" do

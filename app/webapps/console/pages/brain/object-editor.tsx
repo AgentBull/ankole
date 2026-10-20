@@ -239,6 +239,41 @@ function BrainObjectEditor({ slug }: { slug: string }) {
         />
       </LabeledField>
 
+      <LabeledField label={t('console.brain.tags')} description={t('console.brain.tags_hint')}>
+        <div className="grid gap-2">
+          {model.tags.value.map((tag, index) => (
+            <div key={index} className="flex items-start gap-2">
+              <Textarea
+                aria-label={t('console.brain.tag_number', { number: index + 1 })}
+                className="min-h-9 resize-y font-mono text-xs"
+                disabled={pending}
+                rows={Math.min(4, tag.split('\n').length)}
+                spellCheck={false}
+                value={tag}
+                onChange={event => model.updateTag(index, event.target.value)}
+              />
+              <Button
+                disabled={pending}
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={() => model.removeTag(index)}>
+                {t('console.brain.tags_remove')}
+              </Button>
+            </div>
+          ))}
+          <Button
+            className="justify-self-start"
+            disabled={pending}
+            size="sm"
+            type="button"
+            variant="outline"
+            onClick={() => model.addTag()}>
+            {t('console.brain.tags_add')}
+          </Button>
+        </div>
+      </LabeledField>
+
       <LabeledField
         label={t('console.brain.meta')}
         description={t('console.brain.meta_hint')}
@@ -269,7 +304,11 @@ function BrainObjectEditor({ slug }: { slug: string }) {
             <p className="text-xs leading-5 text-muted-foreground">{t('console.brain.preview_hint')}</p>
           </div>
           <div className="grid min-h-[32rem] content-start gap-3 overflow-auto border border-border bg-background p-4">
-            {model.preview.value.length ? (
+            {model.previewError.value ? (
+              <p role="alert" className="text-sm text-destructive-foreground">
+                {t('console.brain.problem_at_line', model.previewError.value)}
+              </p>
+            ) : model.preview.value.length ? (
               model.preview.value.map((segment, index) => (
                 <section
                   key={`${segment.scope}-${index}`}

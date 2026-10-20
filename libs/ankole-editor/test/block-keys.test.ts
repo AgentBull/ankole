@@ -8,7 +8,7 @@ import { redo, undo } from '../src/editor/commands'
 import { exportMarkdown, open, press, select } from './helpers'
 
 // Block boundary keys beside e2e/block-keys.spec.ts: cases that need several blocks in a selection,
-// or keys whose effect the e2e specs do not read back. Bun reports macOS, so the keys are macOS keys.
+// or keys whose effect the e2e specs do not read back. The test script selects macOS bindings.
 
 /** The position in the text node `text` at `offset`. */
 function at(editor: Wordgard, text: string, offset: number | 'end' = 0) {

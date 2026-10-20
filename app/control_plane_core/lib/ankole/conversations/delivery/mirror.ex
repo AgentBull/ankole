@@ -265,16 +265,8 @@ defmodule Ankole.Conversations.Delivery.Mirror do
 
   defp result_datetime(_result, _key), do: nil
 
-  defp result_text(result, key) when is_map(result) and is_atom(key) do
-    case Map.get(result, key) do
-      value when is_binary(value) -> String.trim(value)
-      _value -> nil
-    end
-    |> case do
-      "" -> nil
-      value -> value
-    end
-  end
+  defp result_text(result, key) when is_map(result) and is_atom(key),
+    do: Ankole.Attrs.optional_text(Map.get(result, key))
 
   defp result_text(_result, _key), do: nil
 end

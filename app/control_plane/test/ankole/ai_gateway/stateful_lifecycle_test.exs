@@ -18,6 +18,35 @@ defmodule Ankole.AIGateway.StatefulLifecycleTest do
     :ok
   end
 
+  test "retrieved Responses preserve nested token usage details" do
+    %{principal: agent} = agent_fixture()
+
+    {:ok, conversation} =
+      Ankole.AIGatewayCase.ensure_conversation(agent.uid, "nested-usage-projection")
+
+    {:ok, message} =
+      start_stateful_message(agent.uid, conversation, "nested-usage", [
+        text_message("user", "hello")
+      ])
+
+    usage = %{
+      "input_tokens" => 20,
+      "output_tokens" => 7,
+      "total_tokens" => 27,
+      "input_tokens_details" => %{"cached_tokens" => 11},
+      "output_tokens_details" => %{"reasoning_tokens" => 4}
+    }
+
+    message
+    |> Ecto.Changeset.change(metadata: Map.put(message.metadata, "usage", usage))
+    |> Repo.update!()
+
+    assert {:ok, %{body: body}} =
+             StatefulLifecycle.retrieve_response(agent.uid, "resp_#{message.id}")
+
+    assert body["usage"] == usage
+  end
+
   test "OpenRouter stateful requests use the durable conversation id as session_id" do
     %{principal: agent} = agent_fixture()
 

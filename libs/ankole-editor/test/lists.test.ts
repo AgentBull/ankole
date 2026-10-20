@@ -95,7 +95,7 @@ test('Backspace at the start of an item that holds a paragraph keeps one paragra
 })
 
 // List keys of SPEC §7.5 Lists and of the Backspace and Delete tables. Keys are written as key
-// bindings name them; the line deletion keys are the macOS ones, which Bun reports as its platform.
+// bindings name them. The test script selects macOS for the line deletion keys.
 for (const { name, markdown, at, keys, expected } of [
   {
     name: 'Backspace turns a middle item into a paragraph and splits the list',

@@ -72,7 +72,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   defp normalize_supported_message(activity, from, consumer) do
     config = consumer.config
 
-    with {:ok, activity_id} <- required_text(activity, "id"),
+    with {:ok, activity_id} <- MapHelpers.required_string(activity, "id"),
          {:ok, conversation_id} <- provider_conversation_id(activity),
          {:ok, attachments} <- attachment_maps(activity, activity_id),
          mentions <- mentions(activity, consumer),
@@ -171,7 +171,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
   end
 
   defp emit_removed(consumer, activity) do
-    with {:ok, activity_id} <- required_text(activity, "id"),
+    with {:ok, activity_id} <- MapHelpers.required_string(activity, "id"),
          {:ok, conversation_id} <- provider_conversation_id(activity) do
       base_conversation_id = Conversations.base_conversation_id(conversation_id)
       thread_root = Conversations.thread_root(conversation_id)
@@ -240,7 +240,7 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
     from = MapHelpers.fetch_map(activity, "from", %{})
     operator = author_external_id(from)
 
-    with {:ok, activity_id} <- required_text(activity, "id"),
+    with {:ok, activity_id} <- MapHelpers.required_string(activity, "id"),
          {:ok, conversation_id} <- provider_conversation_id(activity),
          true <- is_binary(operator) || :missing_operator do
       base_conversation_id = Conversations.base_conversation_id(conversation_id)
@@ -520,25 +520,12 @@ defmodule Ankole.Plugins.Microsoft365Adapter.Inbound do
 
   defp team_id(activity), do: get_in(activity, ["channelData", "team", "id"])
 
-  defp provider_time(activity) do
-    case MapHelpers.optional_text(activity, "timestamp") do
-      nil ->
-        DateTime.utc_now(:microsecond)
-
-      timestamp ->
-        case DateTime.from_iso8601(timestamp) do
-          {:ok, datetime, _offset} -> datetime
-          _error -> DateTime.utc_now(:microsecond)
-        end
-    end
-  end
-
-  defp required_text(map, key) do
-    case MapHelpers.optional_text(map, key) do
-      nil -> {:error, {:missing, key}}
-      value -> {:ok, value}
-    end
-  end
+  defp provider_time(activity),
+    do:
+      activity
+      |> MapHelpers.optional_text("timestamp")
+      |> Ankole.Attrs.parse_datetime()
+      |> Kernel.||(DateTime.utc_now(:microsecond))
 
   defp material_message?(nil, []), do: {:ignore, :empty_or_unsupported_message}
   defp material_message?(_text, _attachments), do: :ok

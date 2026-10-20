@@ -14,7 +14,6 @@ defmodule Ankole.Files.RPCBroker do
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.AgentWorkers.RPCWire
   alias Ankole.WorkerFiles
-  alias Ankole.WorkerFiles.RelayError
 
   @list_limit 1000
   # Path length and content length of one bundle entry.
@@ -295,19 +294,7 @@ defmodule Ankole.Files.RPCBroker do
   end
 
   defp receive_file(source_path, opts) do
-    local_path = Files.temp_path()
-
-    try do
-      with {:ok, %{"body" => body}} <-
-             WorkerFiles.stream(source_path, opts) do
-        Enum.into(body, File.stream!(local_path))
-        Files.store({:file, local_path})
-      end
-    rescue
-      error in RelayError -> {:error, error.reason}
-    after
-      File.rm(local_path)
-    end
+    WorkerFiles.with_received_file(source_path, opts, &Files.store({:file, &1}))
   end
 
   defp verify_digest(nil, _stored), do: :ok

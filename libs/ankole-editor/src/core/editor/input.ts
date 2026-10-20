@@ -778,7 +778,7 @@ function queryPos(wg: Wordgard, event: MouseEvent) {
   return wg.posAtCoords({ x: event.clientX, y: event.clientY }) as CoordPos
 }
 
-function basicMouseSelection(wg: Wordgard, event: MouseEvent) {
+function basicMouseSelection(wg: Wordgard, event: MouseEvent): Wordgard.MouseSelectionStyle {
   let start = queryPos(wg, event)
   const type = event.detail
   let startSel = wg.state.selection
@@ -791,20 +791,36 @@ function basicMouseSelection(wg: Wordgard, event: MouseEvent) {
     },
     get(event, extend) {
       const cur = queryPos(wg, event)
-      const range = rangeForClick(wg, cur, type)
-      let { from, to } = range
+      const range = rangeForClick(wg, cur, type),
+        { from, to } = range
       if (extend) {
-        if (from < startSel.anchor) return GardSelection.range(startSel.anchor, from, from < to ? 1 : cur.side)
-        else return GardSelection.range(startSel.anchor, to, from < to ? -1 : cur.side)
+        const startAnchor =
+          !(startSel instanceof GardSelection.Text) || startSel.directional
+            ? startSel.anchor
+            : from < startSel.from
+              ? startSel.to
+              : startSel.from
+        if (from < startSel.anchor) return GardSelection.range(startAnchor, from, from < to ? 1 : cur.side)
+        else return GardSelection.range(startAnchor, to, from < to ? -1 : cur.side)
       }
+      let { anchor, head } = range
       if (start.pos != cur.pos) {
         const startRange = rangeForClick(wg, start, type)
-        from = Math.min(startRange.from, from)
-        to = Math.max(startRange.to, to)
+        const from = Math.min(range.from, startRange.from),
+          to = Math.max(range.to, startRange.to)
+        if (startRange.from < range.from) {
+          anchor = from
+          head = to
+        } else {
+          anchor = to
+          head = from
+        }
       }
-      return from == range.from && to == range.to ? range : GardSelection.range(from, to, cur.side)
+      return anchor == range.anchor && head == range.head
+        ? range
+        : GardSelection.range(anchor, head, head == cur.pos ? cur.side : undefined)
     }
-  } as Wordgard.MouseSelectionStyle
+  }
 }
 
 export const dropHandler =
@@ -1048,7 +1064,7 @@ const baseHandlers: { [e in keyof HTMLElementEventMap]?: (wg: Wordgard, event: H
     wg.focus()
     wg.dispatch({
       changes,
-      selection: GardSelection.range(changes.mapPos(dropPos, -1), changes.mapPos(dropPos, 1)),
+      selection: GardSelection.undirectionalRange(changes.mapPos(dropPos, -1), changes.mapPos(dropPos, 1)),
       userEvent: del ? 'move.drop' : 'input.drop'
     })
     wg.inputState.draggedContent = null

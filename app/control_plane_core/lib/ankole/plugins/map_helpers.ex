@@ -31,12 +31,7 @@ defmodule Ankole.Plugins.MapHelpers do
   def fetch_list(_map, _key), do: []
 
   @spec optional_text(term(), term()) :: String.t() | nil
-  def optional_text(map, key) do
-    case fetch_value(map, key) do
-      value when is_binary(value) -> presence(value)
-      _value -> nil
-    end
-  end
+  def optional_text(map, key), do: map |> fetch_value(key) |> Ankole.Attrs.optional_text()
 
   @spec presence(term()) :: String.t() | nil
   defdelegate presence(value), to: Ankole.Attrs, as: :optional_text
@@ -61,12 +56,8 @@ defmodule Ankole.Plugins.MapHelpers do
 
   @spec required_string(term(), String.t()) ::
           {:ok, String.t()} | {:error, {:missing, String.t()}}
-  def required_string(map, key) do
-    case optional_text(map, key) do
-      nil -> {:error, {:missing, key}}
-      value -> {:ok, value}
-    end
-  end
+  def required_string(map, key),
+    do: Ankole.Attrs.required_text(fetch_value(map, key), {:missing, key})
 
   @spec optional_string(term(), String.t(), term()) ::
           {:ok, term()} | {:error, {:invalid_string, String.t()}}

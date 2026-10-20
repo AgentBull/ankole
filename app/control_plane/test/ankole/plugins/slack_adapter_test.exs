@@ -767,6 +767,69 @@ defmodule Ankole.Plugins.SlackAdapterTest do
   end
 
   describe "directory membership ownership" do
+    test "full sync imports paginated humans, filters bots and deleted users, and replaces memberships" do
+      assert {:ok, stale_group} =
+               Ankole.IdentityProviders.Directory.ensure_group(
+                 "slack-main",
+                 %Ankole.IdentityProviders.Directory.Group{
+                   external_id: "OLD",
+                   kind: "usergroup",
+                   display_name: "Old team"
+                 }
+               )
+
+      assert {:ok, previous} =
+               IdentityProvider.upsert_user("slack-main", %{"id" => "U2"},
+                 group_external_ids: ["OLD"]
+               )
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        body =
+          case {conn.request_path, URI.decode_query(conn.query_string)["cursor"]} do
+            {"/api/usergroups.list", _} ->
+              %{
+                "ok" => true,
+                "usergroups" => [%{"id" => "S1", "name" => "Engineering", "users" => ["U1"]}]
+              }
+
+            {"/api/users.list", nil} ->
+              %{
+                "ok" => true,
+                "members" => [
+                  %{"id" => "U1", "name" => "Ada"},
+                  %{"id" => "BOT", "is_bot" => true},
+                  %{"id" => "DELETED", "deleted" => true}
+                ],
+                "response_metadata" => %{"next_cursor" => "next-page"}
+              }
+
+            {"/api/users.list", "next-page"} ->
+              %{"ok" => true, "members" => [%{"id" => "U2", "name" => "Grace"}]}
+          end
+
+        Req.Test.json(conn, body)
+      end)
+
+      Req.default_options(plug: {Req.Test, __MODULE__})
+
+      assert {:ok, %{users: 2, usergroups: 1}} =
+               IdentityProvider.sync_directory("slack-main", %{"botToken" => "xoxb-sync"})
+
+      assert {:ok, uid} = Ankole.Principals.resolve_platform_subject_uid("slack-main", "U1")
+      [group_id] = AuthZ.external_group_ids("slack-main", :directory_department, "S1")
+      assert Repo.get_by(Membership, principal_uid: uid, group_id: group_id)
+
+      refute Repo.get_by(Membership,
+               principal_uid: previous.principal.uid,
+               group_id: stale_group.id
+             )
+
+      for id <- ["BOT", "DELETED"] do
+        assert {:error, :not_found} =
+                 Ankole.Principals.resolve_platform_subject_uid("slack-main", id)
+      end
+    end
+
     test "missing group_external_ids preserves memberships while explicit empty clears them" do
       assert {:ok, group} =
                AuthZ.create_principal_group(%{

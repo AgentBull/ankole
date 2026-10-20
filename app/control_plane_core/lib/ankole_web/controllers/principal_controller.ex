@@ -6,6 +6,8 @@ defmodule AnkoleWeb.PrincipalController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenAPISpex.ControllerSpecs
 
   alias Ankole.AuthZ
@@ -109,8 +111,6 @@ defmodule AnkoleWeb.PrincipalController do
             &account_json/1
           )
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -119,8 +119,6 @@ defmodule AnkoleWeb.PrincipalController do
          :ok <- ConsolePolicy.authorize(conn, "principal:#{uid}", "read"),
          {:ok, account} <- Principals.get_principal_account(uid) do
       json(conn, %{principal: account_json(account)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -137,8 +135,6 @@ defmodule AnkoleWeb.PrincipalController do
            ),
          {:ok, account} <- Principals.get_principal_account(result.principal.uid) do
       json(conn, %{principal: account_json(account), initial_password: result.initial_password})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -152,8 +148,6 @@ defmodule AnkoleWeb.PrincipalController do
          {:ok, _updated} <- Principals.update_human(uid, attrs),
          {:ok, account} <- Principals.get_principal_account(uid) do
       json(conn, %{principal: account_json(account)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -166,8 +160,6 @@ defmodule AnkoleWeb.PrincipalController do
          {:ok, initial_password} <-
            LocalPassword.reset_local_password(uid, Map.get(body, :must_change_password, true)) do
       json(conn, %{initial_password: initial_password})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -180,8 +172,6 @@ defmodule AnkoleWeb.PrincipalController do
       json(conn, %{
         principal_groups: Enum.map(groups, &AuthZJSON.group_json(&1, summaries))
       })
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -190,8 +180,6 @@ defmodule AnkoleWeb.PrincipalController do
          :ok <- ConsolePolicy.authorize(conn, "principal:#{uid}:grants", "read"),
          {:ok, grants} <- AuthZ.list_principal_grants(uid) do
       json(conn, %{permission_grants: Enum.map(grants, &AuthZJSON.grant_json/1)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -254,13 +242,13 @@ defmodule AnkoleWeb.PrincipalController do
   defp local_credential_json(nil), do: nil
   defp local_credential_json(status), do: %{status: Atom.to_string(status)}
 
-  defp error(conn, :forbidden), do: ConsoleErrors.render(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :not_found),
-    do: ConsoleErrors.render(conn, 404, "not_found", "principal was not found")
+    do: ConsoleErrors.not_found(conn, "principal was not found")
 
   defp error(conn, {:missing, key}),
-    do: ConsoleErrors.render(conn, 422, "validation_failed", "#{key} is required")
+    do: ConsoleErrors.required_field(conn, key)
 
   defp error(conn, :local_identity_provider_disabled),
     do:

@@ -479,11 +479,9 @@ session runs. Drive deletion waits for detachment. The maximum instance
 lifetime is set by `sessionTimeoutSeconds`, with a default and maximum of
 86,400 seconds. Set 2,700 seconds for an account with a 45-minute limit.
 Creation and replacement use the same value. The saved instance settings
-keep a generation's lifetime when provider configuration changes. A real Pro-account
-check covered root command startup, uid 1000 without sudo, repeated entry,
-files after instance deletion and external stop, image replacement, provider
-isolation, and Drive deletion. OOM, host failure, and the full 24-hour lifetime
-remain unverified.
+keep a generation's lifetime when provider configuration changes. See
+[Provider Verification Evidence](#provider-verification-evidence) for cloud
+coverage and remaining checks.
 
 ### Lambda MicroVMs
 
@@ -547,12 +545,9 @@ and queues reconciliation for its assigned Agents. Check the provider and Worker
 status after reconciliation. Existing generations keep their frozen settings;
 the repair does not rewrite their launch contract.
 
-Real AWS checks cover image builds, short memory pause, EFS retention through
-termination and image replacement, provider isolation, and directory deletion.
-Storage run-hook failures reach `TERMINATED`, and reconciliation starts another
-helper with a new token. Long suspension and platform time limits still need
-deployment checks. See [CONTRIBUTING](../../CONTRIBUTING.md) for the test
-environment and quota requirements.
+See [Provider Verification Evidence](#provider-verification-evidence) for cloud
+coverage and remaining checks, and [CONTRIBUTING](../../CONTRIBUTING.md) for
+the test environment and quota requirements.
 
 ### Alibaba Function Compute
 
@@ -604,17 +599,34 @@ removing the Worker row. A late contract cannot repeat deletion.
 
 Sandbox management uses the `2026-08-20` ROA protocol. NAS uses `2017-06-26`
 RPC. Both use ACS3; E2B and envd use their own API tokens. Protocol fixtures
-come from the official SDKs and real base-sandbox responses. Real checks cover
-POP signing, root envd uploads, uid 1000 OSS writes, file retention through
-sandbox deletion, and removal of one prefix without removing another.
-A memory-resume probe isolated unusable OSSFS2 TCP connections: reads waited
-for consecutive 60-second request timeouts. Closing those connections released
-the pending reads without unmounting Home. The production resume method also
-passed a 90-second pause and immediate retained-file reads. The complete cloud
-suite passed with the new image, including that pause, termination recovery,
-image replacement, retained files, deletion, and peer isolation.
-AgenticFS still needs cloud validation.
+come from the official SDKs and real base-sandbox responses. See the evidence
+table below for the recorded scope and remaining checks.
 Old templates are not collected automatically.
+
+## Provider Verification Evidence
+
+This section owns cloud verification status. Protocol fixtures prove request
+and response handling; they do not prove a deployed Worker lifecycle. A real
+base sandbox also does not prove the Worker image, coordinator, or storage
+deletion helper. The evidence below is the checked-in record as of 2026-10-20.
+
+| Provider | Recorded evidence | Remaining boundary |
+| --- | --- | --- |
+| Vercel | The [fixture source record](../../app/control_plane/test/fixtures/worker_providers/vercel/SOURCES.md) records a Pro-account check on 2026-10-08: root entry, uid 1000, repeated entry, retained Drive data after stop and replacement, provider isolation, and Drive deletion. | OOM, host failure, long WebSocket connections, and the full 24-hour session. |
+| Lambda MicroVMs | The [fixture source record](../../app/control_plane/test/fixtures/worker_providers/lambda/SOURCES.md) records protocol checks and real image-build and quota errors on 2026-10-08. Earlier manual notes report image builds, short memory pause, EFS retention through termination and image replacement, provider isolation, directory deletion, and failed-helper recovery. No dated run output is linked for those lifecycle observations. | A dated run record for the current Worker image and coordinator; long suspension and platform time limits. |
+| Function Compute | The [fixture source record](../../app/control_plane/test/fixtures/worker_providers/function_compute/SOURCES.md) records real base-sandbox responses on 2026-10-08, root envd uploads, uid 1000 OSS writes, retention after sandbox replacement, and prefix isolation. | The full Worker image and coordinator lifecycle, storage deletion helper, memory pause and resume, template capture, AgenticFS, and the 24-hour limit. The base-sandbox check did not cover these paths. |
+
+Earlier Function Compute notes report stalled OSSFS2 TCP connections after
+memory resume, reads released by closing those connections, a 90-second pause
+with retained-file reads, and a complete OSS lifecycle run. No dated run output
+or Worker image digest is linked for those observations. They do not establish
+a reproducible cloud-suite pass.
+
+[CONTRIBUTING](../../CONTRIBUTING.md#run-the-right-checks) defines the opt-in
+cloud commands and account requirements. Run the storage and bootstrap checks
+against the target deployment. Record the date, region, image digest, exact
+command, and result before extending this table's verified scope. A test
+definition or a local protocol pass is not a cloud run.
 
 ## Worker Process
 

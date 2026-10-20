@@ -523,10 +523,15 @@ defmodule Ankole.Workflow.RunServer do
 
   defp safe_cancel_runner(runner, run_id) when is_atom(runner) do
     if function_exported?(runner, :cancel, 1), do: apply(runner, :cancel, [run_id]), else: :ok
-  rescue
-    _error -> :error
   catch
-    _kind, _reason -> :error
+    kind, reason ->
+      Ankole.Logging.warning(
+        "workflow.program_cancel.failed",
+        "Workflow program cancellation failed",
+        Ankole.Logging.failure_fields(kind, reason, __STACKTRACE__)
+      )
+
+      :error
   end
 
   defp safe_cancel_runner(_runner, _run_id), do: :ok

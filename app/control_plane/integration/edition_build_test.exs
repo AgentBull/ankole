@@ -219,22 +219,26 @@ defmodule Ankole.EditionBuildTest do
     expression = """
     Application.load(:ankole)
     expected = #{inspect(saas?)}
-    ^expected = Code.ensure_loaded?(Ankole.EditionFixture.Router)
-    false = Code.ensure_loaded?(Ankole.EditionFixture.TestSupport)
+    check = fn label, actual, expected_value ->
+      unless actual == expected_value,
+        do: raise(label <> ": expected " <> inspect(expected_value) <> ", got " <> inspect(actual))
+    end
+    check.("private router", Code.ensure_loaded?(Ankole.EditionFixture.Router), expected)
+    check.("production test support", Code.ensure_loaded?(Ankole.EditionFixture.TestSupport), false)
     manifest = AnkoleWeb.Assets.directory() |> Path.join("manifest.json") |> File.read!() |> Ankole.JSON.decode!()
-    ^expected = Enum.any?(manifest, fn {_key, value} -> value["name"] == "edition-fixture" end)
+    check.("private frontend manifest", Enum.any?(manifest, fn {_key, value} -> value["name"] == "edition-fixture" end), expected)
     css = Path.wildcard(Path.join(AnkoleWeb.Assets.directory(), "css/*.css")) |> Enum.map_join(&File.read!/1)
-    ^expected = String.contains?(css, "123.456px")
+    check.("private CSS", String.contains?(css, "123.456px"), expected)
     locales = Ankole.I18n.Loader.load_all(Ankole.I18n.Config.locales_dir())
-    ^expected = Map.has_key?(locales["en-US"].messages, "edition_fixture.message")
-    ^expected = Enum.any?(Ankole.Migrations.paths(), &String.ends_with?(&1, "internal_migrations"))
+    check.("private catalog", Map.has_key?(locales["en-US"].messages, "edition_fixture.message"), expected)
+    check.("private migrations", Enum.any?(Ankole.Migrations.paths(), &String.ends_with?(&1, "internal_migrations")), expected)
     :ok = Ankole.Migrations.validate!()
     if expected do
       :ok = AnkoleWeb.SiteAdminConsole.validate!()
       :ok = Ankole.IdentityProviders.SiteSources.validate!()
-      true = AnkoleWeb.Plugs.RequestHost.worker_allowed?(URI.parse("https://site.example.test/runtime-fabric/worker"))
-      false = AnkoleWeb.Plugs.RequestHost.worker_allowed?(URI.parse("https://pod.example.test/runtime-fabric/worker"))
-      false = AnkoleWeb.Plugs.RequestHost.worker_allowed?(URI.parse("https://attacker.test/runtime-fabric/worker"))
+      check.("site Worker URL", AnkoleWeb.Plugs.RequestHost.worker_allowed?(URI.parse("https://site.example.test/runtime-fabric/worker")), true)
+      check.("Pod Worker URL", AnkoleWeb.Plugs.RequestHost.worker_allowed?(URI.parse("https://pod.example.test/runtime-fabric/worker")), false)
+      check.("foreign Worker URL", AnkoleWeb.Plugs.RequestHost.worker_allowed?(URI.parse("https://attacker.test/runtime-fabric/worker")), false)
       {:error, _} = Ankole.IdentityProviders.SiteSources.authenticate("fixture-site", :untrusted)
       {:ok, pid} = Ankole.AppConfigure.Registry.start_link([])
       {:ok, _} = Ankole.AppConfigure.Registry.require_key("fixture.edition")
@@ -248,7 +252,7 @@ defmodule Ankole.EditionBuildTest do
       conn = AnkoleWeb.Plugs.RequestHost.call(conn, [])
       %{status: 200, assigns: %{browser_login_mode: :add}} = Ankole.EditionFixture.Router.call(conn, Ankole.EditionFixture.Router.init([]))
       tags = AnkoleWeb.Assets.entry_tags(conn, "edition-fixture") |> IO.iodata_to_binary()
-      true = String.contains?(tags, "/assets/js/edition-fixture-")
+      check.("private frontend tags", String.contains?(tags, "/assets/js/edition-fixture-"), true)
     end
     IO.puts("edition-release-verified")
     """

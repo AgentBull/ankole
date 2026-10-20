@@ -11,7 +11,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.AutomationJobRunItem do
       title: "AutomationJobRunItem",
       type: :object,
       properties: %{
-        id: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
+        id: %Schema{
+          type: :integer,
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum()
+        },
         status: %Schema{
           type: :string,
           enum: ["queued", "running", "succeeded", "failed", "cancelled"]
@@ -46,7 +50,11 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.AutomationJobItem do
       title: "AutomationJobItem",
       type: :object,
       properties: %{
-        id: %Schema{type: :integer, minimum: 1000, maximum: 9_007_199_254_740_991},
+        id: %Schema{
+          type: :integer,
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum()
+        },
         agent_uid: %Schema{type: :string},
         owner_session_id: %Schema{type: :string},
         source_signal_id: %Schema{type: :string, format: :uuid, nullable: true},

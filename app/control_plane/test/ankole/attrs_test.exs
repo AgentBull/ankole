@@ -51,4 +51,57 @@ defmodule Ankole.AttrsTest do
       assert Attrs.parse_datetime(value) == nil
     end
   end
+
+  test "required text preserves the caller's missing-value reason" do
+    assert Attrs.required_text("  name\n", {:missing, :name}) == {:ok, "name"}
+
+    assert Attrs.required_text(" ", {:missing_text, "name"}) ==
+             {:error, {:missing_text, "name"}}
+
+    for value <- [nil, false, 0, [], %{}] do
+      assert Attrs.required_text(value, :invalid_request) == {:error, :invalid_request}
+    end
+  end
+
+  test "truthy key reads preserve preferred key order and fallback false" do
+    values = %{:enabled => "atom", "enabled" => "string"}
+    assert Attrs.get_truthy(values, :enabled) == "atom"
+    assert Attrs.get_truthy(values, "enabled") == "string"
+
+    assert Attrs.get_truthy(%{:enabled => false, "enabled" => true}, :enabled) == true
+    assert Attrs.get_truthy(%{:enabled => true, "enabled" => false}, "enabled") == true
+    assert Attrs.get_truthy(%{:enabled => nil, "enabled" => false}, :enabled) == false
+    assert Attrs.get_truthy(%{:enabled => false, "enabled" => nil}, "enabled") == false
+    assert Attrs.get_truthy(%{:enabled => false, "enabled" => false}, :enabled) == false
+    assert Attrs.get_truthy(%{}, :enabled) == nil
+  end
+
+  test "string-first fallback reads never create an atom for an unknown key" do
+    key = "external-key-" <> Integer.to_string(System.unique_integer([:positive]))
+    assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
+    assert Attrs.get_truthy(%{}, key) == nil
+    assert Attrs.get_truthy(%{key => "value"}, key) == "value"
+    assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
+  end
+
+  test "string-first presence reads keep nil and false instead of falling back" do
+    assert Attrs.get_string_first(%{:enabled => "atom", "enabled" => "string"}, "enabled") ==
+             "string"
+
+    assert Attrs.get_string_first(%{:enabled => true, "enabled" => false}, "enabled") == false
+    assert Attrs.get_string_first(%{:enabled => true, "enabled" => nil}, "enabled") == nil
+    assert Attrs.get_string_first(%{enabled: "atom"}, "enabled") == "atom"
+    assert Attrs.get_string_first(%{enabled: false}, "enabled") == false
+    assert Attrs.get_string_first(%{enabled: nil}, "enabled") == nil
+    assert Attrs.get_string_first(%{}, "enabled") == nil
+  end
+
+  test "string-first presence reads never create an atom for an unknown key" do
+    key = "presence-key-" <> Integer.to_string(System.unique_integer([:positive]))
+    assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
+    assert Attrs.get_string_first(%{}, key) == nil
+    assert Attrs.get_string_first(%{key => false}, key) == false
+    assert Attrs.get_string_first(%{key => nil}, key) == nil
+    assert_raise ArgumentError, fn -> String.to_existing_atom(key) end
+  end
 end

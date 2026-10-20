@@ -1,3 +1,4 @@
+import { editorPhrases } from '../../editor/phrases'
 import { Mark, Node, parse, Plot, Schema, ValidationError } from '../../core/doc'
 import { element } from '../../document/tree'
 import { Attrs, extraAttrs, extraOf, markSet, markValue } from '../../editor/attributes'
@@ -49,8 +50,8 @@ export const callout: BlockDefinition = {
     return element('callout', { ...extraOf(node), ...(tone ? { tone } : {}) }, context.children(node as Plot))
   },
   insert: {
-    title: '提示块',
-    detail: '可嵌套的内容',
+    title: editorPhrases.ref('callout_title'),
+    detail: editorPhrases.ref('callout_detail'),
     keywords: 'callout',
     glyph: '◈',
     turnInto: true,

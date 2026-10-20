@@ -2,6 +2,7 @@ defmodule Ankole.AuthZ.Decision do
   @moduledoc false
 
   alias Ankole.AuthZ.Snapshot
+  alias Ankole.AuthZ.Input
   alias Ankole.Kernel, as: AnkoleKernel
   alias Ankole.Logging
 
@@ -11,6 +12,31 @@ defmodule Ankole.AuthZ.Decision do
          {:ok, decision} <- kernel_decision(AnkoleKernel.authz_authorize(snapshot)) do
       emit_diagnostics(decision)
       {:ok, decision}
+    end
+  end
+
+  def authorize_checks(principal_uid, checks, context) do
+    with {:ok, checks} <- Input.normalize_checks(checks),
+         {:ok, snapshot} <-
+           Snapshot.build_authorization_batch_snapshot(
+             principal_uid,
+             hd(checks)["resource"],
+             checks |> Enum.map(& &1["action"]) |> Enum.uniq(),
+             context
+           ) do
+      evaluate_checks(snapshot, checks)
+    end
+  end
+
+  defp evaluate_checks(snapshot, checks) do
+    result = AnkoleKernel.authz_authorize_checks(Map.put(snapshot, "checks", checks))
+
+    with %{"allowed" => allowed} when is_list(allowed) <- result,
+         true <- length(allowed) == length(checks) and Enum.all?(allowed, &is_boolean/1) do
+      emit_diagnostics(result)
+      {:ok, allowed}
+    else
+      _ -> {:error, :invalid_decision}
     end
   end
 

@@ -28,18 +28,14 @@ defmodule Ankole.Conversations.Delivery.Text do
 
   def normalize_visible_text(_text), do: ""
 
-  defp visible_text_parts(%{"type" => "message", "role" => role, "content" => content})
-       when role in ["assistant", nil] and is_list(content),
-       do: Enum.flat_map(content, &visible_text_parts/1)
+  defp visible_text_parts(%{"type" => "message", "role" => role})
+       when role not in ["assistant", nil],
+       do: []
 
-  defp visible_text_parts(%{"type" => "message", "role" => role, "content" => text})
-       when role in ["assistant", nil] and is_binary(text),
-       do: [text]
-
-  defp visible_text_parts(%{"type" => "message", "role" => _role}), do: []
-
-  defp visible_text_parts(%{"type" => "message", "content" => content}) when is_list(content),
-    do: Enum.flat_map(content, &visible_text_parts/1)
+  defp visible_text_parts(%{"type" => "message", "content" => content})
+       when is_list(content) do
+    Enum.flat_map(content, &visible_text_parts/1)
+  end
 
   defp visible_text_parts(%{"type" => "message", "content" => text}) when is_binary(text),
     do: [text]

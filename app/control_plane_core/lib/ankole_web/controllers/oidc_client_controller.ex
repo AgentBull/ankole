@@ -4,6 +4,8 @@ defmodule AnkoleWeb.OIDCClientController do
   """
 
   use AnkoleWeb, :controller
+
+  action_fallback :fallback
   use OpenApiSpex.ControllerSpecs
 
   alias Ankole.OIDC
@@ -49,8 +51,6 @@ defmodule AnkoleWeb.OIDCClientController do
           end)
 
       json(conn, %{sources: sources})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -131,8 +131,6 @@ defmodule AnkoleWeb.OIDCClientController do
   def logout_deliveries(conn, %{id: id}) do
     with :ok <- ConsolePolicy.authorize(conn, "oidc_client:#{id}", "read") do
       deliveries(conn, id)
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -142,8 +140,8 @@ defmodule AnkoleWeb.OIDCClientController do
          {:ok, _} <- OIDC.Logout.retry(delivery_id) do
       deliveries(conn, id)
     else
-      false -> error(conn, :not_found)
-      {:error, reason} -> error(conn, reason)
+      false -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -171,8 +169,6 @@ defmodule AnkoleWeb.OIDCClientController do
   def index(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "oidc_clients", "read") do
       json(conn, %{oidc_clients: OIDC.list_clients()})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -183,8 +179,6 @@ defmodule AnkoleWeb.OIDCClientController do
       |> no_store()
       |> put_status(201)
       |> json(%{oidc_client: result.client, client_secret: result.client_secret})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -193,8 +187,6 @@ defmodule AnkoleWeb.OIDCClientController do
          :ok <- ConsolePolicy.authorize(conn, "oidc_client:#{id}", "read"),
          {:ok, client} <- OIDC.get_client(id) do
       json(conn, %{oidc_client: OIDC.projection(client)})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -203,8 +195,6 @@ defmodule AnkoleWeb.OIDCClientController do
          :ok <- ConsolePolicy.authorize(conn, "oidc_client:#{id}", "update"),
          {:ok, client} <- OIDC.update_client(id, conn.body_params) do
       json(conn, %{oidc_client: client})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -213,8 +203,6 @@ defmodule AnkoleWeb.OIDCClientController do
          :ok <- ConsolePolicy.authorize(conn, "oidc_client:#{id}", "delete"),
          {:ok, client} <- OIDC.delete_client(id) do
       json(conn, %{oidc_client: client})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -225,8 +213,6 @@ defmodule AnkoleWeb.OIDCClientController do
       conn
       |> no_store()
       |> json(%{oidc_client: result.client, client_secret: result.client_secret})
-    else
-      {:error, reason} -> error(conn, reason)
     end
   end
 
@@ -237,27 +223,21 @@ defmodule AnkoleWeb.OIDCClientController do
     end
   end
 
-  defp error(conn, :forbidden), do: render_error(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
   defp error(conn, :not_found),
-    do: render_error(conn, 404, "not_found", "OIDC Client was not found")
+    do: ConsoleErrors.not_found(conn, "OIDC Client was not found")
 
   defp error(conn, :public_client) do
-    render_error(conn, 409, "public_client", "public Clients do not have a secret")
+    ConsoleErrors.render(conn, 409, "public_client", "public Clients do not have a secret")
   end
 
   defp error(conn, :client_type_immutable) do
-    render_error(conn, 409, "client_type_immutable", "OIDC Client type cannot be changed")
+    ConsoleErrors.render(conn, 409, "client_type_immutable", "OIDC Client type cannot be changed")
   end
 
   defp error(conn, %Ecto.Changeset{} = changeset) do
-    render_error(
-      conn,
-      422,
-      "validation_failed",
-      "OIDC Client validation failed",
-      ConsoleErrors.changeset_details(changeset)
-    )
+    ConsoleErrors.changeset(conn, changeset, "OIDC Client validation failed")
   end
 
   defp error(conn, reason)
@@ -269,11 +249,11 @@ defmodule AnkoleWeb.OIDCClientController do
               :allowed_group_required,
               :unknown_group
             ] do
-    render_error(conn, 422, "validation_failed", validation_message(reason))
+    ConsoleErrors.render(conn, 422, "validation_failed", validation_message(reason))
   end
 
   defp error(conn, {:invalid_model_alias, alias_name, _reason}) do
-    render_error(
+    ConsoleErrors.render(
       conn,
       422,
       "validation_failed",
@@ -282,7 +262,7 @@ defmodule AnkoleWeb.OIDCClientController do
   end
 
   defp error(conn, {:invalid_model_aliases, _reason}) do
-    render_error(conn, 422, "validation_failed", "allowed_models must be an object")
+    ConsoleErrors.render(conn, 422, "validation_failed", "allowed_models must be an object")
   end
 
   defp error(conn, reason) do
@@ -302,10 +282,6 @@ defmodule AnkoleWeb.OIDCClientController do
     do: "ai_gateway.write requires an allowed group"
 
   defp validation_message(:unknown_group), do: "an allowed group does not exist"
-
-  defp render_error(conn, status, code, message, details \\ []) do
-    ConsoleErrors.render(conn, status, code, message, details)
-  end
 
   defp no_store(conn) do
     conn
