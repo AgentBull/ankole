@@ -514,8 +514,6 @@ defmodule Ankole.AIGateway.FailureDiagnostics do
   defp value(map, key) when is_map(map) and is_binary(key),
     do: Ankole.Attrs.get_string_first(map, key)
 
-  defp value(map, key) when is_map(map), do: Map.get(map, key)
-
   defp first_integer(values), do: Enum.find_value(values, &integer/1)
   defp first_string(values), do: Enum.find_value(values, &string/1)
   defp first_boolean(values), do: Enum.find(values, &is_boolean/1)
