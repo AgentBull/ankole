@@ -10,6 +10,7 @@ defmodule Ankole.Sessions.Jobs.FireScheduledEvent do
     unique: [
       fields: [:worker, :args],
       keys: [:scheduled_event_id],
+      period: :infinity,
       states: [:available, :scheduled, :retryable]
     ]
 

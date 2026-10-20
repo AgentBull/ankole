@@ -91,7 +91,6 @@ defmodule Ankole.Workflow.Schemas.Run do
       :max_agent_calls,
       :memo_bytes,
       :model_profile,
-      :result_text,
       :error,
       :completed_at,
       :cleanup_completed_at
@@ -133,6 +132,7 @@ defmodule Ankole.Workflow.Schemas.Run do
       less_than_or_equal_to: @memo_budget_bytes
     )
     |> validate_optional_format(:model_profile, @model_profile)
+    |> cast(attrs, [:result_text], empty_values: [])
     |> validate_optional_bytes(:result_text, 1_048_576)
     |> JSONPayload.validate_map(:reply_route)
     |> JSONPayload.validate_map(:args)

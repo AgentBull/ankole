@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 2.0.1-alpha.14 (2026-10-20)
+
+- Return OfficeCLI screenshot failures in resident mode. Require a fresh PNG
+  before replacing output, and retain existing images when capture fails.
+- Keep build proxy settings out of the Worker startup environment.
+- Keep one pending Checkback wake when its due time changes after 60 seconds.
+- Preserve empty and whitespace Workflow results. Check current Human access
+  before each replay, cancel pending calls after revocation, and retain results
+  from calls admitted before revocation.
+- Preserve Unicode characters at the rendered browser text limit. Reject
+  invalid Unicode in rendered page text or titles before reporting success.
+- Ignore old environment decryption responses after save, clear or remasking.
+  Keep replacement values that the operator has edited.
+- Accept binary media types for AI Gateway file content downloads. Retain
+  token and origin checks and JSON negotiation for other gateway routes.
+
 ## Version 2.0.0-alpha.13 (2026-10-19)
 
 - Fix Control Plane image builds that failed because the Applet SDK and Block

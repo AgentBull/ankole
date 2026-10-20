@@ -2199,9 +2199,18 @@ defmodule Ankole.Workflow do
 
   defp now, do: DateTime.utc_now()
 
+  @doc false
+  def revoke_run_in_tx(repo, %Run{} = run) do
+    stop_runs_in_tx(repo, from(r in Run, where: r.id == ^run.id), now())
+    repo.get!(Run, run.id)
+  end
+
   def stop_human_work_in_tx(repo, uid, version, now) do
     runs = from(r in Run, where: r.human_uid == ^uid and r.human_access_version < ^version)
+    stop_runs_in_tx(repo, runs, now)
+  end
 
+  defp stop_runs_in_tx(repo, runs, now) do
     repo.update_all(from(r in runs, where: r.status == "running"),
       set: [
         status: "cancelled",

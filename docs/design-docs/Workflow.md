@@ -213,6 +213,9 @@ Each run stores `authorization_kind`, `human_uid`, and `human_access_version`
 from the source Signal under [Human Offboarding](HumanOffboarding.md).
 Task dispatch and delegated Jobs retain that fact. A replay, new task, wake,
 or retry must pass the current Human check before admission.
+Run creation does not admit a replay. RunServer checks the stored authorization
+in its replay-input transaction before it calls the kernel. This check does not
+wait for asynchronous Human work cleanup.
 
 Revocation marks the run cancelled, cancels pending calls, and prevents new
 dispatch. Already admitted calls can finish and retain their results. Cleanup

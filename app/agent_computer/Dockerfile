@@ -1,6 +1,29 @@
 # syntax=docker/dockerfile:1.7
 
 ARG BASE_IMAGE
+ARG OFFICECLI_VERSION=v1.0.157
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0.402 AS officecli-build
+
+ARG OFFICECLI_VERSION
+ARG TARGETARCH
+
+WORKDIR /src
+ADD --checksum=sha256:078528b3c4e978abc1b072d1e89d02d7c50b3e94f5e6b78cb08a9805f330c31c \
+  https://github.com/iOfficeAI/OfficeCLI/archive/b65272a18aef891941451705ff93e8a287f3eb72.tar.gz /tmp/officecli.tar.gz
+COPY app/agent_computer/scripts/officecli-v1.0.157-screenshot.patch /tmp/officecli-screenshot.patch
+
+RUN --mount=type=cache,target=/root/.nuget/packages \
+  set -eux; \
+  tar -xzf /tmp/officecli.tar.gz --strip-components=1; \
+  git apply /tmp/officecli-screenshot.patch; \
+  case "${TARGETARCH}" in \
+    amd64) officecli_rid=linux-x64 ;; \
+    arm64) officecli_rid=linux-arm64 ;; \
+    *) echo "Unsupported OfficeCLI architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+  esac; \
+  dotnet publish src/officecli/officecli.csproj -c Release -r "${officecli_rid}" -o /out --nologo; \
+  test "$(OFFICECLI_SKIP_UPDATE=1 /out/officecli --version)" = "${OFFICECLI_VERSION#v}"
 
 FROM --platform=linux/amd64 cloudflare/sandbox:1.0.0 AS directory-backup
 
@@ -124,7 +147,7 @@ RUN set -eux; \
 # Python stack, fonts, and database clients.
 ARG CODEX_VERSION=0.163.0
 ARG MCPORTER_VERSION=0.14.3
-ARG OFFICECLI_VERSION=v1.0.157
+ARG OFFICECLI_VERSION
 ARG TYPST_VERSION=v0.15.1
 ARG KUBECTL_VERSION=v1.36.3
 ARG AWS_CLI_VERSION=2.36.38
@@ -149,14 +172,9 @@ RUN set -eux; \
   test "$(mcporter --version)" = "${MCPORTER_VERSION}"; \
   rm -f "$mcporter_package"
 
+COPY --from=officecli-build /out/officecli /usr/local/bin/officecli
+
 RUN set -eux; \
-  case "${TARGETARCH:-$(uname -m)}" in \
-    amd64|x86_64) officecli_asset="officecli-linux-x64" ;; \
-    arm64|aarch64) officecli_asset="officecli-linux-arm64" ;; \
-    *) echo "Unsupported OfficeCLI architecture: ${TARGETARCH:-$(uname -m)}" >&2; exit 1 ;; \
-  esac; \
-  officecli_base_url="https://github.com/iOfficeAI/OfficeCLI/releases/download/${OFFICECLI_VERSION}"; \
-  curl -fsSL "${officecli_base_url}/${officecli_asset}" -o /usr/local/bin/officecli; \
   chmod +x /usr/local/bin/officecli; \
   test "$(officecli --version)" = "${OFFICECLI_VERSION#v}"; \
   ln -s /opt/ankole-browser/browsers/chromium/chrome-headless-shell /usr/local/bin/chromium
@@ -305,6 +323,16 @@ ENV PATH="/opt/ankole-python/bin:/opt/ankole-cargo/bin:/usr/local/bin:/usr/bin:/
 RUN --mount=type=tmpfs,target=/workspace \
   env -0 \
     -u PWD \
+    -u HTTP_PROXY \
+    -u http_proxy \
+    -u HTTPS_PROXY \
+    -u https_proxy \
+    -u FTP_PROXY \
+    -u ftp_proxy \
+    -u ALL_PROXY \
+    -u all_proxy \
+    -u NO_PROXY \
+    -u no_proxy \
     -u LARK_CLI_VERSION \
     -u TARGETARCH \
     -u CODEX_VERSION \

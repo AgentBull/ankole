@@ -226,15 +226,14 @@ Compare the final slide map with the supplied material. Confirm that the page se
 
 Rendered slide views are expensive. Use `officecli view "$FILE" screenshot` only when a rendered view is necessary to meet the request or resolve a real layout uncertainty. Choose the least expensive view that answers the question:
 
-OfficeCLI 1.0.157 can return exit 0 after a screenshot failure. Use a new output directory for each capture and require a non-empty file. Read the PNG only after the full command succeeds.
+Use a new output directory for each capture. Read the PNG only after the screenshot command succeeds.
 
 ```bash
 PREVIEW_DIR=$(mktemp -d) &&
-  officecli view "$FILE" screenshot --grid 3 -o "$PREVIEW_DIR/overview.png" &&
-  test -s "$PREVIEW_DIR/overview.png"
+  officecli view "$FILE" screenshot --grid 3 -o "$PREVIEW_DIR/overview.png"
 ```
 
-For one slide at full resolution, replace `--grid 3` with `--page 1` and keep the same output check.
+For one slide at full resolution, replace `--grid 3` with `--page 1` and read the PNG after the command succeeds.
 
 When visual inspection is warranted, check for:
 
