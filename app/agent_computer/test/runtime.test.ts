@@ -311,6 +311,79 @@ describe('@ankole/agent-computer runtime', () => {
     expect(sent).toHaveLength(stoppedAt)
   })
 
+  for (const reason of ['background_agent_job_attempt_changed', 'run_closed']) {
+    it(`stops an invalid attempt after progress is rejected with ${reason}`, async () => {
+      const active = new ActiveTurn({ turn: jobTurnRef() } as unknown as TurnStart)
+      let sends = 0
+      const reporter = startTurnProgress(
+        async () => {
+          sends += 1
+          throw new RuntimeFabricTransportError('rejected', reason, { reason })
+        },
+        active,
+        { intervalMs: 5 }
+      )
+
+      try {
+        await Bun.sleep(18)
+        expect(active.abortSignal.aborted).toBe(true)
+        expect(active.controlledStopReason).toBe(reason)
+        expect(sends).toBe(1)
+      } finally {
+        reporter.stop()
+      }
+    })
+  }
+
+  for (const failure of [
+    new RuntimeFabricTransportError('socket_closed', 'closed'),
+    new RuntimeFabricTransportError('timeout', 'no ACK'),
+    new RuntimeFabricTransportError('rejected', 'wrong_stream', { reason: 'wrong_stream' })
+  ]) {
+    it(`retains execution after an inconclusive progress failure: ${failure.message}`, async () => {
+      const active = new ActiveTurn({ turn: jobTurnRef() } as unknown as TurnStart)
+      let sends = 0
+      const reporter = startTurnProgress(
+        async () => {
+          sends += 1
+          if (sends === 1) throw failure
+        },
+        active,
+        { intervalMs: 5 }
+      )
+
+      try {
+        await Bun.sleep(18)
+        expect(active.abortSignal.aborted).toBe(false)
+        expect(sends).toBeGreaterThan(1)
+      } finally {
+        reporter.stop()
+      }
+    })
+  }
+
+  it('keeps a replacement running when an old in-flight progress request is rejected late', async () => {
+    const previous = new ActiveTurn({ turn: jobTurnRef() } as unknown as TurnStart)
+    const replacement = new ActiveTurn({ turn: { ...jobTurnRef(), attempt: 2 } } as unknown as TurnStart)
+    let rejectPrevious!: (error: Error) => void
+    const pending = new Promise<void>((_resolve, reject) => {
+      rejectPrevious = reject
+    })
+    const oldReporter = startTurnProgress(async () => pending, previous, { intervalMs: 5 })
+    const newReporter = startTurnProgress(async () => {}, replacement, { intervalMs: 5 })
+
+    try {
+      previous.requestControlledStop('retry', 'background_agent_job_attempt_changed')
+      rejectPrevious(new RuntimeFabricTransportError('rejected', 'run_closed', { reason: 'run_closed' }))
+      await Bun.sleep(12)
+      expect(previous.controlledStopReason).toBe('background_agent_job_attempt_changed')
+      expect(replacement.abortSignal.aborted).toBe(false)
+    } finally {
+      oldReporter.stop()
+      newReporter.stop()
+    }
+  })
+
   it('queues a steer update until Codex polls it', () => {
     const turn = jobTurnRef()
     const active = new ActiveTurn({ turn } as unknown as TurnStart)

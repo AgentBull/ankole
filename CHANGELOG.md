@@ -1,5 +1,21 @@
 # Changelog
 
+## Version 2.0.0-alpha.17 (2026-10-21)
+
+- Stop a replaced Job attempt and release its Codex thread before the next
+  attempt resumes. Retain execution through temporary connection failures.
+- When the provider omits the message phase, keep the last lead message as the
+  Job result only until the lead thread starts more work.
+- Tell the Agent to omit `model_profile` on `create_background_job` and
+  `workflow` unless the human names a custom profile, and name the default as
+  the Agent's standard model.
+- Accept the OpenRouter `provider` routing preference as a request-scoped
+  provider option.
+- Send `strict: false` for Session tool declarations that do not opt in. The
+  Responses API treats a missing `strict` as strict and made the model fill
+  every optional parameter, so a configured custom model profile was forced on
+  every Background Agent Job.
+
 ## Version 2.0.0-alpha.16 (2026-10-21)
 
 - Internal changes only.

@@ -810,6 +810,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
     // Child-thread items also carry Skill-usage evidence.
     if (projection.type === 'item_started') {
+      if (isLeadNotification) this.outputText = ''
       this.recordUsedSkills(this.skillUsage.observeItem(projection.item), projection.turnID)
       return
     }
@@ -831,6 +832,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     if (projection.type === 'credential_pool_exhausted') {
       this.pendingCredentialPoolExhaustion = projection.exhaustion
     } else if (projection.type === 'turn_started') {
+      this.outputText = ''
       this.pendingCredentialPoolExhaustion = undefined
       this.rollActiveFilesChanged()
       this.codexTurnID = projection.turnID ?? this.codexTurnID

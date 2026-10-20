@@ -124,6 +124,10 @@ and requester authorization remain separate.
 
 The runtime builds its instructions, tool catalog, input, model binding, and
 Brain execution context. It passes that context explicitly to AIGateway.
+A Session tool declaration sends `strict: false` unless it declares `strict`
+itself. The Responses API treats a missing `strict` as strict, and strict mode
+makes the model fill every declared property; Session tools declare optional
+parameters that the model must be able to omit.
 Public caller metadata is opaque to the model platform; a `signal_id` inside
 an OIDC request cannot borrow another execution's authorization or memory scope.
 Codex Jobs carry their runtime binding at the authenticated execution edge.

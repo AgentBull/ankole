@@ -34,6 +34,7 @@ export class ActiveTurn {
   private readonly disabledSkillNames: string[] = []
   private readonly abortController = new AbortController()
   acceptanceTask?: Promise<void>
+  executionTask?: Promise<void>
   executionStarted = false
   private stopRequested = false
   private stopCommand?: string
@@ -201,15 +202,13 @@ export class ActiveTurns {
           break
         } catch (error) {
           if (active.controlledStopRequested) return
-          if (
-            isRuntimeFabricTransportError(error, 'rejected') &&
-            (error.reason === 'background_agent_job_attempt_changed' || error.reason === 'run_closed')
-          ) {
+          const invalidReason = invalidAttemptReason(error)
+          if (invalidReason) {
             workerLogger.info('worker.turn_acceptance_rejected', 'control plane refused this Job attempt', {
               signal_id: active.turnStart.turn.signal_id,
-              reason: error.reason
+              reason: invalidReason
             })
-            active.requestControlledStop('stop', error.reason)
+            active.requestControlledStop('stop', invalidReason)
             return
           }
           if (!isRuntimeFabricTransportError(error) || !error.retryable) throw error
@@ -229,11 +228,13 @@ export class ActiveTurns {
         }
       }
       if (active.executionStarted || active.controlledStopRequested || !this.drain.acceptsTurns) return
+      await this.stopOlderAttempts(active)
+      if (active.controlledStopRequested || !this.drain.acceptsTurns) return
       active.executionStarted = true
       // Capacity is already reserved and reported on rejoin. Publish it without
       // delaying execution on another replaceable heartbeat acknowledgement.
       this.drain.track(this.slots.publish())
-      this.drain.track(
+      active.executionTask = this.drain.track(
         this.run(active).catch(error => {
           workerLogger.error('worker.turn_completion_error', 'worker turn completion task failed', {
             signal_id: active.turnStart.turn.signal_id,
@@ -258,6 +259,19 @@ export class ActiveTurns {
     } finally {
       if (!active.executionStarted) await this.release(active)
     }
+  }
+
+  private async stopOlderAttempts(active: ActiveTurn): Promise<void> {
+    const turn = active.turnStart.turn
+    const previous = [...this.turns.values()].filter(candidate => {
+      const prior = candidate.turnStart.turn
+      return prior.job_id === turn.job_id && prior.attempt < turn.attempt
+    })
+    // Acceptance proves that the control plane replaced these attempts, even
+    // when their best-effort retry control was lost. Retire their thread owners
+    // before the next attempt resumes the same durable Codex thread.
+    for (const prior of previous) prior.requestControlledStop('retry', 'background_agent_job_attempt_changed')
+    await Promise.allSettled(previous.map(prior => prior.executionTask ?? prior.acceptanceTask))
   }
 
   private async release(active: ActiveTurn): Promise<void> {
@@ -421,7 +435,7 @@ export function startTurnProgress(
   let progressInFlight = false
 
   const sendProgress = (): void => {
-    if (stopped || progressInFlight) return
+    if (stopped || active.controlledStopRequested || progressInFlight) return
 
     progressInFlight = true
     void sendTurnProgress(sendEnvelope, active).finally(() => {
@@ -449,13 +463,32 @@ type TurnProgressReporter = {
 
 async function sendTurnProgress(sendEnvelope: EnvelopeSender, active: ActiveTurn): Promise<void> {
   try {
-    await sendEnvelope(workerProgressEnvelope(active.turnStart.turn))
+    await sendEnvelope(workerProgressEnvelope(active.turnStart.turn), { signal: active.abortSignal })
   } catch (error) {
+    if (active.controlledStopRequested) return
+    const invalidReason = invalidAttemptReason(error)
+    if (invalidReason) {
+      active.requestControlledStop('stop', invalidReason)
+      workerLogger.info('worker.turn_progress_rejected', 'control plane refused this Job attempt', {
+        signal_id: active.turnStart.turn.signal_id,
+        reason: invalidReason
+      })
+      return
+    }
     workerLogger.warning('worker.turn_progress_skipped', 'worker turn progress skipped', {
       signal_id: active.turnStart.turn.signal_id,
       reason: isRuntimeFabricTransportError(error) ? error.code : 'send_error',
       error: toError(error)
     })
+  }
+}
+
+function invalidAttemptReason(error: unknown): string | undefined {
+  if (
+    isRuntimeFabricTransportError(error, 'rejected') &&
+    (error.reason === 'background_agent_job_attempt_changed' || error.reason === 'run_closed')
+  ) {
+    return error.reason
   }
 }
 

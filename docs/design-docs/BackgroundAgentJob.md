@@ -101,7 +101,10 @@ change the bounded completion notification.
 
 The tool schema contains an enum of the Agent's configured custom profiles. It
 omits `model_profile` when the catalog is empty. It never accepts a fixed
-profile, raw model ID, provider ID, or reasoning effort.
+profile, raw model ID, provider ID, or reasoning effort. The tool description
+tells the Agent to omit `model_profile` unless the human asks for a custom
+profile by name, and that the default is the Agent's standard model for the
+work. A custom profile description must say what the profile is for.
 
 The tool returns only the new `job_id` and its initial `queued` status.
 
@@ -714,6 +717,11 @@ budget.
 The control plane increments `attempts` only when it claims a real Worker
 slot. Adoption of a running attempt does not claim or count again.
 A placement failure returns an unstarted attempt to `queued`.
+The Worker stops local execution when acceptance or progress confirms that
+the attempt changed or the run closed. A connection failure alone does not
+stop it. After the control plane accepts a newer attempt, the Worker stops
+and cleans the older local attempt before it resumes the same Codex thread.
+This recovery does not depend on receipt of the best-effort retry control.
 
 A retryable worker failure waits before the next execution attempt.
 Infrastructure interruptions retry within minutes and never consume the
@@ -1016,8 +1024,10 @@ the notification owned by the originating session.
 Success requires a nonempty Codex final response. A phased assistant message
 must have `phase: final_answer`. Commentary and partial answers stay in the Turn
 trajectory and cannot become the Job result. A missing or null phase keeps the
-pinned Codex protocol's legacy behavior. If no final report is present, the same
-thread gets one report request before the Job fails with `codex_empty_report`.
+pinned Codex protocol's legacy behavior: the last lead message is a candidate
+only until the lead thread starts another item, and a new lead Turn clears the
+previous candidate. If no final report is present, the same thread gets one
+report request before the Job fails with `codex_empty_report`.
 The result also includes the stable Job Workspace path.
 
 Main compares each Job's reported outcomes and deliverables with the user's

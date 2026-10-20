@@ -1019,6 +1019,25 @@ defmodule Ankole.AIGateway.ProviderRuntimeTest do
                provider_options: %{"reasoningEffort" => "max"}
              })
 
+    assert {:error,
+            {:provider_options, {:invalid_setting_type, "provider", :map, "example-host"}}} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-main",
+               model: "z-ai/glm-5.2",
+               provider_options: %{"provider" => "example-host"}
+             })
+
+    assert {:ok,
+            %{profile: %{"provider_options" => %{"provider" => %{"ignore" => ["example-host"]}}}}} =
+             ModelProfiles.put_model_profile(agent.uid, "primary", %{
+               provider_id: "openrouter-main",
+               model: "z-ai/glm-5.2",
+               provider_options: %{
+                 "reasoningEffort" => "max",
+                 "provider" => %{"ignore" => ["example-host"]}
+               }
+             })
+
     assert {:ok, _profile} =
              ModelProfiles.put_model_profile(agent.uid, "light", %{
                provider_id: "openrouter-main",

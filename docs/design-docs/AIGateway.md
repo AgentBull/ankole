@@ -383,6 +383,12 @@ lets OpenRouter use its fallback routing. AIGateway preserves each supplied
 value and rejects a value that is empty, contains only whitespace, is not a
 string, or is longer than 256 characters.
 
+The request-scoped `provider` option is the OpenRouter provider-routing
+preference object (`order`, `only`, `ignore`, `allow_fallbacks`,
+`require_parameters`, and the other documented keys). AIGateway validates only
+that it is a map and sends it in the chat body as `provider`. A profile uses it
+to keep a model away from an upstream that cuts its output short.
+
 ## Use a ChatGPT Subscription Provider
 
 `chatgpt_subscription` uses the OpenAI Responses resolver and the default base
