@@ -117,7 +117,10 @@ logical profile name separately from the real Codex model, the exact
 `provider_id/raw-model-id` selector, all provider options, the optional context
 length, and the provider parallel-tool-call capability. A retry uses this
 snapshot. A new or respawned Job resolves the current profile at its own first
-execution admission.
+execution admission. When the binding declares the hosted Brain tool, the
+declaration joins the Codex request's own tool list, including the
+`additional_tools` input item that the Codex client uses to carry its tools,
+so AIGateway splits it before the provider sees the request.
 
 The snapshot also stores the selected model's direct input modalities. A
 text-only model stores a separate `vision_fallback` target only when that

@@ -208,6 +208,28 @@ defmodule Ankole.Sessions.CodexModelBindingTest do
            }
 
     assert applied["metadata"] == %{"trace" => "abc", "signal_id" => signal_id}
+
+    # Codex 0.163 carries its tools in an `additional_tools` input item. The
+    # declaration must join that list; a top-level `tools` entry would stay
+    # unsplit and reach the provider as an unknown tool type.
+    carried =
+      CodexModelBinding.apply(
+        %{
+          "model" => "codex-mini",
+          "input" => [
+            %{"type" => "additional_tools", "role" => "developer", "tools" => request["tools"]},
+            %{"type" => "message", "role" => "user", "content" => "hello"}
+          ]
+        },
+        binding
+      )
+
+    assert carried["tools"] == nil
+    [carrier, _message] = carried["input"]
+    assert Enum.map(carrier["tools"], & &1["type"]) == ["function", "brain"]
+
+    assert {:ok, %{operations: ["recall", "get_page"]}} =
+             Ankole.AIGateway.HostedTools.Brain.declaration(carried)
   end
 
   test "rejects a Brain declaration with unknown operations or no actor event" do

@@ -17,6 +17,10 @@
   the Agent's standard model.
 - Accept the OpenRouter `provider` routing preference as a request-scoped
   provider option.
+- Add the hosted Brain declaration of a Codex Job to the tool list that the
+  Codex client carries in its `additional_tools` input item. A top-level entry
+  stayed unsplit and failed every Job turn on a Responses provider with
+  `Unsupported tool type: brain`.
 - Send `strict: false` for Session function tool declarations that do not opt
   in. The Responses API treats a missing `strict` as strict and made the model
   fill every optional parameter, so a configured custom model profile was
