@@ -58,6 +58,10 @@ defmodule Ankole.Sessions.ToolsTest do
            ] == true
 
     refute "model_profile" in declaration["parameters"]["required"]
+
+    # A freeform (custom) tool has no `strict` field; the provider rejects it.
+    custom = %{"type" => "custom", "name" => "apply_patch", "format" => %{"type" => "grammar"}}
+    refute Map.has_key?(Ankole.Sessions.Tool.new(custom, :worker).schema, "strict")
   end
 
   test "model_profile declarations name the default as the Agent's standard model" do

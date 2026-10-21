@@ -1,5 +1,10 @@
 # Changelog
 
+## Version 2.0.0-alpha.18 (2026-10-21)
+
+- Restore local sign-in pages on `ankole.localhost` and tenant hosts when the
+  development server runs the FOSS edition.
+
 ## Version 2.0.0-alpha.17 (2026-10-21)
 
 - Stop a replaced Job attempt and release its Codex thread before the next
@@ -12,10 +17,10 @@
   the Agent's standard model.
 - Accept the OpenRouter `provider` routing preference as a request-scoped
   provider option.
-- Send `strict: false` for Session tool declarations that do not opt in. The
-  Responses API treats a missing `strict` as strict and made the model fill
-  every optional parameter, so a configured custom model profile was forced on
-  every Background Agent Job.
+- Send `strict: false` for Session function tool declarations that do not opt
+  in. The Responses API treats a missing `strict` as strict and made the model
+  fill every optional parameter, so a configured custom model profile was
+  forced on every Background Agent Job.
 
 ## Version 2.0.0-alpha.16 (2026-10-21)
 
