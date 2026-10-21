@@ -173,7 +173,8 @@ defmodule Ankole.Brain.Claims do
          :ok <- validate_grid_value(attrs[:weight], :weight),
          :ok <- validate_holder(attrs[:holder], repo),
          :ok <- validate_scope(attrs[:audience_scope], writer),
-         :ok <- validate_required_provenance(attrs[:provenance]) do
+         :ok <- validate_required_provenance(attrs[:provenance]),
+         {:ok, until_date} <- cast_until_date(attrs[:until_date]) do
       {embedding, signature} = resolve_embedding(attrs[:claim], opts)
       now = DateTime.utc_now(:microsecond)
 
@@ -190,7 +191,7 @@ defmodule Ankole.Brain.Claims do
         audience_scope: attrs[:audience_scope],
         weight: attrs[:weight] * 1.0,
         since_date: attrs[:since_date],
-        until_date: attrs[:until_date],
+        until_date: until_date,
         active: true,
         provenance: attrs[:provenance],
         embedding: embedding,
@@ -201,6 +202,20 @@ defmodule Ankole.Brain.Claims do
       repo.insert(claim)
     end
   end
+
+  # `until_date` gates the Take into Dreaming's due-date grading, so a value
+  # that is not one calendar date is rejected here, for every writer.
+  defp cast_until_date(nil), do: {:ok, nil}
+  defp cast_until_date(%Date{} = date), do: {:ok, date}
+
+  defp cast_until_date(value) when is_binary(value) do
+    case Date.from_iso8601(value) do
+      {:ok, date} -> {:ok, date}
+      {:error, _reason} -> {:error, :invalid_until_date}
+    end
+  end
+
+  defp cast_until_date(_value), do: {:error, :invalid_until_date}
 
   @doc """
   Supersedes one claim with a corrected row of the same claim type. The old

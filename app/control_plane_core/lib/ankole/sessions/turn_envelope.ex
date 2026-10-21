@@ -156,11 +156,19 @@ defmodule Ankole.Sessions.TurnEnvelope do
   end
 
   defp turn_request_context(turn_start_spec, turn_ref) do
-    Map.put(
-      Ankole.Attrs.get_truthy(turn_start_spec, :request_context) || %{},
-      "original_human_request",
-      Ankole.Sessions.Prompt.original_human_request(turn_ref)
-    )
+    (Ankole.Attrs.get_truthy(turn_start_spec, :request_context) || %{})
+    |> Map.put("original_human_request", Ankole.Sessions.Prompt.original_human_request(turn_ref))
+    |> Map.put("brain_tools", brain_tools(turn_start_spec))
+  end
+
+  # Code mode calls only the tools Codex declared, so a Job gets the Brain read
+  # subset as dynamic tools, not as the hosted tool. The declarations travel
+  # with the turn start, so the Worker projects exactly what the read-tool
+  # broker validates and executes.
+  defp brain_tools(turn_start_spec) do
+    if :HOSTED_TOOL_BRAIN in turn_hosted_tools(turn_start_spec),
+      do: Ankole.Sessions.Tools.Brain.declarations(),
+      else: []
   end
 
   defp turn_runtime_env(turn_start_spec) do

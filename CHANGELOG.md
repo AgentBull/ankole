@@ -1,7 +1,44 @@
 # Changelog
 
+## Version 2.0.0-alpha.19 (2026-10-21)
+
+- Let Background Agent Job threads call the Brain `recall` and `get_page`
+  tools. The Worker now serves them through the same read-tool bridge as
+  `skill_view`, and a Job no longer declares the hosted Brain tool, so one tool
+  name has one executor.
+- Give spawned Job support threads the same local tools as the lead thread
+  (`skill_view`, `web_search`, `web_fetch`, `request_parent_input`), and wait
+  on them for ten minutes by default instead of two.
+- Record the full brief of `spawn_agent` and `followup_task` calls in the Job
+  trajectory, with the source the Worker read it from.
+- List files that a Job wrote through the shell in `files_changed`, not only
+  the files the Codex diff reported.
+- Attribute every AI Gateway usage record of a Background Agent Job to its
+  `job_id`, attempt, Signal, and Session, and show the Job identity on the
+  response trace.
+- Keep the workspace template and the other inherited fields when a Job
+  respawns or a steer continues it, and show `continued_from_job_id` and
+  `workspace_owner_job_id` in the Console Job projection.
+- Resolve an expired Brain take when dreaming grades it, store `until_date` as
+  a date, and report a missing dreaming model in the Brain health status.
+- Resolve the Lark bot identity once per application with a cached result and
+  a rate-limit backoff instead of on every connection reconciliation, and log
+  an unchanged reconciliation error set once with its repeat count instead of
+  on every cycle.
+- Run the Agent Computer, kernel lint, shared library, and repository lint
+  checks in CI, enable the default Credo check set, and build runtime images
+  only after the repository checks pass on `main`.
+
 ## Version 2.0.0-alpha.18 (2026-10-21)
 
+- Send `strict: false` for Session function tool declarations that do not opt
+  in. The Responses API treats a missing `strict` as strict and made the model
+  fill every optional parameter, so a configured custom model profile was
+  forced on every Background Agent Job.
+- Add the hosted Brain declaration of a Codex Job to the tool list that the
+  Codex client carries in its `additional_tools` input item. A top-level entry
+  stayed unsplit and failed every Job turn on a Responses provider with
+  `Unsupported tool type: brain`.
 - Restore local sign-in pages on `ankole.localhost` and tenant hosts when the
   development server runs the FOSS edition.
 
@@ -17,14 +54,6 @@
   the Agent's standard model.
 - Accept the OpenRouter `provider` routing preference as a request-scoped
   provider option.
-- Add the hosted Brain declaration of a Codex Job to the tool list that the
-  Codex client carries in its `additional_tools` input item. A top-level entry
-  stayed unsplit and failed every Job turn on a Responses provider with
-  `Unsupported tool type: brain`.
-- Send `strict: false` for Session function tool declarations that do not opt
-  in. The Responses API treats a missing `strict` as strict and made the model
-  fill every optional parameter, so a configured custom model profile was
-  forced on every Background Agent Job.
 
 ## Version 2.0.0-alpha.16 (2026-10-21)
 

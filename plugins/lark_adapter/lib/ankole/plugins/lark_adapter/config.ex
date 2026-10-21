@@ -8,7 +8,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
 
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Schema
-  alias Ankole.Logging
   alias Ankole.Plugins.MapHelpers
   alias FeishuOpenAPI.Client
 
@@ -128,8 +127,9 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   @doc """
   Validates chat config when it is used as a Signal Binding.
 
-  A binding needs no extra input beyond the chat config: the bot's own
-  `open_id` is resolved from `bot/v3/info` at connection time, so operators are
+  A binding needs no extra input beyond the chat config: the connection owner
+  resolves the bot's own `open_id` through
+  `Ankole.Plugins.LarkAdapter.BotIdentity` when it starts, so operators are
   never asked to supply a bot identity by hand.
   """
   @spec validate_binding_config(term()) :: {:ok, chat_config()} | {:error, term()}
@@ -226,32 +226,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   end
 
   @doc """
-  Adds the provider-derived bot `open_id` to a chat config without persisting it.
-
-  The console never asks operators for a bot identity. Group mention events
-  carry the mentioned bot's `open_id`, so the adapter resolves its own
-  `open_id` from `bot/v3/info` (using the app credentials alone) while building
-  the live connection and keeps it only in the process-local consumer config as
-  `runtimeBotOpenID`.
-  """
-  @spec resolve_runtime_bot_identity(chat_config(), keyword()) :: chat_config()
-  def resolve_runtime_bot_identity(config, opts \\ []) when is_map(config) do
-    config = Map.delete(config, "runtimeBotOpenID")
-    fetcher = Keyword.get(opts, :bot_info_fetcher, &fetch_runtime_bot_open_id/1)
-
-    case fetcher.(config) do
-      {:ok, open_id} when is_binary(open_id) ->
-        case String.trim(open_id) do
-          "" -> runtime_bot_identity_failure(config, :missing_bot_open_id)
-          open_id -> Map.put(config, "runtimeBotOpenID", open_id)
-        end
-
-      {:error, reason} ->
-        runtime_bot_identity_failure(config, reason)
-    end
-  end
-
-  @doc """
   Returns the provider base URL for the configured Lark product region.
   """
   @spec domain_base_url(String.t()) :: String.t()
@@ -263,35 +237,6 @@ defmodule Ankole.Plugins.LarkAdapter.Config do
   @spec domain_atom(String.t()) :: :feishu | :lark
   defp domain_atom("feishu"), do: :feishu
   defp domain_atom("lark"), do: :lark
-
-  defp fetch_runtime_bot_open_id(config) do
-    case FeishuOpenAPI.get(client(config), "bot/v3/info") do
-      {:ok, %{"bot" => %{"open_id" => open_id}}} when is_binary(open_id) ->
-        case String.trim(open_id) do
-          "" -> {:error, :missing_bot_open_id}
-          trimmed -> {:ok, trimmed}
-        end
-
-      {:ok, _body} ->
-        {:error, :missing_bot_open_id}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp runtime_bot_identity_failure(config, reason) do
-    Logging.warning(
-      "lark_adapter.config.runtime_bot_open_id_failed",
-      "lark adapter could not resolve runtime bot open_id",
-      %{
-        app_id: Map.get(config, "appID"),
-        reason: inspect(reason)
-      }
-    )
-
-    config
-  end
 
   defp string_array(map, key, default) do
     case MapHelpers.fetch_value(map, key) do

@@ -314,7 +314,8 @@ defmodule FeishuOpenAPI do
   defp rate_limited?(_), do: false
 
   defp handle_rate_limited(%Req.Response{} = resp, client, %Spec{} = spec, path, retry_state) do
-    {delay_ms, source} = rate_limit_delay(resp)
+    {header_ms, source} = rate_limit_delay(resp)
+    delay_ms = clamp_delay(header_ms || @default_retry_after_ms)
 
     if Keyword.get(retry_state, :rate_retries, 0) < @max_retry_after_retries do
       :telemetry.execute(
@@ -344,6 +345,7 @@ defmodule FeishuOpenAPI do
          msg: "rate limited (#{rate_limit_msg_context(resp, source)}) after retry",
          http_status: resp.status,
          log_id: log_id_from(resp),
+         retry_after_ms: header_ms,
          raw_body: resp.body
        }}
     end
@@ -358,8 +360,9 @@ defmodule FeishuOpenAPI do
 
   defp rate_limit_msg_context(%Req.Response{status: status}, _), do: "HTTP #{status}"
 
-  # Prefer Feishu's `x-ogw-ratelimit-reset` over the generic `Retry-After`;
-  # fall back to a small default if neither is present.
+  # Prefer Feishu's `x-ogw-ratelimit-reset` over the generic `Retry-After`.
+  # The delay is nil when neither header carries a usable value, so the caller
+  # separates "the provider named a delay" from the local default.
   defp rate_limit_delay(%Req.Response{} = resp) do
     {raw_value, source} =
       case Req.Response.get_header(resp, "x-ogw-ratelimit-reset") do
@@ -373,7 +376,7 @@ defmodule FeishuOpenAPI do
           {v, :x_ogw_ratelimit_reset}
       end
 
-    {raw_value |> parse_retry_after() |> clamp_delay(), source}
+    {parse_retry_after(raw_value), source}
   end
 
   defp ratelimit_limit(%Req.Response{} = resp) do
@@ -389,21 +392,19 @@ defmodule FeishuOpenAPI do
     end
   end
 
-  defp parse_retry_after(nil), do: @default_retry_after_ms
+  defp parse_retry_after(nil), do: nil
 
   defp parse_retry_after(v) when is_binary(v) do
     case Integer.parse(v) do
-      {seconds, _} when seconds > 0 -> :timer.seconds(seconds)
-      {0, _} -> 0
-      _ -> @default_retry_after_ms
+      {seconds, _} when seconds >= 0 -> :timer.seconds(seconds)
+      _ -> nil
     end
   end
 
-  defp parse_retry_after(_), do: @default_retry_after_ms
+  defp parse_retry_after(_), do: nil
 
   defp clamp_delay(ms) when is_integer(ms) and ms > @max_retry_after_ms, do: @max_retry_after_ms
   defp clamp_delay(ms) when is_integer(ms) and ms >= 0, do: ms
-  defp clamp_delay(_), do: @default_retry_after_ms
 
   defp decode_envelope(
          %Req.Response{status: status, body: body} = resp,

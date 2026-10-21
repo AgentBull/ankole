@@ -362,6 +362,19 @@ The pair keeps `namespace: collaboration`, the exact V2 leaf name, arguments,
 and output for `spawn_agent`, `send_message`, `followup_task`,
 `interrupt_agent`, `list_agents`, and `wait_agent`.
 
+Each stored collaboration call states its `arguments_source`.
+`raw_function_call` means that the raw `function_call` item carried the
+arguments. In code mode the model calls the collaboration tools inside the
+JavaScript executor and no raw `function_call` exists. The recorder then pairs
+the activity with the child thread's raw `agent_message` item: its payload
+part holds the plaintext brief, and the recorder stores it as
+`arguments.message` (with `target` for an interaction) with source
+`child_initial_input`. Activities and inputs of one child thread arrive in the
+same order on both sides, so the recorder pairs them first-in first-out in
+either arrival order, before or after the child's own `turn/started`. A call
+whose child input has not arrived when its Turn ends, or before a flush, is
+stored with empty arguments and source `activity_fallback`.
+
 The parent-scoped `subAgentActivity` item has the same call ID as the raw
 collaboration call. The recorder adds its stable child thread ID and Agent path
 to the call result. The runtime also uses a `started` activity to assign the
@@ -526,6 +539,18 @@ MultiAgentV2 is an operator reliability choice, not a runner safety invariant:
 a workspace template that sets `features.multi_agent_v2.enabled` keeps its own
 value, so an operator can hold a Job to single-Agent execution.
 
+The project config also sets `features.multi_agent_v2_dynamic_tools = true`.
+The pinned Codex gives a child thread the parent's dynamic tools only behind
+this feature gate. Without it a child sees only the native tools and cannot
+call `skill_view`, `web_fetch`, `web_search`, or `request_parent_input`. The
+Ankole tools are part of the Job contract for every thread, so this flag is a
+runner invariant that a workspace template cannot turn off. The running-status
+metadata records `child_dynamic_tools_inherited` and `code_mode` from the
+effective thread configuration. The host integration test
+`codex-dynamic-tools-inheritance` starts a thread with dynamic tools, has the
+Provider reply with `spawn_agent`, and checks that the child's model request
+declares every dynamic tool that the lead received.
+
 Agent-level configuration owns worker and provider defaults, Plugin and Skill
 availability, and safety choices. The Job runtime projection records the
 effective non-secret snapshot at first execution admission; callers cannot set
@@ -550,6 +575,35 @@ consume. The JavaScript global can combine the namespace and leaf name, but the
 runtime keeps the structured identity beside that local binding.
 Projected `web_search` and `web_fetch` calls send their semantic selectors
 directly to AIGateway. A Job does not query or cache a separate web-tool catalog.
+
+### Code-mode tool registry
+
+Code mode exposes exactly the dynamic tools that Agent Computer declares to the
+Codex thread. The model calls them as `tools.<name>` in the JavaScript
+executor; a tool that is not in this registry does not exist for the Job, and
+a hosted tool that AIGateway would execute inside the Response does not enter
+it. The Job projection (`buildCodexJobProjection`) admits only these names:
+
+| Tool | Executor | Condition |
+| --- | --- | --- |
+| `web_search` | `Ankole.Sessions.Tools.Web` through `tools.read` | Omitted when the Job's provider connection declares hosted `web_search` |
+| `web_fetch` | `Ankole.Sessions.Tools.Web` through `tools.read`, with the Worker rendered fallback | Always |
+| `skill_view` | `Ankole.Sessions.Tools.Skill` through `tools.read` | Always |
+| `recall` | `Ankole.Sessions.Tools.Brain` through `tools.read` | The turn start carries its declaration in `request_context.brain_tools`, which the control plane fills while `brain.enabled` is true |
+| `get_page` | `Ankole.Sessions.Tools.Brain` through `tools.read` | Same as `recall` |
+| `request_parent_input` | The Worker lead-thread guard and the control plane wait | Always declared; only the lead thread may call it |
+
+Every registered tool is read-only from the Job's point of view. The Brain
+write operations, the browser tools, and the foreground-only tools never enter
+the registry. The control plane owns each read tool's contract and result.
+For the Brain tools, `Ankole.Sessions.Tools.Brain.declarations/0` is the one
+schema owner: `TurnEnvelope` puts those declarations (name, description, JSON
+schema, activity) into `request_context.brain_tools`, the Worker declares them
+to Codex unchanged, and `ReadToolBroker` validates each call against the same
+declaration. The Worker Brain tool is only the RPC codec. Child threads that
+a Job spawns inherit the same registry, so a child calls `skill_view`, the
+web tools, and the Brain read tools directly instead of reporting the need to
+the lead.
 
 Codex built-in `web_search` follows the Job's frozen hosted-tool projection.
 When the Job's provider connection declares hosted `web_search`, the project
@@ -623,7 +677,10 @@ index and is discoverable through Brain. The guidance body is the shared
 template `app/library/templates/AGENT_JOB.md`, read from the builtin library
 root in the Worker image. An empty template omits the section. The shipped
 template is empty. The Codex project config sets the native subagent wait
-minimum to one minute and the default to two minutes. It does not set the
+minimum to one minute and the default to ten minutes. A child thread runs a
+Job subtask that takes minutes, so a `wait_agent` call without `timeout_ms`
+must cover that work; a shorter default returned early and the lead started to
+redo the child's work. It does not set the
 maximum, so Codex keeps its default. This reduces repeated model turns after
 empty waits, as tracked in [openai/codex#35259](https://github.com/openai/codex/issues/35259).
 A resumed thread keeps the existing project `AGENTS.md`; the template applies
@@ -726,7 +783,9 @@ When the Worker has no free slot, a newer attempt of a Job whose older
 attempt still holds a slot takes over that slot instead of a `worker_busy`
 rejection; the older attempt is retired before the newer one executes, and
 the slot returns to the older attempt if the control plane refuses the newer
-one first.
+one first. When a third attempt has already taken the refused attempt's slot,
+the refused attempt passes its own donor on to that third attempt instead, so
+one slot stays accounted to exactly one live attempt across the chain.
 
 A retryable worker failure waits before the next execution attempt.
 Infrastructure interruptions retry within minutes and never consume the
@@ -890,11 +949,27 @@ Respawn uses the same parent-turn idempotency key as create:
 The control plane locks the source Job and accepts only `succeeded`, `failed`,
 or `stopped`. The source must have a Codex thread and a Workspace owner. One
 transaction inserts the new queued Job and its dispatch event. The new Job
-stores the source ID in `continued_from_job_id`, the inherited root ID in
-`workspace_owner_job_id`, the inherited logical profile name in
-`model_profile`, and the new message in `task`. It does not inherit the source
-runtime projection. It resolves the current profile binding at its own first
-execution admission.
+stores the source ID in `continued_from_job_id` and the new message in `task`.
+`Ankole.BackgroundAgentJobs.Schemas.Job.successor_attrs/2` owns what a
+successor copies from its source, for a manual respawn and for a steer
+successor alike. The inherited fields are:
+
+- `title`
+- `runtime_thread_id`
+- `workspace_owner_job_id`
+- `workspace_template_id`
+- `model_profile`
+
+The whole continuation chain resumes one Codex thread inside the Workspace of
+the first Job, which that Job built from the template, so each successor keeps
+the template identity. Agent Computer materializes a template only for a Job
+without a stored thread, so a successor never rebuilds it. The
+`legacy_thread_replay` metadata marker follows the source. A successor does
+not inherit the source runtime projection, result, error, attempts, or
+`managed_background_agent_job_root`; it resolves the current profile binding at
+its own first execution admission. The Console Job detail projects
+`continued_from_job_id` and `workspace_owner_job_id` with the other identity
+fields.
 
 `continued_from_job_id` is unique. One terminal Job can have only one direct
 successor, so two live Jobs cannot write to the same Codex thread and Workspace.
@@ -1030,8 +1105,9 @@ Success requires a nonempty Codex final response. A phased assistant message
 must have `phase: final_answer`. Commentary and partial answers stay in the Turn
 trajectory and cannot become the Job result. A missing or null phase keeps the
 pinned Codex protocol's legacy behavior: the last lead message is a candidate
-only until the lead thread starts another item, and a new lead Turn clears the
-previous candidate. If no final report is present, the same thread gets one
+only until the lead thread starts another work item (a command, file change,
+tool call, or collaboration item; an automatic compaction is not work), and a
+new lead Turn clears the previous candidate. If no final report is present, the same thread gets one
 report request before the Job fails with `codex_empty_report`.
 The result also includes the stable Job Workspace path.
 
@@ -1052,6 +1128,19 @@ The result can list paths in these fields:
 
 Each field contains `total_count`, `paths`, and `truncated`. It keeps at most
 32 paths and 8 KiB of serialized path data.
+
+`files_changed` unites two sources, and `files_changed_source` names each one
+that contributed. `codex_diff` is the aggregate `turn/diff/updated` stream,
+which lists only the files that Codex tools changed. `workspace_snapshot` is a
+comparison of the Job Workspace before the attempt's first Turn and after the
+lead Turn tree is idle; it lists the files that a shell command or a child
+thread added, changed, or removed. The snapshot skips the root `AGENTS.md` and,
+at any depth, the directories `.codex`, `.ankole`, `.git`, `.venv`, `venv`,
+`__pycache__`, `browser`, `build`, `dist`, `node_modules`, `target`, and
+`temp`. A scan stops above 50,000 files or two seconds; the result then keeps
+only the Codex diff and lists `workspace_snapshot_skipped` as a source. A
+change that keeps the same size and modification time is not visible to the
+snapshot.
 
 Artifacts are ordinary Job files. They do not have a separate lifecycle.
 

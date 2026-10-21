@@ -7,6 +7,7 @@ defmodule Ankole.Plugins.LarkAdapter do
 
   import Ankole.Plugins.Spec, only: [field: 5]
 
+  alias Ankole.Plugins.LarkAdapter.BotIdentity
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
@@ -108,6 +109,7 @@ defmodule Ankole.Plugins.LarkAdapter do
       {Registry, keys: :unique, name: Ankole.Plugins.LarkAdapter.ConnectionRegistry},
       {DynamicSupervisor,
        name: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor, strategy: :one_for_one},
+      BotIdentity,
       ConnectionReconciler,
       {Ankole.Plugins.ChannelSync,
        adapter: "lark", worker: Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups}

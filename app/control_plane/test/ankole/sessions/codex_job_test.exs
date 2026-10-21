@@ -63,10 +63,13 @@ defmodule Ankole.Sessions.CodexJobTest do
     assert is_binary(Ankole.Kernel.RuntimeFabric.encode_envelope(envelope))
     context = decoded_request_context(turn_start)
     refute Map.has_key?(context, "turn_mode")
-    refute Map.has_key?(context, "job_id")
     refute Map.has_key?(context, "owner_session_id")
-    refute Map.has_key?(context, "attempts")
     refute Map.has_key?(context, "model_ref")
+    # The claimed attempt is the identity that the usage ledger and the Turn
+    # root span attribute the Turn's provider rounds to.
+    assert context["job_id"] == job.id
+    assert context["attempts"] == 1
+    assert context["session_id"] == session_key.session_id
 
     refute Repo.get_by(Conversation,
              subject_uid: agent.uid,

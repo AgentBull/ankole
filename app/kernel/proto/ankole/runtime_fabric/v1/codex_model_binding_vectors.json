@@ -51,34 +51,6 @@
       "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6eyJuZXN0ZWQiOnsicHJlc2VydmVkIjp0cnVlfSwidmFsdWVzIjpbIm9uZSIsMixmYWxzZV19LCJzdXBwb3J0c19wYXJhbGxlbF90b29sX2NhbGxzIjp0cnVlLCJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXSwidmlzaW9uX2ZhbGxiYWNrIjp7InNlbGVjdG9yIjoidmlzaW9uL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6e30sImlucHV0X21vZGFsaXRpZXMiOlsidGV4dCIsImltYWdlIl19fQ"
     },
     {
-      "name": "brain",
-      "binding": {
-        "selector": "provider/model",
-        "provider_options": {
-          "nested": {
-            "preserved": true
-          },
-          "values": [
-            "one",
-            2,
-            false
-          ]
-        },
-        "supports_parallel_tool_calls": true,
-        "input_modalities": [
-          "text"
-        ],
-        "brain": {
-          "operations": [
-            "recall",
-            "get_page"
-          ],
-          "signal_id": "signal-1"
-        }
-      },
-      "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6eyJuZXN0ZWQiOnsicHJlc2VydmVkIjp0cnVlfSwidmFsdWVzIjpbIm9uZSIsMixmYWxzZV19LCJzdXBwb3J0c19wYXJhbGxlbF90b29sX2NhbGxzIjp0cnVlLCJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXSwiYnJhaW4iOnsib3BlcmF0aW9ucyI6WyJyZWNhbGwiLCJnZXRfcGFnZSJdLCJzaWduYWxfaWQiOiJzaWduYWwtMSJ9fQ"
-    },
-    {
       "name": "unicode",
       "binding": {
         "selector": "provider/模型",
@@ -91,6 +63,23 @@
         ]
       },
       "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL-aooeWeiyIsInByb3ZpZGVyX29wdGlvbnMiOnsibGFiZWwiOiLkuK3mlocifSwic3VwcG9ydHNfcGFyYWxsZWxfdG9vbF9jYWxscyI6dHJ1ZSwiaW5wdXRfbW9kYWxpdGllcyI6WyJ0ZXh0Il19"
+    },
+    {
+      "name": "job",
+      "binding": {
+        "selector": "provider/model",
+        "provider_options": {},
+        "supports_parallel_tool_calls": false,
+        "input_modalities": [
+          "text"
+        ],
+        "job": {
+          "id": 1155,
+          "attempt": 2,
+          "signal_id": "01a15cf1-dde6-7e33-a5cb-917deb67fb9d"
+        }
+      },
+      "encoded": "eyJzZWxlY3RvciI6InByb3ZpZGVyL21vZGVsIiwicHJvdmlkZXJfb3B0aW9ucyI6e30sInN1cHBvcnRzX3BhcmFsbGVsX3Rvb2xfY2FsbHMiOmZhbHNlLCJpbnB1dF9tb2RhbGl0aWVzIjpbInRleHQiXSwiam9iIjp7ImlkIjoxMTU1LCJhdHRlbXB0IjoyLCJzaWduYWxfaWQiOiIwMWExNWNmMS1kZGU2LTdlMzMtYTVjYi05MTdkZWI2N2ZiOWQifX0"
     }
   ]
 }

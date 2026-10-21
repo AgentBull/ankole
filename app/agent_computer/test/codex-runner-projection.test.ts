@@ -16,7 +16,10 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
         return 'search result'
       }),
       tool('web_fetch', z.object({ urls: z.array(z.string()) }), () => 'x'.repeat(20_000)),
-      tool('recall', z.object({ query: z.string() }), () => 'recalled memory'),
+      {
+        ...tool('recall', z.record(z.string(), z.unknown()), () => 'recalled memory'),
+        inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 } }, required: ['query'] }
+      },
       tool('get_page', z.object({ reference: z.string() }), () => 'memory page'),
       ...['remember', 'forget', 'entity', 'whoknows', 'synthesize', 'delta'].map(name =>
         tool(name, z.object({ value: z.string() }), () => 'must stay hidden')
@@ -38,9 +41,16 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
     })
 
     expect(projection.dynamicTools.map(spec => ('name' in spec ? spec.name : undefined)).sort()).toEqual(
-      ['web_search', 'web_fetch', 'skill_view'].sort()
+      ['web_search', 'web_fetch', 'skill_view', 'recall', 'get_page'].sort()
     )
     expect(projection.quarantinedTools).toEqual([])
+    // A tool that carries its owner's schema is declared with that schema, not a zod conversion.
+    const recallSpec = projection.dynamicTools.find(spec => spec.name === 'recall')
+    expect(recallSpec && 'inputSchema' in recallSpec ? recallSpec.inputSchema : undefined).toEqual({
+      type: 'object',
+      properties: { query: { type: 'string', minLength: 1 } },
+      required: ['query']
+    })
 
     const invalid = await projection.handleToolCall(
       {
@@ -86,6 +96,19 @@ describe('@ankole/agent-computer Codex job capability projection', () => {
       type: 'inputText',
       text: 'Dynamic tool is unavailable: command'
     })
+
+    const brainRead = await projection.handleToolCall(
+      {
+        ['threadId']: 'thread-1',
+        ['turnId']: 'turn-1',
+        ['callId']: 'call-brain-read',
+        namespace: null,
+        tool: 'recall',
+        arguments: { query: 'decision' }
+      },
+      new AbortController().signal
+    )
+    expect(brainRead).toEqual({ contentItems: [{ type: 'inputText', text: 'recalled memory' }], success: true })
 
     const brainWrite = await projection.handleToolCall(
       {

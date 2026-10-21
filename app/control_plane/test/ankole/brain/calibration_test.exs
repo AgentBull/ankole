@@ -30,15 +30,12 @@ defmodule Ankole.Brain.CalibrationTest do
       send(test_pid, {:calibration_prompt, prompt})
       send(test_pid, {:calibration_request, body})
 
+      # Every fixture Take is expired, and a verdict on an expired Take resolves
+      # it. The default verdict keeps the Take in the queue so the regrade
+      # paths below stay reachable; a test that wants a resolution plans one.
       answer =
         Map.get_lazy(plan, :text, fn ->
-          Ankole.JSON.encode!(
-            Map.get(plan, :output, %{
-              "quality" => "correct",
-              "confidence" => 0.9,
-              "domains" => []
-            })
-          )
+          Ankole.JSON.encode!(Map.get(plan, :output, grade_output([])))
         end)
 
       {:json, 200, chat_completion_body(body["model"], answer)}
@@ -92,6 +89,7 @@ defmodule Ankole.Brain.CalibrationTest do
       )
 
     assert {:ok, _object} = Objects.soft_delete(context.object.slug)
+    plan_verdict!(context, "correct")
     assert %{status: :ok, candidates: 1, graded: 1} = Calibration.grade_takes()
 
     assert_receive {:calibration_prompt, prompt}
@@ -99,6 +97,119 @@ defmodule Ankole.Brain.CalibrationTest do
     refute prompt =~ object_text
     assert Repo.get!(Claim, object_take.id).graded_at == nil
     assert Repo.get!(Claim, channel_take.id).graded_quality == "correct"
+  end
+
+  test "a verdict on an expired Take resolves it without a manual resolve", context do
+    take = write_take!(context.member, %{object_slug: context.object.slug}, "Expired prediction")
+    write_fact!(context, "The outcome is known")
+
+    plan_verdict!(context, "incorrect")
+    assert %{status: :ok, candidates: 1, attempted: 1, graded: 1} = Calibration.grade_takes()
+    assert_receive {:calibration_prompt, prompt}, 1_000
+    assert prompt =~ "The outcome is known"
+
+    resolved = Repo.get!(Claim, take.id)
+    assert resolved.graded_quality == "incorrect"
+    assert %DateTime{} = resolved.resolved_at
+    assert resolved.resolved_quality == "incorrect"
+    assert resolved.resolved_outcome == false
+    assert resolved.resolved_by == grader_actor()
+    assert resolved.resolution_provenance == "dreaming grade"
+    refute resolved.active
+
+    # The Take has left the candidate set and entered the holder scorecard.
+    assert %{status: :ok, candidates: 0, attempted: 0, graded: 0} = Calibration.grade_takes()
+    refute_receive {:calibration_prompt, _prompt}, 0
+    assert %{status: :ok, holders: 1, updated: 1} = Calibration.calibration_profile()
+    assert {:ok, holder} = Objects.get_by_slug("people/#{context.member.uid}")
+    assert holder.body =~ "Resolved takes: 1; Brier score: 0.36."
+
+    assert {:error, :already_resolved} =
+             Claims.resolve_take(
+               take.id,
+               %{resolved_quality: "correct", resolved_outcome: true},
+               context.member.uid
+             )
+  end
+
+  test "a partial verdict resolves an expired Take without an outcome", context do
+    take = write_take!(context.member, %{object_slug: context.object.slug}, "Partial prediction")
+
+    plan_verdict!(context, "partial")
+    assert %{graded: 1} = Calibration.grade_takes()
+    assert_receive {:calibration_prompt, _prompt}, 1_000
+
+    resolved = Repo.get!(Claim, take.id)
+    assert resolved.resolved_quality == "partial"
+    assert resolved.resolved_outcome == nil
+    assert resolved.resolved_by == grader_actor()
+    assert %{candidates: 0} = Calibration.grade_takes()
+    assert %{status: :ok, holders: 0, updated: 0} = Calibration.calibration_profile()
+  end
+
+  test "an unresolvable verdict keeps an expired Take in the queue", context do
+    take = write_take!(context.member, %{object_slug: context.object.slug}, "Open prediction")
+
+    assert %{graded: 1} = Calibration.grade_takes()
+    assert_receive {:calibration_prompt, _prompt}, 1_000
+
+    graded = Repo.get!(Claim, take.id)
+    assert graded.graded_quality == "unresolvable"
+    assert graded.resolved_at == nil
+    assert graded.active
+
+    write_fact!(context, "Later evidence arrives")
+    plan_verdict!(context, "correct")
+    assert %{candidates: 1, attempted: 1, graded: 1} = Calibration.grade_takes()
+    assert_receive {:calibration_prompt, _prompt}, 1_000
+    assert Repo.get!(Claim, take.id).resolved_outcome == true
+  end
+
+  test "a stale Take without a due date keeps only its grade", context do
+    take =
+      write_take!(context.member, %{object_slug: context.object.slug}, "Open-ended prediction",
+        until_date: nil
+      )
+
+    assert %{candidates: 0} = Calibration.grade_takes()
+
+    take
+    |> Ecto.Changeset.change(created_at: ~U[2020-01-01 00:00:00.000000Z])
+    |> Repo.update!()
+
+    plan_verdict!(context, "correct")
+    assert %{candidates: 1, attempted: 1, graded: 1} = Calibration.grade_takes()
+    assert_receive {:calibration_prompt, _prompt}, 1_000
+
+    graded = Repo.get!(Claim, take.id)
+    assert graded.graded_quality == "correct"
+    assert graded.resolved_at == nil
+    assert graded.active
+    assert %{candidates: 1, attempted: 0, graded: 0} = Calibration.grade_takes()
+  end
+
+  test "write_take rejects a due date that is not one calendar date", context do
+    for invalid <- ["end of Q3", "2026-02-30", "2026/09/30", 20_260_930] do
+      assert {:error, :invalid_until_date} =
+               Claims.write_take(
+                 take_attrs(context.member, %{object_slug: context.object.slug}, "Prediction",
+                   until_date: invalid
+                 ),
+                 context.member.uid,
+                 embed: false
+               )
+    end
+
+    assert {:ok, take} =
+             Claims.write_take(
+               take_attrs(context.member, %{object_slug: context.object.slug}, "Prediction",
+                 until_date: ~D[2027-01-31]
+               ),
+               context.member.uid,
+               embed: false
+             )
+
+    assert take.until_date == ~D[2027-01-31]
   end
 
   test "successful input hashes persist and unchanged grades skip the model", context do
@@ -119,7 +230,7 @@ defmodule Ankole.Brain.CalibrationTest do
 
     graded = Repo.get!(Claim, take.id)
     assert graded.graded_input_hash =~ ~r/^[0-9a-f]{32}$/
-    assert graded.graded_quality == "correct"
+    assert graded.graded_quality == "unresolvable"
 
     assert %{status: :ok, candidates: 1, attempted: 0, graded: 0} = Calibration.grade_takes()
     assert Repo.get!(Claim, take.id) == graded
@@ -481,23 +592,25 @@ defmodule Ankole.Brain.CalibrationTest do
     refute holder.body =~ "Resolved takes: 2"
   end
 
-  defp write_take!(member, parent, claim) do
-    attrs =
-      Map.merge(
-        %{
-          claim: claim,
-          kind: "prediction",
-          holder: "people/#{member.uid}",
-          audience_scope: "world",
-          weight: 0.6,
-          until_date: "2020-01-01",
-          provenance: "test"
-        },
-        parent
-      )
+  defp write_take!(member, parent, claim, overrides \\ []) do
+    {:ok, take} =
+      Claims.write_take(take_attrs(member, parent, claim, overrides), member.uid, embed: false)
 
-    {:ok, take} = Claims.write_take(attrs, member.uid, embed: false)
     take
+  end
+
+  defp take_attrs(member, parent, claim, overrides) do
+    %{
+      claim: claim,
+      kind: "prediction",
+      holder: "people/#{member.uid}",
+      audience_scope: "world",
+      weight: 0.6,
+      until_date: "2020-01-01",
+      provenance: "test"
+    }
+    |> Map.merge(parent)
+    |> Map.merge(Map.new(overrides))
   end
 
   defp assert_changed_take_state(:delete, current), do: assert(is_nil(current))
@@ -550,8 +663,18 @@ defmodule Ankole.Brain.CalibrationTest do
              })
   end
 
-  defp grade_output(domains),
-    do: %{"quality" => "correct", "confidence" => 0.9, "domains" => domains}
+  # The grader resolves as the Brain maintainer Agent.
+  defp grader_actor do
+    {:ok, maintainer} = AppConfigure.get_by_key("brain.maintainer_agent_uid")
+    to_string(Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: maintainer}))
+  end
+
+  defp grade_output(domains, quality \\ "unresolvable"),
+    do: %{"quality" => quality, "confidence" => 0.9, "domains" => domains}
+
+  # Plans the verdict of the next model call.
+  defp plan_verdict!(context, quality),
+    do: Agent.update(context.upstream, fn _plan -> %{output: grade_output([], quality)} end)
 
   defp insert_channel! do
     now = DateTime.utc_now(:microsecond)

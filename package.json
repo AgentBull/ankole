@@ -20,9 +20,11 @@
     "test": "turbo run test",
     "lint": "oxlint && turbo run lint",
     "lint:fix": "oxlint --fix",
+    "lint:repo": "oxlint",
     "type-check": "turbo run type-check",
     "fmt": "turbo run fmt",
     "fmt:check": "turbo run fmt:check",
+    "fmt:check:repo": "oxfmt --check .",
     "agent-computer": "bun run --filter @ankole/agent-computer",
     "agent-computer:test": "bun run --filter @ankole/agent-computer test",
     "agent-computer:type-check": "bun run --filter @ankole/agent-computer type-check",
@@ -55,10 +57,10 @@
     "oxlint": "^1.88.0",
     "typescript": "^7.0.2"
   },
-  "packageManager": "bun@1.4.2",
   "overrides": {
     "mdast-util-gfm-strikethrough": "2.0.1"
   },
+  "packageManager": "bun@1.4.2",
   "patchedDependencies": {
     "mdast-util-to-markdown@2.2.0": "libs/ankole-editor/patches/mdast-util-to-markdown@2.2.0.patch"
   }

@@ -110,12 +110,12 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   defp prepare_respawn(source_job_id, attrs, agent_uid, now) do
     with {:ok, reply_route} <- reply_route(attrs),
          %Job{} = source_job <- BackgroundAgentJobs.get_job_for_agent(source_job_id, agent_uid),
-         {:ok, model_profile} <- available_model_profile(agent_uid, source_job.model_profile),
+         # The successor inherits the source profile, which must still resolve.
+         {:ok, _model_profile} <- available_model_profile(agent_uid, source_job.model_profile),
          {:ok, metadata} <- job_metadata(attrs, false) do
       attrs =
         attrs
         |> Map.put("reply_route", reply_route)
-        |> Map.put("model_profile", model_profile)
         |> Map.put("metadata", metadata)
 
       persist_respawn(source_job_id, attrs, now)
@@ -248,29 +248,17 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
+  # The successor's own facts; `Job.successor_attrs/2` owns what it inherits.
   defp respawn_job_attrs(attrs, source_job, now) do
-    metadata = Map.get(attrs, "metadata", %{})
-
-    metadata =
-      if source_job.metadata["legacy_thread_replay"] == true,
-        do: Map.put(metadata, "legacy_thread_replay", true),
-        else: Map.delete(metadata, "legacy_thread_replay")
-
     attrs
-    |> Map.put("metadata", metadata)
     |> Map.delete("message")
-    |> Map.put("title", source_job.title)
     |> Map.put("task", Map.get(attrs, "message"))
-    |> Map.put("runtime_thread_id", source_job.runtime_thread_id)
-    |> Map.put("continued_from_job_id", source_job.id)
-    |> Map.put("workspace_owner_job_id", source_job.workspace_owner_job_id)
-    |> Map.put("workspace_template_id", nil)
-    |> Map.put("model_profile", source_job.model_profile)
     |> Map.put("status", "queued")
     |> Map.put("attempts", 0)
     |> Map.put("queued_at", now)
     |> Map.put("result", %{})
     |> Map.put("error", %{})
+    |> then(&Job.successor_attrs(source_job, &1))
   end
 
   defp existing_job_result(repo, %Job{} = job) do
@@ -370,8 +358,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
              "source_tool_call_id" => "steer-successor:#{first.id}",
              "reply_route" => source_job.reply_route || %{},
              "message" => task,
-             "metadata" => %{"seeded_from_steer" => true},
-             "model_profile" => source_job.model_profile
+             "metadata" => %{"seeded_from_steer" => true}
            }
            |> respawn_job_attrs(source_job, now)
            |> Ankole.Principals.WorkAccess.merge(first),

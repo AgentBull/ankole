@@ -50,6 +50,19 @@ defmodule Ankole.Brain.Jobs.Dreaming do
       })
     end
 
+    # A skipped phase did no work. A missing Dreaming model skips grading
+    # every night, so operators must see it without reading the info report.
+    skipped =
+      for {phase, %{status: :skipped} = outcome} <- report do
+        {phase, outcome[:reason]}
+      end
+
+    if skipped != [] do
+      Logging.warning("brain.dreaming.phases_skipped", "dreaming phases skipped", %{
+        skipped: Map.new(skipped)
+      })
+    end
+
     :ok
   end
 end

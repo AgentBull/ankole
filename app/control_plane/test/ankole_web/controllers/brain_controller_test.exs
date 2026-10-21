@@ -462,10 +462,22 @@ defmodule AnkoleWeb.BrainControllerTest do
            }
 
     assert health["models"]["dreaming"]["model"] == "heavy-model"
+    assert health["grading"] == %{"status" => "ready", "reason" => nil}
 
     # A URL source learns only through the `web_fetch` profile; nothing falls
     # back to a Worker browser.
     assert health["models"]["web_fetch"] == %{"configured" => false, "profile" => "web_fetch"}
+  end
+
+  test "health reports that grading is skipped without a Dreaming model", %{conn: conn} do
+    {conn, _principal_uid} = console_conn_with_principal(conn)
+
+    assert %{"health" => health} = conn |> get(~p"/api/v1/brain/health") |> json_response(200)
+
+    assert health["grading"] == %{
+             "status" => "skipped",
+             "reason" => "dreaming_model_not_configured"
+           }
   end
 
   test "health reports a disabled maintainer Agent for every Brain profile", %{

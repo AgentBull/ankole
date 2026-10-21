@@ -2,7 +2,8 @@ import { isRecord } from '@agentbull/active-support'
 import {
   AIGATEWAY_PROVIDER_NAME,
   codexAIGatewayAuthConfig,
-  encodeAIGatewayModelBinding
+  encodeAIGatewayModelBinding,
+  type CodexJobBindingIdentity
 } from '../runtime/agent-home-config'
 import { AIGATEWAY_OBSERVABILITY_USER_ID_HEADER, aiGatewayTurnTraceHeaders } from '../../ai_gateway_transport'
 import type { TurnTracePropagation } from '../../../observability/turn-tracing'
@@ -20,6 +21,7 @@ export function codexJobThreadConfig(input: {
   codexHome: string
   env: Record<string, string>
   runtime: CodexRuntimeConfig
+  job?: CodexJobBindingIdentity
   driveDirectory?: string
   podInstructions?: string
   originalHumanRequest?: string
@@ -47,7 +49,7 @@ export function codexJobThreadConfig(input: {
         wire_api: 'responses',
         supports_websockets: true,
         http_headers: {
-          'x-ankole-aigateway-model-binding': encodeAIGatewayModelBinding(input.runtime)
+          'x-ankole-aigateway-model-binding': encodeAIGatewayModelBinding(input.runtime, input.job)
         },
         auth: codexAIGatewayAuthConfig(input.codexHome)
       }

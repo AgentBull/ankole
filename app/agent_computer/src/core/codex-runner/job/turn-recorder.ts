@@ -33,6 +33,8 @@ import { errorMessage } from '../../../common/errors'
 // Coalesce event bursts before a progress checkpoint. flush() still bypasses
 // this delay at every durability boundary.
 const checkpointDelayMs = ms('5s')
+/** Child inputs kept per thread while their activity has not arrived. */
+const maxUnmatchedChildInputs = 8
 type RuntimeTurn = {
   runtimeThreadID: string
   runtimeTurnID: string
@@ -82,6 +84,18 @@ type PendingCollaborationCall = {
 }
 
 /**
+ * A collaboration call known only from its parent-scoped activity. Code mode
+ * calls the collaboration tools inside the JavaScript executor, so no raw
+ * `function_call` carries the arguments. Codex delivers the brief to the child
+ * thread as a raw `agent_message` item, and that item holds the plaintext.
+ */
+type DeferredCollaborationCall = {
+  runtimeTurnID: string
+  id: string
+  activity: CollaborationActivity
+}
+
+/**
  * Converts Codex events for one Job attempt into ordered durable Turn records.
  * Item keys make repeated events idempotent. flush() is the durability fence
  * before the Job status can commit.
@@ -89,6 +103,11 @@ type PendingCollaborationCall = {
 export class BackgroundAgentJobTurnRecorder {
   private readonly turns = new Map<string, RuntimeTurn>()
   private readonly pendingCollaborationCalls = new Map<string, PendingCollaborationCall>()
+  /** Activity-only calls per child thread, in arrival order, waiting for that thread's next input. */
+  private readonly deferredCollaborationCalls = new Map<string, DeferredCollaborationCall[]>()
+  /** Child inputs per thread, in arrival order, that arrived before their activity. */
+  private readonly unmatchedChildInputs = new Map<string, string[]>()
+  private leadThreadID: string | undefined
   private readonly timers = new Map<string, ReturnType<typeof setTimeout>>()
   private tail: Promise<void> = Promise.resolve()
   private checkpointError: unknown
@@ -126,6 +145,8 @@ export class BackgroundAgentJobTurnRecorder {
       this.turns.get(runtimeTurnID)?.runtimeThreadID ??
       [...this.turns.values()].at(-1)?.runtimeThreadID
     if (!runtimeThreadID) return
+    // Only the session starts a Turn with input, and only on the lead thread.
+    if (input !== undefined) this.leadThreadID = runtimeThreadID
 
     let turn = this.turns.get(runtimeTurnID)
     if (!turn) {
@@ -260,6 +281,7 @@ export class BackgroundAgentJobTurnRecorder {
   interruptTurn(turnID: string | undefined, error: JSONObject): void {
     const turn = turnID ? this.turns.get(turnID) : undefined
     if (!turn || (terminal(turn.status) && turn.status !== 'interrupted')) return
+    this.settleDeferredCollaborationCalls(turn.runtimeTurnID)
     turn.status = 'interrupted'
     turn.error = this.sanitizeObject({ ...turn.error, ...error }, turn)
     turn.completedAt ??= now()
@@ -271,6 +293,7 @@ export class BackgroundAgentJobTurnRecorder {
   finishTurn(turnID: string | undefined, status: 'failed' | 'stopped', error: JSONObject = {}): void {
     const turn = turnID ? this.turns.get(turnID) : undefined
     if (!turn || terminal(turn.status)) return
+    this.settleDeferredCollaborationCalls(turn.runtimeTurnID)
     turn.status = status === 'failed' ? 'failed' : 'interrupted'
     turn.error = this.sanitizeObject(error, turn)
     turn.completedAt = now()
@@ -280,6 +303,7 @@ export class BackgroundAgentJobTurnRecorder {
   }
 
   async flush(): Promise<void> {
+    this.settleDeferredCollaborationCalls()
     for (const [turnID, timer] of this.timers) {
       clearTimeout(timer)
       this.timers.delete(turnID)
@@ -304,6 +328,7 @@ export class BackgroundAgentJobTurnRecorder {
     if (!turn) return
 
     this.applyCanonicalItems(turn, payload, true)
+    this.settleDeferredCollaborationCalls(runtimeTurnID)
     const reportedStatus = turnStatus(payload.status) ?? 'failed'
     const acceptsReportedTerminal = !terminal(turn.status) || reportedStatus === turn.status
     if (!terminal(turn.status)) turn.status = reportedStatus
@@ -385,6 +410,12 @@ export class BackgroundAgentJobTurnRecorder {
 
   private completeRawResponseItem(params: JSONObject): void {
     const item = jsonObject(params.item)
+    if (item.type === 'agent_message') {
+      // The child's turn can be unknown here; the thread ID alone routes the input.
+      const threadID = stringValue(params.threadId)
+      if (threadID) this.observeChildInput(threadID, agentMessagePayload(item.content))
+      return
+    }
     const callID = stringValue(item.call_id)
     if (!callID) return
 
@@ -434,6 +465,7 @@ export class BackgroundAgentJobTurnRecorder {
         namespace: 'collaboration',
         tool: pending.tool,
         arguments: pending.arguments,
+        arguments_source: 'raw_function_call',
         status: 'completed',
         contentItems: output,
         success: null,
@@ -455,20 +487,78 @@ export class BackgroundAgentJobTurnRecorder {
       return
     }
 
+    const deferred = { runtimeTurnID: turn.runtimeTurnID, id, activity }
+    if (kind !== 'started' && kind !== 'interacted') {
+      this.recordDeferredCollaborationCall(deferred)
+      return
+    }
+    const input = this.unmatchedChildInputs.get(agentThreadID)?.shift()
+    if (input !== undefined) {
+      this.recordDeferredCollaborationCall(deferred, input)
+      return
+    }
+    const queue = this.deferredCollaborationCalls.get(agentThreadID) ?? []
+    queue.push(deferred)
+    this.deferredCollaborationCalls.set(agentThreadID, queue)
+  }
+
+  /**
+   * A `started` activity takes the child's first turn input as its brief; an
+   * `interacted` activity takes the child's next turn input as its message.
+   * Without an input the record keeps the activity alone and says so.
+   */
+  private recordDeferredCollaborationCall(call: DeferredCollaborationCall, input?: string): void {
+    const turn = this.turns.get(call.runtimeTurnID)
+    if (!turn) return
+    const { kind, agentPath } = call.activity
+    const argumentsValue =
+      input === undefined ? {} : kind === 'started' ? { message: input } : { target: agentPath, message: input }
     this.recordCompletedItem(
       turn,
       jsonObject({
         type: 'dynamicToolCall',
-        id,
+        id: call.id,
         namespace: 'collaboration',
         tool: fallbackCollaborationTool(kind),
-        arguments: {},
+        arguments: argumentsValue,
+        arguments_source: input === undefined ? 'activity_fallback' : 'child_initial_input',
         status: 'completed',
-        contentItems: collaborationToolOutcome('', activity),
+        contentItems: collaborationToolOutcome('', call.activity),
         success: null,
         durationMs: null
       })
     )
+  }
+
+  /**
+   * Inputs and activities of one child thread arrive in the same order on both
+   * sides, so the oldest unmatched entry on either side pairs with the next
+   * arrival on the other side.
+   */
+  private observeChildInput(threadID: string, text: string | undefined): void {
+    if (!text || threadID === this.leadThreadID) return
+    const deferred = this.deferredCollaborationCalls.get(threadID)?.shift()
+    if (deferred) {
+      this.recordDeferredCollaborationCall(deferred, text)
+      return
+    }
+    const inputs = this.unmatchedChildInputs.get(threadID) ?? []
+    inputs.push(text)
+    if (inputs.length > maxUnmatchedChildInputs) inputs.shift()
+    this.unmatchedChildInputs.set(threadID, inputs)
+  }
+
+  /** Records the deferred calls of one Turn, or of every Turn, at a durability point. */
+  private settleDeferredCollaborationCalls(runtimeTurnID?: string): void {
+    for (const [threadID, queue] of this.deferredCollaborationCalls) {
+      const remaining = queue.filter(call => {
+        if (runtimeTurnID !== undefined && call.runtimeTurnID !== runtimeTurnID) return true
+        this.recordDeferredCollaborationCall(call)
+        return false
+      })
+      if (remaining.length === 0) this.deferredCollaborationCalls.delete(threadID)
+      else this.deferredCollaborationCalls.set(threadID, remaining)
+    }
   }
 
   private updateTurnPlan(params: JSONObject): void {
@@ -836,6 +926,19 @@ function collaborationToolOutcome(output: unknown, activity?: CollaborationActiv
       }
     ]
   }
+}
+
+/**
+ * A parent-to-child agent message carries a routing header as `input_text`
+ * and the message itself as an `encrypted_content` part, which the pinned
+ * Codex fills with the plaintext.
+ */
+function agentMessagePayload(content: unknown): string | undefined {
+  const payload = arrayValue(content).flatMap(part => {
+    const value = jsonObject(part)
+    return value.type === 'encrypted_content' ? [stringValue(value.encrypted_content) ?? ''] : []
+  })
+  return payload.join('') || undefined
 }
 
 function parseJSONValue(value: unknown, emptyValue: unknown): unknown {

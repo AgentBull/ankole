@@ -20,6 +20,12 @@ export interface WorkerAgentTool<TZod extends z.ZodType = z.ZodType, TDetails = 
   executionMode: 'parallel' | 'sequential'
   /** Validates environment tool input before execution. */
   schema: TZod
+  /**
+   * The JSON schema that the owning runtime declared for this tool. A Job
+   * projection declares it to the model instead of converting `schema`, so a
+   * tool whose contract lives in the control plane has one schema owner.
+   */
+  inputSchema?: JSONObject
   /** Declares a Responses custom tool whose model input is raw text. */
   inputFormat?: CustomToolInputFormat
   isReadOnly?: boolean

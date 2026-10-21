@@ -172,85 +172,47 @@ defmodule Ankole.Sessions.CodexModelBindingTest do
     end
   end
 
-  test "carries the Job's hosted Brain declaration and applies it to the request" do
+  test "a Job binding never declares the hosted Brain tool in the Codex request" do
+    # A codex Job reaches `recall` and `get_page` through the Worker read-tool
+    # bridge. The binding leaves the Codex tool list, its `additional_tools`
+    # carrier, and the request metadata as Codex sent them, so one tool name
+    # has one executor.
     signal_id = Ankole.Ecto.UUIDv7.autogenerate()
 
-    encoded =
-      %{
-        "selector" => "openrouter/openai/gpt-5.6-sol",
-        "provider_options" => %{},
-        "supports_parallel_tool_calls" => true,
-        "input_modalities" => ["text"],
-        "brain" => %{"operations" => ["recall", "get_page"], "signal_id" => signal_id}
-      }
-      |> Ankole.JSON.encode!()
-      |> Base.url_encode64(padding: false)
-
-    assert {:ok, binding} = CodexModelBinding.decode(encoded)
-
-    assert binding["brain"] == %{
-             "operations" => ["recall", "get_page"],
-             "signal_id" => signal_id
-           }
-
-    request = %{
-      "model" => "codex-mini",
-      "input" => [],
-      "tools" => [%{"type" => "function", "name" => "shell", "parameters" => %{}}],
-      "metadata" => %{"trace" => "abc"}
+    binding = %{
+      "selector" => "openrouter/openai/gpt-5.6-sol",
+      "provider_options" => %{},
+      "supports_parallel_tool_calls" => true,
+      "input_modalities" => ["text"],
+      "job" => %{"id" => 1155, "attempt" => 2, "signal_id" => signal_id}
     }
 
-    applied = CodexModelBinding.apply(request, binding)
+    tools = [%{"type" => "function", "name" => "shell", "parameters" => %{}}]
 
-    assert Enum.at(applied["tools"], -1) == %{
-             "type" => "brain",
-             "operations" => ["recall", "get_page"]
-           }
-
-    assert applied["metadata"] == %{"trace" => "abc", "signal_id" => signal_id}
-
-    # Codex 0.163 carries its tools in an `additional_tools` input item. The
-    # declaration must join that list; a top-level `tools` entry would stay
-    # unsplit and reach the provider as an unknown tool type.
-    carried =
+    applied =
       CodexModelBinding.apply(
         %{
           "model" => "codex-mini",
-          "input" => [
-            %{"type" => "additional_tools", "role" => "developer", "tools" => request["tools"]},
-            %{"type" => "message", "role" => "user", "content" => "hello"}
-          ]
+          "input" => [],
+          "tools" => tools,
+          "metadata" => %{"trace" => "abc"}
         },
         binding
       )
 
+    assert applied["tools"] == tools
+    assert applied["metadata"] == %{"trace" => "abc"}
+    assert {:ok, nil} = Ankole.AIGateway.HostedTools.Brain.declaration(applied)
+
+    carrier = %{"type" => "additional_tools", "role" => "developer", "tools" => tools}
+    message = %{"type" => "message", "role" => "user", "content" => "hello"}
+
+    carried =
+      CodexModelBinding.apply(%{"model" => "codex-mini", "input" => [carrier, message]}, binding)
+
     assert carried["tools"] == nil
-    [carrier, _message] = carried["input"]
-    assert Enum.map(carrier["tools"], & &1["type"]) == ["function", "brain"]
-
-    assert {:ok, %{operations: ["recall", "get_page"]}} =
-             Ankole.AIGateway.HostedTools.Brain.declaration(carried)
-  end
-
-  test "rejects a Brain declaration with unknown operations or no actor event" do
-    for brain <- [
-          %{"operations" => ["erase"], "signal_id" => "event-1"},
-          %{"operations" => ["recall"], "signal_id" => ""},
-          %{"operations" => [], "signal_id" => "event-1"}
-        ] do
-      encoded =
-        %{
-          "selector" => "openrouter/openai/gpt-5.6-sol",
-          "provider_options" => %{},
-          "supports_parallel_tool_calls" => true,
-          "input_modalities" => ["text"],
-          "brain" => brain
-        }
-        |> Ankole.JSON.encode!()
-        |> Base.url_encode64(padding: false)
-
-      assert {:error, :invalid_codex_model_binding} = CodexModelBinding.decode(encoded)
-    end
+    assert carried["input"] == [carrier, message]
+    assert {:ok, nil} = Ankole.AIGateway.HostedTools.Brain.declaration(carried)
   end
 
   test "rejects a fallback that cannot receive images" do
@@ -270,5 +232,67 @@ defmodule Ankole.Sessions.CodexModelBindingTest do
       |> Base.url_encode64(padding: false)
 
     assert {:error, :invalid_codex_model_binding} = CodexModelBinding.decode(encoded)
+  end
+
+  describe "job attribution" do
+    @signal_id "01915f9d-5f00-7000-8000-000000000001"
+
+    test "decodes the Job attempt and writes it into the request context" do
+      encoded =
+        encode_binding(%{"job" => %{"id" => 1234, "attempt" => 3, "signal_id" => @signal_id}})
+
+      assert {:ok, binding} = CodexModelBinding.decode(encoded)
+      assert binding["job"] == %{"id" => 1234, "attempt" => 3, "signal_id" => @signal_id}
+
+      context =
+        CodexModelBinding.request_context(binding, %{
+          "headers" => %{"originator" => "codex_cli_rs"},
+          "downstream_transport" => "http"
+        })
+
+      assert context == %{
+               "headers" => %{"originator" => "codex_cli_rs"},
+               "downstream_transport" => "http",
+               "job_id" => 1234,
+               "attempts" => 3,
+               "signal_id" => @signal_id,
+               "session_id" => "job:1234"
+             }
+    end
+
+    test "a binding without a Job leaves the request context unchanged" do
+      assert {:ok, binding} = CodexModelBinding.decode(encode_binding(%{}))
+      refute Map.has_key?(binding, "job")
+      context = %{"headers" => %{}, "downstream_transport" => "websocket"}
+      assert CodexModelBinding.request_context(binding, context) == context
+      assert CodexModelBinding.request_context(nil, context) == context
+    end
+
+    for job <- [
+          %{"id" => 0, "attempt" => 0, "signal_id" => @signal_id},
+          %{"id" => "1234", "attempt" => 0, "signal_id" => @signal_id},
+          %{"id" => 1234, "attempt" => -1, "signal_id" => @signal_id},
+          %{"id" => 1234, "attempt" => 1, "signal_id" => "not-a-uuid"},
+          %{"id" => 1234, "attempt" => 1},
+          "job:1234"
+        ] do
+      @job job
+      test "rejects the Job section #{inspect(@job)}" do
+        assert {:error, :invalid_codex_model_binding} =
+                 CodexModelBinding.decode(encode_binding(%{"job" => @job}))
+      end
+    end
+  end
+
+  defp encode_binding(extra) do
+    %{
+      "selector" => "openrouter/openai/gpt-5.6-sol",
+      "provider_options" => %{},
+      "supports_parallel_tool_calls" => true,
+      "input_modalities" => ["text"]
+    }
+    |> Map.merge(extra)
+    |> Ankole.JSON.encode!()
+    |> Base.url_encode64(padding: false)
   end
 end

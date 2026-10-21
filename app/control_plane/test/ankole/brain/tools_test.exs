@@ -230,7 +230,7 @@ defmodule Ankole.Brain.ToolsTest do
                )
 
       take = Repo.get!(Ankole.Brain.Schemas.Claim, result["claim_id"])
-      assert take.until_date == "2026-09-30"
+      assert take.until_date == ~D[2026-09-30]
 
       assert {:error, :invalid_until_date} =
                Tools.execute(

@@ -12,7 +12,7 @@ import type { JsonValue as JSONValue } from '../generated/protocol/serde_json/Js
 // Bound tool output before it crosses JSON-RPC into the shared app-server.
 const maxToolResultBytes = 16_384
 const truncationSuffix = '...[truncated]'
-const codexJobToolPaths = new Set(['web_search', 'web_fetch', 'skill_view'])
+const codexJobToolPaths = new Set(['web_search', 'web_fetch', 'skill_view', 'recall', 'get_page'])
 
 export type CodexJobProjection = {
   dynamicTools: DynamicToolSpec[]
@@ -29,7 +29,7 @@ export function buildCodexJobProjection(input: { tools: WorkerAgentTool[] }): Co
     if (!codexJobToolPaths.has(tool.name)) continue
     try {
       if (tools.has(tool.name)) throw new Error(`Duplicate dynamic tool ${tool.name}`)
-      const inputSchema = zodToJSONSchema(tool.schema) as unknown as JSONValue
+      const inputSchema = (tool.inputSchema ?? zodToJSONSchema(tool.schema)) as unknown as JSONValue
       dynamicTools.push({ type: 'function', name: tool.name, description: tool.description, inputSchema })
       tools.set(tool.name, tool)
     } catch {

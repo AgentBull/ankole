@@ -15,6 +15,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
   alias Ankole.I18n
   alias Ankole.Signals.Signal
   alias Ankole.Plugins.LarkAdapter
+  alias Ankole.Plugins.LarkAdapter.BotIdentity
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.IdentityProviders
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
@@ -1126,10 +1127,7 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       assert {:ok, _config} =
                AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, rotated)
 
-      assert %{started: 1, stopped: 0, errors: []} =
-               ConnectionReconciler.reconcile_once(
-                 bot_info_fetcher: fn _config -> {:ok, "ou_bot"} end
-               )
+      assert %{started: 1, stopped: 0, errors: []} = ConnectionReconciler.reconcile_once()
 
       refute Process.alive?(old_owner)
 
@@ -1140,11 +1138,36 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       refute new_owner == old_owner
     end
 
-    test "a transient bot identity failure preserves the complete live consumer set" do
+    test "binding_spec reads stored configuration without a provider call" do
       %{principal: agent} = agent_fixture()
-      binding_name = "lark-reconcile-bot-identity"
-      config = chat_config(%{"appID" => "cli_reconcile_bot_identity"})
+      binding_name = "lark-spec-pure"
+      config = stored_chat_config(%{"appID" => "cli_spec_pure"})
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
+
+      binding = binding_fixture(agent.uid, binding_name, :ignore)
+      test_pid = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        send(test_pid, {:lark_request, conn.request_path})
+        default_lark_request(conn)
+      end)
+
+      assert {:ok, %{config: ^config, consumers: [%{kind: :chat, config: ^config}]}} =
+               ConnectionReconciler.binding_spec(binding, [])
+
+      refute_received {:lark_request, _path}
+    end
+
+    test "a cached bot identity serves owner starts without another provider call" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-reconcile-identity-cache"
+      config = stored_chat_config(%{"appID" => "cli_identity_cache"})
       key = Config.connection_key(config)
+      BotIdentity.forget(config)
+      on_exit(fn -> BotIdentity.forget(config) end)
+      observe_bot_info_requests(&default_lark_request/1)
 
       assert {:ok, _config} =
                AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
@@ -1162,29 +1185,87 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       consumer = Inbound.chat_consumer(context, config)
       assert {:ok, owner} = start_connection_owner(ConnectionReconciler, config, [consumer])
       on_exit(fn -> ConnectionReconciler.stop(key) end)
+      assert_received :bot_info_requested
 
-      assert %{
-               started: 0,
-               stopped: 0,
-               errors: [
-                 %{
-                   binding_name: ^binding_name,
-                   reason: :runtime_bot_identity_unavailable,
-                   blocked_connection_key: ^key
-                 }
-               ]
-             } =
-               ConnectionReconciler.reconcile_once(
-                 bot_info_fetcher: fn _config -> {:error, :temporary_unavailable} end
-               )
-
+      assert %{started: 1, stopped: 0, errors: []} = ConnectionReconciler.reconcile_once()
       assert Process.alive?(owner)
       assert owner_serves?(ConnectionReconciler, key, config, [consumer])
+      refute_received :bot_info_requested
 
-      assert %{started: 1, stopped: 0, errors: []} =
-               ConnectionReconciler.reconcile_once(
-                 bot_info_fetcher: fn _config -> {:ok, "ou_bot"} end
-               )
+      rotated = Map.put(config, "appSecret", "rotated-secret")
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, rotated)
+
+      assert %{started: 1, stopped: 0, errors: []} = ConnectionReconciler.reconcile_once()
+      refute Process.alive?(owner)
+      refute_received :bot_info_requested
+    end
+
+    test "a rate-limited bot identity lookup fails the owner start until the retry time" do
+      %{principal: agent} = agent_fixture()
+      binding_name = "lark-reconcile-rate-limited"
+      config = stored_chat_config(%{"appID" => "cli_identity_rate_limited"})
+      key = Config.connection_key(config)
+      BotIdentity.forget(config)
+
+      on_exit(fn ->
+        # The save hook requests an asynchronous pass; wait for it before the
+        # sandbox owner stops.
+        :sys.get_state(ConnectionReconciler)
+        BotIdentity.forget(config)
+        ConnectionReconciler.stop(key)
+      end)
+
+      responses = :counters.new(1, [])
+
+      observe_bot_info_requests(fn conn ->
+        :counters.add(responses, 1, 1)
+
+        # The SDK retries one rate-limited response at once. The final response
+        # names the delay that the identity cache must respect.
+        header =
+          if :counters.get(responses, 1) == 1,
+            do: {"x-ogw-ratelimit-reset", "0"},
+            else: {"retry-after", "120"}
+
+        conn
+        |> Plug.Conn.put_resp_header(elem(header, 0), elem(header, 1))
+        |> Plug.Conn.put_status(429)
+        |> Req.Test.json(%{"code" => 99_991_400, "msg" => "rate"})
+      end)
+
+      assert {:ok, _config} =
+               AppConfigure.put_global_by_key("signals.lark.bindings." <> binding_name, config)
+
+      binding_fixture(agent.uid, binding_name, :ignore)
+
+      assert %{started: 0, stopped: 0, errors: [%{reason: reason, retry_at: retry_at}]} =
+               ConnectionReconciler.reconcile_once()
+
+      assert reason ==
+               "Lark bot identity unavailable: rate limited (HTTP 429, code 99991400) after retry (code :rate_limited)"
+
+      assert_in_delta DateTime.diff(retry_at, DateTime.utc_now()), 120, 3
+      assert_received :bot_info_requested
+      assert_received :bot_info_requested
+      refute_received :bot_info_requested
+      assert Registry.lookup(Ankole.Plugins.LarkAdapter.ConnectionRegistry, key) == []
+
+      assert %{started: 0, errors: [%{reason: ^reason, retry_at: ^retry_at}]} =
+               ConnectionReconciler.reconcile_once()
+
+      refute_received :bot_info_requested
+
+      # A saved binding configuration clears the cached failure.
+      observe_bot_info_requests(&default_lark_request/1)
+      binding = Repo.get_by!(Ankole.Signals.Binding, agent_uid: agent.uid, name: binding_name)
+      assert :ok = IMGroups.handle_binding_saved(binding, config)
+      assert %{started: 1, stopped: 0, errors: []} = ConnectionReconciler.reconcile_once()
+      assert_received :bot_info_requested
+
+      assert [{owner, _value}] =
+               Registry.lookup(Ankole.Plugins.LarkAdapter.ConnectionRegistry, key)
 
       assert Process.alive?(owner)
     end
@@ -3649,6 +3730,25 @@ defmodule Ankole.Plugins.LarkAdapterTest do
     }
   end
 
+  # The stored form of a chat config: what `binding_spec/2` reads back.
+  defp stored_chat_config(overrides) do
+    overrides |> chat_config() |> Map.delete("runtimeBotOpenID")
+  end
+
+  # Routes `bot/v3/info` to `respond` and reports each request to the test.
+  defp observe_bot_info_requests(respond) do
+    test_pid = self()
+
+    Req.Test.stub(__MODULE__, fn
+      %{request_path: "/open-apis/bot/v3/info"} = conn ->
+        send(test_pid, :bot_info_requested)
+        respond.(conn)
+
+      conn ->
+        default_lark_request(conn)
+    end)
+  end
+
   defp chat_config(overrides \\ %{}) do
     {runtime_bot_open_id, overrides} = Map.pop(overrides, "runtimeBotOpenID", "ou_bot")
 
@@ -3712,6 +3812,10 @@ defmodule Ankole.Plugins.LarkAdapterTest do
       "tenant_access_token" => "tenant-token",
       "expire" => 7_200
     })
+  end
+
+  defp default_lark_request(%{request_path: "/open-apis/bot/v3/info"} = conn) do
+    Req.Test.json(conn, %{"code" => 0, "msg" => "ok", "bot" => %{"open_id" => "ou_bot"}})
   end
 
   defp default_lark_request(conn) do

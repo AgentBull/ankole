@@ -18,7 +18,11 @@ defmodule AnkoleWeb.AIGatewayWebSocketController do
           tenant_id: Ankole.Repo.tenant_id!(),
           subject_type: conn.assigns.current_ai_gateway_subject_type,
           oidc_grant: conn.assigns[:oidc_grant],
-          request_context: RequestContext.from_headers(conn.req_headers, "websocket")
+          request_context:
+            CodexModelBinding.request_context(
+              binding,
+              RequestContext.from_headers(conn.req_headers, "websocket")
+            )
         }
         |> maybe_put_model_binding(binding)
 

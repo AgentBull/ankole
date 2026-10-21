@@ -7,6 +7,9 @@ defmodule FeishuOpenAPI.Error do
 
   `raw_body` and `details` may contain the original request payload — they are
   redacted from `inspect/1` output to avoid leaking secrets/PII into logs.
+
+  `retry_after_ms` is set on a `:rate_limited` error when the final provider
+  response named a reset delay (`x-ogw-ratelimit-reset` or `Retry-After`).
   """
 
   @type t :: %__MODULE__{
@@ -14,11 +17,12 @@ defmodule FeishuOpenAPI.Error do
           msg: String.t() | nil,
           http_status: integer() | nil,
           log_id: String.t() | nil,
+          retry_after_ms: non_neg_integer() | nil,
           raw_body: term(),
           details: term()
         }
 
-  defexception [:code, :msg, :http_status, :log_id, :raw_body, :details]
+  defexception [:code, :msg, :http_status, :log_id, :retry_after_ms, :raw_body, :details]
 
   @error_code_reference_url "https://open.feishu.cn/document/server-docs/api-call-guide/generic-error-code"
 
@@ -78,7 +82,13 @@ defmodule FeishuOpenAPI.Error do
     import Inspect.Algebra
 
     def inspect(%FeishuOpenAPI.Error{} = err, opts) do
-      visible = [code: err.code, msg: err.msg, http_status: err.http_status, log_id: err.log_id]
+      visible = [
+        code: err.code,
+        msg: err.msg,
+        http_status: err.http_status,
+        log_id: err.log_id,
+        retry_after_ms: err.retry_after_ms
+      ]
 
       visible =
         Enum.reject(visible, fn {_, v} -> is_nil(v) end) ++

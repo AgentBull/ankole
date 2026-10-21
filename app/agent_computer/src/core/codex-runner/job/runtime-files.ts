@@ -121,7 +121,7 @@ function renderTaskAgents(input: {
     'The caller owns user-visible replies, attachments, scheduling, and durable Skill writes.',
     'If genuinely required information is missing, the lead agent must call request_parent_input; child agents must report the question to the lead.',
     input.lazySkillRouting
-      ? 'A `lazyload-agent-skills/` record is a Skill discovery record; load it with `skill_view`, while `get_page` delegates to `skill_view` and returns the loaded Skill.'
+      ? 'A `recall` or `get_page` result that names a `lazyload-agent-skills/` record is a Skill discovery record; load that Skill with `skill_view`.'
       : '',
     'Complete foreground work before ending the turn; do not leave required shell jobs running in the background.'
   ]

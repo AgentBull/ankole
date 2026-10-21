@@ -35,17 +35,77 @@ defmodule Ankole.AIGateway.AgentTokenQuotaTest do
       assert record.output_tokens == 30
     end
 
-    test "a Codex client round records the codex origin" do
+    test "a Codex client round records the codex origin and its Job attempt" do
       %{principal: agent} = agent_fixture()
       configure_openai_profile!(agent.uid, json_upstream(self()))
+      signal_id = Ankole.Ecto.UUIDv7.autogenerate()
+
+      binding = %{
+        "selector" => "openai-token-quota/gpt-5.5",
+        "provider_options" => %{},
+        "supports_parallel_tool_calls" => true,
+        "input_modalities" => ["text"],
+        "job" => %{"id" => 4321, "attempt" => 2, "signal_id" => signal_id}
+      }
+
+      request_context =
+        Ankole.Sessions.CodexModelBinding.request_context(binding, %{
+          "headers" => %{"originator" => "codex_cli_rs"}
+        })
 
       assert {:ok, _response} =
                AIGateway.create_response(agent.uid, request(),
                  subject_type: "agent",
-                 request_context: %{"headers" => %{"originator" => "codex_cli_rs"}}
+                 request_context: request_context
                )
 
-      assert [%UsageRecord{origin: "codex"}] = usage_records()
+      assert [%UsageRecord{origin: "codex"} = record] = usage_records()
+      assert record.job_id == 4321
+      assert record.attempt == 2
+      assert record.signal_id == signal_id
+      assert record.session_id == Ankole.BackgroundAgentJobs.job_session_id(4321)
+    end
+
+    test "a Session round records its Session and Signal without a Job" do
+      %{principal: agent} = agent_fixture()
+      configure_openai_profile!(agent.uid, json_upstream(self()))
+      signal_id = Ankole.Ecto.UUIDv7.autogenerate()
+
+      assert {:ok, _response} =
+               AIGateway.create_response(agent.uid, request(),
+                 subject_type: "agent",
+                 request_context: %{"session_id" => "room-1", "signal_id" => signal_id}
+               )
+
+      assert [%UsageRecord{origin: "agent"} = record] = usage_records()
+      assert record.session_id == "room-1"
+      assert record.signal_id == signal_id
+      assert record.job_id == nil
+      assert record.attempt == nil
+    end
+
+    test "a malformed attribution value is dropped and the round is still counted" do
+      %{principal: agent} = agent_fixture()
+      configure_openai_profile!(agent.uid, json_upstream(self()))
+
+      for job_id <- ["4321", 0] do
+        assert {:ok, _response} =
+                 AIGateway.create_response(agent.uid, request(),
+                   subject_type: "agent",
+                   request_context: %{
+                     "session_id" => "",
+                     "signal_id" => "not-a-uuid",
+                     "job_id" => job_id,
+                     "attempts" => -1
+                   }
+                 )
+      end
+
+      assert [%UsageRecord{input_tokens: 120} = record, %UsageRecord{}] = usage_records()
+      assert record.session_id == nil
+      assert record.signal_id == nil
+      assert record.job_id == nil
+      assert record.attempt == nil
     end
 
     test "an in-process round records nothing" do

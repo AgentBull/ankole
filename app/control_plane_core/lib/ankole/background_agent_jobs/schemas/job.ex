@@ -189,4 +189,43 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     |> changeset(attrs)
     |> validate_required([:source_tool_call_id, :workspace_owner_job_id, :title, :task])
   end
+
+  # What a successor Job copies from its source. The whole continuation chain
+  # resumes one Codex thread inside the Workspace of the first Job, which that
+  # Job built from the template, so the chain keeps the template identity.
+  @inherited_fields [
+    :title,
+    :runtime_thread_id,
+    :workspace_owner_job_id,
+    :workspace_template_id,
+    :model_profile
+  ]
+
+  @doc "The source fields that `successor_attrs/2` copies."
+  @spec inherited_fields() :: [atom()]
+  def inherited_fields, do: @inherited_fields
+
+  @doc """
+  Builds the creation attributes of a successor Job from its source Job and
+  the successor's own facts. The inherited fields and the continuation link
+  replace any value in `attrs`; the source's legacy replay marker follows the
+  source.
+  """
+  @spec successor_attrs(%__MODULE__{}, map()) :: map()
+  def successor_attrs(%__MODULE__{} = source, attrs) when is_map(attrs) do
+    inherited = Map.new(@inherited_fields, &{Atom.to_string(&1), Map.fetch!(source, &1)})
+
+    attrs
+    |> Map.merge(inherited)
+    |> Map.put("continued_from_job_id", source.id)
+    |> Map.put("metadata", successor_metadata(source, Map.get(attrs, "metadata", %{})))
+  end
+
+  defp successor_metadata(%__MODULE__{metadata: source_metadata}, metadata) do
+    legacy_thread_replay? = (source_metadata || %{})["legacy_thread_replay"] == true
+
+    if legacy_thread_replay?,
+      do: Map.put(metadata, "legacy_thread_replay", true),
+      else: Map.delete(metadata, "legacy_thread_replay")
+  end
 end

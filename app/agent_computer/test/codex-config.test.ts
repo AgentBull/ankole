@@ -64,13 +64,11 @@ describe('@ankole/agent-computer Codex config', () => {
             }
           : {})
       }
-      if ('brain' in binding && binding.brain) {
-        runtime.brain = {
-          operations: binding.brain.operations as Array<'recall' | 'get_page'>,
-          signalID: binding.brain.signal_id
-        }
-      }
-      expect(encodeAIGatewayModelBinding(runtime)).toBe(vector.encoded)
+      const job =
+        'job' in binding && binding.job
+          ? { jobID: binding.job.id, attempt: binding.job.attempt, signalID: binding.job.signal_id }
+          : undefined
+      expect(encodeAIGatewayModelBinding(runtime, job)).toBe(vector.encoded)
     }
   })
 

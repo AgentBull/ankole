@@ -21,6 +21,7 @@ describe('@ankole/agent-computer Codex job project config', () => {
         '',
         '[features]',
         'remote_compaction_v2 = true',
+        'multi_agent_v2_dynamic_tools = false',
         '',
         '[features.multi_agent_v2]',
         'enabled = false',
@@ -51,8 +52,9 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(config.features.remote_compaction_v2).toBeUndefined()
       expect(config.features.plugins).toBe(false)
       expect(config.features.code_mode).toEqual({ enabled: true })
+      expect(config.features.multi_agent_v2_dynamic_tools).toBe(true)
       expect(config.features.multi_agent_v2).toEqual({
-        default_wait_timeout_ms: 120_000,
+        default_wait_timeout_ms: 600_000,
         enabled: false,
         hide_spawn_agent_metadata: true,
         max_concurrent_threads_per_session: 99,
@@ -132,8 +134,9 @@ describe('@ankole/agent-computer Codex job project config', () => {
       expect(config.features.plugins).toBe(false)
       expect(config.model).toBeUndefined()
       expect(config.model_provider).toBeUndefined()
+      expect(config.features.multi_agent_v2_dynamic_tools).toBe(true)
       expect(config.features.multi_agent_v2).toEqual({
-        default_wait_timeout_ms: 120_000,
+        default_wait_timeout_ms: 600_000,
         enabled: true,
         hide_spawn_agent_metadata: true,
         min_wait_timeout_ms: 60_000

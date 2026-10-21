@@ -624,6 +624,104 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert %DateTime{} = active_child.completed_at
   end
 
+  test "a respawn inherits the template, thread, Workspace owner, title, and profile" do
+    %{principal: agent} = background_agent_fixture()
+
+    assert {:ok, %{job: source}} =
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "agent_uid" => agent.uid,
+               "owner_session_id" => "parent-session-respawn-inherit",
+               "source_tool_call_id" => "tool-respawn-inherit",
+               "workspace_template_id" => "deep-research",
+               "title" => "Research with a template",
+               "task" => "Produce the report.",
+               "reply_route" => %{"binding_name" => "lark"}
+             })
+
+    assert {:ok, %{job: running}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(source.id, agent.uid, %{
+               "status" => "running",
+               "runtime_thread_id" => "thread-respawn-inherit"
+             })
+
+    running = set_attempts!(running, 1)
+    insert_turn!(running, 1, "thread-respawn-inherit", "turn-respawn-inherit", "completed")
+
+    assert {:ok, %{job: %Job{status: "succeeded"} = source}} =
+             BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
+               "status" => "succeeded",
+               "result" => %{"summary" => "Done"}
+             })
+
+    assert {:ok, %{job: successor, dispatch_event: dispatch}} =
+             BackgroundAgentJobs.respawn_with_dispatch(source.id, %{
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent.uid).id,
+               "agent_uid" => agent.uid,
+               "owner_session_id" => source.owner_session_id,
+               "source_tool_call_id" => "tool-respawn-inherit-successor",
+               "message" => "Continue the report.",
+               "reply_route" => source.reply_route
+             })
+
+    assert Job.inherited_fields() == [
+             :title,
+             :runtime_thread_id,
+             :workspace_owner_job_id,
+             :workspace_template_id,
+             :model_profile
+           ]
+
+    for field <- Job.inherited_fields() do
+      assert Map.fetch!(successor, field) == Map.fetch!(source, field),
+             "#{field} is not inherited"
+    end
+
+    assert successor.workspace_template_id == "deep-research"
+    assert successor.workspace_owner_job_id == source.id
+    assert successor.continued_from_job_id == source.id
+    assert successor.task == "Continue the report."
+    assert successor.status == "queued"
+    assert successor.attempts == 0
+    assert successor.metadata["managed_background_agent_job_root"] == false
+    assert get_in(dispatch.data, ["workspace_template_id"]) == "deep-research"
+    assert get_in(dispatch.data, ["continued_from_job_id"]) == source.id
+  end
+
+  test "successor_attrs copies only the inherited fields and the legacy replay marker" do
+    source = %Job{
+      id: 1500,
+      title: "Source title",
+      runtime_thread_id: "thread-source",
+      workspace_owner_job_id: 1400,
+      workspace_template_id: "deep-research",
+      model_profile: "coding",
+      metadata: %{"legacy_thread_replay" => true, "owner_conversation_id" => "conv-source"}
+    }
+
+    attrs =
+      Job.successor_attrs(source, %{
+        "task" => "Continue.",
+        "title" => "Caller title",
+        "workspace_template_id" => nil,
+        "metadata" => %{"seeded_from_steer" => true, "legacy_thread_replay" => false}
+      })
+
+    assert attrs == %{
+             "task" => "Continue.",
+             "title" => "Source title",
+             "runtime_thread_id" => "thread-source",
+             "workspace_owner_job_id" => 1400,
+             "workspace_template_id" => "deep-research",
+             "model_profile" => "coding",
+             "continued_from_job_id" => 1500,
+             "metadata" => %{"seeded_from_steer" => true, "legacy_thread_replay" => true}
+           }
+
+    without_marker = Job.successor_attrs(%{source | metadata: %{}}, %{"metadata" => %{}})
+    assert without_marker["metadata"] == %{}
+  end
+
   test "a steer carried into the successor of a succeeded Job is reported as forwarded" do
     %{principal: agent} = background_agent_fixture()
     job = create_job!(agent.uid, "steer-forwarded")
@@ -654,6 +752,17 @@ defmodule Ankole.BackgroundAgentJobsTest do
     assert successor_id
     assert successor_dispatch.session_id == BackgroundAgentJobs.job_session_id(successor_id)
     assert successor_dispatch.type == "background_agent_job.dispatch"
+
+    source = Repo.reload!(job)
+    successor = Repo.get!(Job, successor_id)
+
+    for field <- Job.inherited_fields() do
+      assert Map.fetch!(successor, field) == Map.fetch!(source, field),
+             "#{field} is not inherited by the steer successor"
+    end
+
+    assert successor.continued_from_job_id == source.id
+    assert successor.metadata["seeded_from_steer"] == true
 
     assert {:ok, %{successor_job_id: ^successor_id, ready: false}} =
              BackgroundAgentJobs.message_result(

@@ -57,10 +57,19 @@ The chat configuration contains these fields:
 The Signal Binding, not these AppConfigure settings, selects how the
 Agent handles unaddressed group messages.
 
-Bot identity is not an AppConfigure setting. Each live chat connection resolves
-the bot `open_id` from `bot/v3/info` and keeps it only in its process-local
-consumer config as `runtimeBotOpenID`. If this lookup fails, group mentions fail
-closed until a later connection can resolve the identity.
+Bot identity is not an AppConfigure setting. `ConnectionReconciler` resolves
+the bot `open_id` from `bot/v3/info` in the reconciler process before it
+starts a connection owner, and keeps it only in the owner's process-local chat
+consumer config as `runtimeBotOpenID`. `Ankole.Plugins.LarkAdapter.BotIdentity`
+caches the result for each `domain` and `appID` pair: a resolved `open_id` for
+24 hours, a failure until its retry time. The retry time is the provider's
+`Retry-After` or `x-ogw-ratelimit-reset` delay when the response names one,
+else 1, 2, 4, 8, 16, and then 30 minutes after each further failed attempt;
+both are limited to 30 minutes. While a failure is cached, the owner is not
+started and no provider call is made; the reconcile result carries the stable
+reason and the retry time. A saved binding configuration removes the cached
+entry. An identity-only connection does not need the bot identity and starts
+without this lookup.
 
 Identity settings use `appID`, `appSecret`, and `domain`. `oidc.*` controls
 login, while `sync.*` controls user and department import.
@@ -88,7 +97,9 @@ connected.
 
 Chat and identity work can share a connection when the pair and secret match.
 Conflicting secrets make that connection unavailable. A restart rebuilds the
-in-memory connection list.
+in-memory connection list. `ConnectionReconciler.binding_spec/2` reads stored
+configuration only; the bot identity lookup happens in `owner_child_spec/3`,
+before the supervisor starts the client.
 
 The WebSocket client handles reconnects, provider pings, fragments, and event
 dispatch. It acknowledges events after their handlers complete. Provider

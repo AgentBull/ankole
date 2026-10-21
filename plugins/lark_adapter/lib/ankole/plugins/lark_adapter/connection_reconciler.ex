@@ -2,8 +2,13 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   @moduledoc """
   Reconciles enabled Lark bindings and identity providers into long
   connections. Bindings and identity providers of one app share one connection.
-  A binding whose bot identity cannot be resolved blocks its connection key, so
-  a live connection keeps its chat consumer until the identity resolves again.
+
+  `binding_spec/2` only reads stored configuration. `owner_child_spec/3`
+  resolves the bot identity through `Ankole.Plugins.LarkAdapter.BotIdentity`
+  in the reconciler process, so the shared connection supervisor never waits
+  on a provider call. A cached failure refuses the start without a provider
+  call until the retry time; the reconcile result carries the reason and that
+  time.
   """
 
   use Ankole.Plugins.ConnectionLifecycle,
@@ -12,6 +17,7 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
     supervisor: Ankole.Plugins.LarkAdapter.ConnectionDynamicSupervisor
 
   alias Ankole.Signals.Bindings
+  alias Ankole.Plugins.LarkAdapter.BotIdentity
   alias Ankole.Plugins.LarkAdapter.Config
   alias Ankole.Plugins.LarkAdapter.Dispatcher
   alias Ankole.Plugins.LarkAdapter.IdentityProvider
@@ -20,25 +26,18 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
   alias Ankole.Signals.Binding
 
   @impl true
-  def binding_spec(%Binding{} = binding, opts) do
+  def binding_spec(%Binding{} = binding, _opts) do
     case Bindings.binding_config(binding, Config) do
       {:ok, config} ->
-        config =
-          Config.resolve_runtime_bot_identity(config, Keyword.take(opts, [:bot_info_fetcher]))
+        context =
+          AdapterContext.new(
+            agent_uid: binding.agent_uid,
+            binding_name: binding.name,
+            adapter: binding.adapter,
+            user_name: Map.get(config, "userName", "Lark / Feishu")
+          )
 
-        if is_binary(Map.get(config, "runtimeBotOpenID")) do
-          context =
-            AdapterContext.new(
-              agent_uid: binding.agent_uid,
-              binding_name: binding.name,
-              adapter: binding.adapter,
-              user_name: Map.get(config, "userName", "Lark / Feishu")
-            )
-
-          {:ok, connection_spec(config, Inbound.chat_consumer(context, config))}
-        else
-          {:blocked, Config.connection_key(config), :runtime_bot_identity_unavailable}
-        end
+        {:ok, connection_spec(config, Inbound.chat_consumer(context, config))}
 
       :error ->
         {:error, :chat_config_not_found}
@@ -65,6 +64,26 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
 
   @impl true
   def owner_child_spec(key, config, consumers) do
+    start =
+      case resolve_chat_consumers(config, consumers) do
+        {:ok, runtime_consumers} ->
+          {__MODULE__, :start_client, [key, config, consumers, runtime_consumers]}
+
+        {:error, failure} ->
+          {__MODULE__, :refuse_start,
+           [%{reason: BotIdentity.describe(failure), retry_at: failure.retry_at}]}
+      end
+
+    %{
+      id: {FeishuOpenAPI.WS.Client, key},
+      start: start,
+      restart: :temporary,
+      type: :worker
+    }
+  end
+
+  @doc false
+  def start_client(key, config, consumers, runtime_consumers) do
     client = Config.client(config)
 
     via =
@@ -72,14 +91,33 @@ defmodule Ankole.Plugins.LarkAdapter.ConnectionReconciler do
        {Ankole.Plugins.LarkAdapter.ConnectionRegistry, key,
         Ankole.Plugins.ConnectionLifecycle.registry_value(config, consumers)}}
 
-    %{
-      id: {FeishuOpenAPI.WS.Client, key},
-      start:
-        {FeishuOpenAPI.WS.Client, :start_link,
-         [[client: client, dispatcher: Dispatcher.build(consumers, client: client), name: via]]},
-      restart: :temporary,
-      type: :worker
-    }
+    FeishuOpenAPI.WS.Client.start_link(
+      client: client,
+      dispatcher: Dispatcher.build(runtime_consumers, client: client),
+      name: via
+    )
+  end
+
+  @doc false
+  def refuse_start(reason), do: {:error, reason}
+
+  # Only chat consumers need the bot identity. An identity-only connection
+  # starts without a provider call.
+  defp resolve_chat_consumers(config, consumers) do
+    if Enum.any?(consumers, &match?(%{kind: :chat}, &1)) do
+      with {:ok, open_id} <- BotIdentity.resolve(config) do
+        {:ok,
+         Enum.map(consumers, fn
+           %{kind: :chat} = consumer ->
+             %{consumer | config: Map.put(consumer.config, "runtimeBotOpenID", open_id)}
+
+           consumer ->
+             consumer
+         end)}
+      end
+    else
+      {:ok, consumers}
+    end
   end
 
   defp connection_spec(config, consumer) do

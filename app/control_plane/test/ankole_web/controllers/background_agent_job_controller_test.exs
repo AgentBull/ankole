@@ -115,6 +115,8 @@ defmodule AnkoleWeb.BackgroundAgentJobControllerTest do
 
     assert detail["title"] == middle.title
     assert detail["workspace_template_id"] == nil
+    assert detail["continued_from_job_id"] == nil
+    assert detail["workspace_owner_job_id"] == middle.id
     assert detail["model_profile"] == "coding"
     refute Map.has_key?(detail, "runtime")
     refute Map.has_key?(detail, "mode")

@@ -13,6 +13,7 @@ import { agentHomePaths } from '../../agent-home-paths'
 import { createWebTools } from '../../../tools/web/web-tools'
 import { webSearchIsProviderHosted } from '../../runtime-policy'
 import { createSkillTools } from '../../../tools/library/skill-tools'
+import { brainToolDeclarations, createBrainTools } from '../../../tools/library/brain-tools'
 import { prepareExecutionMaterials } from '../../execution/execution-materials'
 import type { CodexJobOptions } from '../options'
 import { join } from 'node:path'
@@ -94,9 +95,15 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
     rpc: opts.rpc,
     onSkillLoaded: name => loadedSkillNames.add(name)
   })
-  // The control plane declares the hosted brain tool only while `brain.enabled`
-  // is true, so the declaration is the Job's memory switch.
-  const brainEnabled = (turnStart.hosted_tools ?? []).includes(HostedTool.BRAIN)
+  // The turn start carries the Brain read declarations only while
+  // `brain.enabled` is true, so that list is the Job's memory switch. Code mode
+  // calls only the tools Codex declared, so the Job projects the control-plane
+  // declarations as its own dynamic tools and the read-tool owner executes them.
+  const brainTools = createBrainTools({
+    turn: turnStart.turn,
+    rpc: opts.rpc,
+    declarations: brainToolDeclarations(turnStart.request_context)
+  })
   opts.abortSignal?.throwIfAborted()
   const workspaceOwnerJobID = job.workspaceOwnerJobId
   if (!workspaceOwnerJobID) throw new Error('Background agent job is missing its workspace owner')
@@ -121,7 +128,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         skillsPrompt,
         driveDirectory: agentContext.conversation?.driveDirectory,
         podInstructions: agentContext.conversation?.podInstructions,
-        lazySkillRouting: brainEnabled,
+        lazySkillRouting: brainTools.length > 0,
         timezone: agentContext.conversation?.timezone
       }).content
     : undefined
@@ -197,7 +204,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
       rpc: opts.rpc,
       loader: skillLoader
     })
-    const projection = buildCodexJobProjection({ tools: [...webTools, ...skillTools] })
+    const projection = buildCodexJobProjection({ tools: [...webTools, ...skillTools, ...brainTools] })
     projection.dynamicTools.push(parentInputToolSpec())
 
     const threadEnv = codexJobThreadEnv({
@@ -222,6 +229,7 @@ export async function prepareCodexJobExecution(input: CodexJobSetupInput): Promi
         codexHome: materialized.codexHome,
         env: threadEnv,
         runtime: runtimeConfig,
+        job: { jobID: turnStart.turn.job_id, attempt: turnStart.turn.attempt, signalID: turnStart.turn.signal_id },
         driveDirectory: agentContext.conversation?.driveDirectory,
         podInstructions: agentContext.conversation?.podInstructions,
         originalHumanRequest:

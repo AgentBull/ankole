@@ -383,6 +383,20 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobItem do
         owner_session_id: %Schema{type: :string},
         source_signal_id: %Schema{type: :string, nullable: true},
         source_tool_call_id: %Schema{type: :string},
+        continued_from_job_id: %Schema{
+          type: :integer,
+          nullable: true,
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum(),
+          description: "The terminal Job that this Job continues; null for a first Job."
+        },
+        workspace_owner_job_id: %Schema{
+          type: :integer,
+          minimum: Ankole.ModelIntegerID.minimum(),
+          maximum: Ankole.ModelIntegerID.maximum(),
+          description:
+            "The first Job of the continuation chain, whose Workspace every Job in the chain uses."
+        },
         runtime_thread_id: %Schema{type: :string, nullable: true},
         title: %Schema{type: :string},
         task: %Schema{type: :string},
@@ -421,6 +435,8 @@ defmodule AnkoleWeb.Schemas.ConsoleAPI.BackgroundAgentJobItem do
         :agent_uid,
         :owner_session_id,
         :source_tool_call_id,
+        :continued_from_job_id,
+        :workspace_owner_job_id,
         :title,
         :task,
         :status,

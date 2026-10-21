@@ -2,16 +2,21 @@ defmodule Ankole.Sessions.CodexModelBinding do
   @moduledoc false
 
   @header_name "x-ankole-aigateway-model-binding"
+  require Ankole.ModelIntegerID
   alias Ankole.AIGateway.ChatGPTProtocol
-  alias Ankole.AIGateway.ToolSearch
 
   @spec header_name() :: String.t()
   def header_name, do: @header_name
 
-  @doc "Builds the trusted memory context at the runtime client's transport edge."
+  @doc """
+  Builds the trusted memory context at the runtime client's transport edge.
+
+  The Job attempt that the binding names scopes the Brain context that
+  compaction and the hosted memory tools of the gateway read.
+  """
   def brain_context(_subject_uid, nil), do: {:ok, nil}
 
-  def brain_context(subject_uid, %{"brain" => %{"signal_id" => signal_id}}) do
+  def brain_context(subject_uid, %{"job" => %{"signal_id" => signal_id}}) do
     Ankole.Brain.RequestContext.build(subject_uid, %{"signal_id" => signal_id})
   end
 
@@ -32,7 +37,7 @@ defmodule Ankole.Sessions.CodexModelBinding do
          true <- is_boolean(supports_parallel_tool_calls),
          {:ok, input_modalities} <- decode_modalities(input_modalities),
          {:ok, vision_fallback} <- decode_vision_fallback(Map.get(binding, "vision_fallback")),
-         {:ok, brain} <- decode_brain(Map.get(binding, "brain")) do
+         {:ok, job} <- decode_job(Map.get(binding, "job")) do
       decoded = %{
         "selector" => selector,
         "provider_options" => provider_options,
@@ -43,13 +48,54 @@ defmodule Ankole.Sessions.CodexModelBinding do
       {:ok,
        decoded
        |> Ankole.Attrs.maybe_put("vision_fallback", vision_fallback)
-       |> Ankole.Attrs.maybe_put("brain", brain)}
+       |> Ankole.Attrs.maybe_put("job", job)}
     else
       _value -> {:error, :invalid_codex_model_binding}
     end
   end
 
   def decode(_encoded), do: {:error, :invalid_codex_model_binding}
+
+  @doc """
+  Adds the Job attempt that the binding names to the gateway request context.
+
+  A Codex Job composes its own requests, so the Worker's frozen binding is the
+  only carrier of the Job identity. The usage ledger and the traces read
+  `job_id`, `attempts`, `signal_id`, and `session_id` from the request context
+  under the same keys that a Session Turn writes.
+  """
+  @spec request_context(map() | nil, map()) :: map()
+  def request_context(
+        %{"job" => %{"id" => id, "attempt" => attempt, "signal_id" => signal_id}},
+        request_context
+      )
+      when is_map(request_context) do
+    Map.merge(request_context, %{
+      "job_id" => id,
+      "attempts" => attempt,
+      "signal_id" => signal_id,
+      "session_id" => Ankole.BackgroundAgentJobs.job_session_id(id)
+    })
+  end
+
+  def request_context(_binding, request_context) when is_map(request_context),
+    do: request_context
+
+  # The Worker names the Job attempt that composes the requests, so each
+  # provider round can be attributed to one Job.
+  defp decode_job(nil), do: {:ok, nil}
+
+  defp decode_job(%{"id" => id, "attempt" => attempt, "signal_id" => signal_id})
+       when is_integer(attempt) and attempt >= 0 and is_binary(signal_id) do
+    with true <- Ankole.ModelIntegerID.valid?(id),
+         {:ok, signal_id} <- Ecto.UUID.cast(signal_id) do
+      {:ok, %{"id" => id, "attempt" => attempt, "signal_id" => signal_id}}
+    else
+      _invalid -> {:error, :invalid_codex_model_binding}
+    end
+  end
+
+  defp decode_job(_value), do: {:error, :invalid_codex_model_binding}
 
   @spec apply(map(), map() | nil, map()) :: map()
   def apply(request, binding, request_context \\ %{})
@@ -67,7 +113,6 @@ defmodule Ankole.Sessions.CodexModelBinding do
     |> Map.put("model", Map.fetch!(binding, "selector"))
     |> put_provider_options(defaults)
     |> put_reasoning_effort(defaults)
-    |> put_brain(Map.get(binding, "brain"))
     |> Map.put("__ankole_codex_vision", %{
       "input_modalities" => Map.fetch!(binding, "input_modalities"),
       "vision_fallback" => Map.get(binding, "vision_fallback")
@@ -100,43 +145,6 @@ defmodule Ankole.Sessions.CodexModelBinding do
   end
 
   defp decode_vision_fallback(_value), do: {:error, :invalid_codex_model_binding}
-
-  # A codex Job composes its own Responses requests, so the Worker's frozen
-  # binding carries the hosted Brain declaration the Job may use and the actor
-  # event that scopes it. Jobs declare the read-only subset.
-  defp decode_brain(nil), do: {:ok, nil}
-
-  defp decode_brain(%{"operations" => operations, "signal_id" => signal_id})
-       when is_list(operations) and operations != [] and is_binary(signal_id) and
-              signal_id != "" do
-    if Enum.all?(operations, &Ankole.Brain.Tools.operation?/1) and
-         operations == Enum.uniq(operations) do
-      {:ok, %{"operations" => operations, "signal_id" => signal_id}}
-    else
-      {:error, :invalid_codex_model_binding}
-    end
-  end
-
-  defp decode_brain(_value), do: {:error, :invalid_codex_model_binding}
-
-  defp put_brain(request, nil), do: request
-
-  # Codex carries its own tools in an `additional_tools` input item. The
-  # declaration joins that list, so AIGateway finds and splits it before the
-  # request reaches the provider.
-  defp put_brain(request, %{"operations" => operations, "signal_id" => signal_id}) do
-    tools = ToolSearch.list_tools(request) ++ [%{"type" => "brain", "operations" => operations}]
-
-    metadata =
-      case Map.get(request, "metadata") do
-        %{} = metadata -> metadata
-        _missing -> %{}
-      end
-
-    request
-    |> ToolSearch.put_tools(tools)
-    |> Map.put("metadata", Map.put(metadata, "signal_id", signal_id))
-  end
 
   defp strip_codex_private_input_fields(%{"input" => input} = request) when is_list(input) do
     input =
