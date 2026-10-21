@@ -28,11 +28,10 @@ const phoenixRestartGuardKey = Symbol.for('ankole.vite.phoenix-restart-guard')
 let phoenixShutdownGuardInstalled = false
 
 const entries = webappEntries()
+const phoenixPort = process.env.PORT || '4000'
 const saasDomain = (process.env.ANKOLE_SAAS_DOMAIN || 'ankole.localhost').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const saasOrigins =
-  edition === 'saas'
-    ? [new RegExp(`^http://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.${saasDomain}:${process.env.PORT || '4000'}$`)]
-    : []
+  edition === 'saas' ? [new RegExp(`^http://[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\\.${saasDomain}:${phoenixPort}$`)] : []
 
 // Keep Markdown dependencies separate from routes that do not use the renderer
 // or the document editor's Markdown import and export.
@@ -250,7 +249,12 @@ export default defineConfig(({ command }): UserConfig => ({
   server: {
     fs: { allow: [repositoryRoot, artifactRoot] },
     cors: {
-      origin: ['http://localhost:4000', 'http://127.0.0.1:4000', ...saasOrigins]
+      origin: [
+        `http://localhost:${phoenixPort}`,
+        `http://127.0.0.1:${phoenixPort}`,
+        new RegExp(`^http://(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)?ankole\\.localhost:${phoenixPort}$`),
+        ...saasOrigins
+      ]
     },
     host: '127.0.0.1',
     hmr: {

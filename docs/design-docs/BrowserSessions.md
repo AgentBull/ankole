@@ -87,6 +87,10 @@ parent domain, and `Path=/`; production also requires Secure. Development uses
 `ankole.localhost` to permit sharing across Pod subdomains. Login replaces only its own proof
 cookie. No response serializes a snapshot of all logged-in accounts.
 
+In development, Vite permits module requests from `http://ankole.localhost:4000`
+and its single-label Pod hosts in both editions. These origins must match the
+browser hosts that Phoenix serves, so that the login application can load.
+
 On a host that still holds older `__Host-ankole` and `__Host-ankole-auth-*`
 cookies, the transport verifies their existing group and authentication records
 and copies valid proofs into the shared cookies. This does not mint an identity
