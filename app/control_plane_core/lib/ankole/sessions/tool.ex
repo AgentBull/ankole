@@ -66,7 +66,8 @@ defmodule Ankole.Sessions.Tool do
             ", ",
             &"#{&1["name"]} (#{&1["description"]})"
           ) <>
-          ". Omit model_profile to use the default #{default} profile."
+          ". Omit model_profile unless the human asks for one of these profiles by name; " <>
+          "the default #{default} profile is the Agent's standard model for this work."
       end
 
     tool = Map.update!(tool, "description", &(&1 <> " " <> description))
@@ -80,6 +81,12 @@ defmodule Ankole.Sessions.Tool do
         })
   end
 
+  # A function tool without `strict` is strict on the OpenAI Responses API. In
+  # strict mode the model must fill every declared property, so an optional
+  # parameter such as `model_profile` or `workspace_template_id` can never be
+  # omitted and a one-value enum is forced on every call. Session function
+  # declarations describe optional parameters, so they send `strict: false`
+  # unless they opt in. A custom (freeform) tool has no `strict` field.
   @spec new(map(), module() | :worker) :: t()
   def new(declaration, owner) do
     attrs =
@@ -94,10 +101,15 @@ defmodule Ankole.Sessions.Tool do
         Map.put_new(attrs, :receipt, if(attrs[:read_only], do: "none", else: "durable")),
         %{
           name: declaration["name"],
-          schema: Map.drop(declaration, @internal_keys),
+          schema: declaration |> Map.drop(@internal_keys) |> put_default_strict(),
           executor: owner
         }
       )
     )
   end
+
+  defp put_default_strict(%{"type" => "function"} = schema),
+    do: Map.put_new(schema, "strict", false)
+
+  defp put_default_strict(schema), do: schema
 end

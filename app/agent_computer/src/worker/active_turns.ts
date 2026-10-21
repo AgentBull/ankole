@@ -34,7 +34,12 @@ export class ActiveTurn {
   private readonly disabledSkillNames: string[] = []
   private readonly abortController = new AbortController()
   acceptanceTask?: Promise<void>
+  executionTask?: Promise<void>
   executionStarted = false
+  /** A newer attempt of the same Job took this attempt's capacity slot. */
+  slotHandedOver = false
+  /** The older attempt whose slot this attempt uses while the Worker is full. */
+  slotDonor?: ActiveTurn
   private stopRequested = false
   private stopCommand?: string
   private stopReason?: string
@@ -148,21 +153,29 @@ export class ActiveTurns {
       return
     }
 
-    if (!this.slots.reserve()) {
-      this.reject(turnStart.turn, {
-        code: 'worker_busy',
-        message: 'worker has no available turn slots',
-        details: {
-          runtime: 'bun',
-          retryable: true,
-          active_slots: this.slots.used(),
-          max_slots: this.config.maxConcurrentSlots
-        }
-      })
-      return
-    }
-
     const active = new ActiveTurn(turnStart)
+    if (!this.slots.reserve()) {
+      // A replaced attempt of the same Job still holds its slot until the newer
+      // attempt is accepted and retires it. The newer attempt takes over that
+      // slot; a capacity rejection would otherwise leave the old attempt in
+      // place and keep the replacement out of a full Worker.
+      const donor = this.olderAttempts(turnStart.turn).find(prior => !prior.slotHandedOver)
+      if (!donor) {
+        this.reject(turnStart.turn, {
+          code: 'worker_busy',
+          message: 'worker has no available turn slots',
+          details: {
+            runtime: 'bun',
+            retryable: true,
+            active_slots: this.slots.used(),
+            max_slots: this.config.maxConcurrentSlots
+          }
+        })
+        return
+      }
+      donor.slotHandedOver = true
+      active.slotDonor = donor
+    }
     this.turns.set(activeKey, active)
 
     this.confirm(active)
@@ -201,15 +214,13 @@ export class ActiveTurns {
           break
         } catch (error) {
           if (active.controlledStopRequested) return
-          if (
-            isRuntimeFabricTransportError(error, 'rejected') &&
-            (error.reason === 'background_agent_job_attempt_changed' || error.reason === 'run_closed')
-          ) {
+          const invalidReason = invalidAttemptReason(error)
+          if (invalidReason) {
             workerLogger.info('worker.turn_acceptance_rejected', 'control plane refused this Job attempt', {
               signal_id: active.turnStart.turn.signal_id,
-              reason: error.reason
+              reason: invalidReason
             })
-            active.requestControlledStop('stop', error.reason)
+            active.requestControlledStop('stop', invalidReason)
             return
           }
           if (!isRuntimeFabricTransportError(error) || !error.retryable) throw error
@@ -229,11 +240,13 @@ export class ActiveTurns {
         }
       }
       if (active.executionStarted || active.controlledStopRequested || !this.drain.acceptsTurns) return
+      await this.stopOlderAttempts(active)
+      if (active.controlledStopRequested || !this.drain.acceptsTurns) return
       active.executionStarted = true
       // Capacity is already reserved and reported on rejoin. Publish it without
       // delaying execution on another replaceable heartbeat acknowledgement.
       this.drain.track(this.slots.publish())
-      this.drain.track(
+      active.executionTask = this.drain.track(
         this.run(active).catch(error => {
           workerLogger.error('worker.turn_completion_error', 'worker turn completion task failed', {
             signal_id: active.turnStart.turn.signal_id,
@@ -260,11 +273,34 @@ export class ActiveTurns {
     }
   }
 
+  private olderAttempts(turn: JobTurnRef): ActiveTurn[] {
+    return [...this.turns.values()].filter(candidate => {
+      const prior = candidate.turnStart.turn
+      return prior.job_id === turn.job_id && prior.attempt < turn.attempt
+    })
+  }
+
+  private async stopOlderAttempts(active: ActiveTurn): Promise<void> {
+    const previous = this.olderAttempts(active.turnStart.turn)
+    // Acceptance proves that the control plane replaced these attempts, even
+    // when their best-effort retry control was lost. Retire their thread owners
+    // before the next attempt resumes the same durable Codex thread.
+    for (const prior of previous) prior.requestControlledStop('retry', 'background_agent_job_attempt_changed')
+    await Promise.allSettled(previous.map(prior => prior.executionTask ?? prior.acceptanceTask))
+  }
+
   private async release(active: ActiveTurn): Promise<void> {
     if (this.turns.get(turnKey(active.turnStart.turn)) !== active) return
     if (!active.controlledStopRequested) active.requestControlledStop('stop', 'turn_finished')
     this.turns.delete(turnKey(active.turnStart.turn))
-    this.slots.release()
+    const donor = active.slotDonor
+    if (donor && this.turns.get(turnKey(donor.turnStart.turn)) === donor) {
+      // The replacement ended before it retired the older attempt, which keeps
+      // running; the slot goes back to that attempt.
+      donor.slotHandedOver = false
+    } else if (!active.slotHandedOver) {
+      this.slots.release()
+    }
     await this.slots.publish()
   }
 
@@ -421,7 +457,7 @@ export function startTurnProgress(
   let progressInFlight = false
 
   const sendProgress = (): void => {
-    if (stopped || progressInFlight) return
+    if (stopped || active.controlledStopRequested || progressInFlight) return
 
     progressInFlight = true
     void sendTurnProgress(sendEnvelope, active).finally(() => {
@@ -449,13 +485,32 @@ type TurnProgressReporter = {
 
 async function sendTurnProgress(sendEnvelope: EnvelopeSender, active: ActiveTurn): Promise<void> {
   try {
-    await sendEnvelope(workerProgressEnvelope(active.turnStart.turn))
+    await sendEnvelope(workerProgressEnvelope(active.turnStart.turn), { signal: active.abortSignal })
   } catch (error) {
+    if (active.controlledStopRequested) return
+    const invalidReason = invalidAttemptReason(error)
+    if (invalidReason) {
+      active.requestControlledStop('stop', invalidReason)
+      workerLogger.info('worker.turn_progress_rejected', 'control plane refused this Job attempt', {
+        signal_id: active.turnStart.turn.signal_id,
+        reason: invalidReason
+      })
+      return
+    }
     workerLogger.warning('worker.turn_progress_skipped', 'worker turn progress skipped', {
       signal_id: active.turnStart.turn.signal_id,
       reason: isRuntimeFabricTransportError(error) ? error.code : 'send_error',
       error: toError(error)
     })
+  }
+}
+
+function invalidAttemptReason(error: unknown): string | undefined {
+  if (
+    isRuntimeFabricTransportError(error, 'rejected') &&
+    (error.reason === 'background_agent_job_attempt_changed' || error.reason === 'run_closed')
+  ) {
+    return error.reason
   }
 }
 

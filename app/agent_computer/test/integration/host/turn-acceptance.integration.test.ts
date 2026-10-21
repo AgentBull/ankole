@@ -26,7 +26,7 @@ const turn = {
   signal_id: '00000000-0000-0000-0000-000000000101'
 }
 
-function fixture(plans: Array<Error | undefined>) {
+function fixture(plans: Array<Error | undefined>, maxConcurrentSlots = 1) {
   const root = mkdtempSync(join(tmpdir(), 'ank-accept-'))
   const config: WorkerConfig = {
     endpoint: 'ws://127.0.0.1:4000/runtime-fabric/worker',
@@ -36,7 +36,7 @@ function fixture(plans: Array<Error | undefined>) {
     agentHomeRoot: root,
     builtinSkillsRoot: join(import.meta.dir, '../../../../library'),
     browser: { daemonEntry: '/bin/true', runnerPath: '/bin/true', localChromiumExecutable: '/bin/true' },
-    maxConcurrentSlots: 1
+    maxConcurrentSlots
   }
   const sent: Envelope[] = []
   let resume!: () => void
@@ -130,6 +130,66 @@ async function until(predicate: () => boolean) {
 }
 
 describe('Turn acceptance before execution', () => {
+  for (const [accepted, maxConcurrentSlots] of [
+    [true, 2],
+    [false, 2],
+    [true, 1],
+    [false, 1]
+  ] as const) {
+    it(`${accepted ? 'releases' : 'retains'} the old attempt when a replacement is ${accepted ? 'accepted' : 'rejected'} with ${maxConcurrentSlots} slot(s)`, async () => {
+      const f = fixture(
+        [
+          undefined,
+          accepted ? undefined : new RuntimeFabricTransportError('rejected', 'run_closed', { reason: 'run_closed' })
+        ],
+        maxConcurrentSlots
+      )
+      const replacement = { ...turn, attempt: 2 }
+      const nextInput = createEnvelope({
+        ...envelopeHeader('replacement'),
+        body: {
+          case: 'turnStart',
+          value: create(TurnStartSchema, {
+            mode: 'start',
+            fetchRuntimeConfig: { ssrfFilter: true },
+            turn: jobTurnRefToProto(replacement),
+            signal: create(SignalEnvelopeSchema, { signalId: turn.signal_id, type: 'im.message.addressed' })
+          })
+        }
+      })
+      const stopReplacement = createEnvelope({
+        ...envelopeHeader('stop-replacement'),
+        body: {
+          case: 'turnControl',
+          value: create(TurnControlSchema, { turn: jobTurnRefToProto(replacement), command: 'stop' })
+        }
+      })
+
+      try {
+        await f.active.start(f.input)
+        await until(() => f.executionCount() === 1)
+        await f.active.start(nextInput)
+        await until(() => f.acceptanceCount() === 2 && f.drain.activeTaskCount === 1)
+        expect(f.executionCount()).toBe(accepted ? 2 : 1)
+        expect(f.active.size).toBe(1)
+        // A full Worker hands the old attempt's slot to the replacement instead
+        // of a worker_busy rejection; the slot count never exceeds the attempts.
+        expect(f.slots.used()).toBe(1)
+        expect(
+          f.sent.filter(
+            envelope => envelope.body.case === 'rpcRequest' && envelope.body.value.method === 'session_turn.abort'
+          )
+        ).toHaveLength(0)
+        await f.active.control(accepted ? stopReplacement : f.stopping)
+        await until(() => f.active.size === 0)
+        expect(f.slots.used()).toBe(0)
+      } finally {
+        await f.active.control(stopReplacement)
+        await f.cleanup()
+      }
+    })
+  }
+
   it('returns without blocking the receive loop and reconfirms one pending attempt before exactly one execution', async () => {
     const f = fixture([new RuntimeFabricTransportError('socket_closed', 'closed'), undefined])
     try {

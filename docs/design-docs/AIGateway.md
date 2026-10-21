@@ -117,7 +117,10 @@ logical profile name separately from the real Codex model, the exact
 `provider_id/raw-model-id` selector, all provider options, the optional context
 length, and the provider parallel-tool-call capability. A retry uses this
 snapshot. A new or respawned Job resolves the current profile at its own first
-execution admission.
+execution admission. When the binding declares the hosted Brain tool, the
+declaration joins the Codex request's own tool list, including the
+`additional_tools` input item that the Codex client uses to carry its tools,
+so AIGateway splits it before the provider sees the request.
 
 The snapshot also stores the selected model's direct input modalities. A
 text-only model stores a separate `vision_fallback` target only when that
@@ -382,6 +385,12 @@ UUID. A stateless request with no session identifier omits `session_id` and
 lets OpenRouter use its fallback routing. AIGateway preserves each supplied
 value and rejects a value that is empty, contains only whitespace, is not a
 string, or is longer than 256 characters.
+
+The request-scoped `provider` option is the OpenRouter provider-routing
+preference object (`order`, `only`, `ignore`, `allow_fallbacks`,
+`require_parameters`, and the other documented keys). AIGateway validates only
+that it is a map and sends it in the chat body as `provider`. A profile uses it
+to keep a model away from an upstream that cuts its output short.
 
 ## Use a ChatGPT Subscription Provider
 

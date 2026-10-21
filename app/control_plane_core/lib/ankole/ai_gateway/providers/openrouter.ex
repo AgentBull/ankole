@@ -37,6 +37,12 @@ defmodule Ankole.AIGateway.Providers.OpenRouter do
     setting(:textVerbosity, scope: :request)
     setting(:strictJSONSchema, type: :boolean, scope: :request, advanced: true)
 
+    # OpenRouter provider routing preferences (`order`, `only`, `ignore`,
+    # `allow_fallbacks`, `require_parameters`, ...). The map goes to the request
+    # body as `provider`, so a profile can keep a model away from an upstream
+    # that truncates its output.
+    setting(:provider, type: :map, scope: :request, advanced: true)
+
     language_model do
       api_resolver(:openai_chat_completions)
       prepare(:prepare_language_model)

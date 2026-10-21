@@ -3,6 +3,7 @@ defmodule Ankole.Sessions.CodexModelBinding do
 
   @header_name "x-ankole-aigateway-model-binding"
   alias Ankole.AIGateway.ChatGPTProtocol
+  alias Ankole.AIGateway.ToolSearch
 
   @spec header_name() :: String.t()
   def header_name, do: @header_name
@@ -120,12 +121,11 @@ defmodule Ankole.Sessions.CodexModelBinding do
 
   defp put_brain(request, nil), do: request
 
+  # Codex carries its own tools in an `additional_tools` input item. The
+  # declaration joins that list, so AIGateway finds and splits it before the
+  # request reaches the provider.
   defp put_brain(request, %{"operations" => operations, "signal_id" => signal_id}) do
-    tools =
-      case Map.get(request, "tools") do
-        tools when is_list(tools) -> tools
-        _missing -> []
-      end
+    tools = ToolSearch.list_tools(request) ++ [%{"type" => "brain", "operations" => operations}]
 
     metadata =
       case Map.get(request, "metadata") do
@@ -134,7 +134,7 @@ defmodule Ankole.Sessions.CodexModelBinding do
       end
 
     request
-    |> Map.put("tools", tools ++ [%{"type" => "brain", "operations" => operations}])
+    |> ToolSearch.put_tools(tools)
     |> Map.put("metadata", Map.put(metadata, "signal_id", signal_id))
   end
 

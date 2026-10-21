@@ -66,6 +66,9 @@ type FakeCodexBehavior = {
   mcpStartupFailure?: { name: string; error: string }
   cleanupError?: boolean
   suppressTurnNotifications?: boolean
+  responsePhase?: 'commentary' | 'partial_answer' | 'final_answer' | null
+  workAfterResponse?: boolean
+  repeatIncompleteResponse?: boolean
   /** The first turn overflows the context window; the retry turn compacts automatically part-way through. */
   compactFirstTurn?: boolean
 }
@@ -87,7 +90,7 @@ afterEach(() => {
 
 describe('@ankole/agent-computer Codex job runner', () => {
   it('commits owner-visible artifacts with the ordinary Codex final response', async () => {
-    const fixture = prepareFixture('done', { artifactPath: 'handoff.txt' })
+    const fixture = prepareFixture('done', { artifactPath: 'handoff.txt', responsePhase: 'final_answer' })
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
     const traceparent = '00-11111111111111111111111111111111-1111111111111111-01'
@@ -280,9 +283,50 @@ describe('@ankole/agent-computer Codex job runner', () => {
     }
   })
 
+  for (const [name, behavior] of [
+    ['commentary', { responsePhase: 'commentary' }],
+    ['partial answer', { responsePhase: 'partial_answer' }],
+    ['unphased message followed by work', { responsePhase: null, workAfterResponse: true }],
+    ['final message followed by work', { responsePhase: 'final_answer', workAfterResponse: true }]
+  ] as const) {
+    it(`requests a final report after ${name}`, async () => {
+      const fixture = prepareFixture('I will read the playbook now.', behavior)
+      const statusUpdates: RecordedStatusUpdate[] = []
+
+      try {
+        await runCodexJob(turnStart(), options(fixture.root, statusUpdates, []))
+
+        expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+        expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('final response after retry')
+        expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('2')
+      } finally {
+        fixture.cleanup()
+      }
+    })
+  }
+
+  it('fails after one report retry if Codex still returns only commentary', async () => {
+    const fixture = prepareFixture('I will inspect the sources.', {
+      responsePhase: 'commentary',
+      repeatIncompleteResponse: true
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+
+    try {
+      await runCodexJob(turnStart(), options(fixture.root, statusUpdates, []))
+
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'failed'])
+      expect(parsedJSON(statusUpdates.at(-1)?.errorJson)?.code).toBe('codex_empty_report')
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('2')
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
   it('keeps the lead turn alive through cumulative usage updates from a child thread', async () => {
     const fixture = prepareFixture('completed after child usage updates', {
-      usageBurstThreadID: 'child-thread'
+      usageBurstThreadID: 'child-thread',
+      responsePhase: null
     })
     const statusUpdates: RecordedStatusUpdate[] = []
     const turnUpserts: RecordedTurnUpsert[] = []
@@ -293,6 +337,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(result).toBeUndefined()
       expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
       expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('completed after child usage updates')
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('1')
       expect(turnUpserts.every(update => parsedJSON(update.errorJson)?.code !== 'codex_no_progress')).toBe(true)
     } finally {
       fixture.cleanup()
@@ -318,6 +363,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
       expect(recordedItems).toContain('"collaboration"')
       expect(recordedItems).toContain('child-thread')
       expect(statusUpdates.at(-1)?.status).toBe('succeeded')
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('completed after child work')
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('1')
     } finally {
       fixture.cleanup()
     }
@@ -1472,6 +1519,9 @@ const interruptCompletionRace = ${JSON.stringify(behavior.interruptCompletionRac
 const mcpStartupFailure = ${JSON.stringify(behavior.mcpStartupFailure)}
 const cleanupError = ${JSON.stringify(behavior.cleanupError)}
 const suppressTurnNotifications = ${JSON.stringify(behavior.suppressTurnNotifications)}
+const responsePhase = ${JSON.stringify(behavior.responsePhase)}
+const workAfterResponse = ${JSON.stringify(behavior.workAfterResponse)}
+const repeatIncompleteResponse = ${JSON.stringify(behavior.repeatIncompleteResponse)}
 const compactFirstTurn = ${JSON.stringify(behavior.compactFirstTurn)}
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
 function handle(message) {
@@ -1583,6 +1633,7 @@ function handle(message) {
         write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: turnID, status: 'completed' } } })
       }, 10)
       setTimeout(() => {
+        write({ method: 'item/started', params: { threadId: 'child-thread', turnId: 'child-turn', item: { type: 'agentMessage', id: 'child-message', text: '' } } })
         write({ method: 'item/completed', params: { threadId: 'child-thread', turnId: 'child-turn', item: { type: 'agentMessage', id: 'child-message', text: 'child result' } } })
         write({ method: 'turn/completed', params: { threadId: 'child-thread', turn: { id: 'child-turn', status: 'completed' } } })
       }, multiAgentChildDelayMs)
@@ -1616,7 +1667,10 @@ function handle(message) {
         })
       }
     }
-    const text = turnCount === 1 ? firstResponse : 'final response after retry'
+    const useFirstResponse = turnCount === 1 || repeatIncompleteResponse
+    const text = useFirstResponse ? firstResponse : 'final response after retry'
+    const phase = useFirstResponse ? responsePhase : 'final_answer'
+    write({ method: 'turn/started', params: { threadId: 'thread-1', turn: { id: turnID, status: 'inProgress', items: [] } } })
     setTimeout(() => {
       if (artifactPath) {
         const artifactTarget = artifactPath.startsWith('/') ? artifactPath : threadCwd + '/' + artifactPath
@@ -1630,7 +1684,12 @@ function handle(message) {
         }
         write({ method: 'turn/diff/updated', params: { threadId: 'thread-1', turnId: turnID, diff } })
       }
-      write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item: { type: 'agentMessage', id: 'message-' + turnCount, text } } })
+      write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item: { type: 'agentMessage', id: 'message-' + turnCount, text, phase } } })
+      if (useFirstResponse && workAfterResponse) {
+        const item = { type: 'commandExecution', id: 'command-' + turnCount, command: 'cat playbook.md', cwd: threadCwd, status: 'inProgress', commandActions: [] }
+        write({ method: 'item/started', params: { threadId: 'thread-1', turnId: turnID, item } })
+        write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item: { ...item, status: 'completed', aggregatedOutput: 'playbook', exitCode: 0, durationMs: 1 } } })
+      }
       write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: turnID, status: 'completed' } } })
     }, 10)
     return

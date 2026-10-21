@@ -120,6 +120,29 @@ defmodule Ankole.AIGateway.HostedTools.BrainTest do
       assert {:error, _reason} = ToolSearch.plan(colliding, brain: brain)
     end
 
+    test "a declaration inside the additional_tools carrier is split from that carrier",
+         context do
+      request = %{
+        "model" => "chatgpt_subscription/gpt-5.6",
+        "input" => [
+          %{
+            "type" => "additional_tools",
+            "role" => "developer",
+            "tools" => [
+              %{"type" => "function", "name" => "shell", "parameters" => %{}},
+              %{"type" => "brain"}
+            ]
+          },
+          %{"type" => "message", "role" => "user", "content" => "hello"}
+        ]
+      }
+
+      assert {:ok, %Brain.Plan{}, stripped} = Brain.split(context.agent.uid, request)
+      assert stripped |> ToolSearch.list_tools() |> Enum.map(& &1["name"]) == ["shell"]
+      assert stripped["tools"] == nil
+      refute Enum.any?(ToolSearch.list_tools(stripped), &(&1["type"] == "brain"))
+    end
+
     test "a first-party provider keeps its native tools and still gains the hosted catalog",
          context do
       request = %{"model" => "openai/gpt-5.6", "tools" => [%{"type" => "brain"}], "input" => []}
