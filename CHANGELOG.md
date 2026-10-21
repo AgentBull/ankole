@@ -3,7 +3,8 @@
 ## Version 2.0.0-alpha.17 (2026-10-21)
 
 - Stop a replaced Job attempt and release its Codex thread before the next
-  attempt resumes. Retain execution through temporary connection failures.
+  attempt resumes, also on a Worker with no free slot. Retain execution
+  through temporary connection failures.
 - When the provider omits the message phase, keep the last lead message as the
   Job result only until the lead thread starts more work.
 - Tell the Agent to omit `model_profile` on `create_background_job` and

@@ -36,6 +36,10 @@ export class ActiveTurn {
   acceptanceTask?: Promise<void>
   executionTask?: Promise<void>
   executionStarted = false
+  /** A newer attempt of the same Job took this attempt's capacity slot. */
+  slotHandedOver = false
+  /** The older attempt whose slot this attempt uses while the Worker is full. */
+  slotDonor?: ActiveTurn
   private stopRequested = false
   private stopCommand?: string
   private stopReason?: string
@@ -149,21 +153,29 @@ export class ActiveTurns {
       return
     }
 
-    if (!this.slots.reserve()) {
-      this.reject(turnStart.turn, {
-        code: 'worker_busy',
-        message: 'worker has no available turn slots',
-        details: {
-          runtime: 'bun',
-          retryable: true,
-          active_slots: this.slots.used(),
-          max_slots: this.config.maxConcurrentSlots
-        }
-      })
-      return
-    }
-
     const active = new ActiveTurn(turnStart)
+    if (!this.slots.reserve()) {
+      // A replaced attempt of the same Job still holds its slot until the newer
+      // attempt is accepted and retires it. The newer attempt takes over that
+      // slot; a capacity rejection would otherwise leave the old attempt in
+      // place and keep the replacement out of a full Worker.
+      const donor = this.olderAttempts(turnStart.turn).find(prior => !prior.slotHandedOver)
+      if (!donor) {
+        this.reject(turnStart.turn, {
+          code: 'worker_busy',
+          message: 'worker has no available turn slots',
+          details: {
+            runtime: 'bun',
+            retryable: true,
+            active_slots: this.slots.used(),
+            max_slots: this.config.maxConcurrentSlots
+          }
+        })
+        return
+      }
+      donor.slotHandedOver = true
+      active.slotDonor = donor
+    }
     this.turns.set(activeKey, active)
 
     this.confirm(active)
@@ -261,12 +273,15 @@ export class ActiveTurns {
     }
   }
 
-  private async stopOlderAttempts(active: ActiveTurn): Promise<void> {
-    const turn = active.turnStart.turn
-    const previous = [...this.turns.values()].filter(candidate => {
+  private olderAttempts(turn: JobTurnRef): ActiveTurn[] {
+    return [...this.turns.values()].filter(candidate => {
       const prior = candidate.turnStart.turn
       return prior.job_id === turn.job_id && prior.attempt < turn.attempt
     })
+  }
+
+  private async stopOlderAttempts(active: ActiveTurn): Promise<void> {
+    const previous = this.olderAttempts(active.turnStart.turn)
     // Acceptance proves that the control plane replaced these attempts, even
     // when their best-effort retry control was lost. Retire their thread owners
     // before the next attempt resumes the same durable Codex thread.
@@ -278,7 +293,14 @@ export class ActiveTurns {
     if (this.turns.get(turnKey(active.turnStart.turn)) !== active) return
     if (!active.controlledStopRequested) active.requestControlledStop('stop', 'turn_finished')
     this.turns.delete(turnKey(active.turnStart.turn))
-    this.slots.release()
+    const donor = active.slotDonor
+    if (donor && this.turns.get(turnKey(donor.turnStart.turn)) === donor) {
+      // The replacement ended before it retired the older attempt, which keeps
+      // running; the slot goes back to that attempt.
+      donor.slotHandedOver = false
+    } else if (!active.slotHandedOver) {
+      this.slots.release()
+    }
     await this.slots.publish()
   }
 

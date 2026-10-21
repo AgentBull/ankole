@@ -722,6 +722,11 @@ the attempt changed or the run closed. A connection failure alone does not
 stop it. After the control plane accepts a newer attempt, the Worker stops
 and cleans the older local attempt before it resumes the same Codex thread.
 This recovery does not depend on receipt of the best-effort retry control.
+When the Worker has no free slot, a newer attempt of a Job whose older
+attempt still holds a slot takes over that slot instead of a `worker_busy`
+rejection; the older attempt is retired before the newer one executes, and
+the slot returns to the older attempt if the control plane refuses the newer
+one first.
 
 A retryable worker failure waits before the next execution attempt.
 Infrastructure interruptions retry within minutes and never consume the

@@ -130,14 +130,19 @@ async function until(predicate: () => boolean) {
 }
 
 describe('Turn acceptance before execution', () => {
-  for (const accepted of [true, false]) {
-    it(`${accepted ? 'releases' : 'retains'} the old attempt when a replacement is ${accepted ? 'accepted' : 'rejected'}`, async () => {
+  for (const [accepted, maxConcurrentSlots] of [
+    [true, 2],
+    [false, 2],
+    [true, 1],
+    [false, 1]
+  ] as const) {
+    it(`${accepted ? 'releases' : 'retains'} the old attempt when a replacement is ${accepted ? 'accepted' : 'rejected'} with ${maxConcurrentSlots} slot(s)`, async () => {
       const f = fixture(
         [
           undefined,
           accepted ? undefined : new RuntimeFabricTransportError('rejected', 'run_closed', { reason: 'run_closed' })
         ],
-        2
+        maxConcurrentSlots
       )
       const replacement = { ...turn, attempt: 2 }
       const nextInput = createEnvelope({
@@ -167,6 +172,8 @@ describe('Turn acceptance before execution', () => {
         await until(() => f.acceptanceCount() === 2 && f.drain.activeTaskCount === 1)
         expect(f.executionCount()).toBe(accepted ? 2 : 1)
         expect(f.active.size).toBe(1)
+        // A full Worker hands the old attempt's slot to the replacement instead
+        // of a worker_busy rejection; the slot count never exceeds the attempts.
         expect(f.slots.used()).toBe(1)
         expect(
           f.sent.filter(
@@ -175,6 +182,7 @@ describe('Turn acceptance before execution', () => {
         ).toHaveLength(0)
         await f.active.control(accepted ? stopReplacement : f.stopping)
         await until(() => f.active.size === 0)
+        expect(f.slots.used()).toBe(0)
       } finally {
         await f.active.control(stopReplacement)
         await f.cleanup()
