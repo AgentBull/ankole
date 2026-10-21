@@ -1,8 +1,6 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
-  "extends": [
-    "//"
-  ],
+  "extends": ["//"],
   "tasks": {
     "type-check": {
       "inputs": [
@@ -21,9 +19,7 @@
         "$TURBO_ROOT$/app/webapps/scripts/**",
         "$TURBO_ROOT$/app/webapps/entries.json"
       ],
-      "env": [
-        "ANKOLE_EDITION"
-      ]
+      "env": ["ANKOLE_EDITION"]
     },
     "test": {
       "inputs": [
@@ -43,9 +39,7 @@
         "$TURBO_ROOT$/app/webapps/scripts/**",
         "$TURBO_ROOT$/app/webapps/entries.json"
       ],
-      "env": [
-        "ANKOLE_EDITION"
-      ]
+      "env": ["ANKOLE_EDITION"]
     },
     "lint": {
       "inputs": [
@@ -66,9 +60,7 @@
         "$TURBO_ROOT$/app/webapps/scripts/**",
         "$TURBO_ROOT$/app/webapps/entries.json"
       ],
-      "env": [
-        "ANKOLE_EDITION"
-      ]
+      "env": ["ANKOLE_EDITION"]
     },
     "build": {
       "inputs": [
@@ -93,9 +85,7 @@
         "$TURBO_ROOT$/app/webapps/scripts/**",
         "$TURBO_ROOT$/app/webapps/entries.json"
       ],
-      "env": [
-        "ANKOLE_EDITION"
-      ],
+      "env": ["ANKOLE_EDITION"],
       "cache": false,
       "outputs": []
     }

@@ -11,6 +11,7 @@ defmodule Ankole.Brain.Health do
 
   alias Ankole.AIAgent.Library.Schemas.AgentSkillLesson
   alias Ankole.AIGateway.ProviderConfigs
+  alias Ankole.Brain.Calibration
   alias Ankole.Brain.Config
   alias Ankole.Brain.ContextPackStats
   alias Ankole.Brain.Embeddings
@@ -45,6 +46,7 @@ defmodule Ankole.Brain.Health do
         dreaming: profile_model_status("heavy")
       },
       embedding_signature: embedding_signature(),
+      grading: safe(&Calibration.grading_status/0, %{status: "skipped", reason: @internal_error}),
       signals: signals_status(),
       embeddings: embedding_status(),
       context_pack: ContextPackStats.snapshot(),

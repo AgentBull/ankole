@@ -427,6 +427,21 @@ fingerprint; each adapter keeps its own connection state and protocol.
 and collects their results in binding order. Each adapter still parses its own
 event and supplies its own subject namespace.
 
+The reconcile pass runs every minute and calls `binding_spec/2` for every
+enabled Binding. `binding_spec/2` must be pure: it reads stored configuration
+and returns the connection specification without a provider call. A runtime
+identity or other provider lookup belongs to `owner_child_spec/3`, which runs
+in the reconciler process, behind an adapter-owned cache with a success
+lifetime and a failure backoff, so a provider error cannot repeat once per pass
+and the shared connection supervisor never waits on a provider call. A reason
+may be `%{reason: term(), retry_at: DateTime.t()}`; the retry time is reported
+next to the reason and is not part of the error identity.
+
+The pass logs an error set once as a warning when it appears or changes. While
+the set stays equal, it logs at most one info line every ten minutes with the
+repeat count, and an info line when the set becomes empty. The pass result
+also lists the errors for callers of `reconcile/1`.
+
 The built-in CloudEvents source needs no message-provider Plugin. It reuses
 Signals Bindings and callback Endpoints to select an explicit Agent Session.
 It does not declare a delivery module or IM sender policy. See

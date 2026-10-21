@@ -413,6 +413,7 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
           namespace: 'collaboration',
           tool: call.tool,
           arguments: call.arguments,
+          arguments_source: 'raw_function_call',
           status: 'completed'
         })
       )
@@ -472,6 +473,173 @@ describe('@ankole/agent-computer durable BackgroundAgentJob Turn recorder', () =
       output: '',
       agents: [{ thread_id: 'thread-child-1', path: '/root/researcher', activity: 'interacted' }]
     })
+  })
+
+  for (const order of ['activity first', 'child input first'] as const) {
+    it(`records the spawn brief from the child's first turn input when code mode sends no raw call (${order})`, async () => {
+      const { recorder, upserts } = fixture()
+      const brief = 'SUBTASK BRIEF — check the second deliverable.'
+      recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '委派子任务', 'event-1')
+      const activity = notification('item/completed', {
+        item: {
+          type: 'subAgentActivity',
+          id: 'spawn-code-mode',
+          kind: 'started',
+          agentThreadId: 'thread-child-1',
+          agentPath: '/root/worker'
+        }
+      })
+      const childTurn = () => {
+        recorder.recordTurnStarted(
+          { threadId: 'thread-child-1', turn: { ...startedTurn(), id: 'child-turn-1' } },
+          'agent'
+        )
+        recorder.handleNotification(
+          notification('rawResponseItem/completed', {
+            threadId: 'thread-child-1',
+            turnId: 'child-turn-1',
+            item: agentMessageItem('amsg-1', '/root/worker', brief)
+          })
+        )
+      }
+
+      if (order === 'activity first') {
+        recorder.handleNotification(activity)
+        childTurn()
+      } else {
+        childTurn()
+        recorder.handleNotification(activity)
+      }
+      recorder.handleNotification(
+        notification('turn/completed', {
+          turn: { ...startedTurn(), status: 'completed', items: [], completedAt: Date.now() / 1_000 }
+        })
+      )
+      await recorder.flush()
+
+      const entry = turnItems(upserts).find(candidate => candidate.item_key === 'spawn-code-mode')
+      expect(entry?.item).toEqual(
+        expect.objectContaining({
+          type: 'dynamicToolCall',
+          namespace: 'collaboration',
+          tool: 'spawn_agent',
+          arguments: { message: brief },
+          arguments_source: 'child_initial_input',
+          status: 'completed'
+        })
+      )
+      expect(entry?.item.arguments).not.toEqual({})
+      expect(entry?.item.contentItems).toEqual({
+        output: '',
+        agents: [{ thread_id: 'thread-child-1', path: '/root/worker', activity: 'started' }]
+      })
+    })
+  }
+
+  it("records a follow-up message from the child's next turn input and falls back when no input arrives", async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '继续委派', 'event-1')
+    recorder.recordTurnStarted({ threadId: 'thread-child-1', turn: { ...startedTurn(), id: 'child-turn-1' } }, 'agent')
+    const interaction = (id: string) =>
+      notification('item/completed', {
+        item: {
+          type: 'subAgentActivity',
+          id,
+          kind: 'interacted',
+          agentThreadId: 'thread-child-1',
+          agentPath: '/root/worker'
+        }
+      })
+
+    recorder.handleNotification(interaction('followup-answered'))
+    recorder.recordTurnStarted({ threadId: 'thread-child-1', turn: { ...startedTurn(), id: 'child-turn-2' } }, 'agent')
+    recorder.handleNotification(
+      notification('rawResponseItem/completed', {
+        threadId: 'thread-child-1',
+        turnId: 'child-turn-2',
+        item: agentMessageItem('amsg-2', '/root/worker', '核对第二项')
+      })
+    )
+    recorder.handleNotification(interaction('followup-unanswered'))
+    await recorder.flush()
+
+    const entries = turnItems(upserts)
+    expect(entries.find(entry => entry.item_key === 'followup-answered')?.item).toEqual(
+      expect.objectContaining({
+        tool: 'agent_interaction',
+        arguments: { target: '/root/worker', message: '核对第二项' },
+        arguments_source: 'child_initial_input'
+      })
+    )
+    expect(entries.find(entry => entry.item_key === 'followup-unanswered')?.item).toEqual(
+      expect.objectContaining({
+        tool: 'agent_interaction',
+        arguments: {},
+        arguments_source: 'activity_fallback'
+      })
+    )
+  })
+
+  it('matches a child input that arrives before its interaction activity and before the child turn is known', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '先到的消息', 'event-1')
+    const activity = (id: string, kind: 'started' | 'interacted') =>
+      notification('item/completed', {
+        item: { type: 'subAgentActivity', id, kind, agentThreadId: 'thread-child-1', agentPath: '/root/worker' }
+      })
+    const childInput = (id: string, turnID: string, text: string) =>
+      notification('rawResponseItem/completed', {
+        threadId: 'thread-child-1',
+        turnId: turnID,
+        item: agentMessageItem(id, '/root/worker', text)
+      })
+
+    // No turn/started for the child thread has been seen at this point.
+    recorder.handleNotification(childInput('amsg-1', 'child-turn-1', 'first brief'))
+    recorder.handleNotification(childInput('amsg-2', 'child-turn-2', 'second message'))
+    recorder.handleNotification(activity('spawn-1', 'started'))
+    recorder.handleNotification(activity('followup-1', 'interacted'))
+    await recorder.flush()
+
+    const entries = turnItems(upserts)
+    expect(entries.find(entry => entry.item_key === 'spawn-1')?.item).toEqual(
+      expect.objectContaining({
+        tool: 'spawn_agent',
+        arguments: { message: 'first brief' },
+        arguments_source: 'child_initial_input'
+      })
+    )
+    expect(entries.find(entry => entry.item_key === 'followup-1')?.item).toEqual(
+      expect.objectContaining({
+        tool: 'agent_interaction',
+        arguments: { target: '/root/worker', message: 'second message' },
+        arguments_source: 'child_initial_input'
+      })
+    )
+  })
+
+  it('ignores agent messages that the lead thread receives from a child', async () => {
+    const { recorder, upserts } = fixture()
+    recorder.recordTurnStarted({ threadId: 'thread-1', turn: startedTurn() }, 'agent', '等待子 Agent', 'event-1')
+    recorder.handleNotification(
+      notification('rawResponseItem/completed', { item: agentMessageItem('amsg-reply', '/root', 'child reply') })
+    )
+    recorder.handleNotification(
+      notification('item/completed', {
+        item: {
+          type: 'subAgentActivity',
+          id: 'spawn-late',
+          kind: 'started',
+          agentThreadId: 'thread-child-1',
+          agentPath: '/root/worker'
+        }
+      })
+    )
+    await recorder.flush()
+
+    expect(turnItems(upserts).find(entry => entry.item_key === 'spawn-late')?.item).toEqual(
+      expect.objectContaining({ tool: 'spawn_agent', arguments: {}, arguments_source: 'activity_fallback' })
+    )
   })
 
   it('checkpoints the bounded set of Skills with runtime usage evidence', async () => {
@@ -801,5 +969,19 @@ function tokenUsage() {
       reasoningOutputTokens: 3
     },
     modelContextWindow: 200_000
+  }
+}
+
+/** The raw item Codex gives a child thread for a parent message; the payload part holds the plaintext. */
+function agentMessageItem(id: string, recipient: string, payload: string) {
+  return {
+    type: 'agent_message',
+    id,
+    author: '/root',
+    recipient,
+    content: [
+      { type: 'input_text', text: `Message Type: NEW_TASK\nTask name: ${recipient}\nSender: /root\nPayload:\n` },
+      { type: 'encrypted_content', encrypted_content: payload }
+    ]
   }
 }

@@ -11,6 +11,10 @@
   "globals": {
     "Bun": "readonly"
   },
+  "ignorePatterns": [
+    "app/agent_computer/src/core/codex-runner/generated/**",
+    "app/agent_computer/src/fabric/generated/**"
+  ],
   "rules": {
     "curly": ["error", "multi-line"],
     "prefer-const": "error",
@@ -24,13 +28,20 @@
     "typescript/no-unnecessary-type-constraint": "warn",
     "typescript/triple-slash-reference": "off",
     "dot-notation": "off",
-    "unicorn/no-array-for-each": "off"
+    "unicorn/no-array-for-each": "off",
+    "unicorn/filename-case": ["warn", { "case": "kebabCase" }]
   },
   "overrides": [
     {
       "files": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts"],
       "rules": {
         "no-console": "off"
+      }
+    },
+    {
+      "files": ["app/agent_computer/src/**"],
+      "rules": {
+        "max-lines": ["warn", { "max": 700, "skipBlankLines": true, "skipComments": true }]
       }
     }
   ]

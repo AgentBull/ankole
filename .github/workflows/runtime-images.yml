@@ -1,24 +1,16 @@
 name: Publish RuntimeFabric image pair
 
 on:
-  push:
+  # A push to main releases only after the "Repository checks" workflow of that
+  # revision succeeds. The `release_gate` job admits the checked revision; it
+  # skips a revision whose only changes since the last release are
+  # documentation, the website, or the changelog, because such a commit adds no
+  # changelog version and none of those paths is copied by
+  # app/control_plane/Dockerfile or app/agent_computer/Dockerfile.
+  workflow_run:
+    workflows: ["Repository checks"]
+    types: [completed]
     branches: [main]
-    # Rebuild the release images only when something that reaches them changes.
-    # `paths-ignore` skips the run only when every changed file matches, so a commit
-    # touching both the website and the runtime still builds — the safe direction for
-    # images tagged by commit. A commit that changes only documentation (root `*.md`
-    # files, `docs/`, the website) adds no changelog version, so it must not reach the
-    # release step. `CHANGELOG.md` is here so that a changelog-only correction does not
-    # rebuild either; the release step still refuses to reuse a version for another
-    # commit. None of these paths is copied by app/control_plane/Dockerfile or
-    # app/agent_computer/Dockerfile; app/library, libs, and plugins are, and are not
-    # listed.
-    paths-ignore:
-      - '*.md'
-      - 'app/website/**'
-      - 'docs/**'
-      - 'CHANGELOG.md'
-      - '.github/workflows/website-pages.yml'
   workflow_dispatch:
 
 permissions:
@@ -34,12 +26,81 @@ env:
   CONTROL_PLANE_IMAGE: ghcr.io/agentbull/ankole-agent-control-plane
   WORKER_IMAGE: ghcr.io/agentbull/ankole-agent-computer-worker
   LATEST_TAG: main-latest
-  RELEASE_REVISION: ${{ github.sha }}
-  STAGING_TAG: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+  # A `workflow_run` event runs on the default branch; the checked revision is
+  # `head_sha`, not `github.sha`.
+  RELEASE_REVISION: ${{ github.event.workflow_run.head_sha || github.sha }}
+  STAGING_TAG: ${{ github.event.workflow_run.head_sha || github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
 
 jobs:
+  release_gate:
+    name: Admit the checked revision
+    runs-on: ubuntu-latest
+    # Every completed "Repository checks" run on main arrives here; only a green
+    # run of a push passes. A manual dispatch passes as before.
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success') }}
+    outputs:
+      admitted: ${{ steps.decide.outputs.admitted }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REVISION }}
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Decide whether the revision has a release to publish
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" != "workflow_run" ]]; then
+            echo "admitted=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          release_version="$(
+            bun tools/devkit/src/changelog-release.ts \
+              extract CHANGELOG.md "${RUNNER_TEMP}/release-notes.md"
+          )"
+          release_tag="v${release_version}"
+
+          if ! git fetch --quiet --depth=1 origin "refs/tags/${release_tag}:refs/tags/${release_tag}"; then
+            echo "Version ${release_version} has no Git tag yet"
+            echo "admitted=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          tag_sha="$(git rev-parse "${release_tag}^{commit}")"
+          if [[ "${tag_sha}" == "${RELEASE_REVISION}" ]]; then
+            echo "Version ${release_version} is tagged at this revision"
+            echo "admitted=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+
+          # The newest changelog version was released from another commit. That
+          # is correct only when nothing that reaches the images changed since.
+          runtime_changes="$(
+            git diff --name-only "${tag_sha}" "${RELEASE_REVISION}" \
+              | grep -Ev '^([^/]+\.md|app/website/.*|docs/.*|\.github/workflows/website-pages\.yml)$' || true
+          )"
+          if [[ -n "${runtime_changes}" ]]; then
+            echo "CHANGELOG.md still names ${release_version}, released from ${tag_sha}, but these files changed since:" >&2
+            echo "${runtime_changes}" >&2
+            exit 1
+          fi
+
+          echo "Only documentation changed since ${release_tag}; there is nothing to release"
+          echo "admitted=false" >> "${GITHUB_OUTPUT}"
+
   inspect_existing:
     name: Inspect immutable release tags
+    needs: release_gate
+    if: ${{ needs.release_gate.outputs.admitted == 'true' }}
     runs-on: ubuntu-latest
     outputs:
       base_exists: ${{ steps.inspect.outputs.base_exists }}
@@ -53,6 +114,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -144,6 +207,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -236,6 +301,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -322,6 +389,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -400,6 +469,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -470,10 +541,9 @@ jobs:
       - inspect_existing
       - verify_pair
     # A manual dispatch on main publishes too: a changelog-only release
-    # promotion cannot arrive as a qualifying push because CHANGELOG.md is
-    # paths-ignored, and the immutable-version check still rejects any
-    # attempt to re-release an existing version.
-    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.verify_pair.result == 'success' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
+    # promotion is not admitted by `release_gate`, and the immutable-version
+    # check still rejects any attempt to re-release an existing version.
+    if: ${{ !cancelled() && needs.inspect_existing.result == 'success' && needs.verify_pair.result == 'success' && (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' }}
     permissions:
       contents: write
       packages: write
@@ -487,6 +557,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          ref: ${{ env.RELEASE_REVISION }}
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
@@ -527,8 +599,8 @@ jobs:
           tag_sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq '.sha' 2>/dev/null)" || tag_sha=""
           if [[ -n "${tag_sha}" ]]; then
             tag_exists=true
-            if [[ "${tag_sha}" != "${GITHUB_SHA}" ]]; then
-              echo "Git tag ${RELEASE_TAG} already points to ${tag_sha}, not ${GITHUB_SHA}" >&2
+            if [[ "${tag_sha}" != "${RELEASE_REVISION}" ]]; then
+              echo "Git tag ${RELEASE_TAG} already points to ${tag_sha}, not ${RELEASE_REVISION}" >&2
               exit 1
             fi
           fi
@@ -607,7 +679,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          tag_option=(--target "${GITHUB_SHA}")
+          tag_option=(--target "${RELEASE_REVISION}")
           if [[ "${{ steps.existing.outputs.tag_exists }}" == "true" ]]; then
             tag_option=(--verify-tag)
           fi

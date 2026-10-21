@@ -5,9 +5,12 @@ learning write into one body of pages and claims, and every read applies the
 querier's knowledge boundary. Brain replaces per-agent memory files: what one
 Agent learns, every authorized Principal can reach.
 
-The Elixir control plane owns all Brain state and logic. A model reaches Brain
-only through the AIGateway-hosted `brain` tool, which executes inside the
-Response; the Worker holds no Brain state and no Brain tool code.
+The Elixir control plane owns all Brain state and logic. A chat Session
+reaches Brain only through the AIGateway-hosted `brain` tool, which executes
+inside the Response. A codex Job reaches the read subset through the Worker
+read-tool bridge, where `Ankole.Sessions.Tools.Brain` executes each call. The
+Worker holds no Brain state and no Brain logic; its Brain tool is the transport
+codec for that bridge.
 
 ## Storage
 
@@ -225,10 +228,24 @@ writes keep their separate content admission gate (see `SkillLessons.md`).
 
 `Ankole.Brain.Tools` is the model-facing catalog and executor. AIGateway
 declares it as the hosted `brain` tool and executes each call inside the
-Response as the request subject: an Agent Turn, a codex Job, or an OIDC Human.
-The subject is the querier; a Turn's conversation supplies the disclosure
-recipients and the default write scope. A Job and a workflow task get the
-read-only subset `recall` and `get_page`.
+Response as the request subject: an Agent Turn or an OIDC Human. The subject
+is the querier; a Turn's conversation supplies the disclosure recipients and
+the default write scope. A workflow task gets the read-only subset `recall`
+and `get_page` of the hosted tool.
+
+A codex Job does not receive the hosted tool, because in Codex code mode the
+model can call only the tools that Codex itself declared. When `brain.enabled`
+is true, the turn start carries the `Ankole.Sessions.Tools.Brain` declarations
+in `request_context.brain_tools`; the Worker declares them to Codex unchanged
+as dynamic Job tools and sends each call through the `tools.read` RPC.
+`Ankole.Sessions.ReadToolBroker` validates the arguments against the same
+declaration and
+`Ankole.Sessions.Tools.Brain` runs the operation through the same
+`Ankole.Brain.Tools` executor, with the Job's Agent as the querier and the
+`Ankole.Brain.RequestContext` of the Job's Signal as the disclosure boundary.
+A Signal that the Agent does not own refuses the read. The result text is the
+JSON document the hosted tool would return, with the lazy Skill hint first when
+it names a Skill discovery record.
 
 | Operation | What it does |
 | --- | --- |
@@ -355,7 +372,26 @@ one failing phase is recorded without blocking the rest:
    It requires the Dreaming model and advances `timelines_extracted_at` only
    after successful extraction. A changed body remains pending.
 4. `grade_takes` — grades expired or stale Takes against page evidence
-   (`Ankole.Brain.Calibration`). A Take records the input hash only after a
+   (`Ankole.Brain.Calibration`). A Take is expired when its `until_date`, a
+   date column, is before today, and stale when it has no due date and is
+   older than six months. `Claims.write_take` rejects a due date that is not
+   one calendar date with `:invalid_until_date`, for every writer. A verdict
+   of `correct`, `incorrect`, or `partial` on an expired Take is also its
+   resolution: the same commit writes `resolved_at`, `resolved_quality`,
+   `resolved_outcome` (`true`, `false`, or NULL for `partial`),
+   and `resolution_provenance` `dreaming grade` through the same
+   `Claims.resolve_take/4` that the Console uses, with the Brain maintainer
+   Agent's actor reference in `resolved_by`, and deactivates the Take, so it
+   leaves the candidate set and enters the scorecards without a manual
+   resolve. A Console resolve stores the Human's actor reference instead.
+   Resolution stays immutable, so a Take that a Human resolved during the
+   model call keeps the Human's verdict. An
+   `unresolvable` verdict keeps the Take in the queue for later evidence, and
+   a stale Take without a due date keeps only its grade, because its period is
+   still open. Without a Dreaming model the phase reports
+   `skipped: dreaming_model_not_configured`; the Dreaming job logs every
+   skipped phase as a warning, and `/brain/health` reports the same state
+   under `grading`. A Take records the input hash only after a
    successful grade. The hash covers the exact prompt, selected evidence,
    installed domain names and pack mapping, provider, model, credential-free
    connection settings, and request options with provider defaults. Model

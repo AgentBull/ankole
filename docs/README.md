@@ -94,7 +94,8 @@ Automation scripts, and is available while its Worker is absent. See
 
 | Path | What it contains |
 | --- | --- |
-| `app/control_plane/` | Elixir control plane, Phoenix APIs, Ecto schemas, and migrations |
+| `app/control_plane/` | Elixir control plane application: OTP entry points, release and upgrade modules, Mix tasks, configuration, migrations, and tests |
+| `app/control_plane_core/` | Phoenix APIs, Ecto schemas, and the domain modules that the control plane runs |
 | `app/kernel/` | Shared Rust kernel and host bindings |
 | `app/agent_computer/` | Bun worker, tools, Codex runner, and browser runtime |
 | `app/webapps/` | Auth, setup, Pod, and console React applications |

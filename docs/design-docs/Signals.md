@@ -474,12 +474,12 @@ success. A provider acknowledgement never waits for model execution.
 
 Long connections use `Ankole.Plugins.ConnectionLifecycle`. The adapter builds
 one connection specification per enabled Binding and, when shared, active
-identity provider. Equal connection keys share one process. Different app
-secrets for the same key are rejected. Lark, Slack, and DingTalk SDK clients
-are temporary children. A failed connection retries once immediately, then
-after 5 and 30 seconds; other keys remain connected. A connection is stopped
-only after a reconciliation pass reads all Bindings and identity providers
-successfully and no specification needs it.
+identity provider, from stored configuration alone. Equal connection keys share
+one process. Different app secrets for the same key are rejected. Lark, Slack,
+and DingTalk SDK clients are temporary children. A failed connection retries
+once immediately, then after 5 and 30 seconds; other keys remain connected. A
+connection is stopped only after a reconciliation pass reads all Bindings and
+identity providers successfully and no specification needs it.
 
 The connection Registry retains the last successful start configuration and
 consumers so a replacement reconciler can recover a blocked Binding. A stop

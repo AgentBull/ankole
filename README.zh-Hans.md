@@ -195,7 +195,7 @@ flowchart TB
 
 </details>
 
-[docs/README.zh-Hans.md](docs/README.zh-Hans.md) 介绍每个组成部分，[设计文档](docs/design-docs/)（英文）定义各部分的契约。[为什么 OTP 是更好的多智能体编排运行时](https://ding.ee/zh-Hans-CN/why-otp-is-a-better-runtime-for-multi-agent-orchestration/)解释了运行时的选择。
+[docs/README.md](docs/README.md)（英文）介绍每个组成部分，[设计文档](docs/design-docs/)（英文）定义各部分的契约。[为什么 OTP 是更好的多智能体编排运行时](https://ding.ee/zh-Hans-CN/why-otp-is-a-better-runtime-for-multi-agent-orchestration/)解释了运行时的选择。
 
 ## 当前状态与已知限制
 

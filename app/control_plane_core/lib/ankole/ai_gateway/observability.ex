@@ -154,8 +154,8 @@ defmodule Ankole.AIGateway.Observability do
           originator: text(Map.get(headers, "originator")),
           caller: string_value(Keyword.get(opts, :caller)),
           release: release(),
-          job_id: nil,
-          attempts: nil
+          job_id: positive_integer(Map.get(request_context, "job_id")),
+          attempts: positive_integer(Map.get(request_context, "attempts"))
         }
         |> Ankole.Observability.Trace.with_tenant()
 
@@ -575,4 +575,7 @@ defmodule Ankole.AIGateway.Observability do
   defp string_value(value) when is_atom(value), do: Atom.to_string(value)
   defp string_value(value) when is_binary(value), do: value
   defp string_value(_value), do: nil
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: value
+  defp positive_integer(_value), do: nil
 end

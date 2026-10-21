@@ -8,11 +8,15 @@ defmodule Ankole.Sessions.ReadToolBroker do
   alias Ankole.RuntimeFabric.V1, as: Proto
   alias Ankole.AgentWorkers.RPCWire
 
+  # The read-tool owners a Job may call through `tools.read`. Each owner keeps
+  # the contract of its main-Agent tool; the broker adds only the Job fence.
+  @owners [Tools.Skill, Tools.Web, Tools.Brain]
+
   def handle_read(%JobTurnRef{} = turn, %Proto.ReadToolRequest{} = request, ctx) do
     with {:ok, owner, declaration} <- declaration(request.name),
          {:ok, args} <- Ankole.JSON.decode(request.arguments_json),
          {:ok, args} <- ToolArguments.validate(declaration["parameters"], args),
-         {:ok, result} <- execute(owner, turn.agent_uid, request, args) do
+         {:ok, result} <- execute(owner, turn, request, args) do
       {:ok, project(result)}
     else
       {:error, reason} ->
@@ -26,25 +30,27 @@ defmodule Ankole.Sessions.ReadToolBroker do
   end
 
   defp declaration(name) do
-    owner = if name == "skill_view", do: Tools.Skill, else: Tools.Web
-
-    case Enum.find(owner.declarations(), &(&1["name"] == name)) do
-      nil -> {:error, :unknown_read_tool}
-      tool -> {:ok, owner, tool}
-    end
+    Enum.find_value(@owners, {:error, :unknown_read_tool}, fn owner ->
+      case Enum.find(owner.declarations(), &(&1["name"] == name)) do
+        nil -> nil
+        tool -> {:ok, owner, tool}
+      end
+    end)
   end
 
-  defp execute(Tools.Skill, agent_uid, _request, args) do
-    with {:ok, skills} <- Library.runtime_skills_for_agent(agent_uid),
-         do: Tools.Skill.view(agent_uid, args, "background_job", skills)
+  defp execute(Tools.Skill, turn, _request, args) do
+    with {:ok, skills} <- Library.runtime_skills_for_agent(turn.agent_uid),
+         do: Tools.Skill.view(turn.agent_uid, args, "background_job", skills)
   end
 
-  defp execute(Tools.Web, agent_uid, request, args) do
+  defp execute(Tools.Brain, turn, request, args), do: Tools.Brain.read(turn, request.name, args)
+
+  defp execute(Tools.Web, turn, request, args) do
     with {:ok, cache} <- decode_object(request.web_cache_json),
          {:ok, rendered} <- decode_object(request.rendered_body_json),
          :ok <- validate_context(cache, rendered) do
       cache = Map.new(cache, fn {url, page} -> {url, %{at: page["at"], page: page["page"]}} end)
-      run = %{agent_uid: agent_uid, web_cache: cache}
+      run = %{agent_uid: turn.agent_uid, web_cache: cache}
 
       if request.rendered_body_json != <<>>,
         do: Tools.Web.render(run, rendered, args["urls"], args["result_offset"] || 0),

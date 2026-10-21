@@ -35,7 +35,8 @@ defmodule Ankole.Brain.Schemas.Claim do
     # Take fields; NULL for facts.
     field :weight, :float
     field :since_date, :string
-    field :until_date, :string
+    # The due date that gates the Take into Dreaming's grading.
+    field :until_date, :date
     field :active, :boolean
     field :graded_quality, :string
     field :graded_confidence, :float

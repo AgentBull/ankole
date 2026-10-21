@@ -1310,6 +1310,10 @@ export type BackgroundAgentJobItem = {
   agent_uid: string
   attempts: number
   completed_at?: string | null
+  /**
+   * The terminal Job that this Job continues; null for a first Job.
+   */
+  continued_from_job_id: number | null
   duration_seconds: number
   error: {
     [key: string]: unknown
@@ -1345,6 +1349,10 @@ export type BackgroundAgentJobItem = {
    */
   turns_next_cursor?: string | null
   updated_at: string
+  /**
+   * The first Job of the continuation chain, whose Workspace every Job in the chain uses.
+   */
+  workspace_owner_job_id: number
   workspace_template_id: string | null
 }
 

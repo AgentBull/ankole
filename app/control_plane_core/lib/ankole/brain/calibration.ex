@@ -43,9 +43,20 @@ defmodule Ankole.Brain.Calibration do
     end
   end
 
+  @doc """
+  Whether the next `grade_takes` round can run, for the Brain health surface.
+  """
+  @spec grading_status() :: %{status: String.t(), reason: String.t() | nil}
+  def grading_status do
+    case Config.dreaming_model() do
+      nil -> %{status: "skipped", reason: "dreaming_model_not_configured"}
+      _model -> %{status: "ready", reason: nil}
+    end
+  end
+
   defp candidates do
     stale_before = DateTime.add(DateTime.utc_now(), -@grade_stale_months * 30 * 86_400, :second)
-    today = Date.to_iso8601(Date.utc_today())
+    today = Date.utc_today()
 
     Claim
     |> Claims.filter_live_parents()
@@ -57,6 +68,11 @@ defmodule Ankole.Brain.Calibration do
         claim.created_at < ^stale_before
     )
   end
+
+  defp expired?(%Claim{until_date: %Date{} = until_date}),
+    do: Date.compare(until_date, Date.utc_today()) == :lt
+
+  defp expired?(_take), do: false
 
   defp grade_batch(model, after_id, report) do
     batch =
@@ -92,8 +108,12 @@ defmodule Ankole.Brain.Calibration do
 
   defp grading_context(nil), do: {:error, :dreaming_model_not_configured}
 
+  # The grader acts as the Brain maintainer Agent, whose profile it calls, so a
+  # resolution it writes carries that Principal's actor reference like a
+  # Console resolve carries the Human's.
   defp grading_context(model) do
-    with {:ok, provider} <- ProviderConfigs.fetch_active_provider(model["provider_id"]),
+    with {:ok, maintainer_uid} <- Config.maintainer_subject_uid(),
+         {:ok, provider} <- ProviderConfigs.fetch_active_provider(model["provider_id"]),
          {:ok, definition} <- Providers.fetch(provider.provider_kind),
          {:ok, connection} <-
            ProviderConfigs.runtime_connection(provider, %{"credential" => %{}}),
@@ -120,7 +140,12 @@ defmodule Ankole.Brain.Calibration do
         |> Repo.all()
         |> Map.new(&{&1.name, &1.pack_name})
 
-      {:ok, %{profile: model, generation: generation, domains: domains}}
+      grader =
+        to_string(
+          Ankole.ActorRef.from_principal(%{tenant_id: Repo.tenant_id!(), uid: maintainer_uid})
+        )
+
+      {:ok, %{profile: model, generation: generation, domains: domains, grader: grader}}
     end
   end
 
@@ -223,14 +248,45 @@ defmodule Ankole.Brain.Calibration do
         |> repo.update!()
 
         assign_take_domains(repo, take, List.wrap(output["domains"]), domains)
-        {:ok, :graded}
+
+        with :ok <- resolve_expired(repo, take, output["quality"], model.grader),
+             do: {:ok, :graded}
       end
     else
+      {:error, _reason} = error -> error
       _changed -> {:ok, :skip}
     end
   end
 
   defp commit_current_grade(_repo, _take, _hash, _output), do: {:ok, :skip}
+
+  # A verdict on an expired Take is its resolution: the period is over and no
+  # later evidence changes the outcome, so the Take leaves the grading queue
+  # and enters the scorecards through the one resolve contract. An
+  # unresolvable verdict keeps the Take in the queue for later evidence, and a
+  # stale Take without a due date keeps only its grade because its period is
+  # still open.
+  defp resolve_expired(repo, take, quality, grader)
+       when quality in ["correct", "incorrect", "partial"] do
+    if expired?(take) do
+      resolution = %{
+        resolved_quality: quality,
+        resolved_outcome: resolved_outcome(quality),
+        resolution_provenance: "dreaming grade"
+      }
+
+      with {:ok, _resolved} <- Claims.resolve_take(take.id, resolution, grader, repo: repo),
+           do: :ok
+    else
+      :ok
+    end
+  end
+
+  defp resolve_expired(_repo, _take, _quality, _grader), do: :ok
+
+  defp resolved_outcome("correct"), do: true
+  defp resolved_outcome("incorrect"), do: false
+  defp resolved_outcome("partial"), do: nil
 
   # Domain assignments feed the calibration scorecards; the unique
   # (take, domain) key makes grading reruns idempotent.

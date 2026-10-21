@@ -131,7 +131,7 @@ defmodule Ankole.Brain.SynthesisScopeTest do
           to_string(fact.valid_from),
           take.id,
           take.since_date,
-          take.until_date,
+          Date.to_iso8601(take.until_date),
           take.provenance
         ] do
       assert prompt =~ value

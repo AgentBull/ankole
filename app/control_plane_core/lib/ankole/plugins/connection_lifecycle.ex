@@ -15,6 +15,20 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   config and consumers it serves. When the desired value differs, for example
   after a rotated secret or a changed consumer set, the owner is replaced.
 
+  `binding_spec/2` must be pure: it reads stored configuration and returns a
+  spec without provider calls. Runtime identity and other provider lookups
+  belong to the owner start in `owner_child_spec/3`, behind an adapter-owned
+  cache. The pass runs every minute for every enabled binding.
+
+  A blocked, error, or owner start reason may be `%{reason: term(), retry_at:
+  DateTime.t()}`. The pass reports `retry_at` next to the reason and leaves it
+  out of the error identity, so a moving retry time is the same error.
+
+  An error set that stays equal between passes is logged once as a warning,
+  then at most once every ten minutes at info level with the repeat count.
+  A changed error set is a new warning; an empty set after errors is logged at
+  info level.
+
   The `use` options are `:adapter` (the binding adapter id), `:registry` and
   `:supervisor` (the plugin's owner Registry and DynamicSupervisor), and the
   optional `:interval_ms` (default 60 seconds) and `:conflict_reason` (default
@@ -32,6 +46,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
 
   @call_timeout 30_000
   @connection_specs_key {__MODULE__, :connection_specs}
+  @repeat_log_interval_ms :timer.minutes(10)
 
   @typedoc "One desired connection: the config it uses and the consumers it serves."
   @type spec :: %{
@@ -132,7 +147,8 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
           module.__connection_lifecycle__().restart_backoff_ms
         ),
       monitors: %{},
-      failures: %{}
+      failures: %{},
+      alert: nil
     }
 
     GenServer.start_link(__MODULE__, state, name: Keyword.get(opts, :name, module))
@@ -200,7 +216,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
       errors:
         Enum.reverse(errors) ++
           Enum.map(failed, fn {_key, tenant_id, {:error, reason}} ->
-            %{tenant_id: tenant_id, reason: reason}
+            put_reason(%{tenant_id: tenant_id}, reason)
           end)
     }
   end
@@ -305,22 +321,21 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
   def format_status(%{state: state} = status) do
     %{
       status
-      | state: Map.take(state, [:module, :interval_ms, :restart_backoff_ms, :monitors, :failures])
+      | state:
+          Map.take(state, [
+            :module,
+            :interval_ms,
+            :restart_backoff_ms,
+            :monitors,
+            :failures,
+            :alert
+          ])
     }
   end
 
   defp run_reconcile(%{module: module, reconcile_opts: opts} = state) do
     result = reconcile_connections(module, opts)
-
-    if result.errors != [] do
-      adapter = module.__connection_lifecycle__().adapter
-
-      Logging.warning(
-        "#{adapter}_adapter.connection_reconciliation.completed_with_errors",
-        "#{adapter} adapter connection reconciliation completed with errors",
-        %{errors: result.errors}
-      )
-    end
+    state = log_reconcile_errors(state, result.errors)
 
     %{registry: registry, supervisor: supervisor} = module.__connection_lifecycle__()
 
@@ -361,7 +376,7 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         errors:
           result.errors ++
             Enum.map(failed, fn {_key, tenant_id, {:error, reason}} ->
-              %{tenant_id: tenant_id, reason: reason}
+              put_reason(%{tenant_id: tenant_id}, reason)
             end)
     }
 
@@ -395,6 +410,46 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
       end)
 
     {Map.drop(result, [:desired, :connections]), state}
+  end
+
+  # One warning per distinct error set. A repeated set is an info line at most
+  # every ten minutes; recovery is an info line.
+  defp log_reconcile_errors(%{alert: nil} = state, []), do: state
+
+  defp log_reconcile_errors(%{alert: alert} = state, []) do
+    adapter = state.module.__connection_lifecycle__().adapter
+
+    Logging.info(
+      "#{adapter}_adapter.connection_reconciliation.recovered",
+      "#{adapter} adapter connection reconciliation completed without errors",
+      %{repeat_count: alert.repeat_count}
+    )
+
+    %{state | alert: nil}
+  end
+
+  defp log_reconcile_errors(state, errors) do
+    adapter = state.module.__connection_lifecycle__().adapter
+    event = "#{adapter}_adapter.connection_reconciliation.completed_with_errors"
+    message = "#{adapter} adapter connection reconciliation completed with errors"
+    hash = errors |> Enum.map(&Map.delete(&1, :retry_at)) |> Enum.sort() |> :erlang.phash2()
+    now = System.monotonic_time(:millisecond)
+
+    case state.alert do
+      %{hash: ^hash} = alert ->
+        alert = %{alert | repeat_count: alert.repeat_count + 1}
+
+        if now - alert.logged_at >= @repeat_log_interval_ms do
+          Logging.info(event, message, %{errors: errors, repeat_count: alert.repeat_count})
+          %{state | alert: %{alert | logged_at: now}}
+        else
+          %{state | alert: alert}
+        end
+
+      _changed ->
+        Logging.warning(event, message, %{errors: errors})
+        %{state | alert: %{hash: hash, repeat_count: 0, logged_at: now}}
+    end
   end
 
   defp monitor_key(state, key, pid) do
@@ -445,12 +500,17 @@ defmodule Ankole.Plugins.ConnectionLifecycle do
         )
 
       {:blocked, key, reason} ->
-        {specs, [Map.merge(error, %{reason: reason, blocked_connection_key: key}) | errors]}
+        {specs, [error |> put_reason(reason) |> Map.put(:blocked_connection_key, key) | errors]}
 
       {:error, reason} ->
-        {specs, [Map.put(error, :reason, reason) | errors]}
+        {specs, [put_reason(error, reason) | errors]}
     end
   end
+
+  defp put_reason(error, %{reason: reason, retry_at: %DateTime{} = retry_at}),
+    do: Map.merge(error, %{reason: reason, retry_at: retry_at})
+
+  defp put_reason(error, reason), do: Map.put(error, :reason, reason)
 
   defp add_identity_providers({specs, errors} = acc, module, config) do
     if function_exported?(module, :identity_spec, 1) do

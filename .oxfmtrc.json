@@ -23,6 +23,13 @@
     "**/*.md",
     "**/*.mdx",
     "**/*.yaml",
-    "**/*.yml"
+    "**/*.yml",
+    "app/control_plane/test/fixtures/**/*.json",
+    "app/control_plane_core/priv/worker_provider_schemas/*.json",
+    "app/kernel/proto/**/*.json",
+    "app/kernel/test/vectors/**",
+    "app/kernel/src/applet_runtime/bootstrap.js",
+    "libs/ankole-editor/corpus/**",
+    "libs/ankole-editor/upstream/fixtures/**"
   ]
 }

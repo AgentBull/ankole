@@ -190,6 +190,53 @@ describe('Turn acceptance before execution', () => {
     })
   }
 
+  it('keeps one slot accounted across three attempts when the middle attempt is retired while confirming', async () => {
+    // Attempt 1 executes. Attempt 2 takes its slot and waits on an uncertain
+    // ACK. Attempt 3 takes attempt 2's slot and is accepted, which retires
+    // attempts 1 and 2. The slot must follow attempt 3, not return to attempt 1.
+    const f = fixture([undefined, new RuntimeFabricTransportError('socket_closed', 'closed'), undefined])
+    const attemptInput = (attempt: number) =>
+      createEnvelope({
+        ...envelopeHeader(`attempt-${attempt}`),
+        body: {
+          case: 'turnStart',
+          value: create(TurnStartSchema, {
+            mode: 'start',
+            fetchRuntimeConfig: { ssrfFilter: true },
+            turn: jobTurnRefToProto({ ...turn, attempt }),
+            signal: create(SignalEnvelopeSchema, { signalId: turn.signal_id, type: 'im.message.addressed' })
+          })
+        }
+      })
+    const stopAttempt = (attempt: number) =>
+      createEnvelope({
+        ...envelopeHeader(`stop-attempt-${attempt}`),
+        body: {
+          case: 'turnControl',
+          value: create(TurnControlSchema, { turn: jobTurnRefToProto({ ...turn, attempt }), command: 'stop' })
+        }
+      })
+
+    try {
+      await f.active.start(f.input)
+      await until(() => f.executionCount() === 1)
+      await f.active.start(attemptInput(2))
+      await Bun.sleep(1)
+      expect(f.active.size).toBe(2)
+      expect(f.slots.used()).toBe(1)
+      await f.active.start(attemptInput(3))
+      await until(() => f.executionCount() === 2 && f.active.size === 1)
+      expect(f.slots.used()).toBe(1)
+      await f.active.control(stopAttempt(3))
+      await until(() => f.active.size === 0)
+      expect(f.slots.used()).toBe(0)
+    } finally {
+      f.resume()
+      await f.active.control(stopAttempt(3))
+      await f.cleanup()
+    }
+  })
+
   it('returns without blocking the receive loop and reconfirms one pending attempt before exactly one execution', async () => {
     const f = fixture([new RuntimeFabricTransportError('socket_closed', 'closed'), undefined])
     try {

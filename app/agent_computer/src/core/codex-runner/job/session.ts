@@ -56,6 +56,7 @@ import {
 } from '../runtime/agent-runtime-manager'
 import { CodexSkillUsageTracker, skillDisabledNotice } from './skill-usage'
 import { fetchReplayTurnItems, wireItemsFromTurnItems } from './thread-replay'
+import { changedWorkspacePaths, snapshotWorkspace, type WorkspaceSnapshot } from './workspace-snapshot'
 
 /**
  * Keeps Worker-local steering and Skill updates responsive without adding
@@ -65,6 +66,20 @@ const activeTurnUpdatePollIntervalMs = 250
 // Detect an app-server that accepted turn/start but produced no event. This is
 // not an overall Job timeout.
 const defaultFirstCodexProgressTimeoutMs = ms('1m')
+/**
+ * Lead items that show the model continued to work after a message. A
+ * runtime-generated item, such as an automatic compaction, does not make the
+ * previous message provisional.
+ */
+const workItemTypes = new Set([
+  'commandExecution',
+  'fileChange',
+  'mcpToolCall',
+  'dynamicToolCall',
+  'collabAgentToolCall',
+  'subAgentActivity',
+  'webSearch'
+])
 
 export async function runCodexJobSession(
   turnStart: TurnStart,
@@ -100,6 +115,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private latestTokenUsage: BackgroundAgentJobTurnUsage | undefined
   private completedFilesChanged: BackgroundAgentJobPathHandoff = emptyBackgroundAgentJobPathHandoff()
   private activeFilesChanged: BackgroundAgentJobPathHandoff = emptyBackgroundAgentJobPathHandoff()
+  /** Workspace files before the attempt's first Turn; the result diffs the final state against it. */
+  private workspaceSnapshot: WorkspaceSnapshot | undefined
   private waitingOnUserInput = false
   private recoveryInFlight = false
   private completionPending = false
@@ -273,6 +290,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
     const effectiveTurnInput = this.recreatedThreadOnResume
       ? recreatedThreadInput(this.job, initialTurnInput, await this.continuationSourceContext())
       : initialTurnInput
+    this.workspaceSnapshot = await this.snapshotWorkspace()
+    if (await this.finishClaimedFinalization()) return
     await this.startCodexTurn(effectiveTurnInput)
     if (await this.finishClaimedFinalization()) return
     this.startActiveTurnUpdatePoll()
@@ -422,6 +441,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
   private async publishRunningStatus(initializeResponse: JSONObject): Promise<void> {
     if (!this.runtimeThreadID) throw new Error('codex thread is not available')
     const { projection, project, skills } = this.prepared
+    const threadFeatures = jsonObject(this.prepared.threadConfig.features)
     await this.opts.rpc(
       'background_agent_job.status.update',
       {
@@ -449,6 +469,8 @@ class CodexJobSession implements AgentCodexRuntimeSession {
             : {}),
           projected_tool_names: projection.dynamicTools.map(tool => tool.name),
           quarantined_tool_names: projection.quarantinedTools,
+          child_dynamic_tools_inherited: threadFeatures.multi_agent_v2_dynamic_tools === true,
+          code_mode: jsonObject(threadFeatures.code_mode).enabled === true,
           shared_skill_count: this.expectedSkillNames.length
         })
       },
@@ -705,7 +727,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
         return
       }
 
-      const filesChanged = this.completedFilesChanged
+      const { handoff: filesChanged, sources: filesChangedSources } = await this.collectFilesChanged()
       const artifactPaths = ownerVisibleArtifactPaths(this.prepared.project.root, filesChanged.paths)
       await this.commit('succeeded', {
         result: {
@@ -716,6 +738,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
           codex_turn_status: codexTurnStatus,
           ...(this.latestTokenUsage ? { usage: this.latestTokenUsage } : {}),
           files_changed: filesChanged,
+          files_changed_source: filesChangedSources,
           project_path: this.prepared.project.root,
           artifacts: boundedBackgroundAgentJobPaths(artifactPaths, {
             totalCount: filesChanged.total_count,
@@ -810,7 +833,7 @@ class CodexJobSession implements AgentCodexRuntimeSession {
 
     // Child-thread items also carry Skill-usage evidence.
     if (projection.type === 'item_started') {
-      if (isLeadNotification) this.outputText = ''
+      if (isLeadNotification && workItemTypes.has(stringValue(projection.item.type) ?? '')) this.outputText = ''
       this.recordUsedSkills(this.skillUsage.observeItem(projection.item), projection.turnID)
       return
     }
@@ -904,6 +927,75 @@ class CodexJobSession implements AgentCodexRuntimeSession {
       this.activeFilesChanged
     )
     this.activeFilesChanged = emptyBackgroundAgentJobPathHandoff()
+  }
+
+  /**
+   * Codex reports only the files its own tools changed. A file that a shell
+   * command or a child thread wrote shows up as a workspace change since the
+   * attempt started. The result names each source that contributed.
+   */
+  private async collectFilesChanged(): Promise<{ handoff: BackgroundAgentJobPathHandoff; sources: string[] }> {
+    const codexDiff = this.completedFilesChanged
+    const workspaceChanges = await this.workspaceChangesSinceStart()
+    if (!workspaceChanges) {
+      return {
+        handoff: codexDiff,
+        sources: [...(codexDiff.total_count > 0 ? ['codex_diff'] : []), 'workspace_snapshot_skipped']
+      }
+    }
+    const handoff = boundedBackgroundAgentJobPaths(new Set([...codexDiff.paths, ...workspaceChanges.paths]), {
+      totalCount: Math.max(codexDiff.total_count, workspaceChanges.total_count),
+      truncated: codexDiff.truncated || workspaceChanges.truncated
+    })
+    if (handoff.truncated) {
+      this.opts.logger?.info(
+        'worker.files_changed_truncated',
+        'the Job result lists a bounded subset of changed files',
+        {
+          job_id: this.jobID,
+          total_count: handoff.total_count,
+          listed_count: handoff.paths.length
+        }
+      )
+    }
+    return {
+      handoff,
+      sources: [
+        ...(codexDiff.total_count > 0 ? ['codex_diff'] : []),
+        ...(workspaceChanges.total_count > 0 ? ['workspace_snapshot'] : [])
+      ]
+    }
+  }
+
+  /** Undefined when either snapshot was skipped, so the result can say so. */
+  private async workspaceChangesSinceStart(): Promise<BackgroundAgentJobPathHandoff | undefined> {
+    const before = this.workspaceSnapshot
+    const after = before ? await this.snapshotWorkspace() : undefined
+    if (!before || !after) return undefined
+    return boundedBackgroundAgentJobPaths(changedWorkspacePaths(before, after))
+  }
+
+  private async snapshotWorkspace(): Promise<WorkspaceSnapshot | undefined> {
+    const root = this.prepared.project.root
+    try {
+      const outcome = await snapshotWorkspace(root)
+      if ('skipped' in outcome) {
+        this.opts.logger?.warning(
+          'worker.files_changed_snapshot_skipped',
+          'the Job Workspace snapshot exceeded its bound; files_changed keeps only the Codex diff',
+          { job_id: this.jobID, job_workspace: root, reason: outcome.skipped }
+        )
+        return undefined
+      }
+      return outcome.files
+    } catch (error) {
+      this.opts.logger?.warning(
+        'worker.files_changed_snapshot_failed',
+        'the Job Workspace snapshot failed; files_changed keeps only the Codex diff',
+        { job_id: this.jobID, job_workspace: root, error: toError(error) }
+      )
+      return undefined
+    }
   }
 
   async handleRuntimeServerRequest(message: JSONRPCMessage, appServer: CodexAppServerClient): Promise<void> {

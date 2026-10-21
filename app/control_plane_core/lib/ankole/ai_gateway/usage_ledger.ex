@@ -66,16 +66,39 @@ defmodule Ankole.AIGateway.UsageLedger do
   defp counted_round(_round), do: nil
 
   defp insert(runtime, usage) do
+    request_context = Map.get(runtime, "request_context") || %{}
+
     attrs = %{
       subject_uid: Map.get(runtime, "subject_uid"),
       origin: origin(runtime),
       model: "#{Map.get(runtime, "provider_id")}/#{Map.get(runtime, "model")}",
       input_tokens: tokens(usage, "input_tokens"),
-      output_tokens: tokens(usage, "output_tokens")
+      output_tokens: tokens(usage, "output_tokens"),
+      session_id: Ankole.Attrs.optional_text(Map.get(request_context, "session_id")),
+      signal_id: uuid(Map.get(request_context, "signal_id")),
+      job_id: positive_integer(Map.get(request_context, "job_id")),
+      attempt: non_negative_integer(Map.get(request_context, "attempts"))
     }
 
     write(attrs)
   end
+
+  # The attribution columns are optional. A malformed value must not fail the
+  # quota row, so it is dropped instead of rejected.
+  defp uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp uuid(_value), do: nil
+
+  defp positive_integer(value) when is_integer(value) and value > 0, do: value
+  defp positive_integer(_value), do: nil
+
+  defp non_negative_integer(value) when is_integer(value) and value >= 0, do: value
+  defp non_negative_integer(_value), do: nil
 
   defp write(attrs) do
     case %UsageRecord{} |> UsageRecord.changeset(attrs) |> Repo.insert() do

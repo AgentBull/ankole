@@ -294,11 +294,19 @@ export class ActiveTurns {
     if (!active.controlledStopRequested) active.requestControlledStop('stop', 'turn_finished')
     this.turns.delete(turnKey(active.turnStart.turn))
     const donor = active.slotDonor
-    if (donor && this.turns.get(turnKey(donor.turnStart.turn)) === donor) {
+    const donorActive = donor !== undefined && this.turns.get(turnKey(donor.turnStart.turn)) === donor
+    const dependent = active.slotHandedOver
+      ? [...this.turns.values()].find(candidate => candidate.slotDonor === active)
+      : undefined
+    if (dependent) {
+      // A newer attempt still uses this attempt's slot. It now depends on the
+      // attempt that this one depended on, or owns the slot when none remains.
+      dependent.slotDonor = donorActive ? donor : undefined
+    } else if (donorActive) {
       // The replacement ended before it retired the older attempt, which keeps
       // running; the slot goes back to that attempt.
       donor.slotHandedOver = false
-    } else if (!active.slotHandedOver) {
+    } else {
       this.slots.release()
     }
     await this.slots.publish()

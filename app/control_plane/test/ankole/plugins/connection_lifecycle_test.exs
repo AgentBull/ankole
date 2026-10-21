@@ -5,6 +5,8 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
 
   @registry Ankole.Plugins.ConnectionLifecycleTest.Registry
   @supervisor Ankole.Plugins.ConnectionLifecycleTest.Supervisor
+  @warning_counter :connection_lifecycle_test_warning_counter
+  @errors_event "connection_lifecycle_test_adapter.connection_reconciliation.completed_with_errors"
 
   defmodule Connections do
     use Ankole.Plugins.ConnectionLifecycle,
@@ -41,8 +43,15 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
   defmodule TemporaryClient do
     use GenServer
 
-    def start_link(opts),
-      do: GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+    def start_link(opts) do
+      case Keyword.fetch!(opts, :config) do
+        %{"key" => "start_fails"} ->
+          {:error, %{reason: "owner start refused", retry_at: DateTime.utc_now()}}
+
+        _config ->
+          GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
+      end
+    end
 
     @impl true
     def init(opts) do
@@ -143,6 +152,93 @@ defmodule Ankole.Plugins.ConnectionLifecycleTest do
       assert [{^replacement, ^value}] = Registry.lookup(@registry, "retry")
       assert Process.whereis(@supervisor) == supervisor
     end
+  end
+
+  # Forwards one adapter event's warnings to the test process.
+  defmodule WarningCounter do
+    def log(%{level: :warning, meta: %{event: event}}, %{config: %{pid: pid, event: event}}),
+      do: send(pid, {:warning_logged, event})
+
+    def log(_event, _config), do: :ok
+  end
+
+  test "an unchanged blocked reason logs one warning until it changes" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, binding} =
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
+               agent_uid: agent.uid,
+               name: "retry",
+               adapter: "connection_lifecycle_test",
+               config_ref: "blocked"
+             })
+
+    :ok =
+      :logger.add_handler(@warning_counter, WarningCounter, %{
+        config: %{pid: self(), event: @errors_event}
+      })
+
+    on_exit(fn -> :logger.remove_handler(@warning_counter) end)
+
+    name = {:global, {__MODULE__, make_ref()}}
+    start_supervised!({TemporaryConnections, name: name, interval_ms: nil, observer: self()})
+
+    for _pass <- 1..5 do
+      assert %{started: 0, errors: [%{reason: :runtime_bot_identity_unavailable}]} =
+               TemporaryConnections.reconcile(name)
+    end
+
+    assert_receive {:warning_logged, @errors_event}
+    refute_receive {:warning_logged, @errors_event}, 100
+
+    binding = binding |> Ecto.Changeset.change(config_ref: "retry") |> Repo.update!()
+    assert %{started: 1, errors: []} = TemporaryConnections.reconcile(name)
+    assert_receive {:client_started, "retry", _client, _}, 1_000
+    refute_receive {:warning_logged, @errors_event}, 100
+
+    # The next occurrence after a recovery is a new warning.
+    binding |> Ecto.Changeset.change(config_ref: "blocked") |> Repo.update!()
+
+    assert %{errors: [%{reason: :runtime_bot_identity_unavailable}]} =
+             TemporaryConnections.reconcile(name)
+
+    assert_receive {:warning_logged, @errors_event}
+  end
+
+  test "a repeated owner start failure with a moving retry time is one warning" do
+    %{principal: agent} = agent_fixture()
+
+    assert {:ok, _binding} =
+             Ankole.SignalsFixtures.raw_binding_fixture(%{
+               agent_uid: agent.uid,
+               name: "start-fails",
+               adapter: "connection_lifecycle_test",
+               config_ref: "start_fails"
+             })
+
+    :ok =
+      :logger.add_handler(@warning_counter, WarningCounter, %{
+        config: %{pid: self(), event: @errors_event}
+      })
+
+    on_exit(fn -> :logger.remove_handler(@warning_counter) end)
+
+    name = {:global, {__MODULE__, make_ref()}}
+    start_supervised!({TemporaryConnections, name: name, interval_ms: nil, observer: self()})
+
+    retry_times =
+      for _pass <- 1..5 do
+        assert %{started: 0, errors: [%{reason: "owner start refused", retry_at: retry_at}]} =
+                 TemporaryConnections.reconcile(name)
+
+        Process.sleep(2)
+        retry_at
+      end
+
+    assert length(Enum.uniq(retry_times)) == 5
+    assert_receive {:warning_logged, @errors_event}
+    refute_receive {:warning_logged, @errors_event}, 100
+    assert TemporaryConnections.registered_keys() == []
   end
 
   defp exit_before_restart(:during_restart, client), do: exit_client(client)

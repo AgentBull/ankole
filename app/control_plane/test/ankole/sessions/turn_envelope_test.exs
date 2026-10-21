@@ -33,8 +33,15 @@ defmodule Ankole.Sessions.TurnEnvelopeTest do
                "hosted_tools" => [%{"type" => "brain"}]
              })
 
-    assert %FabricProto.Envelope{body: {:turn_start, %{hosted_tools: [:HOSTED_TOOL_BRAIN]}}} =
+    assert %FabricProto.Envelope{
+             body: {:turn_start, %{hosted_tools: [:HOSTED_TOOL_BRAIN]} = turn_start}
+           } =
              turn_start(spec)
+
+    # The Job projects the read subset from these declarations; they are the
+    # same declarations the read-tool broker validates.
+    assert Ankole.JSON.decode!(turn_start.request_context_json)["brain_tools"] ==
+             Ankole.JSON.decode!(Ankole.JSON.encode!(Ankole.Sessions.Tools.Brain.declarations()))
   end
 
   test "rejects unsupported and duplicate hosted tools" do
@@ -68,6 +75,7 @@ defmodule Ankole.Sessions.TurnEnvelopeTest do
 
     assert %FabricProto.Envelope{body: {:turn_start, turn_start}} = envelope
     assert turn_start.hosted_tools == []
+    assert Ankole.JSON.decode!(turn_start.request_context_json)["brain_tools"] == []
   end
 
   test "carries trusted turn runtime environment values" do

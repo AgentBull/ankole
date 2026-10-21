@@ -361,6 +361,8 @@ defmodule Ankole.BackgroundAgentJobs.Queries do
       owner_session_id: job.owner_session_id,
       source_signal_id: job.source_signal_id,
       source_tool_call_id: job.source_tool_call_id,
+      continued_from_job_id: job.continued_from_job_id,
+      workspace_owner_job_id: job.workspace_owner_job_id,
       runtime_thread_id: job.runtime_thread_id,
       title: job.title,
       task: job.task,

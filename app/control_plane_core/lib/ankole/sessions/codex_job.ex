@@ -189,7 +189,15 @@ defmodule Ankole.Sessions.CodexJob do
          spec:
            Map.merge(spec, %{
              workspace_id: workspace.id,
-             runtime_env: TurnRuntimeEnv.resolve(event)
+             runtime_env: TurnRuntimeEnv.resolve(event),
+             # The Turn root span and the Worker read the claimed attempt from
+             # the Turn's request context.
+             request_context:
+               Map.merge(Map.get(spec, :request_context, %{}), %{
+                 "session_id" => key.session_id,
+                 "job_id" => job.id,
+                 "attempts" => job.attempts
+               })
            }),
          job: job,
          job_ref: ref,

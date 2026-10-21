@@ -577,7 +577,8 @@ Read [`AGENTS.md`](AGENTS.md) for scope, authorization, ownership, and implement
 
 | Path | Responsibility |
 | --- | --- |
-| `app/control_plane` | Phoenix/OTP control plane, Ecto persistence, setup, Console APIs, and durable runtime authority |
+| `app/control_plane` | Phoenix/OTP control plane application: OTP entry points, release and upgrade modules, Mix tasks, configuration, migrations, and the test suites |
+| `app/control_plane_core` | Domain and web code of the control plane: Ecto persistence, setup, Console APIs, and durable runtime authority |
 | `app/agent_computer` | Bun/TypeScript Worker, environment tools, Codex, Skills, files, and terminal state |
 | `app/kernel` | Rust library loaded through Rustler and browser Node-API bindings |
 | `app/webapps` | Vite/React setup, authentication, Pod, and Console applications |
@@ -607,19 +608,24 @@ Use `kit --help` to discover database, service, generation, worker-test, and ana
 Start with checks scoped to the files you changed. This makes failures easier to attribute and avoids treating unrelated worktree noise as your regression.
 
 The `Repository checks` workflow runs on pull requests and pushes to `main`.
-It runs the existing Webapps, Applet SDK, editor, and analysis commands. Its
-Control Plane job uses the Ankole PostgreSQL image, checks OpenAPI output, and
-runs the compile-connected cycle check, fast suite, upgrade check, and standalone
-Feishu protocol integration. A matrix also runs the six provider client projects,
-shared transport and frame libraries, fake Feishu server, and Kernel Elixir tests
-as independent Mix projects. The
-page-codec job checks the shared XML corpus and generated edit chains in
-TypeScript and Rust. It also runs the Kernel Node-API URL and proxy checks. Provider E2E,
-Worker container tests, and browser suites still use their dedicated commands.
+Each job runs the existing commands of one area: `repo-lint` (root oxlint and
+oxfmt), `webapps` (analysis, Webapps, and Applet SDK), `agent-computer` (type
+check and host unit suite), `libs` (UI kit and devkit), `page-codec` (block
+editor, the shared XML corpus in TypeScript and Rust, Kernel Node-API, and
+browser unit tests), `kernel-lint` (rustfmt, clippy for each feature set, and
+Rust unit tests), `mix-projects` (a matrix of the six provider client projects,
+shared transport and frame libraries, fake Feishu server, and Kernel Elixir
+tests as independent Mix projects), and `control-plane` (lint with Credo, the
+compile-connected cycle check, OpenAPI output, fast suite, upgrade check, and
+standalone Feishu protocol integration on the Ankole PostgreSQL image). Provider
+E2E, Worker container tests, and browser integration suites still use their
+dedicated commands. The runtime-image workflow releases a `main` push only after
+this workflow succeeds for that revision.
 
 | Changed area | Useful first checks |
 | --- | --- |
 | Documentation only | `git diff --check` and link/command inspection |
+| Repository tooling or any TypeScript | `bun run lint:repo` and `bun run fmt:check:repo` |
 | Control Plane | `bun run --filter @ankole/control-plane type-check` and `bun run control-plane:test` |
 | Agent Computer | `bun run agent-computer:type-check` and `bun run agent-computer:test` |
 | Webapps | `bun run webapps:type-check`, `bun run --filter @ankole/webapps test`, and `bun run webapps:build` |
@@ -633,10 +639,13 @@ The website stays on TypeScript 6.0.3 while the other packages use TypeScript 7.
 
 For one Elixir test file, set the working directory to `app/control_plane` and run `mix test test/path/to/file_test.exs`. This is the normal case where a direct `mix` command is appropriate.
 
-Control Plane lint includes Credo and selected ex_slop checks. Fix violations;
-there is no baseline exemption. The nesting limit is 4 and the cyclomatic
-complexity limit is 20. `bun run analyze:unused` checks production files,
-exports, types, and dependencies; tests do not retain dead production code.
+Control Plane lint runs the Credo default check set, ex_slop checks, and the
+Ankole checks. Fix violations; there is no baseline exemption. The checks that
+`app/control_plane/.credo.exs` lists as `disabled` had findings when the default
+set was switched on; enable one again in the change that removes its findings.
+The nesting limit is 4 and the cyclomatic complexity limit is 20.
+`bun run analyze:unused` checks production files, exports, types, and
+dependencies; tests do not retain dead production code.
 
 After you change compile-time dependencies, run this check from
 `app/control_plane`:
@@ -1073,7 +1082,7 @@ Increment `PATCH` by default. Increment `MINOR` and reset `PATCH` to `0` when a 
 
 ### Runtime image releases
 
-For a `main` push that runs the runtime-image workflow, the newest changelog version is the release identity. After the control-plane and Worker image pair passes verification, the workflow adds immutable version tags and creates the matching `vVERSION` GitHub Release from that exact changelog section. An `alpha` or `beta` version publishes as a GitHub pre-release and moves `canary`; an `rc` or stable version publishes as a full release and moves `main-latest`.
+The runtime-image workflow runs for a `main` push after `Repository checks` succeeds for that revision, and skips a revision whose only changes since the last release are documentation. The newest changelog version is the release identity. After the control-plane and Worker image pair passes verification, the workflow adds immutable version tags and creates the matching `vVERSION` GitHub Release from that exact changelog section. An `alpha` or `beta` version publishes as a GitHub pre-release and moves `canary`; an `rc` or stable version publishes as a full release and moves `main-latest`.
 
 The workflow must fail rather than reuse a version for another commit, replace an existing image tag with another digest, or publish release notes that differ from the changelog.
 

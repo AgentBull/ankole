@@ -10,6 +10,7 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
   alias Ankole.Logging
   alias Ankole.Plugins.ChannelSync
   alias Ankole.Plugins.LarkAdapter.Config
+  alias Ankole.Plugins.LarkAdapter.BotIdentity
   alias Ankole.Plugins.LarkAdapter.ConnectionReconciler
   alias Ankole.Plugins.LarkAdapter.Inbound
   alias Ankole.Plugins.LarkAdapter.SubjectIdentity
@@ -55,10 +56,14 @@ defmodule Ankole.Plugins.LarkAdapter.IMGroups do
     ]
   end
 
+  # A saved configuration also drops the cached bot identity of its app, so the
+  # next connection start resolves it again.
   @doc false
   @spec handle_binding_saved(Binding.t(), map()) :: :ok | {:error, term()}
   def handle_binding_saved(%Binding{agent_uid: agent_uid, name: binding_name}, config)
       when is_map(config) do
+    :ok = BotIdentity.forget(config)
+
     case ChannelSync.enqueue_binding(
            Ankole.Plugins.LarkAdapter.Jobs.SyncIMGroups,
            agent_uid,

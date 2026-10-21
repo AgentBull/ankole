@@ -33,6 +33,13 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
     field(:input_tokens, :integer)
     field(:output_tokens, :integer)
 
+    # The work that caused the round. A Session Turn carries its Session and
+    # Signal; a Background Agent Job attempt also carries the Job and attempt.
+    field(:session_id, :string)
+    field(:signal_id, Ecto.UUID)
+    field(:job_id, :integer)
+    field(:attempt, :integer)
+
     timestamps()
   end
 
@@ -42,14 +49,28 @@ defmodule Ankole.AIGateway.Schemas.UsageRecord do
   @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(usage_record, attrs) do
     usage_record
-    |> cast(attrs, [:subject_uid, :origin, :model, :input_tokens, :output_tokens])
+    |> cast(attrs, [
+      :subject_uid,
+      :origin,
+      :model,
+      :input_tokens,
+      :output_tokens,
+      :session_id,
+      :signal_id,
+      :job_id,
+      :attempt
+    ])
     |> validate_required([:subject_uid, :origin, :model, :input_tokens, :output_tokens])
     |> validate_inclusion(:origin, @origins)
     |> validate_number(:input_tokens, greater_than_or_equal_to: 0)
     |> validate_number(:output_tokens, greater_than_or_equal_to: 0)
+    |> validate_number(:job_id, greater_than: 0)
+    |> validate_number(:attempt, greater_than_or_equal_to: 0)
     |> foreign_key_constraint(:subject_uid)
     |> check_constraint(:origin, name: :ai_gateway_usage_records_origin_check)
     |> check_constraint(:input_tokens, name: :ai_gateway_usage_records_input_tokens_check)
     |> check_constraint(:output_tokens, name: :ai_gateway_usage_records_output_tokens_check)
+    |> check_constraint(:job_id, name: :ai_gateway_usage_records_job_id_check)
+    |> check_constraint(:attempt, name: :ai_gateway_usage_records_attempt_check)
   end
 end

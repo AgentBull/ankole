@@ -68,6 +68,8 @@ type FakeCodexBehavior = {
   suppressTurnNotifications?: boolean
   responsePhase?: 'commentary' | 'partial_answer' | 'final_answer' | null
   workAfterResponse?: boolean
+  /** Codex compacts automatically after the last message of the first turn. */
+  compactionAfterResponse?: boolean
   repeatIncompleteResponse?: boolean
   /** The first turn overflows the context window; the retry turn compacts automatically part-way through. */
   compactFirstTurn?: boolean
@@ -113,6 +115,8 @@ describe('@ankole/agent-computer Codex job runner', () => {
         job_project_cwd: jobProjectFor(fixture.root),
         job_workspace: jobProjectFor(fixture.root),
         projected_tool_names: ['web_search', 'web_fetch', 'skill_view', 'request_parent_input'],
+        child_dynamic_tools_inherited: true,
+        code_mode: true,
         mcp_server_names: []
       })
       expect(parsedJSON(statusUpdates[0]?.metadataJson)).not.toHaveProperty('agent_plugins')
@@ -124,6 +128,7 @@ describe('@ankole/agent-computer Codex job runner', () => {
         runtime_thread_id: 'thread-1',
         codex_turn_status: 'completed',
         files_changed: { total_count: 1, paths: ['handoff.txt'], truncated: false },
+        files_changed_source: ['codex_diff', 'workspace_snapshot'],
         project_path: jobProjectFor(fixture.root),
         artifacts: {
           total_count: 1,
@@ -176,6 +181,31 @@ describe('@ankole/agent-computer Codex job runner', () => {
         'version'
       ])
       expect(readdirSync(join(fixture.root, 'browser-runtime', 'browser', 'materials'))).toEqual([])
+    } finally {
+      fixture.cleanup()
+    }
+  })
+
+  it('lists a file written outside the Codex diff from the workspace snapshot', async () => {
+    const fixture = prepareFixture('done', {
+      artifactPath: 'shell-report.md',
+      diffPathCount: 0,
+      responsePhase: 'final_answer'
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+
+    try {
+      await runCodexJob(turnStart(), options(fixture.root, statusUpdates, []))
+
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+      const result = parsedJSON(statusUpdates.at(-1)?.resultJson)
+      expect(result?.files_changed).toEqual({ total_count: 1, paths: ['shell-report.md'], truncated: false })
+      expect(result?.files_changed_source).toEqual(['workspace_snapshot'])
+      expect(result?.artifacts).toEqual({
+        total_count: 1,
+        paths: [join(realpathSync(jobProjectFor(fixture.root)), 'shell-report.md')],
+        truncated: false
+      })
     } finally {
       fixture.cleanup()
     }
@@ -304,6 +334,24 @@ describe('@ankole/agent-computer Codex job runner', () => {
       }
     })
   }
+
+  it('keeps an unphased final message when only an automatic compaction follows it', async () => {
+    const fixture = prepareFixture('Final report before compaction.', {
+      responsePhase: null,
+      compactionAfterResponse: true
+    })
+    const statusUpdates: RecordedStatusUpdate[] = []
+
+    try {
+      await runCodexJob(turnStart(), options(fixture.root, statusUpdates, []))
+
+      expect(statusUpdates.map(update => update.status)).toEqual(['running', 'succeeded'])
+      expect(parsedJSON(statusUpdates.at(-1)?.resultJson)?.output_text).toBe('Final report before compaction.')
+      expect(readFileSync(join(codexHomeFor(fixture.root), 'turn-count.txt'), 'utf8')).toBe('1')
+    } finally {
+      fixture.cleanup()
+    }
+  })
 
   it('fails after one report retry if Codex still returns only commentary', async () => {
     const fixture = prepareFixture('I will inspect the sources.', {
@@ -1521,6 +1569,7 @@ const cleanupError = ${JSON.stringify(behavior.cleanupError)}
 const suppressTurnNotifications = ${JSON.stringify(behavior.suppressTurnNotifications)}
 const responsePhase = ${JSON.stringify(behavior.responsePhase)}
 const workAfterResponse = ${JSON.stringify(behavior.workAfterResponse)}
+const compactionAfterResponse = ${JSON.stringify(behavior.compactionAfterResponse)}
 const repeatIncompleteResponse = ${JSON.stringify(behavior.repeatIncompleteResponse)}
 const compactFirstTurn = ${JSON.stringify(behavior.compactFirstTurn)}
 function write(message) { process.stdout.write(JSON.stringify(message) + '\\n') }
@@ -1675,7 +1724,8 @@ function handle(message) {
       if (artifactPath) {
         const artifactTarget = artifactPath.startsWith('/') ? artifactPath : threadCwd + '/' + artifactPath
         writeFileSync(artifactTarget, 'artifact')
-        write({ method: 'turn/diff/updated', params: { threadId: 'thread-1', turnId: turnID, diff: '--- /dev/null\\n+++ b/' + artifactPath + '\\n' } })
+        // diffPathCount 0 models a shell-written file that no Codex tool reported.
+        if (diffPathCount !== 0) write({ method: 'turn/diff/updated', params: { threadId: 'thread-1', turnId: turnID, diff: '--- /dev/null\\n+++ b/' + artifactPath + '\\n' } })
       }
       if (diffPathCount) {
         let diff = ''
@@ -1689,6 +1739,11 @@ function handle(message) {
         const item = { type: 'commandExecution', id: 'command-' + turnCount, command: 'cat playbook.md', cwd: threadCwd, status: 'inProgress', commandActions: [] }
         write({ method: 'item/started', params: { threadId: 'thread-1', turnId: turnID, item } })
         write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item: { ...item, status: 'completed', aggregatedOutput: 'playbook', exitCode: 0, durationMs: 1 } } })
+      }
+      if (useFirstResponse && compactionAfterResponse) {
+        const item = { type: 'contextCompaction', id: 'compaction-after-' + turnCount }
+        write({ method: 'item/started', params: { threadId: 'thread-1', turnId: turnID, item } })
+        write({ method: 'item/completed', params: { threadId: 'thread-1', turnId: turnID, item } })
       }
       write({ method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: turnID, status: 'completed' } } })
     }, 10)

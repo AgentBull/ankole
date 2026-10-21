@@ -117,10 +117,10 @@ logical profile name separately from the real Codex model, the exact
 `provider_id/raw-model-id` selector, all provider options, the optional context
 length, and the provider parallel-tool-call capability. A retry uses this
 snapshot. A new or respawned Job resolves the current profile at its own first
-execution admission. When the binding declares the hosted Brain tool, the
-declaration joins the Codex request's own tool list, including the
-`additional_tools` input item that the Codex client uses to carry its tools,
-so AIGateway splits it before the provider sees the request.
+execution admission. The binding does not declare the hosted Brain tool: a
+Job reaches `recall` and `get_page` through the Worker read-tool bridge, so
+one tool name has one executor (see
+[BackgroundAgentJob.md](BackgroundAgentJob.md#code-mode-tool-registry)).
 
 The snapshot also stores the selected model's direct input modalities. A
 text-only model stores a separate `vision_fallback` target only when that
@@ -851,9 +851,21 @@ not attributed to a Client by inference.
 
 `ai_gateway_usage_records` stores one append-only row for each provider round
 that counts toward an Agent token quota: the Agent, the origin, the resolved
-model selector, and the input and output tokens. Rows are never updated or
-deleted while the Agent exists; deleting the Agent Principal removes them with
-its other AIGateway records.
+model selector, the input and output tokens, and the work that caused the
+round. The work identity comes from the request context under the keys that
+the Turn root span reads: `session_id`, `signal_id`, `job_id`, and
+`attempts`. A Session Turn writes its Session at runtime resolution and its
+Signal when the Turn span is attached. A Background Agent Job attempt writes
+all four into the Turn's request context at admission; the Worker then names
+the same attempt in the `job` section of its frozen model binding header, and
+`Ankole.Sessions.CodexModelBinding.request_context/2` copies it into the
+request context of every request that the Codex client sends. A round without
+these facts, such as an in-process call, stores NULL in the columns. The
+columns join to `background_agent_jobs.id`, to the Session, and to
+`signals.id` by value; they carry no foreign key, so a stale identity cannot
+stop the quota row. Rows are never updated or deleted while the Agent exists;
+deleting the Agent Principal removes them with its other AIGateway records.
+[Agent Token Quota](AgentTokenQuota.md) lists the columns.
 
 ## How a Stateful Response Runs
 
@@ -1049,8 +1061,9 @@ the subject's own generic Brain context when none is supplied. Public request
 metadata is opaque: `metadata.signal_id` does not select a Signal or grant its
 authority. `Ankole.Brain.RequestContext` belongs to the runtime side; it derives
 disclosure recipients, write scope, conversation parent, and a live-input write
-fence before invoking AIGateway. Codex Jobs convey that context through their
-verified runtime binding. Generic OIDC Human requests keep the subject's own
+fence before invoking AIGateway. A Codex Job does not use the hosted tool;
+`Ankole.Sessions.Tools.Brain` builds the same context from the Job's attempt
+fence. Generic OIDC Human requests keep the subject's own
 knowledge and write boundary. Stateful continuation, provider replay recovery,
 and standalone compaction propagate the typed context through their call
 options rather than interpreting caller metadata.

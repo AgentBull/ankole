@@ -61,12 +61,22 @@ can therefore end above the limit by its own usage.
 | `origin` | `agent` for a control-plane Session or Applet, `codex` for a Background Agent Job request |
 | `model` | The resolved `provider_id/model` selector |
 | `input_tokens`, `output_tokens` | Non-negative provider usage of the round |
+| `session_id` | The Session whose Turn made the round; `job:<id>` for a Background Agent Job; NULL when unknown |
+| `signal_id` | The Signal that started that Turn; NULL when unknown |
+| `job_id` | The Background Agent Job that made the round; NULL for other work |
+| `attempt` | The attempt number of that Job; NULL for other work |
 | `inserted_at` | Record time; the window query uses it |
 
-An index on `(subject_uid, inserted_at)` serves the window sum. Rows are never
-updated or deleted while the Agent exists. Deleting the Agent Principal removes
-its ledger with its other AIGateway records. A ledger write failure, including
-a database error, logs a warning and does not fail the response.
+An index on `(subject_uid, inserted_at)` serves the window sum. A partial
+index on `job_id` and one on `(session_id, inserted_at)` serve per-Job and
+per-Session sums. The attribution columns are read from the request context
+of the round; a value of the wrong shape is dropped and the row is still
+written, because the quota count must not depend on attribution. Rows are
+never updated or deleted while the Agent exists. Deleting the Agent Principal
+removes its ledger with its other AIGateway records. A ledger write failure,
+including a database error, logs a warning and does not fail the response.
+[AIGateway](AIGateway.md) describes how the two Turn kinds supply the work
+identity.
 
 The quota configuration lives in `agents.options["ai_agent"]["token_quota"]`,
 next to `models` and `provider_hosted`:
