@@ -401,7 +401,7 @@ defmodule Ankole.Sessions.ScheduledTest do
         created_by: %{"signal_id" => source.id}
       )
 
-    {:ok, cron_fire} = Ankole.Schedule.Fire.fire_cron(cron.id, now: cron.next_fire_at)
+    {:ok, cron_fire} = Ankole.Schedule.fire_cron(cron.id, now: cron.next_fire_at)
     %{cron: cron_fire, checkback: checkback_fire}
   end
 
