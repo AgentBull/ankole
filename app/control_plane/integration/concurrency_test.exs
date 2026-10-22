@@ -389,13 +389,25 @@ defmodule Ankole.ConcurrencyIntegrationTest do
 
     test "archive waits for an in-flight projection and withdraws the committed page", ctx do
       set = library_skill_set(ctx.name, "New shipped body.")
-      sync = hold_transaction(fn -> LibraryKnowledge.sync(sets: [set]) end)
+
+      # The projection action pauses after its page write, in its own
+      # transaction, while it holds the Source and Object locks.
+      sync =
+        pause_after_query(
+          fn -> LibraryKnowledge.sync(sets: [set]) end,
+          fn metadata ->
+            metadata.source == "brain_objects" and String.starts_with?(metadata.query, "UPDATE")
+          end
+        )
+
       archive = start_unboxed(fn -> Ankole.Brain.archive_source(ctx.source.id) end)
       assert_blocked_by(archive, sync)
-      release(sync)
+      send(sync.task.pid, :continue_query)
 
-      assert {:ok, %{reports: [%{projected: 1}]}} = finish(sync)
+      # The page commits first. The archive waits in the Source lock queue
+      # before the revision step of the sync, so the sync reports the archive.
       assert {:ok, %Source{archived_at: %DateTime{}}} = finish(archive)
+      assert {:ok, %{reports: [%{status: :archived}]}} = finish(sync)
 
       object = Repo.get_by!(Object, slug: ctx.slug)
       assert object.deleted_at != nil
