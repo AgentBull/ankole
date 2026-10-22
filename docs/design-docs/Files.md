@@ -30,11 +30,11 @@ content. An object store keeps the bytes.
 Both models are Ash resources. The root module `Ankole.Files` is their Ash
 domain. Blob actions own storage refresh, reference renewal, collection
 marking, and final removal. The marking and removal actions use the same
-live-reference predicate. DriveFile actions own path upserts, moves, and path
-removal under the existing natural identity. `DriveFile.remove_paths_in_tx/2`
-removes a subtree with one `DELETE ... RETURNING` statement through the
-`remove` action. It requires the caller's transaction and uses the same tenant
-context as all other drive operations.
+live-reference predicate. DriveFile actions own path upserts and moves under
+the existing natural identity. `drive_files` has no primary key, so AshPostgres
+has no destroy action for it: `DriveFile.remove_paths_in_tx/2` removes a
+subtree with one `DELETE ... RETURNING` statement that binds the current
+tenant. It requires the caller's transaction.
 
 A commit, move, delete, or snapshot listing is a generic action of `DriveFile`
 (`commit_paths`, `move_paths`, `delete_paths`, `list_snapshot`), and one batch

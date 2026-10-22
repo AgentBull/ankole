@@ -104,8 +104,9 @@ defmodule Ankole.Pod.DatabaseContractTest do
                    task =
                      Task.async(fn ->
                        Repo.with_tenant(ctx.tenant.id, fn ->
-                         Repo.transact(fn task_repo ->
-                           %{rows: [[backend]]} = task_repo.query!("SELECT pg_backend_pid()")
+                         # The operation owns its transaction on this checked-out connection.
+                         Repo.checkout(fn ->
+                           %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
                            send(owner, {:table_operation, operation, backend})
 
                            case operation do

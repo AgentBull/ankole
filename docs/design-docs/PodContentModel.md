@@ -193,8 +193,9 @@ foreign-key cascades to perform bulk deletion.
 `Ankole.Pod.Documents` owns revisions and writes. Ash resources own the persisted
 Page, PageContent, PageChange, and PageUserState facts. Their create, update,
 and destroy actions run in the transaction of the calling generic action. Page
-revision increments run as database expressions. PageChange entries are immutable; the write transaction appends and
-prunes them with the content update. Favorite and visit upserts change only the
+revision increments run as database expressions. PageChange entries are
+immutable; the write transaction appends and prunes them with the content
+update. Favorite and visit upserts change only the
 fields that the caller supplies. The existing tree lock and AuthZ proof remain
 part of the aggregate transaction.
 
@@ -270,7 +271,7 @@ table's stored version and counters once per commit. PostgreSQL checks reject
 negative counters, record counts above the limit, nonpositive schema versions,
 and JSON values that are not objects. Database authorization and sorted table
 locks remain in the aggregate write transaction. Record copy, field conversion,
-and field-value removal use typed resource actions with bounded SQL processing.
+and field-value removal use bounded SQL statements of the Database subsystem.
 Purge uses the same resource destroy actions in batches of 1,000 rows; the
 Database subsystem removes record rows in batches of the same size.
 
