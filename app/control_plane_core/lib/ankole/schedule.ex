@@ -4,8 +4,16 @@ defmodule Ankole.Schedule do
 
   Schedule owns durable time semantics. Oban jobs are wake edges. The domain
   tables and the selected consumer record are the correctness boundary.
+
+  Each write operation is a generic action that owns its transaction and gives
+  `{:ok, value}` or `{:error, reason}`. Code that runs in its own transaction
+  composes the `_in_tx` functions of `Ankole.Schedule.Checkbacks` and
+  `Ankole.Schedule.Cron`.
   """
 
+  use Ankole.Ash.Domain
+
+  alias Ankole.Repo
   alias Ankole.Schedule.Checkbacks
   alias Ankole.Schedule.Cron
   alias Ankole.Schedule.Fire
@@ -19,11 +27,26 @@ defmodule Ankole.Schedule do
           {:ok, %{status: :scheduled | :already_scheduled, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
 
+  resources do
+    resource ScheduledEvent do
+      define(:list_scheduled_events, action: :read)
+      define(:reauthorize_scheduled_event, action: :reauthorize)
+    end
+
+    resource CronSchedule do
+      define(:reauthorize_cron_schedule, action: :reauthorize)
+    end
+  end
+
   @doc """
   Creates one delayed trigger for an Agent session or automation job.
   """
   @spec create_check_back_later(map(), keyword()) :: create_result()
-  defdelegate create_check_back_later(attrs, opts \\ []), to: Checkbacks
+  def create_check_back_later(attrs, opts \\ []) do
+    operation(ScheduledEvent, :create_check_back_later, %{attrs: attrs, opts: opts}, fn repo ->
+      Checkbacks.create_check_back_later_in_tx(repo, attrs, opts)
+    end)
+  end
 
   @doc """
   Updates one pending checkback in place.
@@ -31,7 +54,14 @@ defmodule Ankole.Schedule do
   @spec update_checkback(pos_integer(), map(), keyword()) ::
           {:ok, %{status: :updated, scheduled_event: ScheduledEvent.t()}}
           | {:error, term()}
-  defdelegate update_checkback(scheduled_event_id, attrs, opts \\ []), to: Checkbacks
+  def update_checkback(scheduled_event_id, attrs, opts \\ []) do
+    operation(
+      ScheduledEvent,
+      :update_checkback,
+      %{scheduled_event_id: scheduled_event_id, attrs: attrs, opts: opts},
+      &Checkbacks.update_checkback_in_tx(&1, scheduled_event_id, attrs, opts)
+    )
+  end
 
   @doc """
   Creates one recurring cron schedule and schedules its next wakeup.
@@ -39,47 +69,93 @@ defmodule Ankole.Schedule do
   @spec create_cron_schedule(map(), keyword()) ::
           {:ok, %{status: :created | :already_exists, cron_schedule: CronSchedule.t()}}
           | {:error, term()}
-  defdelegate create_cron_schedule(attrs, opts \\ []), to: Cron
+  def create_cron_schedule(attrs, opts \\ []) do
+    operation(CronSchedule, :create_cron_schedule, %{attrs: attrs, opts: opts}, fn repo ->
+      Cron.create_cron_schedule_in_tx(repo, attrs, opts)
+    end)
+  end
 
   @doc """
   Updates a cron schedule and moves its next wakeup.
   """
   @spec update_cron_schedule(Ecto.UUID.t(), map(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
-  defdelegate update_cron_schedule(cron_schedule_id, attrs, opts \\ []), to: Cron
+  def update_cron_schedule(cron_schedule_id, attrs, opts \\ []) do
+    operation(
+      CronSchedule,
+      :update_cron_schedule,
+      %{cron_schedule_id: cron_schedule_id, attrs: attrs, opts: opts},
+      &Cron.update_cron_schedule_in_tx(&1, cron_schedule_id, attrs, opts)
+    )
+  end
 
   @doc """
   Pauses a cron schedule and clears its next fire time.
   """
   @spec pause_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
-  defdelegate pause_cron_schedule(cron_schedule_id, opts \\ []), to: Cron
+  def pause_cron_schedule(cron_schedule_id, opts \\ []) do
+    operation(
+      CronSchedule,
+      :pause_cron_schedule,
+      %{cron_schedule_id: cron_schedule_id, opts: opts},
+      &Cron.pause_cron_schedule_in_tx(&1, cron_schedule_id, opts)
+    )
+  end
 
   @doc """
   Resumes a paused cron schedule from the resume time.
   """
   @spec resume_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
-  defdelegate resume_cron_schedule(cron_schedule_id, opts \\ []), to: Cron
+  def resume_cron_schedule(cron_schedule_id, opts \\ []) do
+    operation(
+      CronSchedule,
+      :resume_cron_schedule,
+      %{cron_schedule_id: cron_schedule_id, opts: opts},
+      &Cron.resume_cron_schedule_in_tx(&1, cron_schedule_id, opts)
+    )
+  end
 
   @doc """
   Marks a cron schedule deleted and cancels future fires.
   """
   @spec remove_cron_schedule(Ecto.UUID.t(), keyword()) ::
           {:ok, CronSchedule.t()} | {:error, term()}
-  defdelegate remove_cron_schedule(cron_schedule_id, opts \\ []), to: Cron
+  def remove_cron_schedule(cron_schedule_id, opts \\ []) do
+    operation(
+      CronSchedule,
+      :remove_cron_schedule,
+      %{cron_schedule_id: cron_schedule_id, opts: opts},
+      &Cron.remove_cron_schedule_in_tx(&1, cron_schedule_id, opts)
+    )
+  end
 
   @doc """
   Creates an immediate manual cron fire without changing recurrence state.
   """
   @spec run_cron_schedule(Ecto.UUID.t(), keyword()) :: create_result()
-  defdelegate run_cron_schedule(cron_schedule_id, opts \\ []), to: Cron
+  def run_cron_schedule(cron_schedule_id, opts \\ []) do
+    operation(
+      CronSchedule,
+      :run_cron_schedule,
+      %{cron_schedule_id: cron_schedule_id, opts: opts},
+      &Cron.run_cron_schedule_in_tx(&1, cron_schedule_id, opts)
+    )
+  end
 
   @doc """
   Cancels one pending checkback event.
   """
   @spec cancel_checkback(pos_integer(), keyword()) :: {:ok, ScheduledEvent.t()} | {:error, term()}
-  defdelegate cancel_checkback(scheduled_event_id, opts \\ []), to: Checkbacks
+  def cancel_checkback(scheduled_event_id, opts \\ []) do
+    operation(
+      ScheduledEvent,
+      :cancel_checkback,
+      %{scheduled_event_id: scheduled_event_id, opts: opts},
+      &Checkbacks.cancel_checkback_in_tx(&1, scheduled_event_id, opts)
+    )
+  end
 
   @doc """
   Cancels scheduled check-backs for one provider entry inside a transaction.
@@ -94,10 +170,23 @@ defmodule Ankole.Schedule do
   @spec fire_due_event(pos_integer(), keyword()) ::
           {:ok, %{status: :fired | :noop | :cancelled, scheduled_event: ScheduledEvent.t() | nil}}
           | {:error, term()}
-  defdelegate fire_due_event(scheduled_event_id, opts \\ []), to: Fire
+  def fire_due_event(scheduled_event_id, opts \\ []) do
+    ScheduledEvent
+    |> Ankole.Ash.run_action(:fire_due_event, %{
+      scheduled_event_id: scheduled_event_id,
+      opts: opts
+    })
+    |> Fire.persist_fire_error(scheduled_event_id, opts)
+  end
 
   @doc "Fires the due slot of one recurring cron schedule."
-  defdelegate fire_cron(cron_schedule_id, opts \\ []), to: Fire
+  def fire_cron(cron_schedule_id, opts \\ []) do
+    now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
+
+    CronSchedule
+    |> Ankole.Ash.run_action(:fire_cron, %{cron_schedule_id: cron_schedule_id, now: now})
+    |> Fire.persist_cron_error(cron_schedule_id, now, opts)
+  end
 
   @doc """
   Lists cron schedules for an optional agent and optional owner conversation.
@@ -190,4 +279,14 @@ defmodule Ankole.Schedule do
   """
   @spec next_fire_after(map(), String.t(), DateTime.t()) :: {:ok, DateTime.t()} | {:error, term()}
   defdelegate next_fire_after(schedule, timezone, after_at), to: Planner
+
+  # Sessions schedule tools still call these operations in their receipt
+  # transaction. There the operation joins that transaction through its
+  # `_in_tx` function, as its `Repo.transact` did. T12 removes this branch
+  # when the tools call the `_in_tx` functions.
+  defp operation(resource, action, args, in_tx) do
+    if Repo.in_transaction?(),
+      do: in_tx.(Repo),
+      else: Ankole.Ash.run_action(resource, action, args)
+  end
 end

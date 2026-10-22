@@ -26,6 +26,7 @@
       :m4_read_model,
     {Ankole.Pod.Jobs.PurgePage, [:descendants]} => :m4_read_model,
     {Ankole.Brain.ConversationsLearning, [:known_pages]} => :m4_read_model,
+    {Ankole.Workflow.Queries, [:capacity_candidate]} => :m4_read_model,
     # M7 dynamic schema: the Pod database subsystem owns db_records.
     Ankole.Pod.Database => :m7_dynamic_schema,
     Ankole.Pod.Database.Write => :m7_dynamic_schema,
@@ -126,12 +127,6 @@
     "bulk_result:../control_plane_core/lib/ankole/authz/store.ex" => 2,
     "ecto_lock:../control_plane_core/lib/ankole/authz/store.ex" => 8,
     "ecto_resource:../control_plane_core/lib/ankole/authz/store.ex" => 10,
-    # automation_jobs
-    "bulk_result:../control_plane_core/lib/ankole/automation_jobs.ex" => 4,
-    "ecto_lock:../control_plane_core/lib/ankole/automation_jobs.ex" => 3,
-    "ecto_resource:../control_plane_core/lib/ankole/automation_jobs.ex" => 7,
-    "repo_transact:../control_plane_core/lib/ankole/automation_jobs.ex" => 6,
-    "ecto_resource:../control_plane_core/lib/ankole/automation_jobs/console_queries.ex" => 2,
     # background_agent_jobs
     "ecto_lock:../control_plane_core/lib/ankole/background_agent_jobs/control.ex" => 4,
     "repo_transact:../control_plane_core/lib/ankole/background_agent_jobs/control.ex" => 3,
@@ -356,18 +351,6 @@
     "ecto_lock:../control_plane_core/lib/ankole/principals/work_cleanup.ex" => 1,
     "ecto_resource:../control_plane_core/lib/ankole/principals/work_cleanup.ex" => 7,
     "repo_transact:../control_plane_core/lib/ankole/principals/work_cleanup.ex" => 1,
-    # schedule
-    "ecto_resource:../control_plane_core/lib/ankole/schedule/checkbacks.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/schedule/checkbacks.ex" => 4,
-    "bulk_result:../control_plane_core/lib/ankole/schedule/cron.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/schedule/cron.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/schedule/cron.ex" => 6,
-    "ecto_lock:../control_plane_core/lib/ankole/schedule/fire.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/schedule/fire.ex" => 4,
-    "repo_transact:../control_plane_core/lib/ankole/schedule/fire.ex" => 4,
-    "ecto_resource:../control_plane_core/lib/ankole/schedule/queries.ex" => 2,
-    "ecto_lock:../control_plane_core/lib/ankole/schedule/store.ex" => 4,
-    "ecto_resource:../control_plane_core/lib/ankole/schedule/store.ex" => 1,
     # sessions
     "ecto_resource:../control_plane_core/lib/ankole/sessions.ex" => 1,
     "ecto_resource:../control_plane_core/lib/ankole/sessions/activity.ex" => 5,
@@ -459,27 +442,6 @@
     "repo_transact:../control_plane_core/lib/ankole/tenants.ex" => 7,
     "raw_sql_tenant:../control_plane_core/lib/ankole/tenants/jobs/delete.ex" => 1,
     # work
-    "ecto_lock:../control_plane_core/lib/ankole/work/owner.ex" => 1,
-    # workflow
-    "ecto_resource:../control_plane_core/lib/ankole/workflow/console_queries.ex" => 5,
-    "bulk_result:../control_plane_core/lib/ankole/workflow/lifecycle.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/workflow/lifecycle.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/workflow/lifecycle.ex" => 4,
-    "repo_transact:../control_plane_core/lib/ankole/workflow/lifecycle.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/workflow/mail.ex" => 5,
-    "repo_transact:../control_plane_core/lib/ankole/workflow/mail.ex" => 3,
-    "ecto_resource:../control_plane_core/lib/ankole/workflow/queries.ex" => 4,
-    "ecto_lock:../control_plane_core/lib/ankole/workflow/recovery.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/workflow/recovery.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/workflow/recovery.ex" => 2,
-    "bulk_result:../control_plane_core/lib/ankole/workflow/replay.ex" => 2,
-    "error_class:../control_plane_core/lib/ankole/workflow/replay.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/workflow/replay.ex" => 3,
-    "ecto_resource:../control_plane_core/lib/ankole/workflow/run_server.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/workflow/run_server.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/workflow/slot.ex" => 5,
-    "ecto_resource:../control_plane_core/lib/ankole/workflow/slot.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/workflow/task_lifecycle.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/workflow/tool_admission.ex" => 1
+    "ecto_lock:../control_plane_core/lib/ankole/work/owner.ex" => 1
   }
 }

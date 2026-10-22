@@ -1969,13 +1969,7 @@ defmodule Ankole.ScheduleTest do
                end)
 
       assert :ok =
-               Repo.transact(fn _repo ->
-                 {:ok,
-                  perform_job(Ankole.Schedule.Jobs.FireCron, %{
-                    "cron_schedule_id" => schedule.id
-                  })}
-               end)
-               |> elem(1)
+               perform_job(Ankole.Schedule.Jobs.FireCron, %{"cron_schedule_id" => schedule.id})
 
       [event] = Schedule.list_cron_runs(schedule.id, 10)
       input = Repo.get!(Signal, event.signal_id)
@@ -2016,7 +2010,7 @@ defmodule Ankole.ScheduleTest do
           )
 
         {:ok, %{signal: input}} =
-          Repo.transact(fn _repo -> Schedule.fire_due_event(event.id, now: due) end)
+          Schedule.fire_due_event(event.id, now: due)
 
         run = admit_input(input, due)
         {run, result} = execute_finish(run, "silent_success", nil)
@@ -2086,7 +2080,7 @@ defmodule Ankole.ScheduleTest do
         Schedule.run_cron_schedule(schedule.id, idempotency_key: "manual-while-running", now: due)
 
       {:ok, %{signal: next}} =
-        Repo.transact(fn _repo -> Schedule.fire_due_event(manual.id, now: due) end)
+        Schedule.fire_due_event(manual.id, now: due)
 
       assert next.session_id == input.session_id
 
@@ -2342,7 +2336,7 @@ defmodule Ankole.ScheduleTest do
       )
 
     {:ok, %{signal: input}} =
-      Repo.transact(fn _repo -> Schedule.fire_cron(schedule.id, now: due) end)
+      Schedule.fire_cron(schedule.id, now: due)
 
     {schedule, input, admit_input(input, due), due}
   end
