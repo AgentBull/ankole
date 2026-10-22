@@ -2,7 +2,7 @@ defmodule Ankole.Pod.Applets do
   @moduledoc "Published Applet routes, called with the current principal's authority."
 
   alias Ankole.{Files, Repo}
-  alias Ankole.Pod.{Access, Config, Pages}
+  alias Ankole.Pod.{Access, Config, Page, Pages}
   alias Ankole.Pod.Applets.Invocation
 
   @methods ~w(GET POST PUT PATCH DELETE)
@@ -42,16 +42,18 @@ defmodule Ankole.Pod.Applets do
 
   # A page lock gives this read one manifest/revision pair even when a publisher commits.
   # Read immutable content before releasing it: file replacement and GC cannot change the package.
-  defp published(uid, page_id, revision) do
-    Repo.transact(fn _repo ->
-      with {:ok, page} <- Pages.lock(page_id, :share),
-           {:ok, _page} <- Pages.authorize(uid, page.id, "page_view"),
-           :ok <- applet_type(page),
-           :ok <- current_revision(page.revision, revision),
-           {:ok, source} <- backend_source(page.id) do
-        {:ok, %{page_id: page.id, revision: page.revision, source: source}}
-      end
-    end)
+  defp published(uid, page_id, revision),
+    do: Ankole.Ash.run_action(Page, :read_applet, %{uid: uid, id: page_id, revision: revision})
+
+  @doc false
+  def published_in_tx(uid, page_id, revision) do
+    with {:ok, page} <- Pages.lock(page_id, :share),
+         {:ok, _page} <- Pages.authorize(uid, page.id, "page_view"),
+         :ok <- applet_type(page),
+         :ok <- current_revision(page.revision, revision),
+         {:ok, source} <- backend_source(page.id) do
+      {:ok, %{page_id: page.id, revision: page.revision, source: source}}
+    end
   end
 
   defp applet_type(%{type: :applet}), do: :ok

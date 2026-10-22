@@ -1,7 +1,8 @@
 defmodule Ankole.Pod.Values do
   @moduledoc false
   import Ecto.Query
-  alias Ankole.Pod.Formula
+  require Ash.Query
+  alias Ankole.Pod.{DbRecord, DbTable, Formula}
   alias Ankole.Repo
 
   def patch(data, fields, page_id, opts \\ [])
@@ -65,9 +66,9 @@ defmodule Ankole.Pod.Values do
 
   def cast(%{type: :user}, value, _) when is_list(value) do
     with {:ok, ids} <- normalize_ids(value, &Ankole.Principals.normalize_uid/1),
-         count <-
-           Repo.aggregate(from(p in Ankole.Principals.Principal, where: p.uid in ^ids), :count),
-         true <- count == length(ids) do
+         principals <-
+           Ankole.Principals.list_principals!(query: [filter: [uid: [in: ids]], select: [:uid]]),
+         true <- length(principals) == length(ids) do
       {:ok, ids}
     else
       _ -> {:error, :invalid_principal}
@@ -76,12 +77,13 @@ defmodule Ankole.Pod.Values do
 
   def cast(%{type: :link, config: config}, value, page) when is_list(value) do
     with {:ok, target} <- Ecto.UUID.cast(config["table_id"]),
-         %Ankole.Pod.DbTable{page_id: ^page} <- Repo.get(Ankole.Pod.DbTable, target),
+         %DbTable{page_id: ^page} <-
+           DbTable |> Ash.Query.filter(id == ^target) |> Ankole.Ash.read_one!(),
          {:ok, ids} <- normalize_ids(value, &Ecto.UUID.cast/1),
          true <- config["multiple"] != false or length(ids) <= 1,
          count <-
            Repo.aggregate(
-             from(r in Ankole.Pod.DbRecord, where: r.table_id == ^target and r.id in ^ids),
+             from(r in DbRecord, where: r.table_id == ^target and r.id in ^ids),
              :count
            ),
          true <- count == length(ids) do

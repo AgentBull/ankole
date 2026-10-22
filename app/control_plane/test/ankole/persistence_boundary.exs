@@ -29,7 +29,6 @@
     {Ankole.Workflow.Queries, [:capacity_candidate]} => :m4_read_model,
     # M7 dynamic schema: the Pod database subsystem owns db_records.
     Ankole.Pod.Database => :m7_dynamic_schema,
-    Ankole.Pod.Database.Write => :m7_dynamic_schema,
     Ankole.Pod.Database.Records => :m7_dynamic_schema,
     Ankole.Pod.Database.Schema => :m7_dynamic_schema,
     Ankole.Pod.Query => :m7_dynamic_schema,
@@ -78,36 +77,10 @@
     "ecto_lock:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 2,
     "ecto_resource:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 2,
     "repo_transact:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 1,
-    # ankole_web
-    "ecto_resource:../control_plane_core/lib/ankole_web/channels/pod_room_channel.ex" => 1,
     # authz: staged facades. Callers in other tasks' files still call them in
     # their own transaction; each becomes a generic action when its callers use
     # the `_in_tx` form (hey/T9.md).
-    "repo_transact:../control_plane_core/lib/ankole/authz.ex" => 4,
-    # background_agent_jobs
-    "ecto_lock:../control_plane_core/lib/ankole/background_agent_jobs/control.ex" => 4,
-    "repo_transact:../control_plane_core/lib/ankole/background_agent_jobs/control.ex" => 3,
-    "ecto_lock:../control_plane_core/lib/ankole/background_agent_jobs/dispatch.ex" => 4,
-    "repo_transact:../control_plane_core/lib/ankole/background_agent_jobs/dispatch.ex" => 3,
-    "ecto_resource:../control_plane_core/lib/ankole/background_agent_jobs/health.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/background_agent_jobs/job_state.ex" => 3,
-    "error_class:../control_plane_core/lib/ankole/background_agent_jobs/job_state.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/background_agent_jobs/lifecycle.ex" => 7,
-    "ecto_resource:../control_plane_core/lib/ankole/background_agent_jobs/lifecycle.ex" => 3,
-    "repo_transact:../control_plane_core/lib/ankole/background_agent_jobs/lifecycle.ex" => 2,
-    "ecto_lock:../control_plane_core/lib/ankole/background_agent_jobs/queries.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/background_agent_jobs/queries.ex" => 3,
-    "ecto_resource:../control_plane_core/lib/ankole/background_agent_jobs/trajectory_reader.ex" =>
-      4,
-    "ecto_resource:../control_plane_core/lib/ankole/background_agent_jobs/turn_evidence.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/background_agent_jobs/turn_watchdog.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/background_agent_jobs/turn_watchdog.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/background_agent_jobs/turns.ex" => 2,
-    "ecto_lock:../control_plane_core/lib/ankole/background_agent_jobs/turns.ex" => 4,
-    "ecto_resource:../control_plane_core/lib/ankole/background_agent_jobs/turns.ex" => 3,
-    "error_class:../control_plane_core/lib/ankole/background_agent_jobs/turns.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/background_agent_jobs/worker_wait.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/background_agent_jobs/worker_wait.ex" => 1,
+    "repo_transact:../control_plane_core/lib/ankole/authz.ex" => 2,
     # brain
     "ecto_resource:../control_plane_core/lib/ankole/brain/access.ex" => 1,
     "ecto_lock:../control_plane_core/lib/ankole/brain/calibration.ex" => 1,
@@ -232,17 +205,6 @@
     "repo_transact:../control_plane_core/lib/ankole/conversations/observe.ex" => 5,
     "ecto_resource:../control_plane_core/lib/ankole/conversations/route.ex" => 11,
     "ecto_resource:../control_plane_core/lib/ankole/conversations/target.ex" => 3,
-    # files
-    "bulk_result:../control_plane_core/lib/ankole/files.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/files.ex" => 3,
-    "error_class:../control_plane_core/lib/ankole/files.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/files.ex" => 4,
-    "bulk_result:../control_plane_core/lib/ankole/files/jobs/collect_unreferenced.ex" => 2,
-    "error_class:../control_plane_core/lib/ankole/files/jobs/collect_unreferenced.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/files/jobs/collect_unreferenced.ex" => 1,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/files/schemas/blob.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/files/schemas/drive_file.ex" => 1,
-    "ecto_write:../control_plane_core/lib/ankole/files/schemas/drive_file.ex" => 1,
     # oidc
     "bulk_result:../control_plane_core/lib/ankole/oidc.ex" => 4,
     "ecto_lock:../control_plane_core/lib/ankole/oidc.ex" => 1,
@@ -307,25 +269,6 @@
       1,
     "ecto_resource:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/inbound.ex" =>
       1,
-    # pod
-    "ecto_resource:../control_plane_core/lib/ankole/pod/access.ex" => 6,
-    "repo_transact:../control_plane_core/lib/ankole/pod/access.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/pod/applets.ex" => 1,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/pod/copy.ex" => 1,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/pod/database.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/pod/documents.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/pod/documents.ex" => 4,
-    "error_class:../control_plane_core/lib/ankole/pod/documents.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/pod/documents.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/pod/files.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/pod/files.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex" => 2,
-    "error_class:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/pod/jobs/purge_page.ex" => 3,
-    "ecto_lock:../control_plane_core/lib/ankole/pod/pages.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/pod/pages.ex" => 15,
-    "repo_transact:../control_plane_core/lib/ankole/pod/pages.ex" => 2,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/pod/query.ex" => 1,
     # principals: staged facades, as for authz. WorkCleanup counts admitted
     # Signal and automation attempts of all tenants until Signals and
     # AutomationJobs give that count.

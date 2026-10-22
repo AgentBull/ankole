@@ -147,10 +147,11 @@ defmodule Ankole.E2E.PodContentEvidenceTest do
     assert Enum.map(Enum.filter(writes, &(&1["data"][primary.id] == "Cedar")), & &1["record_id"]) ==
              [cedar.id, renamed.id]
 
+    # The test owns the transaction, so it runs the write body and rolls back.
     assert {:error, :rolled_back} =
              Repo.transact(fn ->
                assert {:ok, _} =
-                        Database.write_records(owner.uid, table.id, %{
+                        Database.write_records_in_tx(owner.uid, table.id, %{
                           creates: [%{data: %{primary.id => "Cedar"}}]
                         })
 

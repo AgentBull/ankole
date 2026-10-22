@@ -13,15 +13,14 @@ defmodule Ankole.BackgroundAgentJobs.TurnEvidence do
   provider-hosted calls do not count.
   """
 
-  import Ecto.Query
+  require Ash.Query
+  require Ash.Expr
 
   alias Ankole.AIGateway.OpaqueContent
-  alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.TurnItemProjection
-  alias Ankole.Repo
 
   @item_types ~w(userMessage commandExecution dynamicToolCall contextCompaction)
   @per_job_char_limit 3_000
@@ -49,16 +48,19 @@ defmodule Ankole.BackgroundAgentJobs.TurnEvidence do
   @spec evidence_signals(String.t(), non_neg_integer(), DateTime.t()) :: [evidence_signal()]
   def evidence_signals(agent_uid, since_job_id, %DateTime{} = completed_after)
       when is_binary(agent_uid) and is_integer(since_job_id) and since_job_id >= 0 do
+    statuses = Job.terminal_statuses()
+
     job_ids =
       Job
-      |> where([job], job.agent_uid == ^agent_uid)
-      |> where([job], job.status in ^Job.terminal_statuses())
-      |> where([job], job.id > ^since_job_id)
-      |> where([job], coalesce(job.completed_at, job.updated_at) > ^completed_after)
-      |> Queries.excluding_reflection_jobs()
-      |> order_by([job], desc: job.id)
-      |> select([job], job.id)
-      |> Repo.all()
+      |> Ash.Query.filter(
+        agent_uid == ^agent_uid and status in ^statuses and id > ^since_job_id and
+          fragment("coalesce(?, ?)", completed_at, updated_at) > ^completed_after and
+          not skill_lesson_reflection?
+      )
+      |> Ash.Query.sort(id: :desc)
+      |> Ash.Query.select([:id])
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.id)
 
     events_by_job = events_by_job(job_ids)
 
@@ -86,8 +88,8 @@ defmodule Ankole.BackgroundAgentJobs.TurnEvidence do
   def evidence_sections(job_ids) when is_list(job_ids) do
     jobs =
       Job
-      |> where([job], job.id in ^job_ids)
-      |> Repo.all()
+      |> Ash.Query.filter(id in ^job_ids)
+      |> Ankole.Ash.read!()
       |> Map.new(&{&1.id, &1})
 
     events_by_job = events_by_job(job_ids)
@@ -106,16 +108,20 @@ defmodule Ankole.BackgroundAgentJobs.TurnEvidence do
 
   defp events_by_job(job_ids) do
     TurnItem
-    |> join(:inner, [item], turn in Turn, on: item.turn_id == turn.id)
-    |> where([_item, turn], turn.job_id in ^job_ids)
-    |> where([item, _turn], fragment("? ->> 'type'", item.item) in ^@item_types)
-    |> order_by([item, turn], asc: turn.started_at, asc: turn.id, asc: item.position)
-    |> select([item, turn], %{job_id: turn.job_id, turn_id: turn.id, item: item.item})
-    |> Repo.all()
+    |> Ash.Query.filter(
+      turn.job_id in ^job_ids and fragment("? ->> 'type'", item) in ^@item_types
+    )
+    |> Ash.Query.sort([
+      {Ash.Expr.calc(turn.started_at, type: :utc_datetime_usec), :asc},
+      turn_id: :asc,
+      position: :asc
+    ])
+    |> Ash.Query.load(turn: Ash.Query.select(Turn, [:job_id]))
+    |> Ankole.Ash.read!()
     |> Enum.flat_map(fn row ->
       case projected_event(row.item) do
         nil -> []
-        event -> [%{job_id: row.job_id, turn_id: row.turn_id, event: event}]
+        event -> [%{job_id: row.turn.job_id, turn_id: row.turn_id, event: event}]
       end
     end)
     |> Enum.group_by(& &1.job_id)
@@ -220,13 +226,12 @@ defmodule Ankole.BackgroundAgentJobs.TurnEvidence do
 
   defp last_turn_usage(job_ids) do
     Turn
-    |> where([turn], turn.job_id in ^job_ids)
-    |> where([turn], not is_nil(turn.usage))
-    |> order_by([turn], asc: turn.job_id, desc: turn.started_at, desc: turn.id)
-    |> distinct([turn], turn.job_id)
-    |> select([turn], {turn.job_id, turn.usage})
-    |> Repo.all()
-    |> Map.new()
+    |> Ash.Query.filter(job_id in ^job_ids and not is_nil(usage))
+    |> Ash.Query.distinct(:job_id)
+    |> Ash.Query.distinct_sort(job_id: :asc, started_at: :desc, id: :desc)
+    |> Ash.Query.select([:job_id, :usage])
+    |> Ankole.Ash.read!()
+    |> Map.new(&{&1.job_id, &1.usage})
   end
 
   defp job_section(job, events, usage) do

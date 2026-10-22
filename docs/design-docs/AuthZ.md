@@ -82,8 +82,7 @@ the caller's transaction: another domain's action calls them, for example
 `Store.replace_static_group_members/4` or `Grants.upsert_permission_grant/2`.
 They protect the last administrator and distinguish operator groups from
 groups owned by directory and conversation synchronization. Grant writes
-retain the Pod tree lock. `AuthZ.create_permission_grant/1`,
-`upsert_permission_grant/1`, `delete_permission_grant/1`, and
+retain the Pod tree lock. `AuthZ.create_permission_grant/1` and
 `ensure_synced_group_member/2` still open their own transaction, because
 callers of other subsystems call them in a transaction; they become generic
 actions when those callers use the `Grants` and `_in_tx` forms. Ash policies

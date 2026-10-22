@@ -44,6 +44,7 @@ defmodule Ankole.AuthZ do
     resource Grant do
       define(:get_grant, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_grants, action: :read)
+      define(:delete_grant, action: :delete_in_tx)
     end
 
     resource ExternalBinding do
@@ -603,10 +604,7 @@ defmodule Ankole.AuthZ do
   """
   @spec upsert_permission_grant(map()) :: {:ok, Grant.t()} | {:error, term()}
   def upsert_permission_grant(attrs) when is_map(attrs) do
-    # Staged: `Ankole.Pod.Access` still calls this function in its transaction.
-    # Change it to a generic action when that caller uses
-    # `Ankole.AuthZ.Grants.upsert_permission_grant/2`.
-    Repo.transact(fn repo -> Grants.upsert_permission_grant(repo, attrs) end)
+    Ankole.Ash.run_action(Grant, :upsert_permission_grant, %{attrs: attrs})
   end
 
   @doc """
@@ -630,10 +628,7 @@ defmodule Ankole.AuthZ do
   """
   @spec delete_permission_grant(String.t()) :: {:ok, Grant.t()} | {:error, term()}
   def delete_permission_grant(id) do
-    # Staged: `Ankole.Pod.Access` still calls this function in its transaction.
-    # Change it to a generic action when that caller uses
-    # `Ankole.AuthZ.Grants.delete_permission_grant/2`.
-    Repo.transact(fn repo -> Grants.delete_permission_grant(repo, id) end)
+    Ankole.Ash.run_action(Grant, :delete_permission_grant, %{id: id})
   end
 
   @doc """

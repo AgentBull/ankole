@@ -7,7 +7,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.TurnItem do
   and thread replay reads them back when a lost Codex thread must be rebuilt.
   """
 
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.BackgroundAgentJobs.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.BackgroundAgentJobs
 
   postgres do
     table("background_agent_job_turn_items")
@@ -55,11 +55,20 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.TurnItem do
     identity(:item_key, [:turn_id, :item_key], all_tenants?: true)
   end
 
+  relationships do
+    belongs_to :turn, Ankole.BackgroundAgentJobs.Schemas.Turn do
+      source_attribute(:turn_id)
+      attribute_type(Ankole.Ash.Types.UUIDv7)
+      define_attribute?(false)
+      allow_nil?(false)
+      public?(true)
+    end
+  end
+
   actions do
     defaults([:read])
 
     create :append do
-      transaction?(false)
       accept([:turn_id, :position, :revision, :item_key, :item])
 
       validate(fn changeset, _context ->
