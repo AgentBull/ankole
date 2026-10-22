@@ -151,6 +151,20 @@ defmodule Ankole.AgentWorkers.WorkerAdmissionTest do
     end
   end
 
+  test "a join owns its transaction and runs only as a top-level call" do
+    %{principal: agent} = agent_fixture()
+    :ok = provision_worker(agent.uid)
+    generation = Repo.get!(AgentWorker, agent.uid).generation
+    auth = %{transport_route: unique_route(), worker_id: agent.uid, generation: generation}
+    ready = %{incarnation_id: "nested", max_slots: 1, available_slots: 1}
+
+    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
+      Repo.transact(fn -> WorkerAdmission.admit_join(ready, auth) end)
+    end
+
+    assert Repo.get!(AgentWorker, agent.uid).state == :starting
+  end
+
   defp report_capacity(worker, route, available_slots) do
     AgentWorkers.handle_worker_heartbeat(
       %FabricProto.WorkerHeartbeat{

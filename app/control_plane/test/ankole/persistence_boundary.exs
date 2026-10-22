@@ -48,35 +48,6 @@
   baseline: %{
     # advisory_lock
     "raw_sql_tenant:../control_plane_core/lib/ankole/advisory_lock.ex" => 2,
-    # agent_workers
-    "bulk_result:../control_plane_core/lib/ankole/agent_workers.ex" => 7,
-    "ecto_lock:../control_plane_core/lib/ankole/agent_workers.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/agent_workers.ex" => 8,
-    "error_class:../control_plane_core/lib/ankole/agent_workers.ex" => 3,
-    "ecto_resource:../control_plane_core/lib/ankole/agent_workers/lambda.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/agent_workers/providers.ex" => 4,
-    "ecto_resource:../control_plane_core/lib/ankole/agent_workers/providers.ex" => 12,
-    "repo_transact:../control_plane_core/lib/ankole/agent_workers/providers.ex" => 4,
-    "ash_error_match:../control_plane_core/lib/ankole/agent_workers/providers/errors.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/agent_workers/providers/seed.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/agent_workers/providers/seed.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/agent_workers/reconcile_job.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/agent_workers/reconcile_job.ex" => 6,
-    "error_class:../control_plane_core/lib/ankole/agent_workers/reconcile_job.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/agent_workers/reconcile_job.ex" => 3,
-    "ash_error_match:../control_plane_core/lib/ankole/agent_workers/rpc_wire.ex" => 6,
-    "ecto_resource:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex" => 6,
-    "ash_error_match:../control_plane_core/lib/ankole/agent_workers/worker_admission.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/agent_workers/worker_admission.ex" => 3,
-    "ecto_lock:../control_plane_core/lib/ankole/agent_workers/worker_admission.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/agent_workers/worker_admission.ex" => 1,
-    "error_class:../control_plane_core/lib/ankole/agent_workers/worker_admission.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/agent_workers/worker_admission.ex" => 5,
-    "bulk_result:../control_plane_core/lib/ankole/agent_workers/worker_env.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/agent_workers/worker_route.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 1,
     # ai_agent
     "bulk_result:../control_plane_core/lib/ankole/ai_agent/library.ex" => 4,
     "cross_domain_ash:../control_plane_core/lib/ankole/ai_agent/library.ex" => 1,
@@ -333,9 +304,6 @@
     "repo_transact:../control_plane_core/lib/ankole/oidc/sessions.ex" => 2,
     "ecto_resource:../control_plane_core/lib/ankole/oidc/signing_key.ex" => 2,
     "repo_transact:../control_plane_core/lib/ankole/oidc/signing_key.ex" => 1,
-    # plugins
-    "repo_transact:../control_plane_core/lib/ankole/plugins/config.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/plugins/connection_lifecycle.ex" => 1,
     # plugins/dingtalk_adapter
     "ecto_resource:../../plugins/dingtalk_adapter/lib/ankole/plugins/dingtalk_adapter/ai_card.ex" =>
       1,

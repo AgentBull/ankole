@@ -11,11 +11,10 @@ defmodule Ankole.Plugins.Config do
   children and config keys, which is a boot-time concern, not a hot-swap.
   """
 
-  alias Ankole.AgentWorkers.ProviderKind
-  alias Ankole.AgentWorkers.Providers, as: WorkerProviders
   alias Ankole.AppConfigure
   alias Ankole.AppConfigure.Definition
   alias Ankole.AppConfigure.Schema
+  alias Ankole.Plugins.Contracts
   alias Ankole.Plugins.Spec
   alias Ankole.Repo
 
@@ -61,51 +60,23 @@ defmodule Ankole.Plugins.Config do
           {:ok, [String.t()]} | {:error, term()}
   def put_configured_enabled(plugin_id, enabled)
       when is_binary(plugin_id) and is_boolean(enabled) do
-    write_enabled_ids(fn stored ->
-      with {:ok, current} <- stored,
-           do: {:ok, update_enabled_ids(current, plugin_id, enabled)}
-    end)
+    write_enabled_ids(&{:ok, update_enabled_ids(&1, plugin_id, enabled)})
   end
 
   def put_configured_enabled(_plugin_id, _enabled),
     do: {:error, :invalid_plugin_configuration}
 
+  # AppConfigure holds the key lock and the transaction. Each contract can stop
+  # the change in that transaction, before the new list is stored.
   defp write_enabled_ids(selection) do
     definition = enabled_ids_definition()
 
-    result =
-      Repo.transact(fn repo ->
-        with :ok <- AppConfigure.lock_global_key(repo, @enabled_ids_key),
-             current = AppConfigure.get_in_tx(repo, definition),
-             {:ok, selected} <- selection.(current),
-             {:ok, enabled_ids} <- Definition.validate(definition, selected),
-             disabled_kinds =
-               ProviderKind.disabled_kinds(
-                 ProviderKind.registry(),
-                 previous_ids(current),
-                 enabled_ids
-               ),
-             :ok <- WorkerProviders.validate_disabled_kinds(repo, disabled_kinds) do
-          AppConfigure.put_global_by_key_in_tx(repo, @enabled_ids_key, enabled_ids)
-        end
-      end)
-
-    case result do
-      {:ok, write} -> AppConfigure.cache_committed_write(write)
-      error -> error
-    end
-  end
-
-  defp previous_ids({:ok, ids}), do: ids
-
-  # A bulk replacement can repair an invalid saved list. Check all excluded
-  # Worker kinds because the previous selection cannot be read.
-  defp previous_ids({:error, _reason}) do
-    ProviderKind.registry()
-    |> Map.values()
-    |> Enum.map(& &1.plugin_id)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
+    AppConfigure.update_global(definition, fn current ->
+      with {:ok, selected} <- selection.(current),
+           {:ok, enabled_ids} <- Definition.validate(definition, selected),
+           :ok <- Contracts.veto_disable(Repo, current, enabled_ids),
+           do: {:ok, enabled_ids}
+    end)
   end
 
   # IDs need not correspond to a currently discovered plugin. Keeping that

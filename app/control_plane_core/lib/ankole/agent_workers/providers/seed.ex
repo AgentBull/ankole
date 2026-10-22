@@ -1,10 +1,11 @@
 defmodule Ankole.AgentWorkers.Providers.Seed do
   @moduledoc "Imports the bootstrap providers and assigns legacy Agents in one transaction."
 
-  alias Ankole.Repo
+  alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.Providers
-  alias Ankole.AgentWorkers.Providers.Provider
   alias Ankole.AgentWorkers.Providers.YAML
+  alias Ankole.Errors
+  alias Ankole.Repo
 
   def child_spec(opts), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}}
 
@@ -15,35 +16,28 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
     end
   end
 
-  def import_file(path) do
-    Repo.across_tenants(fn ->
-      Repo.transact(fn repo ->
-        Providers.lock_registry(repo, :exclusive)
+  def import_file(path), do: Errors.reason(AgentWorkers.import_providers(path))
 
-        cond do
-          repo.exists?(Provider) -> {:ok, :ok}
-          is_nil(path) -> {:ok, :ok}
-          true -> import_in_tx(repo, path)
-        end
-      end)
-    end)
-    |> case do
-      {:ok, :ok} -> :ok
-      error -> error
+  @doc false
+  def import_in_tx(path) do
+    Providers.lock_registry(Repo, :exclusive)
+
+    cond do
+      Providers.list() != [] -> :ok
+      is_nil(path) -> :ok
+      true -> import_entries(path)
     end
   end
 
-  defp import_in_tx(repo, path) do
+  defp import_entries(path) do
     with {:ok, text} <- File.read(path),
          {:ok, %{"providers" => entries} = data, _locations} when is_list(entries) <-
            YAML.parse(text),
          true <- Map.keys(data) == ["providers"],
          :ok <- validate_flags(entries),
-         {:ok, legacy_id} <- insert_all(repo, entries),
-         {:ok, ^legacy_id} <- select_legacy_provider(repo, legacy_id) do
-      if legacy_id, do: Ankole.AgentWorkers.assign_legacy_provider_in_tx(legacy_id)
-
-      {:ok, :ok}
+         {:ok, legacy_id} <- insert_all(Repo, entries),
+         {:ok, ^legacy_id} <- select_legacy_provider(Repo, legacy_id) do
+      if legacy_id, do: AgentWorkers.assign_legacy_provider_in_tx(legacy_id), else: :ok
     else
       {:error, _reason} = error -> error
       _invalid -> {:error, :invalid_worker_providers_seed}
