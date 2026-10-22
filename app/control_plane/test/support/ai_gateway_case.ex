@@ -160,24 +160,27 @@ defmodule Ankole.AIGatewayCase do
   the same way as a WebSocket `response.create`. A `previous_response_id`
   run continues that explicit anchor.
   """
-  def start_response_run(%{round_state: run} = attrs) do
-    Ankole.Repo.transact(fn repo ->
-      with {:ok, message} <- start_response_run(Map.delete(attrs, :round_state)),
-           :ok <- Ankole.Sessions.RoundState.put_in_tx(repo, run, message) do
-        {:ok, message}
-      end
-    end)
+  def start_response_run(attrs, opts \\ [])
+
+  def start_response_run(%{round_state: run} = attrs, opts) do
+    attrs
+    |> Map.delete(:round_state)
+    |> start_response_run(
+      Keyword.put(opts, :record_response_in_tx, fn repo, message ->
+        Ankole.Sessions.RoundState.put_in_tx(repo, run, message)
+      end)
+    )
   end
 
-  def start_response_run(%{conversation_id: conversation_id} = attrs)
+  def start_response_run(%{conversation_id: conversation_id} = attrs, opts)
       when not is_map_key(attrs, :previous_response_id) do
     attrs
     |> Map.put(:expected_previous_response_id, visible_leaf_response_id(conversation_id))
-    |> StatefulResponses.start_planned_response_run()
+    |> StatefulResponses.start_planned_response_run(opts)
   end
 
-  def start_response_run(attrs) when is_map(attrs) do
-    StatefulResponses.start_planned_response_run(attrs)
+  def start_response_run(attrs, opts) when is_map(attrs) do
+    StatefulResponses.start_planned_response_run(attrs, opts)
   end
 
   defp visible_leaf_response_id(conversation_id) do

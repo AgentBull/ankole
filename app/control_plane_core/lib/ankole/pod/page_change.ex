@@ -2,7 +2,7 @@ defmodule Ankole.Pod.PageChange do
   @moduledoc "An immutable document reset or editor batch, keyed by the resulting revision."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Pod.Domain,
+    domain: Ankole.Pod,
     tenant_in_primary_key: true
 
   postgres do
@@ -33,12 +33,33 @@ defmodule Ankole.Pod.PageChange do
     attribute(:created_at, :utc_datetime_usec, allow_nil?: false)
   end
 
+  calculations do
+    # The JSON size of one stored batch. It includes more fields and
+    # whitespace than the Channel DTO, so a replay that fits by this measure
+    # fits the message budget.
+    calculate(
+      :wire_bytes,
+      :integer,
+      expr(
+        fragment(
+          "octet_length(json_build_object('page_id', ?, 'revision', ?, 'kind', ?, 'client_id', ?, 'client_seq', ?, 'changes', ?, 'author', ?, 'created_at', ?)::text)",
+          page_id,
+          revision,
+          kind,
+          client_id,
+          client_seq,
+          changes,
+          author,
+          created_at
+        )
+      )
+    )
+  end
+
   actions do
     defaults([:read])
 
     create :append do
-      transaction?(false)
-
       accept([
         :page_id,
         :revision,
@@ -54,7 +75,6 @@ defmodule Ankole.Pod.PageChange do
     end
 
     destroy :prune do
-      transaction?(false)
       require_atomic?(true)
     end
   end

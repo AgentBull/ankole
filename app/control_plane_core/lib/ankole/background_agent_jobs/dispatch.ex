@@ -1,9 +1,8 @@
 defmodule Ankole.BackgroundAgentJobs.Dispatch do
   @moduledoc false
 
+  require Ash.Query
   require Ankole.ModelIntegerID
-
-  import Ecto.Query
 
   alias Ecto.Adapters.SQL
 
@@ -12,6 +11,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   alias Ankole.AIGateway
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Attrs
+  alias Ankole.BackgroundAgentJobs.JobSignals
+  alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Principals
   alias Ankole.Repo
@@ -42,14 +43,13 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     source_tool_call_id
   )
 
-  @spec create_with_dispatch(map()) ::
+  @doc "Creates one Job and its dispatch Signal inside the caller's transaction."
+  @spec create_with_dispatch_in_tx(module(), map()) ::
           {:ok, %{job: Job.t(), dispatch_event: Signal.t()}} | {:error, term()}
-  def create_with_dispatch(attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      with {:ok, sessions, commit} <- prepare_create_in_tx(repo, attrs),
-           :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
-           do: commit.()
-    end)
+  def create_with_dispatch_in_tx(repo, attrs) when is_map(attrs) do
+    with {:ok, sessions, commit} <- prepare_create_in_tx(repo, attrs),
+         :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
+         do: commit.()
   end
 
   def prepare_create_in_tx(repo, attrs) when is_map(attrs) do
@@ -58,8 +58,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
          {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")) do
       attrs = Map.put(attrs, "agent_uid", agent_uid)
 
-      case find_existing_job(repo, attrs) do
-        {:ok, job} -> prepared_existing_job(repo, job)
+      case find_existing_job(attrs) do
+        {:ok, job} -> prepared_existing_job(job)
         {:error, :background_agent_job_not_found} -> prepare_new_job(repo, attrs, agent_uid)
       end
     end
@@ -87,15 +87,14 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
-  @spec respawn_with_dispatch(pos_integer(), map()) ::
+  @doc "Creates one successor of a terminal Job inside the caller's transaction."
+  @spec respawn_with_dispatch_in_tx(module(), pos_integer(), map()) ::
           {:ok, %{job: Job.t(), dispatch_event: Signal.t()}} | {:error, term()}
-  def respawn_with_dispatch(source_job_id, attrs)
+  def respawn_with_dispatch_in_tx(repo, source_job_id, attrs)
       when Ankole.ModelIntegerID.valid?(source_job_id) and is_map(attrs) do
-    Repo.transact(fn repo ->
-      with {:ok, sessions, commit} <- prepare_respawn_in_tx(repo, source_job_id, attrs),
-           :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
-           do: commit.()
-    end)
+    with {:ok, sessions, commit} <- prepare_respawn_in_tx(repo, source_job_id, attrs),
+         :ok <- Ankole.Sessions.Queue.lock_sessions_in_tx(repo, sessions),
+         do: commit.()
   end
 
   def prepare_respawn_in_tx(repo, source_job_id, attrs)
@@ -105,9 +104,9 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
          {:ok, agent_uid} <- Principals.normalize_uid(Attrs.text(attrs, "agent_uid")) do
       attrs = Map.put(attrs, "agent_uid", agent_uid)
 
-      case find_existing_job(repo, attrs) do
+      case find_existing_job(attrs) do
         {:ok, job} ->
-          prepared_existing_job(repo, job)
+          prepared_existing_job(job)
 
         {:error, :background_agent_job_not_found} ->
           prepare_respawn_source(repo, source_job_id, attrs, agent_uid)
@@ -117,7 +116,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   defp prepare_respawn_source(repo, source_job_id, attrs, agent_uid) do
     with {:ok, reply_route} <- reply_route(attrs),
-         %Job{} = source_job <- BackgroundAgentJobs.get_job_for_agent(source_job_id, agent_uid),
+         %Job{} = source_job <- Queries.get_for_agent(source_job_id, agent_uid),
          # The successor inherits the source profile, which must still resolve.
          {:ok, _model_profile} <- available_model_profile(agent_uid, source_job.model_profile),
          {:ok, metadata} <- job_metadata(attrs, false) do
@@ -160,9 +159,9 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
          :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
          :ok <- lock_start_idempotency(repo, attrs) do
-      case find_existing_job(repo, attrs) do
+      case find_existing_job(attrs) do
         {:ok, job} ->
-          prepared_existing_job(repo, job)
+          prepared_existing_job(job)
 
         {:error, :background_agent_job_not_found} ->
           with :ok <-
@@ -188,15 +187,15 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     with :ok <- Ankole.Tenants.check_work_admission(Repo.tenant_id!()),
          :ok <- Ankole.Principals.WorkAccess.check_attrs_in_tx(repo, attrs),
          :ok <- lock_start_idempotency(repo, attrs) do
-      case find_existing_job(repo, attrs) do
+      case find_existing_job(attrs) do
         {:ok, job} ->
-          prepared_existing_job(repo, job)
+          prepared_existing_job(job)
 
         {:error, :background_agent_job_not_found} ->
           with :ok <- lock_delegated_parent(repo, attrs),
-               {:ok, source_job} <- lock_respawn_source(repo, source_job_id, attrs["agent_uid"]),
+               {:ok, source_job} <- lock_respawn_source(source_job_id, attrs["agent_uid"]),
                :ok <- validate_respawn_source(source_job),
-               :ok <- ensure_no_successor(repo, source_job),
+               :ok <- ensure_no_successor(source_job),
                :ok <-
                  Workflow.TaskLifecycle.authorize_delegated_job_owner_in_tx(
                    repo,
@@ -226,8 +225,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
-  defp prepared_existing_job(repo, job),
-    do: {:ok, job_sessions(job), fn -> existing_job_result(repo, job) end}
+  defp prepared_existing_job(job),
+    do: {:ok, job_sessions(job), fn -> existing_job_result(job) end}
 
   defp prepared_dispatch(repo, job, now) do
     {:ok, job_sessions(job),
@@ -243,13 +242,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       {job.agent_uid, BackgroundAgentJobs.job_session_id(job.id)}
     ]
 
-  defp lock_respawn_source(repo, source_job_id, agent_uid) do
-    Job
-    |> where([job], job.id == ^source_job_id)
-    |> where([job], job.agent_uid == ^agent_uid)
-    |> lock("FOR UPDATE")
-    |> repo.one(lock_identity: {"background_agent_jobs", source_job_id})
-    |> case do
+  defp lock_respawn_source(source_job_id, agent_uid) do
+    case Queries.lock_for_agent_in_tx(source_job_id, agent_uid) do
       %Job{} = job -> {:ok, job}
       nil -> {:error, :job_not_found}
     end
@@ -271,14 +265,14 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
-  defp ensure_no_successor(repo, %Job{} = source_job) do
+  defp ensure_no_successor(%Job{} = source_job) do
     Job
-    |> where([job], job.continued_from_job_id == ^source_job.id)
-    |> select([job], job.id)
-    |> repo.one()
+    |> Ash.Query.filter(continued_from_job_id == ^source_job.id)
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read_one!()
     |> case do
       nil -> :ok
-      successor_id -> {:error, {:background_agent_job_already_respawned, successor_id}}
+      %Job{id: successor_id} -> {:error, {:background_agent_job_already_respawned, successor_id}}
     end
   end
 
@@ -294,8 +288,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     |> then(&Job.successor_attrs(source_job, &1))
   end
 
-  defp existing_job_result(repo, %Job{} = job) do
-    case find_dispatch_event(repo, job) do
+  defp existing_job_result(%Job{} = job) do
+    case find_dispatch_event(job) do
       %Signal{} = dispatch_event ->
         {:ok, %{job: job, dispatch_event: dispatch_event}}
 
@@ -304,17 +298,13 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end
   end
 
-  @spec complete_signal(Signal.t()) :: {:ok, Signal.t()} | {:error, term()}
-  def complete_signal(%Signal{} = signal) do
-    Repo.transact(fn repo ->
-      case lock_open_signal(repo, signal.id) do
-        %Signal{} = event ->
-          Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now())
-
-        nil ->
-          {:ok, signal}
-      end
-    end)
+  @doc "Completes a Job Signal that is still open, inside the caller's transaction."
+  @spec complete_signal_in_tx(module(), Signal.t()) :: {:ok, Signal.t()} | {:error, term()}
+  def complete_signal_in_tx(repo, %Signal{} = signal) do
+    case JobSignals.lock_open_signal_in_tx(repo, signal.id) do
+      %Signal{} = event -> Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, now())
+      nil -> {:ok, signal}
+    end
   end
 
   @doc false
@@ -329,19 +319,13 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   end
 
   @doc false
-  @spec open_steer_events_in_tx(module(), pos_integer(), String.t()) :: [Signal.t()]
-  def open_steer_events_in_tx(repo, job_id, agent_uid) do
-    open_steer_query(job_id, agent_uid)
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("signals")
-  end
+  @spec open_steer_events_in_tx(pos_integer(), String.t()) :: [Signal.t()]
+  def open_steer_events_in_tx(job_id, agent_uid),
+    do: JobSignals.lock_open_in_tx(job_id, agent_uid, ["command.steer"])
 
   @doc false
   def authorize_steer_successor_in_tx(repo, job, applied_ids) do
-    query =
-      open_steer_query(job.id, job.agent_uid) |> where([event], event.id not in ^applied_ids)
-
-    if repo.exists?(query),
+    if JobSignals.open?(job.id, job.agent_uid, ["command.steer"], applied_ids),
       do:
         Workflow.TaskLifecycle.authorize_delegated_job_owner_in_tx(
           repo,
@@ -353,19 +337,9 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
   @doc false
   def reserve_steer_successor_id_in_tx(repo, job, applied_ids) do
-    query =
-      open_steer_query(job.id, job.agent_uid) |> where([event], event.id not in ^applied_ids)
-
-    if repo.exists?(query), do: next_job_id(repo), else: {:ok, nil}
-  end
-
-  defp open_steer_query(job_id, agent_uid) do
-    Signal
-    |> where([event], event.agent_uid == ^agent_uid)
-    |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job_id))
-    |> where([event], event.type == "command.steer")
-    |> where([event], event.status in [:queued, :running])
-    |> order_by([event], asc: event.queue_sequence)
+    if JobSignals.open?(job.id, job.agent_uid, ["command.steer"], applied_ids),
+      do: next_job_id(repo),
+      else: {:ok, nil}
   end
 
   # One successor carries every open steer in arrival order. The successor is
@@ -379,7 +353,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     task = steers |> Enum.map(&steer_text/1) |> Enum.reject(&is_nil/1) |> Enum.join("\n\n")
 
     with :ok <- ensure_seedable_task(task),
-         :ok <- ensure_no_successor(repo, source_job),
+         :ok <- ensure_no_successor(source_job),
          attrs =
            %{
              "id" => id,
@@ -411,13 +385,8 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   end
 
   defp complete_open_events_in_tx(repo, job_id, agent_uid, types, completed_at) do
-    Signal
-    |> where([event], event.agent_uid == ^agent_uid)
-    |> where([event], event.session_id == ^BackgroundAgentJobs.job_session_id(job_id))
-    |> where([event], event.type in ^types)
-    |> where([event], event.status in [:queued, :running])
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("signals")
+    job_id
+    |> JobSignals.lock_open_in_tx(agent_uid, types)
     |> Enum.reduce_while({:ok, :ok}, fn event, {:ok, :ok} ->
       case Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, event, completed_at) do
         {:ok, %Signal{}} -> {:cont, {:ok, :ok}}
@@ -426,15 +395,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     end)
   end
 
-  defp lock_open_signal(repo, signal_id) do
-    Signal
-    |> where([event], event.id == ^signal_id)
-    |> where([event], event.status in [:queued, :running])
-    |> lock("FOR UPDATE")
-    |> repo.one(lock_identity: {"signals", signal_id})
-  end
-
-  defp find_existing_job(repo, attrs) do
+  defp find_existing_job(attrs) do
     case {
       Attrs.text(attrs, "agent_uid"),
       Attrs.text(attrs, "owner_session_id"),
@@ -443,10 +404,11 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
       {agent_uid, owner_session_id, source_tool_call_id}
       when is_binary(agent_uid) and is_binary(owner_session_id) and is_binary(source_tool_call_id) ->
         Job
-        |> where([job], job.agent_uid == ^agent_uid)
-        |> where([job], job.owner_session_id == ^owner_session_id)
-        |> where([job], job.source_tool_call_id == ^source_tool_call_id)
-        |> repo.one()
+        |> Ash.Query.filter(
+          agent_uid == ^agent_uid and owner_session_id == ^owner_session_id and
+            source_tool_call_id == ^source_tool_call_id
+        )
+        |> Ankole.Ash.read_one!()
         |> case do
           %Job{} = job -> {:ok, job}
           nil -> {:error, :background_agent_job_not_found}
@@ -507,12 +469,12 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
     })
   end
 
-  defp find_dispatch_event(repo, %Job{} = job) do
-    Signal
-    |> where([event], event.agent_uid == ^job.agent_uid)
-    |> where([event], event.source == "control-plane://background-agent-job")
-    |> where([event], event.source_event_id == ^dispatch_source_event_id(job))
-    |> repo.one()
+  defp find_dispatch_event(%Job{} = job) do
+    JobSignals.first(
+      agent_uid: job.agent_uid,
+      source: "control-plane://background-agent-job",
+      source_event_id: dispatch_source_event_id(job)
+    )
   end
 
   defp dispatch_source_event_id(%Job{} = job),

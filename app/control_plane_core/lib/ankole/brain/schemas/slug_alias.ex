@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.SlugAlias do
   @moduledoc "One immutable redirect identity with an explicit merge target update."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_slug_aliases")
@@ -35,11 +35,11 @@ defmodule Ankole.Brain.Schemas.SlugAlias do
     defaults([:read])
 
     create :add do
-      transaction?(false)
       accept([:id, :alias_slug, :canonical_slug, :notes, :created_at])
     end
 
-    atomic_in_tx_update :repoint do
+    update :repoint do
+      require_atomic?(true)
       accept([:canonical_slug])
     end
   end

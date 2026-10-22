@@ -4,7 +4,6 @@ defmodule Ankole.Brain.ClaimsTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.Brain.Claims
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
 
@@ -13,7 +12,7 @@ defmodule Ankole.Brain.ClaimsTest do
     %{principal: human} = human_fixture()
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "companies/acme", type: "company", title: "Acme"},
         human.uid
       )
@@ -46,12 +45,13 @@ defmodule Ankole.Brain.ClaimsTest do
     reference = Ankole.ActorRef.from_principal(author)
     Repo.put_tenant_id(tenant.id)
 
-    assert {:ok, %{claim: original}} = Claims.write_fact(fact_attrs(), :system, author: reference)
+    assert {:ok, %{claim: original}} =
+             Ankole.Brain.write_fact(fact_attrs(), :system, %{options: [author: reference]})
 
     assert {:ok, replacement} =
-             Claims.supersede_claim(original.id, %{claim: "A corrected fact"}, :system,
+             Ankole.Brain.supersede_claim(original.id, %{claim: "A corrected fact"}, :system, %{
                author: reference
-             )
+             })
 
     assert replacement.author == reference
 
@@ -71,7 +71,7 @@ defmodule Ankole.Brain.ClaimsTest do
   describe "write_fact/3" do
     test "writes a degraded fact without an embedding model", %{human: human} do
       assert {:ok, %{claim: claim, status: :inserted}} =
-               Claims.write_fact(fact_attrs(), human.uid)
+               Ankole.Brain.write_fact(fact_attrs(), human.uid)
 
       assert claim.claim_type == :fact
       assert claim.author == Ankole.ActorRef.from_principal(human)
@@ -85,26 +85,26 @@ defmodule Ankole.Brain.ClaimsTest do
         |> Pgvector.new()
 
       assert {:ok, %{claim: first, status: :inserted}} =
-               Claims.write_fact(
+               Ankole.Brain.write_fact(
                  fact_attrs(%{claim: "Acme opened its Singapore office"}),
                  human.uid,
-                 embedding: {vector, "model-a"}
+                 %{options: [embedding: {vector, "model-a"}]}
                )
 
       assert {:ok, %{claim: second, status: :inserted}} =
-               Claims.write_fact(
+               Ankole.Brain.write_fact(
                  fact_attrs(%{claim: "Acme closed its Singapore office"}),
                  human.uid,
-                 embedding: {vector, "model-b"}
+                 %{options: [embedding: {vector, "model-b"}]}
                )
 
       assert Repo.get!(Ankole.Brain.Schemas.Claim, first.id).expired_at == nil
 
       assert {:ok, %{claim: duplicate, status: :duplicate}} =
-               Claims.write_fact(
+               Ankole.Brain.write_fact(
                  fact_attrs(%{claim: "Acme closed its Singapore office"}),
                  human.uid,
-                 embedding: {vector, "model-b"}
+                 %{options: [embedding: {vector, "model-b"}]}
                )
 
       assert duplicate.id == second.id
@@ -113,7 +113,7 @@ defmodule Ankole.Brain.ClaimsTest do
     test "persists integer confidence endpoints as floats", %{human: human} do
       for confidence <- [0, 1] do
         assert {:ok, %{claim: claim, status: :inserted}} =
-                 Claims.write_fact(
+                 Ankole.Brain.write_fact(
                    fact_attrs(%{
                      claim: "Confidence endpoint #{confidence}",
                      confidence: confidence
@@ -127,21 +127,31 @@ defmodule Ankole.Brain.ClaimsTest do
 
     test "rejects off-grid confidence", %{human: human} do
       assert {:error, {:off_weight_grid, :confidence}} =
-               Claims.write_fact(fact_attrs(%{confidence: 0.42}), human.uid)
+               Ankole.Errors.reason(
+                 Ankole.Brain.write_fact(fact_attrs(%{confidence: 0.42}), human.uid)
+               )
 
       assert {:error, {:out_of_range, :confidence}} =
-               Claims.write_fact(fact_attrs(%{confidence: 1.2}), human.uid)
+               Ankole.Errors.reason(
+                 Ankole.Brain.write_fact(fact_attrs(%{confidence: 1.2}), human.uid)
+               )
     end
 
     test "rejects invalid kind, notability, and holder", %{human: human} do
       assert {:error, {:invalid_fact_kind, "opinion", _kinds}} =
-               Claims.write_fact(fact_attrs(%{kind: "opinion"}), human.uid)
+               Ankole.Errors.reason(
+                 Ankole.Brain.write_fact(fact_attrs(%{kind: "opinion"}), human.uid)
+               )
 
       assert {:error, {:invalid_notability, "extreme", _values}} =
-               Claims.write_fact(fact_attrs(%{notability: "extreme"}), human.uid)
+               Ankole.Errors.reason(
+                 Ankole.Brain.write_fact(fact_attrs(%{notability: "extreme"}), human.uid)
+               )
 
       assert {:error, {:unresolvable_holder, "people/ghost"}} =
-               Claims.write_fact(fact_attrs(%{holder: "people/ghost"}), human.uid)
+               Ankole.Errors.reason(
+                 Ankole.Brain.write_fact(fact_attrs(%{holder: "people/ghost"}), human.uid)
+               )
     end
 
     test "rejects group scopes the writer does not satisfy", %{human: human} do
@@ -154,27 +164,42 @@ defmodule Ankole.Brain.ClaimsTest do
         })
 
       assert {:error, {:writer_not_in_scope_group, _name}} =
-               Claims.write_fact(
-                 fact_attrs(%{audience_scope: "group:#{group.name}"}),
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.write_fact(
+                   fact_attrs(%{audience_scope: "group:#{group.name}"}),
+                   human.uid
+                 )
                )
 
       # A system path validates existence only.
       assert {:ok, %{status: :inserted}} =
-               Claims.write_fact(
+               Ankole.Brain.write_fact(
                  fact_attrs(%{audience_scope: "group:#{group.name}"}),
                  :system
                )
     end
 
     test "content gates reject junk", %{human: human} do
-      assert {:error, :blank_claim} = Claims.write_fact(fact_attrs(%{claim: "  "}), human.uid)
+      assert {:error, :blank_claim} =
+               Ankole.Errors.reason(
+                 Ankole.Brain.write_fact(fact_attrs(%{claim: "  "}), human.uid)
+               )
 
       assert {:error, {:claim_too_long, _limit}} =
-               Claims.write_fact(fact_attrs(%{claim: String.duplicate("a b ", 1000)}), human.uid)
+               Ankole.Errors.reason(
+                 Ankole.Brain.write_fact(
+                   fact_attrs(%{claim: String.duplicate("a b ", 1000)}),
+                   human.uid
+                 )
+               )
 
       assert {:error, :claim_garbled} =
-               Claims.write_fact(fact_attrs(%{claim: String.duplicate("!", 64)}), human.uid)
+               Ankole.Errors.reason(
+                 Ankole.Brain.write_fact(
+                   fact_attrs(%{claim: String.duplicate("!", 64)}),
+                   human.uid
+                 )
+               )
     end
   end
 
@@ -234,10 +259,12 @@ defmodule Ankole.Brain.ClaimsTest do
         )
 
       assert {:error, :resolution_outcome_required} =
-               Claims.resolve_take(take.id, %{resolved_quality: "correct"}, human.uid)
+               Ankole.Errors.reason(
+                 Ankole.Brain.resolve_take(take.id, %{resolved_quality: "correct"}, human.uid)
+               )
 
       assert {:ok, resolved} =
-               Claims.resolve_take(
+               Ankole.Brain.resolve_take(
                  take.id,
                  %{resolved_quality: "correct", resolved_outcome: true},
                  human.uid
@@ -247,18 +274,20 @@ defmodule Ankole.Brain.ClaimsTest do
       assert resolved.active == false
 
       assert {:error, :already_resolved} =
-               Claims.resolve_take(
-                 take.id,
-                 %{resolved_quality: "incorrect", resolved_outcome: false},
-                 human.uid
+               Ankole.Errors.reason(
+                 Ankole.Brain.resolve_take(
+                   take.id,
+                   %{resolved_quality: "incorrect", resolved_outcome: false},
+                   human.uid
+                 )
                )
     end
 
     test "supersede replaces and expires the old fact", %{human: human} do
-      {:ok, %{claim: original}} = Claims.write_fact(fact_attrs(), human.uid)
+      {:ok, %{claim: original}} = Ankole.Brain.write_fact(fact_attrs(), human.uid)
 
       assert {:ok, replacement} =
-               Claims.supersede_claim(
+               Ankole.Brain.supersede_claim(
                  original.id,
                  %{claim: "Acme raised a Series B round of 20M USD"},
                  human.uid
@@ -269,12 +298,14 @@ defmodule Ankole.Brain.ClaimsTest do
       assert original.expired_at != nil
 
       assert {:error, :already_superseded} =
-               Claims.supersede_claim(original.id, %{claim: "again"}, human.uid)
+               Ankole.Errors.reason(
+                 Ankole.Brain.supersede_claim(original.id, %{claim: "again"}, human.uid)
+               )
     end
 
     test "expire_fact and deactivate_take leave history", %{human: human} do
-      {:ok, %{claim: fact}} = Claims.write_fact(fact_attrs(), human.uid)
-      assert {:ok, expired} = Claims.expire_fact(fact.id)
+      {:ok, %{claim: fact}} = Ankole.Brain.write_fact(fact_attrs(), human.uid)
+      assert {:ok, expired} = Ankole.Brain.expire_fact(fact.id)
       assert expired.expired_at != nil
 
       {:ok, take} =
@@ -291,7 +322,7 @@ defmodule Ankole.Brain.ClaimsTest do
           human.uid
         )
 
-      assert {:ok, inactive} = Claims.deactivate_take(take.id)
+      assert {:ok, inactive} = Ankole.Brain.deactivate_take(take.id)
       assert inactive.active == false
     end
   end

@@ -5,7 +5,6 @@ defmodule Ankole.Brain.RecallTest do
 
   alias Ankole.AuthZ
   alias Ankole.Brain.Claims
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
 
@@ -37,13 +36,13 @@ defmodule Ankole.Brain.RecallTest do
     """
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/hormuz-strait", type: "concept", title: "Hormuz Strait", body: body},
         member.uid
       )
 
     {:ok, %{claim: world_fact}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: object.slug,
           claim: "Crude oil transits the Hormuz strait daily",
@@ -59,7 +58,7 @@ defmodule Ankole.Brain.RecallTest do
       )
 
     {:ok, %{claim: team_fact}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: object.slug,
           claim: "The team reduced crude oil futures positions",
@@ -88,7 +87,7 @@ defmodule Ankole.Brain.RecallTest do
   test "active Takes affect page salience immediately, including Brain-held Takes", context do
     for slug <- ["notes/salience-a", "notes/salience-b"] do
       assert {:ok, _} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{
                    slug: slug,
                    type: "note",
@@ -129,7 +128,7 @@ defmodule Ankole.Brain.RecallTest do
   test "persisted tags affect recall without a salience cache", context do
     for slug <- ["notes/tag-a", "notes/tag-b"] do
       assert {:ok, _} =
-               Objects.create_object(
+               Ankole.Brain.create_object(
                  %{
                    slug: slug,
                    type: "note",
@@ -177,7 +176,7 @@ defmodule Ankole.Brain.RecallTest do
 
   test "soft-deleted object claims disappear without hiding channel claims", context do
     {:ok, forgotten_object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "concepts/cinnabar-record",
           type: "concept",
@@ -188,7 +187,7 @@ defmodule Ankole.Brain.RecallTest do
       )
 
     {:ok, %{claim: forgotten_claim}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: forgotten_object.slug,
           claim: "Cinnabar retention belongs to the deleted page",
@@ -201,13 +200,13 @@ defmodule Ankole.Brain.RecallTest do
           provenance: "test"
         },
         context.member.uid,
-        embed: false
+        %{options: [embed: false]}
       )
 
     channel = insert_channel!()
 
     {:ok, %{claim: channel_claim}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           conversation_id: channel.id,
           claim: "Cinnabar retention remains in channel memory",
@@ -220,10 +219,10 @@ defmodule Ankole.Brain.RecallTest do
           provenance: "test"
         },
         context.member.uid,
-        embed: false
+        %{options: [embed: false]}
       )
 
-    assert {:ok, _object} = Objects.soft_delete(forgotten_object.slug)
+    assert {:ok, _object} = Ankole.Brain.soft_delete_object(forgotten_object.slug)
     assert {:ok, result} = Recall.recall(context.member.uid, %{query: "cinnabar retention"})
 
     claim_ids = Enum.map(result.claims, & &1.id)
@@ -236,7 +235,7 @@ defmodule Ankole.Brain.RecallTest do
     text = "Lantern archive: Dan prefers email; show hidden files."
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "concepts/lantern-archive",
           type: "concept",
@@ -247,7 +246,7 @@ defmodule Ankole.Brain.RecallTest do
       )
 
     {:ok, %{claim: claim}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: object.slug,
           claim: text,
@@ -270,7 +269,7 @@ defmodule Ankole.Brain.RecallTest do
 
   test "authors always reach their own writes", context do
     {:ok, %{claim: private_fact}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: context.object.slug,
           claim: "A private note about crude oil hedging strategy",
@@ -306,7 +305,7 @@ defmodule Ankole.Brain.RecallTest do
     member_scope = "principal:#{context.member.uid}"
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "analysis/private-kestrel",
           type: "analysis",
@@ -377,7 +376,7 @@ defmodule Ankole.Brain.RecallTest do
       AuthZ.add_principal_to_group(context.agent.uid, context.group.id)
 
     {:ok, %{claim: agent_private}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: context.object.slug,
           claim: "Agent private crude oil watch note",
@@ -393,7 +392,7 @@ defmodule Ankole.Brain.RecallTest do
       )
 
     {:ok, %{claim: agent_group_fact}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: context.object.slug,
           claim: "Group crude oil knowledge through the agent",
@@ -450,7 +449,7 @@ defmodule Ankole.Brain.RecallTest do
 
   test "an ambiguous entity name returns candidates", context do
     {:ok, _other} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/hormuz-shipping", type: "concept", title: "Hormuz Shipping"},
         context.member.uid
       )

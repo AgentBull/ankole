@@ -1,6 +1,6 @@
 defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
   @moduledoc "Agent-owned runtime document; active paths retain their partial unique identity."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent.Library.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent
 
   postgres do
     table("agent_library_container_entries")
@@ -60,11 +60,21 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
 
     create :put do
       accept([:agent_uid, :path, :source_kind, :content, :metadata])
-      transaction?(false)
       upsert?(true)
       upsert_identity(:active_path)
       upsert_fields([:source_kind, :content, :content_hash, :metadata, :deleted_at, :updated_at])
       change(Ankole.AIAgent.Library.Changes.PrepareDocument, only_when_valid?: true)
+    end
+
+    action :replace_document, :term do
+      argument(:agent_uid, :term, allow_nil?: false)
+      argument(:kind, :string, allow_nil?: false)
+      argument(:content, :term, allow_nil?: false)
+      argument(:expected_content_hash, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments |> Ankole.AIAgent.Library.replace_document() |> Ankole.Errors.wrap()
+      end)
     end
   end
 

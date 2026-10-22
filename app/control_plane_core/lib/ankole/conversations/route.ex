@@ -374,10 +374,7 @@ defmodule Ankole.Conversations.Route do
     do: first(Ankole.Signals.Domain.list_signals!(query: [filter: [id: id, agent_uid: uid]]))
 
   defp agent_job(id, uid),
-    do:
-      first(
-        Ankole.BackgroundAgentJobs.Domain.list_jobs!(query: [filter: [id: id, agent_uid: uid]])
-      )
+    do: first(Ankole.BackgroundAgentJobs.list_jobs!(query: [filter: [id: id, agent_uid: uid]]))
 
   defp agent_call(id, uid),
     do: first(Ankole.Workflow.list_agent_calls!(query: [filter: [id: id, agent_uid: uid]]))

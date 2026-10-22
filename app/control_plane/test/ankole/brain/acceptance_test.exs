@@ -10,9 +10,7 @@ defmodule Ankole.Brain.AcceptanceTest do
   import Ankole.PrincipalsFixtures
   import Ecto.Query
 
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Dreaming
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
@@ -26,7 +24,7 @@ defmodule Ankole.Brain.AcceptanceTest do
     %{principal: human} = human_fixture()
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "companies/decay", type: "company", title: "Decay Co"},
         human.uid
       )
@@ -40,7 +38,7 @@ defmodule Ankole.Brain.AcceptanceTest do
       old = DateTime.add(now, -21 * 86_400, :second)
 
       {:ok, %{claim: fresh}} =
-        Claims.write_fact(
+        Ankole.Brain.write_fact(
           %{
             object_slug: "companies/decay",
             claim: "Fresh event happened yesterday",
@@ -56,7 +54,7 @@ defmodule Ankole.Brain.AcceptanceTest do
         )
 
       {:ok, %{claim: stale}} =
-        Claims.write_fact(
+        Ankole.Brain.write_fact(
           %{
             object_slug: "companies/decay",
             claim: "Stale event happened three weeks ago",
@@ -85,7 +83,7 @@ defmodule Ankole.Brain.AcceptanceTest do
       assert Repo.get!(Claim, stale.id).confidence == 0.8
 
       # Expiry ends the current state regardless of decay.
-      {:ok, expired} = Claims.expire_fact(stale.id)
+      {:ok, expired} = Ankole.Brain.expire_fact(stale.id)
       assert Recall.effective_confidence(expired, forgetting, now) == 0.0
     end
   end
@@ -93,19 +91,19 @@ defmodule Ankole.Brain.AcceptanceTest do
   describe "acceptance 12: purge" do
     test "hard-deletes only soft-deleted objects past the TTL", %{human: human} do
       {:ok, _fresh_deleted} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "notes/fresh-deleted", type: "note", title: "Fresh"},
           human.uid
         )
 
       {:ok, _old_deleted} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "notes/old-deleted", type: "note", title: "Old"},
           human.uid
         )
 
-      {:ok, _fresh} = Objects.soft_delete("notes/fresh-deleted")
-      {:ok, old} = Objects.soft_delete("notes/old-deleted")
+      {:ok, _fresh} = Ankole.Brain.soft_delete_object("notes/fresh-deleted")
+      {:ok, old} = Ankole.Brain.soft_delete_object("notes/old-deleted")
 
       # Age the second deletion past the 72h TTL.
       old
@@ -116,7 +114,7 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       # An expired fact must survive purge forever.
       {:ok, %{claim: fact}} =
-        Claims.write_fact(
+        Ankole.Brain.write_fact(
           %{
             object_slug: "companies/decay",
             claim: "A fact that expires but never purges",
@@ -131,7 +129,7 @@ defmodule Ankole.Brain.AcceptanceTest do
           human.uid
         )
 
-      {:ok, _expired} = Claims.expire_fact(fact.id)
+      {:ok, _expired} = Ankole.Brain.expire_fact(fact.id)
 
       report = Dreaming.phase_purge()
       assert report.purged == 1
@@ -280,7 +278,7 @@ defmodule Ankole.Brain.AcceptanceTest do
         })
       end
 
-      assert {:ok, _object} = Objects.soft_delete(object.slug)
+      assert {:ok, _object} = Ankole.Brain.soft_delete_object(object.slug)
       assert %{buckets: 0, promoted: 0} = Dreaming.phase_consolidate()
     end
   end
@@ -442,12 +440,15 @@ defmodule Ankole.Brain.AcceptanceTest do
       human: human
     } do
       {:ok, target} =
-        Objects.create_object(%{slug: "notes/target", type: "note", title: "Target"}, human.uid)
+        Ankole.Brain.create_object(
+          %{slug: "notes/target", type: "note", title: "Target"},
+          human.uid
+        )
 
       {:ok, _} = Ankole.Brain.Links.add_alias(target.slug, "Target mention")
 
       {:ok, object} =
-        Objects.update_object(
+        Ankole.Brain.update_object(
           object.slug,
           %{
             body: "[[notes/target]] and Target mention",
@@ -468,7 +469,7 @@ defmodule Ankole.Brain.AcceptanceTest do
 
       assert Enum.sort(Enum.map(links, & &1.link_source)) == ["markdown", "mentions"]
 
-      assert {:ok, _} = Ankole.Brain.Links.reconcile_object_links(object.slug)
+      assert {:ok, _} = Ankole.Brain.reconcile_object_links(object.slug)
 
       assert MapSet.new(links, & &1.id) ==
                MapSet.new(
@@ -492,7 +493,7 @@ defmodule Ankole.Brain.AcceptanceTest do
         })
 
       {:ok, object} =
-        Objects.update_object(
+        Ankole.Brain.update_object(
           object.slug,
           %{body: "No references now.", expected_content_hash: object.content_hash},
           human.uid

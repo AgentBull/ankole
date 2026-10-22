@@ -366,7 +366,7 @@ defmodule Ankole.Brain.ConversationsLearning do
       body: item["body"] || ""
     }
 
-    case Objects.create_object(attrs, :system) do
+    case Objects.create_object_in_tx(attrs, :system) do
       {:ok, object} ->
         item
         |> Map.get("aliases", [])
@@ -406,7 +406,7 @@ defmodule Ankole.Brain.ConversationsLearning do
 
     attrs = put_parent(attrs, conversation_id, item["object_slug"])
 
-    case Claims.write_fact(attrs, :system,
+    case Claims.write_fact_in_tx(attrs, :system,
            author: learning_context.author,
            embedding: Map.get(prepared, item["claim"], {nil, nil})
          ) do

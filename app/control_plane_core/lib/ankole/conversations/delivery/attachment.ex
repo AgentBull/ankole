@@ -61,7 +61,7 @@ defmodule Ankole.Conversations.Delivery.Attachment do
       digest = Base.decode16!(blob_ref, case: :lower)
 
       exists? =
-        Ankole.Files.Domain.list_drive_files!(
+        Ankole.Files.list_drive_files!(
           query: [
             filter: [agent_uid: agent_uid, path: path, sha256: digest],
             limit: 1,

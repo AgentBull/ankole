@@ -9,7 +9,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.BackgroundAgentJobs.Domain,
+    domain: Ankole.BackgroundAgentJobs,
     extensions: [AshStateMachine]
 
   use Ankole.Work.Provenance,
@@ -24,11 +24,18 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
 
   alias Ankole.AIAgent.Library.AgentPlugins.Contract
   alias Ankole.BackgroundAgentJobs.JobState
+  alias Ankole.Signals.Signal
+
   @model_profile ~r/\A[a-z][a-z0-9_-]{0,63}\z/
+  @live_statuses [:queued, :running, :waiting_on_user]
 
   @doc "Returns statuses with no live execution."
   @spec terminal_statuses() :: [JobState.status()]
   defdelegate terminal_statuses(), to: JobState
+
+  @doc "Returns statuses with live execution or pending input."
+  @spec live_statuses() :: [JobState.status()]
+  def live_statuses, do: @live_statuses
 
   @doc "Returns statuses that occupy an agent running slot."
   @spec running_statuses() :: [JobState.status()]
@@ -207,13 +214,110 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
     )
   end
 
+  calculations do
+    calculate(
+      :skill_lesson_reflection?,
+      :boolean,
+      expr(fragment("coalesce(? ->> 'skill_lesson_reflection', 'false') = 'true'", metadata))
+    )
+
+    calculate(:task_excerpt, :string, expr(fragment("left(?, 600)", task)))
+    calculate(:error_code, :string, expr(fragment("left(?->>'code', 200)", error)))
+
+    calculate(
+      :error_summary,
+      :string,
+      expr(fragment("left(COALESCE(?->>'summary', ?->>'message'), 1000)", error, error))
+    )
+
+    calculate(
+      :result_output_window,
+      :binary,
+      expr(
+        fragment(
+          "substring(convert_to(?->>'output_text', 'UTF8') from ? for ?)",
+          result,
+          ^arg(:from),
+          ^arg(:bytes)
+        )
+      )
+    ) do
+      argument(:from, :integer, allow_nil?: false)
+      argument(:bytes, :integer, allow_nil?: false)
+    end
+
+    calculate(
+      :result_output_bytes,
+      :integer,
+      expr(fragment("octet_length(?->>'output_text')", result))
+    )
+
+    calculate(
+      :result_fields,
+      Ankole.Ash.Types.JSONMap,
+      expr(fragment("coalesce(? - 'output_text', '{}'::jsonb)", result))
+    )
+  end
+
   actions do
     defaults([:read])
 
+    read :console_list do
+      argument(:agent_uid, :string)
+      argument(:status, :atom)
+      argument(:search, :string)
+      argument(:live_only, :boolean, allow_nil?: false, default: false)
+      pagination(keyset?: true, default_limit: 50, max_page_size: 100, required?: false)
+
+      prepare(fn query, _context ->
+        Ankole.BackgroundAgentJobs.Queries.prepare_console_list(query)
+      end)
+    end
+
+    read :list_for_agent do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:status_group, :atom, allow_nil?: false, constraints: [one_of: [:live, :stop]])
+      pagination(keyset?: true, default_limit: 32, max_page_size: 32, required?: false)
+
+      prepare(fn query, _context ->
+        Ankole.BackgroundAgentJobs.Queries.prepare_agent_list(query)
+      end)
+    end
+
+    read :ambient_candidates do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:owner_session_id, :string, allow_nil?: false)
+      argument(:conversation_id, :string, allow_nil?: false)
+      argument(:binding_name, :string, allow_nil?: false)
+
+      filter(
+        expr(
+          agent_uid == ^arg(:agent_uid) and owner_session_id == ^arg(:owner_session_id) and
+            status in @live_statuses and not skill_lesson_reflection? and
+            fragment("?->>'conversation_id'", reply_route) == ^arg(:conversation_id) and
+            fragment("?->>'binding_name'", reply_route) == ^arg(:binding_name)
+        )
+      )
+
+      prepare(build(sort: [updated_at: :desc, id: :desc]))
+    end
+
+    read :live_for_owner_sessions do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:owner_session_ids, {:array, :string}, allow_nil?: false)
+
+      filter(
+        expr(
+          agent_uid == ^arg(:agent_uid) and owner_session_id in ^arg(:owner_session_ids) and
+            status in @live_statuses
+        )
+      )
+
+      prepare(build(sort: [id: :asc]))
+    end
+
     update :record_lessons_applied do
       accept([])
-      require_atomic?(false)
-      atomic_upgrade?(false)
 
       change(fn changeset, _context ->
         applied_at = DateTime.utc_now() |> DateTime.to_iso8601()
@@ -232,13 +336,15 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       end)
     end
 
-    atomic_in_tx_update :touch do
+    update :touch do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
       change(atomic_update(:updated_at, expr(^arg(:at))))
     end
 
-    atomic_in_tx_update :begin_worker_wait do
+    update :begin_worker_wait do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
 
@@ -257,7 +363,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       )
     end
 
-    atomic_in_tx_update :clear_worker_wait do
+    update :clear_worker_wait do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
 
@@ -271,7 +378,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       change(atomic_update(:worker_wait_started_at, expr(nil)))
     end
 
-    in_tx_update :record_applied_signal do
+    update :record_applied_signal do
       accept([])
       argument(:signal_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
 
@@ -289,19 +396,18 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       )
     end
 
-    in_tx_update :reauthorize do
+    update :reauthorize do
       accept([:authorization_kind, :human_uid, :human_access_version])
     end
 
     create :create_job do
       accept([:id | @create_fields])
-      transaction?(false)
       primary?(true)
       validate(present([:source_tool_call_id, :title, :task]))
     end
 
     for action <- [:claim_attempt, :claim_continuation] do
-      in_tx_update action do
+      update action do
         accept([
           :attempts,
           :started_at,
@@ -315,7 +421,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
       end
     end
 
-    in_tx_update :worker_report do
+    update :worker_report do
       accept([
         :runtime_thread_id,
         :result,
@@ -326,38 +432,183 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Job do
         :worker_wait_started_at
       ])
 
-      argument(:next_status, :atom, allow_nil?: false, constraints: [unsafe_to_atom?: false])
-      change(Ankole.BackgroundAgentJobs.Changes.TransitionToArgument)
+      argument(:next_status, :atom, constraints: [unsafe_to_atom?: false])
+
+      change(
+        {Ankole.BackgroundAgentJobs.Changes.TransitionToArgument,
+         missing: :background_agent_job_status_missing}
+      )
     end
 
-    in_tx_update :requeue do
+    update :requeue do
       accept([:execution_failures])
       change(transition_state(:queued))
     end
 
-    in_tx_update :external_complete do
+    update :external_complete do
       accept([:result, :metadata, :started_at, :completed_at, :worker_wait_started_at])
       change(transition_state(:succeeded))
     end
 
-    in_tx_update :fail_admission do
+    update :fail_admission do
       accept([:error, :started_at, :completed_at, :worker_wait_started_at])
       change(transition_state(:failed))
     end
 
-    in_tx_update :fail_turn do
+    update :fail_turn do
       accept([:error, :started_at, :completed_at, :worker_wait_started_at])
       change(transition_state(:failed))
     end
 
-    in_tx_update :stop do
+    update :stop do
       accept([:error, :metadata, :started_at, :completed_at, :worker_wait_started_at])
       change(transition_state(:stopped))
     end
 
-    in_tx_update :stop_human_work do
+    update :stop_human_work do
       accept([:error, :completed_at, :worker_wait_started_at])
       change(transition_state(:stopped))
+    end
+
+    # The operations below own their transaction. Each one takes its locks in
+    # the work lock order and runs the composition function that other domains
+    # call inside their own operation.
+    action :start, :term do
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Dispatch.create_with_dispatch_in_tx(
+            Ankole.Repo,
+            input.arguments.attrs
+          )
+        )
+      end)
+    end
+
+    action :respawn, :term do
+      argument(:source_job_id, :integer, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Dispatch.respawn_with_dispatch_in_tx(
+            Ankole.Repo,
+            input.arguments.source_job_id,
+            input.arguments.attrs
+          )
+        )
+      end)
+    end
+
+    action :request_stop, :term do
+      argument(:job_id, :integer, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Control.request_stop_in_tx(
+            Ankole.Repo,
+            input.arguments.job_id,
+            input.arguments.attrs
+          )
+        )
+      end)
+    end
+
+    action :request_complete, :term do
+      argument(:job_id, :integer, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Control.request_complete_in_tx(
+            Ankole.Repo,
+            input.arguments.job_id,
+            input.arguments.attrs
+          )
+        )
+      end)
+    end
+
+    action :send_message, :term do
+      argument(:job_id, :integer, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Control.send_message_in_tx(
+            Ankole.Repo,
+            input.arguments.job_id,
+            input.arguments.attrs
+          )
+        )
+      end)
+    end
+
+    action :commit_status, :term do
+      argument(:job_id, :integer, allow_nil?: false)
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:options, :term, allow_nil?: false, default: [])
+      after_commit({Ankole.BackgroundAgentJobs.Lifecycle, :publish_status_commit})
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Lifecycle.commit_status_in_tx(
+            Ankole.Repo,
+            input.arguments.job_id,
+            input.arguments.agent_uid,
+            input.arguments.attrs,
+            input.arguments.options
+          )
+        )
+      end)
+    end
+
+    action :complete_signal, :term do
+      argument(:signal, :struct, allow_nil?: false, constraints: [instance_of: Signal])
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Dispatch.complete_signal_in_tx(
+            Ankole.Repo,
+            input.arguments.signal
+          )
+        )
+      end)
+    end
+
+    action :resolve_worker_timeout, :term do
+      argument(:signal, :struct, allow_nil?: false, constraints: [instance_of: Signal])
+      argument(:job, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.WorkerWait.resolve_timeout_in_tx(
+            Ankole.Repo,
+            input.arguments.signal,
+            input.arguments.job,
+            input.arguments.now
+          )
+        )
+      end)
+    end
+
+    action :inspect_stall, :term do
+      argument(:job_id, :integer, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.TurnWatchdog.inspect_stall_in_tx(
+            Ankole.Repo,
+            input.arguments.job_id,
+            input.arguments.now
+          )
+        )
+      end)
     end
   end
 

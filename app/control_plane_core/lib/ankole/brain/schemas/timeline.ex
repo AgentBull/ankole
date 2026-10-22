@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.Timeline do
   @moduledoc "One immutable scoped event, compiled into the object retrieval projection."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_timelines")
@@ -62,8 +62,6 @@ defmodule Ankole.Brain.Schemas.Timeline do
     defaults([:read])
 
     create_if_absent :record do
-      transaction?(false)
-
       accept([
         :id,
         :object_slug,

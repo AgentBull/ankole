@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.ObjectVersion do
   @moduledoc "One immutable body snapshot taken in the transaction that updates its object."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_object_versions")
@@ -38,7 +38,6 @@ defmodule Ankole.Brain.Schemas.ObjectVersion do
     defaults([:read])
 
     create :snapshot do
-      transaction?(false)
       accept([:object_id, :author, :body, :meta, :tags])
     end
   end

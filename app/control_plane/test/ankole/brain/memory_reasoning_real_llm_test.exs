@@ -8,7 +8,6 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
   alias Ankole.AppConfigure
   alias Ankole.Brain.Calibration
   alias Ankole.Brain.Claims
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Patterns
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
@@ -110,12 +109,13 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
   end
 
   defp create_page!(slug) do
-    {:ok, _page} = Objects.create_object(%{slug: slug, type: "project", title: slug}, :system)
+    {:ok, _page} =
+      Ankole.Brain.create_object(%{slug: slug, type: "project", title: slug}, :system)
   end
 
   defp write_fact!(slug, text, provenance, uid) do
     {:ok, _result} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: slug,
           claim: text,
@@ -128,7 +128,7 @@ defmodule Ankole.Brain.MemoryReasoningRealLLMTest do
           provenance: provenance
         },
         uid,
-        embed: false
+        %{options: [embed: false]}
       )
   end
 end

@@ -2,7 +2,7 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
   @moduledoc "Immutable proposal facts and their one-time review decision."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Brain.Domain,
+    domain: Ankole.Brain,
     extensions: [AshStateMachine]
 
   postgres do
@@ -60,7 +60,8 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       upsert_identity(:proposal)
     end
 
-    atomic_in_tx_update :approve do
+    update :approve do
+      require_atomic?(true)
       accept([])
       argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
       change(set_attribute(:decided_by, arg(:decided_by)))
@@ -68,12 +69,39 @@ defmodule Ankole.Brain.Schemas.MergeSuggestion do
       change(transition_state(:approved))
     end
 
-    atomic_in_tx_update :reject do
+    update :reject do
+      require_atomic?(true)
       accept([])
       argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
       change(set_attribute(:decided_by, arg(:decided_by)))
       change(set_attribute(:decided_at, &DateTime.utc_now/0))
       change(transition_state(:rejected))
+    end
+
+    # Each review decision owns its transaction; Ankole.Brain.Merge gives the
+    # steps.
+    action :approve_merge, :map do
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+      argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
+      argument(:attrs, :map, default: %{})
+
+      run(fn %{arguments: args}, _context ->
+        args.suggestion_id
+        |> Ankole.Brain.Merge.approve_in_tx(args.decided_by, args.attrs)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :reject_merge, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:suggestion_id, :uuid, allow_nil?: false)
+      argument(:decided_by, Ankole.Ash.Types.ActorRef, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        args.suggestion_id
+        |> Ankole.Brain.Merge.reject_in_tx(args.decided_by)
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 

@@ -28,7 +28,6 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   alias Ankole.Files.Schemas.Blob
   alias Ankole.Logging
   alias Ankole.ObjectStore
-  alias Ankole.Repo
 
   @batch_size 100
 
@@ -53,29 +52,23 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   @doc false
   @spec mark_unreferenced() :: {:ok, non_neg_integer()}
   def mark_unreferenced do
-    records =
-      Ankole.Ash.bulk_update(Blob, :mark_for_collection, %{},
-        strategy: [:atomic],
-        return_records?: true,
-        return_errors?: true
-      )
-      |> records!()
-
-    {:ok, length(records)}
+    with {:ok, records} <- Ankole.Ash.update_where(Blob, :mark_for_collection),
+         do: {:ok, length(records)}
   end
 
   @doc false
   @spec remove_marked(non_neg_integer()) :: non_neg_integer()
   def remove_marked(removed) do
-    case Repo.transact(&remove_batch/1) do
+    case Ankole.Ash.run_action(Blob, :collect_marked, %{}) do
       {:ok, {0, _batch_removed}} -> removed
       {:ok, {_processed, batch_removed}} -> remove_marked(removed + batch_removed)
       {:error, reason} -> log_failure(reason, removed)
     end
   end
 
+  @doc false
   # Returns how many marked rows the batch processed and how many it removed.
-  defp remove_batch(_repo) do
+  def remove_batch_in_tx do
     digests =
       Blob
       |> Ash.Query.filter(deleting)
@@ -97,32 +90,17 @@ defmodule Ankole.Files.Jobs.CollectUnreferenced do
   defp remove_one(digest) do
     query = Blob |> Ash.Query.filter(sha256 == ^digest)
 
-    records =
-      Ankole.Ash.bulk_destroy(query, :collect, %{},
-        strategy: [:atomic],
-        return_records?: true,
-        return_errors?: true
-      )
-      |> records!()
-
-    case records do
-      [_blob] ->
+    case Ankole.Ash.destroy_where(query, :collect) do
+      {:ok, [_blob]} ->
         with :ok <- ObjectStore.delete(Files.object_key(digest)), do: :removed
 
-      [] ->
-        Ankole.Ash.bulk_update(query, :keep_referenced, %{},
-          strategy: [:atomic],
-          return_records?: true,
-          return_errors?: true
-        )
-        |> records!()
+      {:ok, []} ->
+        with {:ok, _kept} <- Ankole.Ash.update_where(query, :keep_referenced), do: :kept
 
-        :kept
+      error ->
+        error
     end
   end
-
-  defp records!(%Ash.BulkResult{status: :success, records: records}), do: records
-  defp records!(%Ash.BulkResult{errors: errors}), do: raise(Ash.Error.to_error_class(errors))
 
   defp log_failure(reason, removed) do
     Logging.warning("files.collect_unreferenced_failed", "file content collection failed", %{

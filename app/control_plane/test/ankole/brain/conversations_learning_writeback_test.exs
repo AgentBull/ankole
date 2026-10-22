@@ -350,7 +350,7 @@ defmodule Ankole.Brain.ConversationsLearningWritebackTest do
   describe "existing page writeback" do
     setup %{alice: alice} do
       {:ok, _object} =
-        Ankole.Brain.Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "companies/acme", type: "company", title: "Acme Corporation"},
           :system
         )

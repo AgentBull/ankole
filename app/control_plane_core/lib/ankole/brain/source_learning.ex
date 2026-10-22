@@ -136,7 +136,7 @@ defmodule Ankole.Brain.SourceLearning do
       Repo.transact(fn repo ->
         with {:ok, current} <- Sources.lock_active(repo, source),
              :ok <- ensure_same_revision(current, source.upstream_revision),
-             {:ok, object} <- Objects.upsert_source_projection(current, object_attrs),
+             {:ok, object} <- Objects.upsert_source_projection_in_tx(current, object_attrs),
              expired = Claims.expire_source_session_facts(repo, object.slug, session),
              {:ok, written} <- write_claims(object, extraction.items, scope, session),
              {:ok, _source} <- Sources.record_revision(repo, current, fingerprint) do
@@ -323,7 +323,7 @@ defmodule Ankole.Brain.SourceLearning do
           provenance_session: session
         }
 
-        case Claims.write_fact(attrs, :system, dedup: false, embed: false) do
+        case Claims.write_fact_in_tx(attrs, :system, dedup: false, embed: false) do
           {:ok, _result} ->
             Map.update!(acc, :claims, &(&1 + 1))
 

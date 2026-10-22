@@ -194,7 +194,7 @@ earlier install keeps its row, and a later pack can only widen subtype
 suggestions. Conflicting declarations fail the install.
 
 The pack, type, relation, calibration-domain, and Take-assignment rows are Ash
-resources in `Ankole.Brain.Domain`. Register actions keep the first declaring
+resources of the `Ankole.Brain` domain. Register actions keep the first declaring
 pack and core type facts immutable. Subtype additions use one SQL union that
 preserves first-seen order and cannot lose a concurrent addition. Take/domain
 assignment retries return the first stored provenance and confidence. Native
@@ -413,11 +413,11 @@ one failing phase is recorded without blocking the rest:
    of `correct`, `incorrect`, or `partial` on an expired Take is also its
    resolution: the same commit writes `resolved_at`, `resolved_quality`,
    `resolved_outcome` (`true`, `false`, or NULL for `partial`),
-   and `resolution_provenance` `dreaming grade` through the same
-   `Claims.resolve_take/4` that the Console uses, with the Brain maintainer
-   Agent's actor reference in `resolved_by`, and deactivates the Take, so it
-   leaves the candidate set and enters the scorecards without a manual
-   resolve. A Console resolve stores the Human's actor reference instead.
+   and `resolution_provenance` `dreaming grade` through the same resolve
+   step (`Claims.resolve_take_in_tx/3`) that the Console uses, with the Brain
+   maintainer Agent's actor reference in `resolved_by`, and deactivates the
+   Take, so it leaves the candidate set and enters the scorecards without a
+   manual resolve. A Console resolve stores the Human's actor reference instead.
    Resolution stays immutable, so a Take that a Human resolved during the
    model call keeps the Human's verdict. An
    `unresolvable` verdict keeps the Take in the queue for later evidence, and
@@ -552,12 +552,41 @@ with segment preview, diagnostics, and server-authoritative save validation.
 
 ### Resource write contracts
 
-All Brain rows use Ash resources in `Ankole.Brain.Domain`. Object actions keep
-content edits, Source projections, ownership changes, and maintenance stamps
+All Brain rows use Ash resources of the `Ankole.Brain` domain. Object actions
+keep content edits, Source projections, ownership changes, and maintenance stamps
 separate. Content edits compare the stored content hash. Projection writes check
 the stored Source owner. Maintenance stamps do not advance the content clock.
 Source actions keep upstream identity immutable and reject sync and extraction
 writes after archive. Registration retries keep the first Source facts.
+
+`Ankole.Brain` is the code interface of the domain. A read define gives one
+resource. An operation define runs a generic action that owns its transaction.
+The action locks its rows, runs its write steps, and commits them together:
+
+| Resource | Operations |
+|---|---|
+| Object | `create_object`, `update_object`, `upsert_source_projection`, `upsert_library_projection`, `soft_delete_object`, `rollback_object`, `fork_library_page`, `restore_object`, `reconcile_chunks`, `reconcile_object_links` |
+| Claim | `write_fact`, `supersede_claim`, `expire_fact`, `deactivate_take`, `resolve_take`, `attach_claim_embedding`, `consolidate_facts` |
+| Source | `archive_source`, `update_source_default_scope` |
+| SchemaSuggestion, MergeSuggestion, Contradiction | `approve_promotion`, `reject_promotion`, `approve_merge`, `reject_merge`, `decide_contradiction` |
+
+A generic action is always the top-level call. A failed operation gives an
+`Ash.Error.Invalid` error; `Ankole.Errors.reason/1` gives back the domain
+reason. Callers outside the Brain directory use only the defines. Brain modules
+run the same actions with `Ankole.Ash.run_action/4`, which gives the domain
+reason. A step that runs in the transaction of another action is an `_in_tx`
+function of the owning module, for example `Objects.create_object_in_tx/2` or
+`Chunks.reconcile_in_tx/2`. An `_in_tx` function refuses to run outside a
+transaction. The embedding of a new claim text comes from the network in the
+`before_transaction` hook of `write_fact` and `supersede_claim`, so no
+transaction waits for the network.
+
+Some reads are not reads of one resource. They stay Ecto or SQL queries, give
+values and not resource rows, and are registered in the persistence boundary
+(`app/control_plane/test/ankole/persistence_boundary.exs`): the Dreaming bucket
+and term-usage counts and the duplicate-page scan are read models (M4), the
+semantic Fact dedup query and its live-parent filters are retrieval (M9), and
+the merge repoint statements are set maintenance (M8).
 
 Brain aggregates, Ash actions, row locks, and native queries use `Ankole.Repo`
 in the same process transaction. The process tenant and dynamic repository apply

@@ -3,7 +3,9 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
 
   use Ankole.Ash.Resource,
     tenancy: :site,
-    domain: Ankole.AIGateway.ProviderConfigs.Domain
+    domain: Ankole.AIGateway
+
+  alias Ankole.AIGateway.ProviderConfigs
 
   postgres do
     table("ai_gateway_providers")
@@ -68,7 +70,6 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     create :create do
       accept([])
       argument(:input, :map, allow_nil?: false, sensitive?: true)
-      transaction?(false)
 
       change(Ankole.AIGateway.ProviderConfigs.Changes.PrepareConfiguration,
         only_when_valid?: true
@@ -77,7 +78,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       validate(Ankole.AIGateway.ProviderConfigs.ValidateURL)
     end
 
-    in_tx_update :configure do
+    update :configure do
       accept([])
       argument(:input, :map, allow_nil?: false, sensitive?: true)
 
@@ -88,7 +89,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       validate(Ankole.AIGateway.ProviderConfigs.ValidateURL)
     end
 
-    in_tx_update :enable do
+    update :enable do
       accept([])
 
       change({Ankole.AIGateway.ProviderConfigs.Changes.PrepareConfiguration, enable?: true},
@@ -98,13 +99,13 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       validate(Ankole.AIGateway.ProviderConfigs.ValidateURL)
     end
 
-    in_tx_update :disable do
+    update :disable do
       accept([])
       change(Ankole.AIGateway.ProviderConfigs.Changes.RequireUnused, only_when_valid?: true)
       change(set_attribute(:disabled_at, &DateTime.utc_now/0))
     end
 
-    in_tx_update :add_credential do
+    update :add_credential do
       accept([])
       argument(:input, :map, allow_nil?: false, sensitive?: true)
 
@@ -113,7 +114,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       )
     end
 
-    in_tx_update :replace_credential do
+    update :replace_credential do
       accept([])
       argument(:credential_id, :string, allow_nil?: false)
       argument(:input, :map, allow_nil?: false, sensitive?: true)
@@ -123,7 +124,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       )
     end
 
-    in_tx_update :remove_credential do
+    update :remove_credential do
       accept([])
       argument(:credential_id, :string, allow_nil?: false)
 
@@ -132,7 +133,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       )
     end
 
-    in_tx_update :select_strategy do
+    update :select_strategy do
       accept([])
       argument(:strategy, :string, allow_nil?: false)
 
@@ -141,7 +142,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       )
     end
 
-    in_tx_update :refresh_credential do
+    update :refresh_credential do
       accept([])
       argument(:credential_id, :string, allow_nil?: false)
       argument(:credential, :map, allow_nil?: false, sensitive?: true)
@@ -151,7 +152,7 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       )
     end
 
-    in_tx_update :cooldown do
+    update :cooldown do
       accept([])
       argument(:credential, :map, allow_nil?: false, sensitive?: true)
       argument(:until, :struct, allow_nil?: false, constraints: [instance_of: DateTime])
@@ -163,11 +164,63 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
     end
 
     destroy :remove do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
       validate(present(:disabled_at))
       change(Ankole.AIGateway.ProviderConfigs.Changes.RequireUnused, only_when_valid?: true)
+    end
+
+    action :change, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false)
+
+      argument(:update, :atom,
+        allow_nil?: false,
+        constraints: [
+          one_of: [
+            :configure,
+            :enable,
+            :add_credential,
+            :replace_credential,
+            :remove_credential,
+            :select_strategy
+          ]
+        ]
+      )
+
+      argument(:params, :map, allow_nil?: false, sensitive?: true)
+
+      run(fn input, _context ->
+        input.arguments |> ProviderConfigs.change_locked() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :retire, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments |> ProviderConfigs.retire() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :put_cooldown, :term do
+      argument(:row_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:credential, :map, allow_nil?: false, sensitive?: true)
+      argument(:until, :struct, allow_nil?: false, constraints: [instance_of: DateTime])
+      argument(:reason, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments |> ProviderConfigs.put_cooldown() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :rotate_credential, :map do
+      argument(:provider_id, :string, allow_nil?: false)
+      argument(:credential_id, :string, allow_nil?: false)
+      argument(:callback, :function, allow_nil?: false, constraints: [arity: 3])
+
+      run(fn input, _context ->
+        input.arguments |> ProviderConfigs.rotate_credential() |> Ankole.Errors.wrap()
+      end)
     end
   end
 

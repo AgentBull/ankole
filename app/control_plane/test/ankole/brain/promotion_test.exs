@@ -3,10 +3,8 @@ defmodule Ankole.Brain.PromotionTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Links
   alias Ankole.Brain.Objects
-  alias Ankole.Brain.Promotion
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim, as: ClaimRow
   alias Ankole.Brain.Schemas.SchemaSuggestion
@@ -47,14 +45,27 @@ defmodule Ankole.Brain.PromotionTest do
       suggestion = pending_suggestion("new_type", "agent")
 
       assert {:error, {:reserved_object_type, "agent"}} =
-               Promotion.approve(suggestion.id, Ankole.ActorRef.from_principal(human))
+               Ankole.Errors.reason(
+                 Ankole.Brain.approve_promotion(
+                   suggestion.id,
+                   Ankole.ActorRef.from_principal(human)
+                 )
+               )
 
       suggestion = pending_suggestion("new_type", "persona")
 
       assert {:error, {:reserved_object_slug_prefix, "agents/"}} =
-               Promotion.approve(suggestion.id, Ankole.ActorRef.from_principal(human), %{
-                 slug_prefix: "agents/"
-               })
+               Ankole.Errors.reason(
+                 Ankole.Brain.approve_promotion(
+                   suggestion.id,
+                   Ankole.ActorRef.from_principal(human),
+                   %{
+                     attrs: %{
+                       slug_prefix: "agents/"
+                     }
+                   }
+                 )
+               )
     end
 
     test "tag promotion does not retype canonical Agents", %{human: human} do
@@ -72,7 +83,10 @@ defmodule Ankole.Brain.PromotionTest do
       suggestion = pending_suggestion("new_type", "research")
 
       assert {:ok, %{migrated: 0}} =
-               Promotion.approve(suggestion.id, Ankole.ActorRef.from_principal(human))
+               Ankole.Brain.approve_promotion(
+                 suggestion.id,
+                 Ankole.ActorRef.from_principal(human)
+               )
 
       assert {:ok, %{type: "agent"}} = Objects.get_by_slug(slug)
     end
@@ -81,13 +95,13 @@ defmodule Ankole.Brain.PromotionTest do
       human: human
     } do
       {:ok, _note} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "notes/reconciliation-q2", type: "note", title: "Q2 reconciliation"},
           human.uid
         )
 
       {:ok, _peer} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "companies/acme", type: "company", title: "Acme"},
           human.uid
         )
@@ -103,7 +117,7 @@ defmodule Ankole.Brain.PromotionTest do
         })
 
       {:ok, _fact} =
-        Claims.write_fact(
+        Ankole.Brain.write_fact(
           %{
             object_slug: "notes/reconciliation-q2",
             claim: "Q2 reconciliation closed with zero variance",
@@ -140,7 +154,10 @@ defmodule Ankole.Brain.PromotionTest do
       suggestion = pending_suggestion("new_type", "reconciliation")
 
       assert {:ok, %{status: :type_created, type: "reconciliation", migrated: 1}} =
-               Promotion.approve(suggestion.id, Ankole.ActorRef.from_principal(human))
+               Ankole.Brain.approve_promotion(
+                 suggestion.id,
+                 Ankole.ActorRef.from_principal(human)
+               )
 
       assert %SchemaType{primitive: "concept", slug_prefix: "reconciliations/"} =
                Repo.get_by(SchemaType, name: "reconciliation")
@@ -168,14 +185,22 @@ defmodule Ankole.Brain.PromotionTest do
       suggestion = pending_suggestion("new_subtype", "external", %{target_type: "agent"})
 
       assert {:error, {:reserved_object_type, "agent"}} =
-               Promotion.approve(suggestion.id, Ankole.ActorRef.from_principal(human))
+               Ankole.Errors.reason(
+                 Ankole.Brain.approve_promotion(
+                   suggestion.id,
+                   Ankole.ActorRef.from_principal(human)
+                 )
+               )
     end
 
     test "adds the term to the target type's subtype suggestions", %{human: human} do
       suggestion = pending_suggestion("new_subtype", "retainer", %{target_type: "document"})
 
       assert {:ok, %{status: :subtype_added, type: "document", subtype: "retainer"}} =
-               Promotion.approve(suggestion.id, Ankole.ActorRef.from_principal(human))
+               Ankole.Brain.approve_promotion(
+                 suggestion.id,
+                 Ankole.ActorRef.from_principal(human)
+               )
 
       assert "retainer" in Repo.get_by(SchemaType, name: "document").subtypes
     end
@@ -184,10 +209,15 @@ defmodule Ankole.Brain.PromotionTest do
       suggestion = pending_suggestion("new_type", "retainer")
 
       assert {:ok, %SchemaSuggestion{status: :rejected}} =
-               Promotion.reject(suggestion.id, Ankole.ActorRef.from_principal(human))
+               Ankole.Brain.reject_promotion(suggestion.id, Ankole.ActorRef.from_principal(human))
 
       assert {:error, :suggestion_not_pending} =
-               Promotion.approve(suggestion.id, Ankole.ActorRef.from_principal(human))
+               Ankole.Errors.reason(
+                 Ankole.Brain.approve_promotion(
+                   suggestion.id,
+                   Ankole.ActorRef.from_principal(human)
+                 )
+               )
     end
   end
 end

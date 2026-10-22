@@ -6,9 +6,11 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   credential pool. Plaintext credential fields only leave through provider
   request construction and model metadata. Every Console/API shape goes
   through `projection/1`.
+
+  The writes that read the current row lock it first and run as the generic
+  actions of `Ankole.AIGateway.ProviderConfigs.Provider`.
   """
 
-  import Ecto.Query
   require Ash.Query
 
   alias Ankole.Attrs
@@ -19,7 +21,11 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   alias Ankole.AIGateway.ProviderConfigs.Credentials
   alias Ankole.AIGateway.ProviderConfigs.Provider
   alias Ankole.AIGateway.Providers
-  alias Ankole.Repo
+
+  # A Provider is a site row. Its reference check reads the Agent model
+  # profiles of every tenant.
+  Module.register_attribute(__MODULE__, :raw_sql_scope, persist: true)
+  @raw_sql_scope :site
 
   @typedoc """
   Common result shape for provider-row writes and fetches.
@@ -124,9 +130,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   Creates a provider row.
   """
   @spec create_provider(map()) :: provider_result()
-  def create_provider(attrs) when is_map(attrs) do
-    Repo.transact(fn -> Ankole.Ash.create(Provider, :create, %{input: attrs}) end)
-  end
+  def create_provider(attrs) when is_map(attrs),
+    do: Ankole.Ash.create(Provider, :create, %{input: attrs})
 
   @doc """
   Updates provider metadata and optionally its encrypted options.
@@ -138,14 +143,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   - any other JSON-compatible value: replace that encrypted option
   """
   @spec update_provider(String.t(), map()) :: provider_result()
-  def update_provider(provider_id, attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      case lock_provider(repo, provider_id) do
-        nil -> {:error, :not_found}
-        provider -> Ankole.Ash.update(provider, :configure, %{input: attrs})
-      end
-    end)
-  end
+  def update_provider(provider_id, attrs) when is_map(attrs),
+    do: change(provider_id, :configure, %{input: attrs})
 
   @doc "Applies a Console PUT to the provider named by the request path."
   def put_provider(provider_id, attrs) when is_map(attrs) do
@@ -175,14 +174,17 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   Both operations require the provider to have no Agent profile or Brain model references.
   """
   @spec delete_provider(String.t()) :: provider_result()
-  def delete_provider(provider_id) when is_binary(provider_id) do
-    Repo.transact(fn repo ->
-      case lock_provider(repo, provider_id) do
-        nil -> {:error, :not_found}
-        %Provider{disabled_at: nil} = provider -> Ankole.Ash.update(provider, :disable, %{})
-        provider -> Ankole.Ash.destroy(provider, :remove)
-      end
-    end)
+  def delete_provider(provider_id) when is_binary(provider_id),
+    do: Ankole.Ash.run_action(Provider, :retire, %{provider_id: provider_id})
+
+  @doc false
+  # Runs the `:retire` action of the Provider resource.
+  def retire(%{provider_id: provider_id}) do
+    case lock_provider(provider_id) do
+      nil -> {:error, :not_found}
+      %Provider{disabled_at: nil} = provider -> Ankole.Ash.update(provider, :disable, %{})
+      provider -> Ankole.Ash.destroy(provider, :remove)
+    end
   end
 
   @doc """
@@ -193,14 +195,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   no longer valid is rejected instead of returning to service.
   """
   @spec enable_provider(String.t()) :: provider_result()
-  def enable_provider(provider_id) when is_binary(provider_id) do
-    Repo.transact(fn repo ->
-      case lock_provider(repo, provider_id) do
-        nil -> {:error, :not_found}
-        provider -> Ankole.Ash.update(provider, :enable, %{})
-      end
-    end)
-  end
+  def enable_provider(provider_id) when is_binary(provider_id),
+    do: change(provider_id, :enable, %{})
 
   @doc """
   Selects, decrypts, and refreshes one provider credential.
@@ -269,22 +265,26 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   @doc "Persists a cooldown only for the attributed credential revision."
   def put_credential_cooldown(row_id, credential, %DateTime{} = until, reason) do
-    Repo.transact(fn repo ->
-      case repo.one(from p in Provider, where: p.id == ^row_id, lock: "FOR UPDATE") do
-        nil ->
-          {:ok, :unchanged}
-
-        provider ->
-          Ankole.Ash.update(provider, :cooldown, %{
-            credential: credential,
-            until: until,
-            reason: reason
-          })
-      end
-    end)
-    |> case do
+    case Ankole.Ash.run_action(Provider, :put_cooldown, %{
+           row_id: row_id,
+           credential: credential,
+           until: until,
+           reason: reason
+         }) do
       {:ok, _provider} -> :ok
       error -> error
+    end
+  end
+
+  @doc false
+  # Runs the `:put_cooldown` action of the Provider resource.
+  def put_cooldown(%{row_id: row_id} = arguments) do
+    case Provider
+         |> Ash.Query.filter(id == ^row_id)
+         |> Ash.Query.lock(:for_update)
+         |> Ankole.Ash.read_one!() do
+      nil -> {:ok, :unchanged}
+      provider -> Ankole.Ash.update(provider, :cooldown, Map.delete(arguments, :row_id))
     end
   end
 
@@ -327,14 +327,8 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   `projection/1` before returning it through an API.
   """
   @spec add_credential(String.t(), map()) :: provider_result()
-  def add_credential(provider_id, attrs) when is_binary(provider_id) and is_map(attrs) do
-    Repo.transact(fn repo ->
-      case lock_provider(repo, provider_id) do
-        nil -> {:error, :not_found}
-        provider -> Ankole.Ash.update(provider, :add_credential, %{input: attrs})
-      end
-    end)
-  end
+  def add_credential(provider_id, attrs) when is_binary(provider_id) and is_map(attrs),
+    do: change(provider_id, :add_credential, %{input: attrs})
 
   @doc """
   Replaces the supplied fields of one pool credential.
@@ -343,51 +337,24 @@ defmodule Ankole.AIGateway.ProviderConfigs do
   """
   @spec update_credential(String.t(), String.t(), map()) :: provider_result()
   def update_credential(provider_id, credential_id, attrs)
-      when is_binary(provider_id) and is_binary(credential_id) and is_map(attrs) do
-    Repo.transact(fn repo ->
-      case lock_provider(repo, provider_id) do
-        nil ->
-          {:error, :not_found}
-
-        provider ->
-          Ankole.Ash.update(provider, :replace_credential, %{
-            credential_id: credential_id,
-            input: attrs
-          })
-      end
-    end)
-  end
+      when is_binary(provider_id) and is_binary(credential_id) and is_map(attrs),
+      do: change(provider_id, :replace_credential, %{credential_id: credential_id, input: attrs})
 
   @doc """
   Deletes one credential from a provider pool.
   """
   @spec delete_credential(String.t(), String.t()) :: provider_result()
   def delete_credential(provider_id, credential_id)
-      when is_binary(provider_id) and is_binary(credential_id) do
-    Repo.transact(fn repo ->
-      case lock_provider(repo, provider_id) do
-        nil ->
-          {:error, :not_found}
-
-        provider ->
-          Ankole.Ash.update(provider, :remove_credential, %{credential_id: credential_id})
-      end
-    end)
-  end
+      when is_binary(provider_id) and is_binary(credential_id),
+      do: change(provider_id, :remove_credential, %{credential_id: credential_id})
 
   @doc """
   Changes the selection strategy without replacing credential entries.
   """
   @spec update_credential_strategy(String.t(), String.t()) :: provider_result()
   def update_credential_strategy(provider_id, strategy)
-      when is_binary(provider_id) and is_binary(strategy) do
-    Repo.transact(fn repo ->
-      case lock_provider(repo, provider_id) do
-        nil -> {:error, :not_found}
-        provider -> Ankole.Ash.update(provider, :select_strategy, %{strategy: strategy})
-      end
-    end)
-  end
+      when is_binary(provider_id) and is_binary(strategy),
+      do: change(provider_id, :select_strategy, %{strategy: strategy})
 
   @doc """
   Runs an atomic read-modify-write for one credential.
@@ -408,47 +375,55 @@ defmodule Ankole.AIGateway.ProviderConfigs do
         ) :: {:ok, map()} | {:error, term()}
   def update_credential_under_lock(provider_id, credential_id, callback)
       when is_binary(provider_id) and is_binary(credential_id) and is_function(callback, 3) do
-    Repo.transact(fn repo ->
-      with %Provider{} = provider <- lock_provider(repo, provider_id),
-           {:ok, entry} <- Credentials.fetch_credential_entry(provider, credential_id),
-           {:ok, credential} <- Credentials.decrypt_credential(provider, entry) do
-        case callback.(provider, entry, credential) do
-          {:ok, :unchanged} ->
+    Ankole.Ash.run_action(Provider, :rotate_credential, %{
+      provider_id: provider_id,
+      credential_id: credential_id,
+      callback: callback
+    })
+  end
+
+  @doc false
+  # Runs the `:rotate_credential` action of the Provider resource.
+  def rotate_credential(%{provider_id: provider_id, credential_id: credential_id} = arguments) do
+    with %Provider{} = provider <- lock_provider(provider_id),
+         {:ok, entry} <- Credentials.fetch_credential_entry(provider, credential_id),
+         {:ok, credential} <- Credentials.decrypt_credential(provider, entry) do
+      case arguments.callback.(provider, entry, credential) do
+        {:ok, :unchanged} ->
+          {:ok,
+           %{
+             "provider" => provider,
+             "id" => credential_id,
+             "entry" => entry,
+             "credential" => credential
+           }}
+
+        {:ok, updated_credential} when is_map(updated_credential) ->
+          with {:ok, provider} <-
+                 Ankole.Ash.update(provider, :refresh_credential, %{
+                   credential_id: credential_id,
+                   credential: updated_credential
+                 }),
+               {:ok, entry} <- Credentials.fetch_credential_entry(provider, credential_id) do
             {:ok,
              %{
                "provider" => provider,
                "id" => credential_id,
                "entry" => entry,
-               "credential" => credential
+               "credential" => updated_credential
              }}
+          end
 
-          {:ok, updated_credential} when is_map(updated_credential) ->
-            with {:ok, provider} <-
-                   Ankole.Ash.update(provider, :refresh_credential, %{
-                     credential_id: credential_id,
-                     credential: updated_credential
-                   }),
-                 {:ok, entry} <- Credentials.fetch_credential_entry(provider, credential_id) do
-              {:ok,
-               %{
-                 "provider" => provider,
-                 "id" => credential_id,
-                 "entry" => entry,
-                 "credential" => updated_credential
-               }}
-            end
+        {:error, _reason} = error ->
+          error
 
-          {:error, _reason} = error ->
-            error
-
-          _value ->
-            {:error, :invalid_credential_update}
-        end
-      else
-        nil -> {:error, :not_found}
-        {:error, _reason} = error -> error
+        _value ->
+          {:error, :invalid_credential_update}
       end
-    end)
+    else
+      nil -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
   end
 
   @doc """
@@ -478,11 +453,30 @@ defmodule Ankole.AIGateway.ProviderConfigs do
 
   defp runtime_base_url(_provider, _provider_kind), do: {:error, :missing_base_url}
 
-  defp lock_provider(repo, provider_id) do
+  # Runs one update action on the locked row: the update reads the current
+  # credential pool.
+  defp change(provider_id, update, params),
+    do:
+      Ankole.Ash.run_action(Provider, :change, %{
+        provider_id: provider_id,
+        update: update,
+        params: params
+      })
+
+  @doc false
+  # Runs the `:change` action of the Provider resource.
+  def change_locked(%{provider_id: provider_id, update: update, params: params}) do
+    case lock_provider(provider_id) do
+      nil -> {:error, :not_found}
+      provider -> Ankole.Ash.update(provider, update, params)
+    end
+  end
+
+  defp lock_provider(provider_id) do
     Provider
-    |> where([provider], provider.provider_id == ^Provider.normalize_id(provider_id))
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(provider_id == ^Provider.normalize_id(provider_id))
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
   # Finds every agent model profile still pointing at this provider, returned as

@@ -3,9 +3,7 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Dreaming
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Contradiction
   alias Ankole.Repo
@@ -15,7 +13,7 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
     %{principal: human} = human_fixture()
 
     {:ok, _object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "companies/acme", type: "company", title: "Acme"},
         human.uid
       )
@@ -27,7 +25,7 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
   end
 
   defp write_fact(human, text) do
-    Claims.write_fact(
+    Ankole.Brain.write_fact(
       %{
         object_slug: "companies/acme",
         claim: text,
@@ -80,16 +78,26 @@ defmodule Ankole.Brain.DreamingContradictionsTest do
     contradiction = Repo.get_by!(Contradiction, a_claim_id: a.id, b_claim_id: b.id)
 
     assert {:ok, %Contradiction{status: :resolved} = decided} =
-             Dreaming.decide_contradiction(contradiction.id, "resolved", "kept claim A")
+             Ankole.Brain.decide_contradiction(contradiction.id, "resolved", %{
+               resolution_note: "kept claim A"
+             })
 
     assert decided.resolution_note == "kept claim A"
     assert decided.decided_at
 
     # A decided row must not flip again, and a missing row is its own error.
     assert {:error, :conflict} =
-             Dreaming.decide_contradiction(contradiction.id, "dismissed", nil)
+             Ankole.Errors.reason(
+               Ankole.Brain.decide_contradiction(contradiction.id, "dismissed", %{
+                 resolution_note: nil
+               })
+             )
 
     assert {:error, :not_found} =
-             Dreaming.decide_contradiction(Ecto.UUID.generate(), "resolved", nil)
+             Ankole.Errors.reason(
+               Ankole.Brain.decide_contradiction(Ecto.UUID.generate(), "resolved", %{
+                 resolution_note: nil
+               })
+             )
   end
 end

@@ -7,9 +7,7 @@ defmodule Ankole.Brain.ToolsTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.LibraryKnowledge
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Tools
   alias Ankole.AIAgent.Library
@@ -22,7 +20,7 @@ defmodule Ankole.Brain.ToolsTest do
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "concepts/wire-format",
           type: "concept",
@@ -33,7 +31,7 @@ defmodule Ankole.Brain.ToolsTest do
       )
 
     {:ok, %{claim: _fact}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: object.slug,
           claim: "The wire format carries dated facts",
@@ -83,7 +81,7 @@ defmodule Ankole.Brain.ToolsTest do
 
   test "context pack uses the base card while entity keeps relations and aliases", context do
     {:ok, header} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/frame-header", type: "concept", title: "Frame Header"},
         context.agent.uid
       )
@@ -156,7 +154,7 @@ defmodule Ankole.Brain.ToolsTest do
 
   test "delta reports entity candidates on ambiguity", context do
     {:ok, _other} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/wire-format-v2", type: "concept", title: "Wire Format V2"},
         context.agent.uid
       )
@@ -606,7 +604,7 @@ defmodule Ankole.Brain.ToolsTest do
 
       # A claim only the asker satisfies; the agent reaches it as its author.
       {:ok, %{claim: private_fact}} =
-        Claims.write_fact(
+        Ankole.Brain.write_fact(
           %{
             object_slug: context.object.slug,
             claim: "Wire format secret only for the asker",
@@ -760,7 +758,7 @@ defmodule Ankole.Brain.ToolsTest do
     # A claim whose named entity does not resolve is filed on the channel,
     # so only the holder's own card can carry it back into a conversation.
     {:ok, %{claim: _channel_claim}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           conversation_id: channel.id,
           claim: "Prefers a written summary before any call",

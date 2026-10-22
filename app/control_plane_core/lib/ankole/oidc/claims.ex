@@ -1,23 +1,21 @@
 defmodule Ankole.OIDC.Claims do
   @moduledoc false
-  import Ecto.Query
-  alias Ankole.Principals.{HumanUser, Principal}
-  alias Ankole.Repo
+  alias Ankole.Principals.Domain, as: Principals
 
+  # Principals owns these rows. FOR SHARE holds the active Human and its
+  # profile until the tokens of the grant are minted.
   def load(subject) do
-    case Repo.one(
-           from(p in Principal,
-             join: h in HumanUser,
-             on: h.principal_uid == p.uid,
-             where: p.uid == ^subject and p.type == :human and p.status == :active,
-             lock: "FOR SHARE",
-             select: {p, h}
-           ),
-           lock_identity: {"principals", subject}
-         ) do
-      {principal, human} -> {:ok, principal, human}
-      nil -> {:error, :inactive_human}
-    end
+    Ankole.LockOrder.with_identity({"principals", subject}, fn ->
+      with [principal] <-
+             Principals.list_principals!(
+               query: [filter: [uid: subject, type: :human, status: :active], lock: "FOR SHARE"]
+             ),
+           %{} = human <- Principals.get_human_user!(subject, query: [lock: "FOR SHARE"]) do
+        {:ok, principal, human}
+      else
+        _missing -> {:error, :inactive_human}
+      end
+    end)
   end
 
   def project(principal, human, scope) when is_binary(scope) do

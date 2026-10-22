@@ -237,7 +237,7 @@ defmodule Ankole.Pod.TenantTeardownTest do
         type: :grid
       })
 
-      Ankole.Pod.PagesFixtures.create_record!(DbRecord, :create_in_tx, %{
+      %{
         table_id: table.id,
         data: %{},
         versions: %{},
@@ -245,7 +245,9 @@ defmodule Ankole.Pod.TenantTeardownTest do
         created_at: now,
         updated_by: @author,
         updated_at: now
-      })
+      }
+      |> DbRecord.create_changeset()
+      |> Repo.insert!()
     end)
   end
 

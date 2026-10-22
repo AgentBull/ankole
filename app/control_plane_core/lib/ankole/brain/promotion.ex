@@ -6,19 +6,18 @@ defmodule Ankole.Brain.Promotion do
   the existing objects (type rewrite plus slug-prefix migration with
   redirects), and let installed schema shadow the vocabulary term on the
   write path. Rejected suggestions keep their record, so the same term does
-  not return.
+  not return. A generic action on `Ankole.Brain.Schemas.SchemaSuggestion`
+  owns the transaction of each decision.
   """
 
-  import Ecto.Query, warn: false
   require Ash.Query
 
+  alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.SchemaSuggestion
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.SlugAlias
-  alias Ankole.Brain.Schemas.Tag
   alias Ankole.Ecto.UUIDv7
-  alias Ankole.Principals.Principal
   alias Ankole.Repo
 
   @library_projection_type "agent-skills"
@@ -38,46 +37,46 @@ defmodule Ankole.Brain.Promotion do
   end
 
   @doc """
-  Approves one pending suggestion and materializes it.
+  Approves one pending suggestion and materializes it in the caller's
+  transaction.
   """
-  @spec approve(Ecto.UUID.t(), Ankole.ActorRef.t(), map()) :: {:ok, map()} | {:error, term()}
-  def approve(suggestion_id, decided_by, attrs \\ %{}) do
-    Repo.transact(fn repo ->
-      with {:ok, suggestion} <- fetch_pending(repo, suggestion_id) do
-        result =
-          case suggestion.kind do
-            :new_type -> materialize_type(repo, suggestion, attrs)
-            :new_subtype -> materialize_subtype(repo, suggestion, attrs)
-            :alias -> {:ok, %{status: :alias_noted}}
-          end
-
-        with {:ok, outcome} <- result,
-             {:ok, _suggestion} <-
-               Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
-          {:ok, outcome}
+  @spec approve_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t(), map()) ::
+          {:ok, map()} | {:error, term()}
+  def approve_in_tx(suggestion_id, decided_by, attrs) do
+    with :ok <- Repo.require_transaction(Repo),
+         {:ok, suggestion} <- fetch_pending(suggestion_id) do
+      result =
+        case suggestion.kind do
+          :new_type -> materialize_type(suggestion, attrs)
+          :new_subtype -> materialize_subtype(suggestion, attrs)
+          :alias -> {:ok, %{status: :alias_noted}}
         end
+
+      with {:ok, outcome} <- result,
+           {:ok, _suggestion} <-
+             Ankole.Ash.update(suggestion, :approve, %{decided_by: decided_by}) do
+        {:ok, outcome}
       end
-    end)
+    end
   end
 
   @doc """
-  Rejects one pending suggestion; the record stays so the term is not
-  suggested again.
+  Rejects one pending suggestion in the caller's transaction; the record
+  stays so the term is not suggested again.
   """
-  @spec reject(Ecto.UUID.t(), Ankole.ActorRef.t()) ::
+  @spec reject_in_tx(Ecto.UUID.t(), Ankole.ActorRef.t()) ::
           {:ok, SchemaSuggestion.t()} | {:error, term()}
-  def reject(suggestion_id, decided_by) do
-    Repo.transact(fn repo ->
-      with {:ok, suggestion} <- fetch_pending(repo, suggestion_id) do
-        Ankole.Ash.update(suggestion, :reject, %{decided_by: decided_by})
-      end
-    end)
+  def reject_in_tx(suggestion_id, decided_by) do
+    with :ok <- Repo.require_transaction(Repo),
+         {:ok, suggestion} <- fetch_pending(suggestion_id) do
+      Ankole.Ash.update(suggestion, :reject, %{decided_by: decided_by})
+    end
   end
 
   # A promoted term becomes a first-class type with its own slug prefix.
   # Objects tagged with the term retype and migrate their slugs; redirects
   # keep old references resolvable.
-  defp materialize_type(repo, suggestion, attrs) do
+  defp materialize_type(suggestion, attrs) do
     term = suggestion.term
     primitive = attrs[:primitive] || "concept"
     prefix = attrs[:slug_prefix] || pluralized_prefix(term)
@@ -97,12 +96,12 @@ defmodule Ankole.Brain.Promotion do
            created_at: DateTime.utc_now(:microsecond)
          },
          {:ok, _type} <- Ankole.Ash.create(SchemaType, :register, type) do
-      migrated = retype_tagged_objects(repo, term, prefix)
+      migrated = retype_tagged_objects(term, prefix)
       {:ok, %{status: :type_created, type: term, migrated: migrated}}
     end
   end
 
-  defp materialize_subtype(_repo, suggestion, attrs) do
+  defp materialize_subtype(suggestion, attrs) do
     target = attrs[:target_type] || suggestion.target_type || "note"
 
     with :ok <- reject_reserved_type(target) do
@@ -132,34 +131,26 @@ defmodule Ankole.Brain.Promotion do
 
   defp reject_reserved_prefix(_prefix), do: :ok
 
-  defp retype_tagged_objects(repo, term, prefix) do
+  # The canonical page of a Principal keeps its type and slug.
+  defp retype_tagged_objects(term, prefix) do
     objects =
       Object
-      |> join(:inner, [object], tag in Tag,
-        on: tag.tenant_id == object.tenant_id and tag.object_slug == object.slug
+      |> Ash.Query.filter(
+        exists(tags, tag == ^term) and is_nil(deleted_at) and is_nil(managed_by_source_id) and
+          type != "agent"
       )
-      |> join(:left, [object, _tag], principal in Principal,
-        on:
-          principal.tenant_id == object.tenant_id and principal.type == :human and
-            object.slug == fragment("'people/' || ?", principal.uid)
-      )
-      |> where([_object, tag, _principal], tag.tag == ^term)
-      |> where([object, _tag, _principal], is_nil(object.deleted_at))
-      |> where([object, _tag, _principal], is_nil(object.managed_by_source_id))
-      |> where([object, _tag, principal], object.type != "agent" and is_nil(principal.uid))
-      |> select([object, _tag, _principal], object)
-      |> distinct(true)
-      |> repo.all()
+      |> Ankole.Ash.read!()
+      |> Enum.reject(&Objects.canonical_principal_page?(&1.slug))
 
     Enum.count(objects, fn object ->
       new_slug = prefix <> last_slug_segment(object.slug)
 
       cond do
         object.slug == new_slug ->
-          retype_only(repo, object, term)
+          retype_only(object, term)
 
-        repo.exists?(Object |> where([o], o.slug == ^new_slug)) ->
-          retype_only(repo, object, term)
+        slug_taken?(new_slug) ->
+          retype_only(object, term)
 
         true ->
           {:ok, _object} =
@@ -179,7 +170,15 @@ defmodule Ankole.Brain.Promotion do
     end)
   end
 
-  defp retype_only(_repo, object, term) do
+  defp slug_taken?(slug) do
+    Object
+    |> Ash.Query.filter(slug == ^slug)
+    |> Ash.Query.select([])
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read!() != []
+  end
+
+  defp retype_only(object, term) do
     {:ok, _object} =
       Ankole.Ash.update(object, :retype, %{type: term})
 
@@ -192,11 +191,11 @@ defmodule Ankole.Brain.Promotion do
 
   defp pluralized_prefix(term), do: term <> "s/"
 
-  defp fetch_pending(repo, suggestion_id) do
+  defp fetch_pending(suggestion_id) do
     SchemaSuggestion
-    |> where([suggestion], suggestion.id == ^suggestion_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(id == ^suggestion_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
     |> case do
       %SchemaSuggestion{status: :pending} = suggestion -> {:ok, suggestion}
       %SchemaSuggestion{} -> {:error, :suggestion_not_pending}
