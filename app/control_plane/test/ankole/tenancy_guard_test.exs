@@ -88,7 +88,7 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex:sweep_objects" => 1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/provider_configs.ex:provider_references" =>
       1,
-    "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:chain_messages" => 1,
+    "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:chain_ids" => 1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:chain_metadata" => 1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:suffix_messages" => 1,
     "raw_sql:../control_plane_core/lib/ankole/background_agent_jobs/dispatch.ex:next_job_id" => 1,
@@ -126,8 +126,6 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:delete_batch" => 1,
     "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
     "sql_fragment:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex:candidates" => 1,
-    "sql_fragment:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:latest_visible_leaf_for_uuid" =>
-      1,
     "sql_fragment:../control_plane_core/lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" =>
       1,
     "sql_fragment:../control_plane_core/lib/ankole/browser_sessions.ex:cleanup_expired" => 1,
@@ -724,11 +722,12 @@ defmodule Ankole.TenancyGuardTest do
 
   defp query_escape_kind(_node), do: nil
 
+  # A polymorphic resource (an operations container) has no table.
   defp schemas do
     for module <- Ankole.TestModules.all(),
         Code.ensure_loaded?(module),
         function_exported?(module, :__schema__, 1),
-        module.__schema__(:source) != nil do
+        module.__schema__(:source) not in [nil, ""] do
       assert function_exported?(module, :__tenancy__, 0),
              "#{inspect(module)} must declare its ownership through Ankole.Ash.Resource or Ankole.Schema"
 

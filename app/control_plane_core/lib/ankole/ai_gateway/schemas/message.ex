@@ -2,11 +2,12 @@ defmodule Ankole.AIGateway.Schemas.Message do
   @moduledoc "Response facts, checkpoints, and tool journals with one terminal-state owner."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.AIGateway.Domain,
+    domain: Ankole.AIGateway,
     extensions: [AshStateMachine]
 
   require Ash.Expr
   import Ash.Expr, only: [arg: 1]
+  alias Ankole.AIGateway.{ResponseCommit, StatefulResponses}
 
   @merge_metadata Ash.Expr.expr(
                     fragment("COALESCE(?, '{}'::jsonb) || ?::jsonb", metadata, ^arg(:metadata))
@@ -63,6 +64,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
       :string,
       expr(fragment("?->>'tool_result_idempotency_key'", metadata))
     )
+
+    calculate(:oidc_client_id, :string, expr(fragment("?->>'oidc_client_id'", metadata)))
   end
 
   identities do
@@ -88,13 +91,11 @@ defmodule Ankole.AIGateway.Schemas.Message do
     defaults([:read])
 
     create :start do
-      transaction?(false)
       accept([:subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
       change(set_attribute(:type, :message))
     end
 
     create :checkpoint do
-      transaction?(false)
       accept([:id, :subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
       change(set_attribute(:type, :checkpoint))
       change(set_attribute(:status, :complete))
@@ -108,7 +109,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
     end
 
     create_if_absent :journal, upsert_fields: [:metadata] do
-      transaction?(false)
       accept([:id, :subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
       argument(:journal_key, :string)
       change(set_attribute(:type, :message))
@@ -118,7 +118,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
     end
 
     create_if_absent :quarantine, upsert_fields: [:metadata] do
-      transaction?(false)
       accept([:id, :subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
       argument(:journal_key, :string)
       change(set_attribute(:type, :message))
@@ -127,7 +126,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
       upsert_identity(:journal_key)
     end
 
-    atomic_in_tx_update :heartbeat do
+    update :heartbeat do
+      require_atomic?(true)
       accept([])
 
       argument(:metadata, Ankole.Ash.Types.JSONMap,
@@ -142,7 +142,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
       change(set_attribute(:updated_at, arg(:now)))
     end
 
-    atomic_in_tx_update :record_progress do
+    update :record_progress do
+      require_atomic?(true)
       accept([])
 
       argument(:metadata, Ankole.Ash.Types.JSONMap,
@@ -156,7 +157,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
     end
 
     update :update_context do
-      transaction?(false)
       require_atomic?(true)
       accept([:previous_message_id])
 
@@ -184,7 +184,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
       )
     end
 
-    atomic_in_tx_update :complete do
+    update :complete do
+      require_atomic?(true)
       accept([])
       argument(:output, Ankole.Ash.Types.JSONList, allow_nil?: false, default: [])
 
@@ -199,7 +200,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
       change(atomic_update(:metadata, @merge_metadata))
     end
 
-    atomic_in_tx_update :fail do
+    update :fail do
+      require_atomic?(true)
       accept([])
       argument(:output, Ankole.Ash.Types.JSONList, allow_nil?: false, default: [])
 
@@ -220,7 +222,8 @@ defmodule Ankole.AIGateway.Schemas.Message do
       change(set_attribute(:updated_at, arg(:now)))
     end
 
-    atomic_in_tx_update :retract do
+    update :retract do
+      require_atomic?(true)
       accept([])
 
       argument(:metadata, Ankole.Ash.Types.JSONMap,
@@ -239,9 +242,80 @@ defmodule Ankole.AIGateway.Schemas.Message do
     end
 
     destroy :remove_suffix do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(type == :message and status == :complete)))
+    end
+
+    action :renew_lease, :term do
+      argument(:subject_uid, :string, allow_nil?: false)
+      argument(:message_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:metadata, :map, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments |> ResponseCommit.renew_lease() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :fail_generating, :term do
+      argument(:subject_uid, :string, allow_nil?: false)
+      argument(:message_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:error_details, :map, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+      after_commit({ResponseCommit, :publish_committed})
+
+      run(fn input, _context ->
+        input.arguments |> ResponseCommit.fail_generating() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :reconcile_orphan, :term do
+      argument(:message_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+      argument(:force, :boolean, allow_nil?: false, default: false)
+      after_commit({ResponseCommit, :publish_committed})
+
+      run(fn input, _context ->
+        input.arguments |> ResponseCommit.reconcile_orphan() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :commit_terminal, :term do
+      argument(:message_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:transition, :atom, allow_nil?: false, constraints: [one_of: [:complete, :fail]])
+      argument(:output, :term, allow_nil?: false)
+      argument(:metadata, :map, allow_nil?: false)
+      after_commit({ResponseCommit, :publish_committed})
+
+      run(fn input, _context ->
+        input.arguments |> ResponseCommit.commit_terminal_locked() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :admit_run, :term do
+      argument(:subject_uid, :string, allow_nil?: false)
+      argument(:selector, :term, allow_nil?: false)
+      argument(:compaction, :term)
+      argument(:content, :term, allow_nil?: false)
+      argument(:metadata, :map, allow_nil?: false)
+      argument(:authorize_run, :term, allow_nil?: false)
+      argument(:record_response, :term, allow_nil?: false)
+      after_commit({ResponseCommit, :publish_committed})
+
+      run(fn input, _context ->
+        input.arguments |> StatefulResponses.admit_run() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :install_recovery_checkpoint, :term do
+      argument(:message, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:artifact_attrs, :map, allow_nil?: false)
+      argument(:checkpoint_metadata, :map, allow_nil?: false)
+      argument(:injection, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments |> StatefulResponses.install_recovery_checkpoint() |> Ankole.Errors.wrap()
+      end)
     end
   end
 

@@ -2,7 +2,7 @@ defmodule Ankole.AIGateway.ToolResultJournal do
   @moduledoc "Validates, deduplicates and commits client tool outputs against their Response calls."
 
   import Ankole.AIGateway.ResponseChain,
-    only: [previous_response_id: 1, decode_response_id: 1, complete_message_for_subject: 3]
+    only: [previous_response_id: 1, decode_response_id: 1, complete_message_for_subject: 2]
 
   alias Ankole.AIGateway.Conversations
   alias Ankole.AIGateway.Events
@@ -39,7 +39,7 @@ defmodule Ankole.AIGateway.ToolResultJournal do
          :ok <- validate_tool_result_items(request_items),
          {:ok, previous_message_id} <- decode_response_id(previous_response_id),
          %Message{status: :complete} = anchor <-
-           complete_message_for_subject(repo, subject_uid, previous_message_id) do
+           complete_message_for_subject(subject_uid, previous_message_id) do
       case reconcile_tool_result_items(anchor, request_items) do
         {:ok, reconciled_items} ->
           idempotency_key =
