@@ -48,7 +48,8 @@ export const provider = {
     const telemetry = document.documentElement
     const record = (kind: string) => {
       const key = `${kind}-${applet.instance}`
-      telemetry.setAttribute(`data-${key}`, String(Number(telemetry.getAttribute('data-' + key) ?? 0) + 1))
+      const attribute = `data-${key}`
+      telemetry.setAttribute(attribute, String(Number(telemetry.getAttribute(attribute) ?? 0) + 1))
     }
     // Deliberately leave these effects to the sandbox so the check can prove its cleanup.
     window.setInterval(() => record('ticks'), 100)
