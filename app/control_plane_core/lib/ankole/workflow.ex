@@ -1,65 +1,117 @@
 defmodule Ankole.Workflow do
-  @moduledoc "Durable workflow operations delegated to their domain owners."
+  @moduledoc """
+  The Workflow domain: durable program runs and their Agent calls.
+
+  This module is the boundary API. Each write operation is a generic action
+  that owns its transaction and must be the top-level call. Code that already
+  runs in a transaction composes the `_in_tx` functions of the owner modules
+  (`Ankole.Workflow.TaskLifecycle`, `Ankole.Workflow.Lifecycle`, and
+  `Ankole.Workflow.Slot`) and calls `cleanup_terminal_transition/1` after its
+  commit.
+
+  An operation gives `{:ok, value}` or `{:error, reason}`, where `reason` is the
+  domain reason or an `Ash.Error.Invalid` error for invalid attributes.
+  """
+  use Ankole.Ash.Domain
+
   @behaviour Ankole.Sessions.AsyncWorkUnit
-  defdelegate list(agent_uid, opts \\ []), to: Ankole.Workflow.Queries
-  defdelegate get(run_id, agent_uid, opts \\ []), to: Ankole.Workflow.Queries
-  defdelegate task_session_id(call_id), to: Ankole.Workflow.Queries
-  defdelegate parse_task_session_id(session_id), to: Ankole.Workflow.Queries
-  defdelegate get_task_for_agent(call_id, agent_uid), to: Ankole.Workflow.Queries
-  defdelegate dead_letter_notice_text(event), to: Ankole.Workflow.Lifecycle
-  defdelegate cleanup_terminal_transition(result), to: Ankole.Workflow.Lifecycle
-  defdelegate cleanup_terminal_run(run), to: Ankole.Workflow.Lifecycle
-  defdelegate create_with_dispatch(attrs), to: Ankole.Workflow.Lifecycle
-  defdelegate cancel_in_tx(repo, run_id, agent_uid), to: Ankole.Workflow.Lifecycle
-  defdelegate revoke_run_in_tx(repo, run), to: Ankole.Workflow.Lifecycle
-  defdelegate stop_human_work_in_tx(repo, human, version, now), to: Ankole.Workflow.Lifecycle
 
-  defdelegate compensate_turn_error_in_tx(repo, event, reason, now),
-    to: Ankole.Workflow.TaskLifecycle
+  alias Ankole.Workflow.Lifecycle
+  alias Ankole.Workflow.Queries
+  alias Ankole.Workflow.Schemas.AgentCall
+  alias Ankole.Workflow.Schemas.Run
 
-  defdelegate authorize_delegated_job_owner_in_tx(repo, agent_uid, owner_session_id),
-    to: Ankole.Workflow.TaskLifecycle
+  resources do
+    resource Run do
+      define(:get_run, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_runs, action: :read)
+      define(:reauthorize_run, action: :reauthorize)
+    end
 
-  defdelegate lock_task_progress_in_tx(repo, call_id, agent_uid, session_id, attempt),
-    to: Ankole.Workflow.TaskLifecycle
+    resource AgentCall do
+      define(:get_agent_call, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_agent_calls, action: :read)
+    end
+  end
 
-  defdelegate touch_running_task_in_tx(repo, call, now), to: Ankole.Workflow.TaskLifecycle
+  defdelegate list(agent_uid, opts \\ []), to: Queries
+  defdelegate get(run_id, agent_uid, opts \\ []), to: Queries
+  defdelegate task_session_id(call_id), to: Queries
+  defdelegate parse_task_session_id(session_id), to: Queries
+  defdelegate get_task_for_agent(call_id, agent_uid), to: Queries
 
-  defdelegate claim_task_in_tx(repo, call_id, agent_uid, max_running_per_agent, opts \\ []),
-    to: Ankole.Workflow.TaskLifecycle
+  @impl Ankole.Sessions.AsyncWorkUnit
+  defdelegate dead_letter_notice_text(event), to: Lifecycle
 
-  defdelegate submit_result_in_tx(repo, call_id, agent_uid, session_id, outcome),
-    to: Ankole.Workflow.TaskLifecycle
+  @doc "Does the post-commit work of a committed task or run transition."
+  defdelegate cleanup_terminal_transition(result), to: Lifecycle
 
-  defdelegate sleep_task_in_tx(repo, call_id, agent_uid, session_id, params),
-    to: Ankole.Workflow.TaskLifecycle
+  @doc "Creates or finds the run of one Workflow tool call."
+  def create_with_dispatch(attrs),
+    do: Ankole.Ash.run_action(Run, :create_with_dispatch, %{attrs: attrs})
 
-  defdelegate fail_unstarted_task_in_tx(repo, call_id, agent_uid, code, summary, available_at),
-    to: Ankole.Workflow.TaskLifecycle
+  @doc "Sends an owner message to one live task of a run."
+  def send_task_message(run_id, call_seq, agent_uid, message, source_tool_call_id) do
+    Ankole.Ash.run_action(AgentCall, :send_task_message, %{
+      run_id: run_id,
+      call_seq: call_seq,
+      agent_uid: agent_uid,
+      message: message,
+      source_tool_call_id: source_tool_call_id
+    })
+  end
 
-  defdelegate model_unavailable_in_tx(
-                repo,
-                call_id,
-                agent_uid,
-                session_id,
-                profile,
-                reason,
-                available_at
-              ),
-              to: Ankole.Workflow.TaskLifecycle
+  @doc "Defers a task Signal until the Agent has free Workflow capacity."
+  def defer_task_event(signal, available_at, reason) do
+    Ankole.Ash.run_action(AgentCall, :defer_task_event, %{
+      signal: signal,
+      available_at: available_at,
+      reason: reason
+    })
+  end
 
-  defdelegate commit_replay_pending(run_id, pending_calls, expected_memo_length),
-    to: Ankole.Workflow.Replay
+  @doc "Commits the new Agent calls of one replay under its memo fence."
+  def commit_replay_pending(run_id, pending_calls, expected_memo_length) do
+    Ankole.Ash.run_action(Run, :commit_replay_pending, %{
+      run_id: run_id,
+      pending_calls: pending_calls,
+      expected_memo_length: expected_memo_length
+    })
+  end
 
-  defdelegate complete_replay(run_id, result_text, expected_memo_length),
-    to: Ankole.Workflow.Replay
+  @doc "Completes a run with the result of its final replay."
+  def complete_replay(run_id, result_text, expected_memo_length) do
+    Ankole.Ash.run_action(Run, :complete_replay, %{
+      run_id: run_id,
+      result_text: result_text,
+      expected_memo_length: expected_memo_length
+    })
+  end
 
-  defdelegate fail_replay(run_id, code, summary, expected_memo_length), to: Ankole.Workflow.Replay
+  @doc "Fails a run with the error of its final replay."
+  def fail_replay(run_id, code, summary, expected_memo_length) do
+    Ankole.Ash.run_action(Run, :fail_replay, %{
+      run_id: run_id,
+      code: code,
+      summary: summary,
+      expected_memo_length: expected_memo_length
+    })
+  end
 
-  defdelegate send_task_message(run_id, call_seq, agent_uid, message, source_tool_call_id),
-    to: Ankole.Workflow.Mail
+  @doc """
+  Requeues or fails the stale and overdue tasks of a run.
 
-  defdelegate defer_task_event(signal, available_at, reason), to: Ankole.Workflow.Mail
+  A released task slot wakes the next capacity waiter after the commit. The
+  caller does the terminal cleanup with `Lifecycle.cleanup_committed/1`.
+  """
+  def reconcile_stale_tasks(run_id, cutoff, reconciled_at) do
+    Ankole.Ash.run_action(Run, :reconcile_stale_tasks, %{
+      run_id: run_id,
+      cutoff: cutoff,
+      reconciled_at: reconciled_at
+    })
+  end
+
+  @doc "Wakes the owner process of each run that still needs replay or cleanup."
   defdelegate reconcile_run_wakeups(), to: Ankole.Workflow.Recovery
-  defdelegate reconcile_stale_tasks(run_id, cutoff, reconciled_at), to: Ankole.Workflow.Recovery
 end

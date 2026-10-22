@@ -24,7 +24,7 @@ defmodule Ankole.Sessions.Notices do
     result =
       Repo.transact(fn repo ->
         with {:ok, call_id} <- Ankole.Workflow.parse_task_session_id(event.session_id) do
-          Ankole.Workflow.model_unavailable_in_tx(
+          Ankole.Workflow.TaskLifecycle.model_unavailable_in_tx(
             repo,
             call_id,
             event.agent_uid,
@@ -169,7 +169,7 @@ defmodule Ankole.Sessions.Notices do
   defp reject_unstarted_workflow_task(repo, event, now) do
     case Ankole.Workflow.parse_task_session_id(event.session_id) do
       {:ok, call_id} ->
-        case Ankole.Workflow.fail_unstarted_task_in_tx(
+        case Ankole.Workflow.TaskLifecycle.fail_unstarted_task_in_tx(
                repo,
                call_id,
                event.agent_uid,

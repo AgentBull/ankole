@@ -5,7 +5,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Schedule.Domain,
+    domain: Ankole.Schedule,
     extensions: [AshStateMachine]
 
   use Ankole.Work.Provenance,
@@ -160,18 +160,82 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
   actions do
     defaults([:read])
 
-    in_tx_update :reauthorize do
+    action :create_check_back_later, :term do
+      argument(:attrs, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Checkbacks.create_check_back_later_in_tx(args.attrs, args.opts)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :update_checkback, :term do
+      argument(:scheduled_event_id, :integer, allow_nil?: false)
+      argument(:attrs, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Checkbacks.update_checkback_in_tx(
+          args.scheduled_event_id,
+          args.attrs,
+          args.opts
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :cancel_checkback, :term do
+      argument(:scheduled_event_id, :integer, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Checkbacks.cancel_checkback_in_tx(args.scheduled_event_id, args.opts)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :fire_due_event, :term do
+      argument(:scheduled_event_id, :integer, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Fire.fire_due_event_in_tx(args.scheduled_event_id, args.opts)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :record_fire_error, :term do
+      allow_nil?(true)
+      argument(:scheduled_event_id, :integer, allow_nil?: false)
+      argument(:reason, :term)
+      argument(:terminal, :boolean, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Fire.record_fire_error_in_tx(
+          args.scheduled_event_id,
+          args.reason,
+          args.terminal
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    update :reauthorize do
       accept([:authorization_kind, :human_uid, :human_access_version])
     end
 
     create :create_event do
       primary?(true)
-      transaction?(false)
       accept(@create_fields)
     end
 
     create :record_cancelled do
-      transaction?(false)
       accept(@create_fields)
       argument(:cancelled_at, :utc_datetime_usec, allow_nil?: false)
       change(transition_state(:cancelled))
@@ -179,29 +243,28 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
     end
 
     create :schedule_event do
-      transaction?(false)
       accept(@create_fields)
       upsert?(true)
       upsert_identity(:idempotency)
       upsert_fields([:idempotency_key])
     end
 
-    in_tx_update :fire do
+    update :fire do
       accept([:signal_id, :automation_job_run_id, :fired_at, :last_fire_error])
       change(transition_state(:fired))
     end
 
-    in_tx_update :cancel do
+    update :cancel do
       accept([:cancelled_at, :last_fire_error])
       change(transition_state(:cancelled))
     end
 
-    in_tx_update :fail do
+    update :fail do
       accept([:last_fire_error])
       change(transition_state(:failed))
     end
 
-    in_tx_update :reschedule do
+    update :reschedule do
       accept([
         :wake_payload,
         :due_at,
@@ -218,7 +281,7 @@ defmodule Ankole.Schedule.Schemas.ScheduledEvent do
       validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
     end
 
-    in_tx_update :record_error do
+    update :record_error do
       accept([:last_fire_error])
       change(transition_state(:scheduled))
     end

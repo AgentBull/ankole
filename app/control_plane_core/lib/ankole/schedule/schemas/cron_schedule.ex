@@ -10,7 +10,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   use Ankole.Ash.Resource,
     extensions: [AshStateMachine],
     tenancy: :tenant,
-    domain: Ankole.Schedule.Domain
+    domain: Ankole.Schedule
 
   use Ankole.Work.Provenance,
     owner_session?: true,
@@ -102,9 +102,109 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
   actions do
     defaults([:read])
 
+    action :create_cron_schedule, :term do
+      argument(:attrs, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.create_cron_schedule_in_tx(args.attrs, args.opts)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :update_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:attrs, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.update_cron_schedule_in_tx(
+          args.cron_schedule_id,
+          args.attrs,
+          args.opts
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :pause_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.pause_cron_schedule_in_tx(args.cron_schedule_id, args.opts)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :resume_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.resume_cron_schedule_in_tx(args.cron_schedule_id, args.opts)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :remove_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.remove_cron_schedule_in_tx(args.cron_schedule_id, args.opts)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :run_cron_schedule, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Cron.run_cron_schedule_in_tx(args.cron_schedule_id, args.opts)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :fire_cron, :term do
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:now, :term, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Fire.fire_cron_in_tx(args.cron_schedule_id, args.now)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :record_fire_failure, :term do
+      allow_nil?(true)
+      argument(:cron_schedule_id, :term, allow_nil?: false)
+      argument(:slot, :term, allow_nil?: false)
+      argument(:reason, :term)
+      argument(:now, :term, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.Schedule.Fire.record_fire_failure_in_tx(
+          args.cron_schedule_id,
+          args.slot,
+          args.reason,
+          args.now
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
     create :create do
       primary?(true)
-      transaction?(false)
       upsert?(true)
       upsert_identity(:idempotency)
       upsert_fields([:idempotency_key])
@@ -133,7 +233,7 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
     end
 
-    in_tx_update :update_definition do
+    update :update_definition do
       validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
 
       accept([
@@ -147,42 +247,43 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
       ])
     end
 
-    in_tx_update :pause do
+    update :pause do
       accept([])
       change(transition_state(:paused))
       change(set_attribute(:next_fire_at, nil))
     end
 
-    in_tx_update :resume do
+    update :resume do
       accept([])
       change(transition_state(:active))
     end
 
-    in_tx_update :delete do
+    update :delete do
       accept([])
       change(transition_state(:deleted))
       change(set_attribute(:next_fire_at, nil))
     end
 
-    in_tx_update :complete do
+    update :complete do
       accept([])
       change(transition_state(:completed))
       change(set_attribute(:next_fire_at, nil))
     end
 
-    in_tx_update :schedule_fire do
+    update :schedule_fire do
       accept([:next_fire_at])
     end
 
-    in_tx_update :record_fire do
+    update :record_fire do
       accept([:last_fire_at])
     end
 
-    in_tx_update :reauthorize do
+    update :reauthorize do
       accept([:authorization_kind, :human_uid, :human_access_version])
     end
 
-    atomic_in_tx_update :stop_human_work do
+    update :stop_human_work do
+      require_atomic?(true)
       accept([])
       change(transition_state(:paused))
       change(set_attribute(:next_fire_at, nil))

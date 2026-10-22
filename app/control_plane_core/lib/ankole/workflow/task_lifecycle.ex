@@ -1,6 +1,11 @@
 defmodule Ankole.Workflow.TaskLifecycle do
-  @moduledoc "Owns task admission and state transitions."
-  import Ecto.Query, warn: false
+  @moduledoc """
+  Owns task admission and state transitions.
+
+  Each `_in_tx` function runs in the transaction of its caller. Sessions and
+  Background Agent Jobs call them in their own transactions. The caller does
+  the post-commit work with `Ankole.Workflow.cleanup_terminal_transition/1`.
+  """
   alias Ankole.Repo
   alias Ankole.Text
   alias Ankole.Workflow.ResultSchema
@@ -72,15 +77,8 @@ defmodule Ankole.Workflow.TaskLifecycle do
       when is_atom(repo) and is_integer(call_id) and call_id > 0 and is_binary(agent_uid) and
              is_integer(max_running_per_agent) and max_running_per_agent > 0 do
     with {:ok, run_id} <- Ankole.Workflow.Slot.call_run_id(repo, call_id, agent_uid),
-         %Run{} = snapshot_run <-
-           repo.one(from(run in Run, where: run.id == ^run_id and run.agent_uid == ^agent_uid)),
-         %AgentCall{} = snapshot_call <-
-           repo.one(
-             from(call in AgentCall,
-               where:
-                 call.id == ^call_id and call.run_id == ^run_id and call.agent_uid == ^agent_uid
-             )
-           ),
+         %Run{} = snapshot_run <- Ankole.Workflow.Slot.get_run(run_id, agent_uid),
+         %AgentCall{} = snapshot_call <- Ankole.Workflow.Slot.get_call(call_id, run_id, agent_uid),
          :ok <- ensure_claimable_or_adopted(snapshot_run, snapshot_call, opts),
          :ok <-
            (if snapshot_call.status == :running do
