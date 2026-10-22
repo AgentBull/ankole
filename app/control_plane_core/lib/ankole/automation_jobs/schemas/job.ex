@@ -6,7 +6,7 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
   use Ankole.Ash.Resource,
     extensions: [AshStateMachine],
     tenancy: :tenant,
-    domain: Ankole.AutomationJobs.Domain
+    domain: Ankole.AutomationJobs
 
   use Ankole.Work.Provenance,
     owner_session?: true,
@@ -74,6 +74,12 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
     timestamps(type: :utc_datetime_usec)
   end
 
+  relationships do
+    has_many :runs, Ankole.AutomationJobs.Schemas.Run do
+      destination_attribute(:automation_job_id)
+    end
+  end
+
   state_machine do
     state_attribute(:status)
     initial_states([:active])
@@ -88,9 +94,36 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
   actions do
     defaults([:read])
 
+    action :create_job, :term do
+      argument(:attrs, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.AutomationJobs.create_job_in_tx(input.arguments.attrs)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :cancel_job, :term do
+      argument(:agent_uid, :term, allow_nil?: false)
+      argument(:owner_session_id, :term, allow_nil?: false)
+      argument(:job_id, :integer, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Repo
+        |> Ankole.AutomationJobs.cancel_job_in_tx(
+          args.agent_uid,
+          args.owner_session_id,
+          args.job_id,
+          args.now
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
     create :create do
       primary?(true)
-      transaction?(false)
 
       accept([
         :authorization_kind,
@@ -119,21 +152,22 @@ defmodule Ankole.AutomationJobs.Schemas.Job do
       )
     end
 
-    in_tx_update :cancel do
+    update :cancel do
       accept([:cancelled_at])
       change(transition_state(:cancelled))
     end
 
-    in_tx_update :finish_script_import do
+    update :finish_script_import do
       accept([])
       change(set_attribute(:legacy_directory_path, nil))
     end
 
-    in_tx_update :reauthorize do
+    update :reauthorize do
       accept([:authorization_kind, :human_uid, :human_access_version])
     end
 
-    atomic_in_tx_update :stop_human_work do
+    update :stop_human_work do
+      require_atomic?(true)
       accept([:cancelled_at])
       change(transition_state(:cancelled))
     end

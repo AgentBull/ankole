@@ -1,9 +1,8 @@
 defmodule Ankole.Schedule.Queries do
   @moduledoc false
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
-  alias Ankole.Repo
   alias Ankole.Schedule.Schemas.CronSchedule
   alias Ankole.Schedule.Schemas.ScheduledEvent
 
@@ -11,20 +10,16 @@ defmodule Ankole.Schedule.Queries do
   def list_cron_schedules(agent_uid \\ nil, owner_session_id \\ nil) do
     CronSchedule
     |> maybe_where_agent(agent_uid)
-    |> where([schedule], schedule.status != :deleted)
+    |> Ash.Query.filter(status != :deleted)
     |> maybe_where_owner_session(owner_session_id)
-    |> order_by([schedule],
-      asc: schedule.agent_uid,
-      asc: schedule.owner_session_id,
-      asc: schedule.name
-    )
-    |> Repo.all()
+    |> Ash.Query.sort(agent_uid: :asc, owner_session_id: :asc, name: :asc)
+    |> read()
   end
 
   @spec get_cron_schedule(Ecto.UUID.t()) :: {:ok, CronSchedule.t()} | {:error, :not_found}
   def get_cron_schedule(cron_schedule_id) when is_binary(cron_schedule_id) do
     with {:ok, cron_schedule_id} <- Ecto.UUID.cast(cron_schedule_id),
-         %CronSchedule{} = schedule <- Repo.get(CronSchedule, cron_schedule_id) do
+         %CronSchedule{} = schedule <- Ankole.Schedule.Store.get_cron_schedule(cron_schedule_id) do
       {:ok, schedule}
     else
       _not_found -> {:error, :not_found}
@@ -35,22 +30,23 @@ defmodule Ankole.Schedule.Queries do
           {:ok, CronSchedule.t()} | {:error, :not_found}
   def get_cron_schedule_by_name(agent_uid, owner_session_id, name)
       when is_binary(agent_uid) and is_binary(owner_session_id) and is_binary(name) do
-    query =
-      CronSchedule
-      |> where([schedule], schedule.agent_uid == ^String.downcase(agent_uid))
-      |> where([schedule], schedule.owner_session_id == ^owner_session_id)
-      |> where([schedule], schedule.name == ^name)
-      |> where([schedule], schedule.status != :deleted)
+    agent_uid = String.downcase(agent_uid)
 
-    case Repo.one(query) do
-      %CronSchedule{} = schedule -> {:ok, schedule}
-      nil -> {:error, :not_found}
+    CronSchedule
+    |> Ash.Query.filter(
+      agent_uid == ^agent_uid and owner_session_id == ^owner_session_id and name == ^name and
+        status != :deleted
+    )
+    |> Ankole.Ash.read_one()
+    |> case do
+      {:ok, %CronSchedule{} = schedule} -> {:ok, schedule}
+      {:ok, nil} -> {:error, :not_found}
     end
   end
 
   @spec get_scheduled_event(pos_integer()) :: {:ok, ScheduledEvent.t()} | {:error, :not_found}
   def get_scheduled_event(scheduled_event_id) when is_integer(scheduled_event_id) do
-    case Repo.get(ScheduledEvent, scheduled_event_id) do
+    case Ankole.Schedule.Store.get_scheduled_event(scheduled_event_id) do
       %ScheduledEvent{} = event -> {:ok, event}
       nil -> {:error, :not_found}
     end
@@ -60,10 +56,10 @@ defmodule Ankole.Schedule.Queries do
   def list_cron_runs(cron_schedule_id, limit \\ 25)
       when is_binary(cron_schedule_id) and is_integer(limit) and limit > 0 do
     ScheduledEvent
-    |> where([event], event.cron_schedule_id == ^cron_schedule_id)
-    |> order_by([event], desc: event.due_at, desc: event.inserted_at)
-    |> limit(^limit)
-    |> Repo.all()
+    |> Ash.Query.filter(cron_schedule_id == ^cron_schedule_id)
+    |> Ash.Query.sort(due_at: :desc, inserted_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> read()
   end
 
   @checkback_limit_max 500
@@ -79,9 +75,9 @@ defmodule Ankole.Schedule.Queries do
     agent_uid
     |> checkbacks_query()
     |> maybe_where_session(session_id)
-    |> order_by([event], desc: event.due_at, desc: event.inserted_at)
-    |> limit(^limit)
-    |> Repo.all()
+    |> Ash.Query.sort(due_at: :desc, inserted_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> read()
   end
 
   defp bounded_checkback_limit(value) when is_integer(value) and value > 0,
@@ -94,31 +90,38 @@ defmodule Ankole.Schedule.Queries do
       when is_binary(agent_uid) and is_binary(session_id) and is_integer(limit) and limit > 0 do
     agent_uid
     |> checkbacks_query()
-    |> where([event], event.status == :scheduled)
+    |> Ash.Query.filter(status == :scheduled)
     |> maybe_where_session(session_id)
-    |> order_by([event], asc: event.due_at, desc: event.inserted_at)
-    |> limit(^limit)
-    |> Repo.all()
+    |> Ash.Query.sort(due_at: :asc, inserted_at: :desc)
+    |> Ash.Query.limit(limit)
+    |> read()
   end
 
   defp checkbacks_query(agent_uid) do
     ScheduledEvent
-    |> where([event], event.kind == "check_back_later")
+    |> Ash.Query.filter(kind == "check_back_later")
     |> maybe_where_agent(agent_uid)
   end
 
   defp maybe_where_agent(query, nil), do: query
 
-  defp maybe_where_agent(query, agent_uid) when is_binary(agent_uid),
-    do: where(query, [row], row.agent_uid == ^String.downcase(agent_uid))
+  defp maybe_where_agent(query, agent_uid) when is_binary(agent_uid) do
+    agent_uid = String.downcase(agent_uid)
+    Ash.Query.filter(query, agent_uid == ^agent_uid)
+  end
 
   defp maybe_where_session(query, nil), do: query
 
   defp maybe_where_session(query, session_id),
-    do: where(query, [row], row.session_id == ^session_id)
+    do: Ash.Query.filter(query, session_id == ^session_id)
 
   defp maybe_where_owner_session(query, nil), do: query
 
   defp maybe_where_owner_session(query, owner_session_id),
-    do: where(query, [row], row.owner_session_id == ^owner_session_id)
+    do: Ash.Query.filter(query, owner_session_id == ^owner_session_id)
+
+  defp read(query) do
+    {:ok, records} = Ankole.Ash.read(query)
+    records
+  end
 end

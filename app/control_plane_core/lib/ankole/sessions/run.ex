@@ -419,7 +419,12 @@ defmodule Ankole.Sessions.Run do
   defp lock_workflow_progress_in_tx(_repo, _run), do: {:ok, nil}
 
   defp touch_workflow_progress_in_tx(repo, call, %{disposition: :inserted}),
-    do: Ankole.Workflow.touch_running_task_in_tx(repo, call, DateTime.utc_now(:microsecond))
+    do:
+      Ankole.Workflow.TaskLifecycle.touch_running_task_in_tx(
+        repo,
+        call,
+        DateTime.utc_now(:microsecond)
+      )
 
   defp touch_workflow_progress_in_tx(_repo, _call, _journal), do: :ok
 

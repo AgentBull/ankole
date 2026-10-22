@@ -1,23 +1,18 @@
 defmodule Ankole.Workflow.Slot do
   @moduledoc "Owns workflow capacity and ordered row locks."
-  import Ecto.Query, warn: false
+  require Ash.Query
   alias Ankole.Workflow.Schemas.AgentCall
   alias Ankole.Workflow.Schemas.Run
 
-  def enforce_capacity(repo, run, max_running_per_agent) do
+  def enforce_capacity(_repo, run, max_running_per_agent) do
+    run_id = run.id
+    agent_uid = run.agent_uid
+
     run_running =
-      repo.aggregate(
-        from(call in AgentCall, where: call.run_id == ^run.id and call.status == :running),
-        :count
-      )
+      AgentCall |> Ash.Query.filter(run_id == ^run_id and status == :running) |> count()
 
     agent_running =
-      repo.aggregate(
-        from(call in AgentCall,
-          where: call.agent_uid == ^run.agent_uid and call.status == :running
-        ),
-        :count
-      )
+      AgentCall |> Ash.Query.filter(agent_uid == ^agent_uid and status == :running) |> count()
 
     if run_running < run.concurrency and agent_running < max_running_per_agent do
       :ok
@@ -44,54 +39,77 @@ defmodule Ankole.Workflow.Slot do
     end
   end
 
-  def call_run_id(repo, call_id, agent_uid) do
+  def call_run_id(_repo, call_id, agent_uid) do
     AgentCall
-    |> where([call], call.id == ^call_id and call.agent_uid == ^agent_uid)
-    |> select([call], call.run_id)
-    |> repo.one()
+    |> Ash.Query.filter(id == ^call_id and agent_uid == ^agent_uid)
+    |> Ash.Query.select([:run_id])
+    |> one()
     |> case do
-      run_id when is_integer(run_id) -> {:ok, run_id}
+      %AgentCall{run_id: run_id} -> {:ok, run_id}
       nil -> {:error, :workflow_task_not_found}
     end
   end
 
-  def lock_run(repo, run_id) do
+  @doc "Reads one run of an Agent without a lock, or `nil`."
+  def get_run(run_id, agent_uid),
+    do: Run |> Ash.Query.filter(id == ^run_id and agent_uid == ^agent_uid) |> one()
+
+  @doc "Reads one call of a run without a lock, or `nil`."
+  def get_call(call_id, run_id, agent_uid) do
+    AgentCall
+    |> Ash.Query.filter(id == ^call_id and run_id == ^run_id and agent_uid == ^agent_uid)
+    |> one()
+  end
+
+  def lock_run(_repo, run_id) do
     Run
-    |> where([run], run.id == ^run_id)
-    |> lock("FOR UPDATE")
-    |> repo.one(lock_identity: {"workflow_runs", run_id})
+    |> Ash.Query.filter(id == ^run_id)
+    |> Ash.Query.lock(:for_update)
+    |> one(lock_identity: {"workflow_runs", run_id})
   end
 
-  def lock_run(repo, run_id, agent_uid) do
+  def lock_run(_repo, run_id, agent_uid) do
     Run
-    |> where([run], run.id == ^run_id and run.agent_uid == ^agent_uid)
-    |> lock("FOR UPDATE")
-    |> repo.one(lock_identity: {"workflow_runs", run_id})
+    |> Ash.Query.filter(id == ^run_id and agent_uid == ^agent_uid)
+    |> Ash.Query.lock(:for_update)
+    |> one(lock_identity: {"workflow_runs", run_id})
   end
 
-  def lock_call(repo, call_id, run_id, agent_uid) do
+  def lock_call(_repo, call_id, run_id, agent_uid) do
     AgentCall
-    |> where(
-      [call],
-      call.id == ^call_id and call.run_id == ^run_id and call.agent_uid == ^agent_uid
-    )
-    |> lock("FOR UPDATE")
-    |> repo.one(lock_identity: {"workflow_agent_calls", call_id})
+    |> Ash.Query.filter(id == ^call_id and run_id == ^run_id and agent_uid == ^agent_uid)
+    |> Ash.Query.lock(:for_update)
+    |> one(lock_identity: {"workflow_agent_calls", call_id})
   end
 
-  def lock_run_calls(repo, run_id) do
+  def lock_run_calls(_repo, run_id) do
     AgentCall
-    |> where([call], call.run_id == ^run_id)
-    |> order_by([call], asc: call.id)
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("workflow_agent_calls")
+    |> Ash.Query.filter(run_id == ^run_id)
+    |> Ash.Query.sort(id: :asc)
+    |> lock_calls()
   end
 
-  def lock_run_calls_by_sequence(repo, run_id) do
+  def lock_run_calls_by_sequence(_repo, run_id) do
     AgentCall
-    |> where([call], call.run_id == ^run_id)
-    |> order_by([call], asc: call.call_seq)
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("workflow_agent_calls")
+    |> Ash.Query.filter(run_id == ^run_id)
+    |> Ash.Query.sort(call_seq: :asc)
+    |> lock_calls()
   end
+
+  @doc "Locks the calls that a query selects, in the query order."
+  def lock_calls(query) do
+    {:ok, calls} =
+      query
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read(lock_identity: {:rows, "workflow_agent_calls", :id})
+
+    calls
+  end
+
+  defp one(query, opts \\ []) do
+    {:ok, record} = Ankole.Ash.read_one(query, opts)
+    record
+  end
+
+  defp count(query), do: Ankole.Ash.aggregate!(query, {:count, :count}).count
 end
