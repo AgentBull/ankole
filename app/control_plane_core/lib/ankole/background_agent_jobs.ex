@@ -2,23 +2,42 @@ defmodule Ankole.BackgroundAgentJobs do
   @moduledoc """
   Durable BackgroundAgentJob work items and normalized runtime-turn trajectories.
 
-  This module is the stable context facade. PostgreSQL owns work lifecycle and
-  trajectory truth; the internal modules keep dispatch, lifecycle transitions,
-  control actions, queries, and turn persistence as separate responsibilities.
+  This module is the domain of the Job, Turn, and TurnItem resources. PostgreSQL
+  owns work lifecycle and trajectory truth. Each operation that changes more
+  than one row runs one generic action that owns its transaction, so the
+  operation must be the top-level call. The `_in_tx` functions are the
+  composition steps that other domains call inside their own operation. The
+  internal modules keep dispatch, lifecycle transitions, control actions,
+  queries, and turn persistence as separate responsibilities.
   """
+
+  use Ankole.Ash.Domain
 
   @behaviour Ankole.Sessions.AsyncWorkUnit
 
   alias Ankole.Signals.Signal
   alias Ankole.BackgroundAgentJobs.Control
   alias Ankole.BackgroundAgentJobs.Schemas.Job
+  alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Dispatch
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.TurnEvidence
   alias Ankole.BackgroundAgentJobs.Turns
   alias Ankole.BackgroundAgentJobs.Wakeups
+  alias Ankole.Repo
   alias Ankole.Sessions.TurnErrorClassifier
+
+  resources do
+    resource Ankole.BackgroundAgentJobs.Schemas.Job do
+      define(:list_jobs, action: :read)
+      define(:record_lessons_applied_job, action: :record_lessons_applied)
+      define(:reauthorize_job, action: :reauthorize)
+    end
+
+    resource(Ankole.BackgroundAgentJobs.Schemas.Turn)
+    resource(Ankole.BackgroundAgentJobs.Schemas.TurnItem)
+  end
 
   require Ankole.ModelIntegerID
 
@@ -74,22 +93,50 @@ defmodule Ankole.BackgroundAgentJobs do
   @impl Ankole.Sessions.AsyncWorkUnit
   defdelegate dead_letter_notice_text(event), to: Wakeups
 
-  @doc "Creates one durable work item and its isolated dispatch event atomically."
-  defdelegate create_with_dispatch(attrs), to: Dispatch
+  @doc """
+  Creates one durable work item and its isolated dispatch event atomically.
+
+  Callers in other domains still call this function inside their own
+  transaction; there the creation joins that transaction. The integration task
+  moves them to `Dispatch.create_with_dispatch_in_tx/2` and removes that branch.
+  """
+  def create_with_dispatch(attrs) do
+    if Repo.in_transaction?(),
+      do: Dispatch.create_with_dispatch_in_tx(Repo, attrs),
+      else: Ankole.Ash.run_action(Job, :start, %{attrs: attrs})
+  end
 
   @doc "Creates one durable successor for a terminal Job and dispatches it atomically."
-  defdelegate respawn_with_dispatch(source_job_id, attrs), to: Dispatch
+  def respawn_with_dispatch(source_job_id, attrs),
+    do: Ankole.Ash.run_action(Job, :respawn, %{source_job_id: source_job_id, attrs: attrs})
 
   @doc false
   defdelegate requeue_credential_pool_exhausted_attempt_in_tx(repo, job_id, agent_uid),
     to: Lifecycle
 
   @doc "Completes a job Signal that no longer needs execution."
-  defdelegate complete_signal(signal), to: Dispatch
+  def complete_signal(signal), do: Ankole.Ash.run_action(Job, :complete_signal, %{signal: signal})
 
-  @doc "Commits one lifecycle transition and its parent wakeup atomically."
-  def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ []),
-    do: Lifecycle.commit_status_with_wakeup(job_id, agent_uid, attrs, opts)
+  @doc """
+  Commits one lifecycle transition and its parent wakeup atomically, then wakes
+  the Job driver.
+  """
+  def commit_status_with_wakeup(job_id, agent_uid, attrs, opts \\ []) do
+    # Transitional: `test/ankole/pod/rpc_broker_test.exs` still selects an
+    # external completion with `external_completion: true`. The transition
+    # action is the only discriminator, so the option becomes that action.
+    {external?, opts} = Keyword.pop(opts, :external_completion, false)
+
+    opts =
+      if external?, do: Keyword.put_new(opts, :transition_action, :external_complete), else: opts
+
+    Ankole.Ash.run_action(Job, :commit_status, %{
+      job_id: job_id,
+      agent_uid: agent_uid,
+      attrs: attrs,
+      options: opts
+    })
+  end
 
   defp fail_turn_persistence_rejection_in_tx(
          repo,
@@ -313,7 +360,8 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate console_turn_page(job, cursor), to: Turns, as: :console_page
 
   @doc "Durably requests cancellation without trusting worker-local state."
-  defdelegate request_stop(job_id, attrs), to: Control
+  def request_stop(job_id, attrs),
+    do: Ankole.Ash.run_action(Job, :request_stop, %{job_id: job_id, attrs: attrs})
 
   @doc """
   Lists live Job ids whose owner session is one of the given sessions.
@@ -325,10 +373,12 @@ defmodule Ankole.BackgroundAgentJobs do
   defdelegate live_job_ids_for_owner_sessions(session_ids, agent_uid), to: Queries
 
   @doc "Commits an externally verified completion with the caller's result summary."
-  defdelegate request_complete(job_id, attrs), to: Control
+  def request_complete(job_id, attrs),
+    do: Ankole.Ash.run_action(Job, :request_complete, %{job_id: job_id, attrs: attrs})
 
   @doc "Journals one message for a live Job."
-  defdelegate send_message(job_id, attrs), to: Control
+  def send_message(job_id, attrs),
+    do: Ankole.Ash.run_action(Job, :send_message, %{job_id: job_id, attrs: attrs})
 
   @doc false
   defdelegate lock_ambient_handoff_target_in_tx(repo, agent_uid, job_id), to: Control
@@ -340,9 +390,16 @@ defmodule Ankole.BackgroundAgentJobs do
   @doc false
   defdelegate message_result(job, command_event_id, caller_session_id), to: Turns
 
-  @doc false
-  defdelegate upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, worker_id),
-    to: Lifecycle
+  @doc "Records one Worker Turn checkpoint and its items atomically."
+  def upsert_turn_from_worker(job_id, agent_uid, attrs, turn_ref, worker_id) do
+    Ankole.Ash.run_action(Turn, :record_from_worker, %{
+      job_id: job_id,
+      agent_uid: agent_uid,
+      attrs: attrs,
+      turn_ref: turn_ref,
+      worker_id: worker_id
+    })
+  end
 
   @doc "Lists normalized runtime turns for one job."
   defdelegate list_turns(job_id, opts \\ []), to: Turns, as: :list_for_job
@@ -358,6 +415,10 @@ defmodule Ankole.BackgroundAgentJobs do
 
   @doc "Fetches one job for an agent."
   defdelegate get_job_for_agent(job_id, agent_uid), to: Queries, as: :get_for_agent
+
+  @doc "Locks one job of an agent inside the caller's transaction; `nil` when it does not exist."
+  def lock_job_in_tx(_repo, job_id, agent_uid),
+    do: Queries.lock_for_agent_in_tx(job_id, agent_uid)
 
   @doc false
   defdelegate get_result_window_for_agent(job_id, agent_uid, offset), to: Queries
