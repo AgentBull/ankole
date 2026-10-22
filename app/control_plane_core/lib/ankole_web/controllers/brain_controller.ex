@@ -302,7 +302,7 @@ defmodule AnkoleWeb.BrainController do
   def create_object(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, attrs} <- object_create_attrs(conn.body_params) do
-      case Objects.create_object(attrs, brain_writer(conn)) do
+      case Ankole.Errors.reason(Ankole.Brain.create_object(attrs, brain_writer(conn))) do
         {:ok, object} -> render_object_page(conn, object.slug)
         {:error, reason} -> object_write_error(conn, reason, attrs.body)
       end
@@ -312,9 +312,12 @@ defmodule AnkoleWeb.BrainController do
   def update_object(conn, _params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, slug, attrs} <- object_update_attrs(conn.body_params) do
-      case Objects.update_object(slug, attrs, brain_writer(conn),
-             author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
-           ) do
+      result =
+        Ankole.Brain.update_object(slug, attrs, brain_writer(conn), %{
+          author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
+        })
+
+      case Ankole.Errors.reason(result) do
         {:ok, object} -> render_object_page(conn, object.slug)
         {:error, reason} -> object_write_error(conn, reason, attrs.body)
       end
@@ -345,9 +348,9 @@ defmodule AnkoleWeb.BrainController do
   def rollback_object(conn, %{"slug" => slug, "version_id" => version_id}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, object} <-
-           Objects.rollback(slug, version_id, brain_writer(conn),
+           Ankole.Brain.rollback_object(slug, version_id, brain_writer(conn), %{
              author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
-           ) do
+           }) do
       json_plain(conn, %{object: object_summary(object)})
     end
   end
@@ -364,7 +367,7 @@ defmodule AnkoleWeb.BrainController do
   # then shadows the slug instead of reprojecting it.
   def fork_object(conn, %{"slug" => slug}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
-         {:ok, object} <- Objects.fork_library_page(slug) do
+         {:ok, object} <- Ankole.Brain.fork_library_page(slug) do
       json_plain(conn, %{object: object_summary(object)})
     end
   end
@@ -373,7 +376,7 @@ defmodule AnkoleWeb.BrainController do
   # would only be a delay, not a recovery window.
   def restore_object(conn, %{"slug" => slug}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
-         {:ok, object} <- Objects.restore(slug) do
+         {:ok, object} <- Ankole.Brain.restore_object(slug) do
       json_plain(conn, %{object: object_summary(object)})
     end
   end
@@ -406,9 +409,9 @@ defmodule AnkoleWeb.BrainController do
 
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, claim} <-
-           Claims.supersede_claim(claim_id, attrs, brain_writer(conn),
+           Ankole.Brain.supersede_claim(claim_id, attrs, brain_writer(conn), %{
              author: Ankole.ActorRef.from_principal(conn.assigns.current_principal)
-           ) do
+           }) do
       json_plain(conn, %{claim: claim_detail(claim)})
     end
   end
@@ -431,7 +434,7 @@ defmodule AnkoleWeb.BrainController do
 
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, claim} <-
-           Claims.resolve_take(
+           Ankole.Brain.resolve_take(
              claim_id,
              resolution,
              to_string(Ankole.ActorRef.from_principal(conn.assigns.current_principal))
@@ -475,7 +478,10 @@ defmodule AnkoleWeb.BrainController do
 
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          true <- status in ["resolved", "dismissed"] || {:error, :invalid_status},
-         {:ok, updated} <- Dreaming.decide_contradiction(id, status, params["resolution_note"]) do
+         {:ok, updated} <-
+           Ankole.Brain.decide_contradiction(id, status, %{
+             resolution_note: params["resolution_note"]
+           }) do
       json_plain(conn, %{contradiction: %{id: updated.id, status: updated.status}})
     end
   end
@@ -511,15 +517,17 @@ defmodule AnkoleWeb.BrainController do
       result =
         case decision do
           "approve" ->
-            Promotion.approve(id, operator, %{
-              primitive: params["primitive"],
-              slug_prefix: params["slug_prefix"],
-              target_type: params["target_type"],
-              extractable: params["extractable"]
+            Ankole.Brain.approve_promotion(id, operator, %{
+              attrs: %{
+                primitive: params["primitive"],
+                slug_prefix: params["slug_prefix"],
+                target_type: params["target_type"],
+                extractable: params["extractable"]
+              }
             })
 
           "reject" ->
-            with {:ok, suggestion} <- Promotion.reject(id, operator) do
+            with {:ok, suggestion} <- Ankole.Brain.reject_promotion(id, operator) do
               {:ok, %{id: suggestion.id, status: suggestion.status}}
             end
 
@@ -562,10 +570,12 @@ defmodule AnkoleWeb.BrainController do
       result =
         case params["decision"] do
           "approve" ->
-            Merge.approve(id, operator, %{canonical_slug: params["canonical_slug"]})
+            Ankole.Brain.approve_merge(id, operator, %{
+              attrs: %{canonical_slug: params["canonical_slug"]}
+            })
 
           "reject" ->
-            with {:ok, suggestion} <- Merge.reject(id, operator) do
+            with {:ok, suggestion} <- Ankole.Brain.reject_merge(id, operator) do
               {:ok, %{id: suggestion.id, status: suggestion.status}}
             end
 
@@ -618,7 +628,7 @@ defmodule AnkoleWeb.BrainController do
   def update_source(conn, %{"source_id" => source_id} = params) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
          {:ok, scope} <- Map.fetch(params, "default_audience_scope"),
-         {:ok, source} <- Sources.update_default_scope(source_id, scope) do
+         {:ok, source} <- Ankole.Brain.update_source_default_scope(source_id, scope) do
       json_plain(conn, %{source: %{id: source.id, kind: source.kind, name: source.name}})
     else
       :error -> {:error, {:missing, "default_audience_scope"}}
@@ -635,7 +645,7 @@ defmodule AnkoleWeb.BrainController do
 
   def archive_source(conn, %{"source_id" => source_id}) do
     with :ok <- ConsolePolicy.authorize(conn, "brain", "update"),
-         {:ok, archived} <- Sources.archive(source_id) do
+         {:ok, archived} <- Ankole.Brain.archive_source(source_id) do
       json_plain(conn, %{source: %{id: archived.id, archived_at: archived.archived_at}})
     end
   end

@@ -58,7 +58,8 @@ defmodule Ankole.Pod.GrantConcurrencyTest do
       Task.async(
         Repo.bind_tenant(fn ->
           Repo.transact(fn _ ->
-            assert {:ok, _} = Pages.move(editor.uid, child.id, %{parent_id: destination.id})
+            # The test holds the move's transaction open, so it runs the move body.
+            assert {:ok, _} = Pages.move_in_tx(editor.uid, child.id, %{parent_id: destination.id})
             send(parent, :move_holds_tree)
 
             receive do

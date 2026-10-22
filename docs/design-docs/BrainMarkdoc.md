@@ -123,7 +123,7 @@ Objects 校验写入作用域并按 segment 分块。GetPage 按读取与披露�
 
 | 状态 | 正文操作 | 引导 |
 | --- | --- | --- |
-| 租户自有且未删除 | 创建、编辑、保存 | `Objects.create_object/3` 或 `Objects.update_object/4` |
+| 租户自有且未删除 | 创建、编辑、保存 | `Ankole.Brain.create_object/2` 或 `Ankole.Brain.update_object/3` |
 | 已删除 | 只读 | 先恢复，再编辑 |
 | SourceLearning media 投影 | 只读 | 打开 Source 重新学习或归档 |
 | `agent-skills` 投影 | 只读 | 打开 Agent Library |

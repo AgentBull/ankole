@@ -1,12 +1,15 @@
 defmodule Ankole.Pod.Copy do
-  @moduledoc false
-  import Ecto.Query
+  @moduledoc """
+  Copies a Database table, its schema, records, and attachments to a new page.
+
+  The copy runs the `:copy_table` generic action of `Ankole.Pod.DbTable`. The
+  records move in one bounded SQL statement, so no record structs load.
+  """
   require Ash.Query
   alias Ankole.{Files, Repo}
   alias Ankole.Pod.Database.Write
 
   alias Ankole.Pod.{
-    Access,
     Config,
     Database,
     DbField,
@@ -17,64 +20,65 @@ defmodule Ankole.Pod.Copy do
     Query
   }
 
-  def table(uid, id, attrs, authority \\ nil) do
-    result =
-      Access.write_transaction(authority, fn _repo ->
-        Pages.lock_tree()
+  def table(uid, id, attrs, authority \\ nil),
+    do:
+      Ankole.Ash.run_action(DbTable, :copy_table, %{
+        uid: uid,
+        id: id,
+        attrs: attrs,
+        authority: authority
+      })
 
-        with {:ok, source} <- Database.table_access(uid, id, "page_view"),
-             _locked <-
-               Repo.all(
-                 from t in DbTable,
-                   where: t.page_id == ^source.page_id,
-                   order_by: t.id,
-                   lock: "FOR UPDATE"
-               ),
-             {:ok, limits} <- Config.limits(),
-             {:ok, timezone} <- Ankole.SystemConfig.timezone(),
-             {:ok, _} <- Repo.query("SELECT set_config('TimeZone',$1,true)", [timezone]),
-             {:ok, page} <-
-               Pages.create(uid, %{
-                 type: "database",
-                 title: Ankole.Attrs.get(attrs, :title, source.name),
-                 parent_id: Ankole.Attrs.get(attrs, :parent_id),
-                 private_owner_uid: Ankole.Attrs.get(attrs, :private_owner_uid)
-               }),
-             {:ok, target} <-
-               Ankole.Ash.create(DbTable, :create_in_tx, %{
-                 page_id: page.id,
-                 name: source.name,
-                 position: Ankole.Ecto.UUIDv7.autogenerate()
-               }),
-             definitions <- Database.fields(source.id),
-             {:ok, copied_fields, mapping} <- copy_fields(definitions, target),
-             :ok <- copy_views(source.id, target.id, mapping),
-             {:ok, count} <-
-               copy_records(
-                 uid,
-                 source,
-                 target,
-                 definitions,
-                 copied_fields,
-                 Ankole.Attrs.get(attrs, :filter),
-                 limits
-               ),
-             :ok <- copy_attachments(source, target),
-             {:ok, target} <- update_count(target, count, copied_fields) do
-          {:ok, %{page: page, table: target}}
-        end
-      end)
+  @doc "Publishes a committed copy: the tree changed and the new page exists."
+  def committed(%{page: page}) do
+    Pages.broadcast_access()
+    Pages.broadcast(page.id)
+  end
 
-    case result do
-      {:ok, %{page: page}} ->
-        Pages.broadcast_access()
-        Pages.broadcast(page.id)
+  @doc false
+  def table_in_tx(uid, id, attrs) do
+    Pages.lock_tree()
 
-      _ ->
-        :ok
+    with {:ok, source} <- Database.table_access(uid, id, "page_view"),
+         _locked <-
+           DbTable
+           |> Ash.Query.filter(page_id == ^source.page_id)
+           |> Ash.Query.sort(id: :asc)
+           |> Ash.Query.lock(:for_update)
+           |> Ankole.Ash.read!(),
+         {:ok, limits} <- Config.limits(),
+         {:ok, timezone} <- Ankole.SystemConfig.timezone(),
+         {:ok, _} <- Repo.query("SELECT set_config('TimeZone',$1,true)", [timezone]),
+         {:ok, page} <-
+           Pages.create_in_tx(uid, %{
+             type: "database",
+             title: Ankole.Attrs.get(attrs, :title, source.name),
+             parent_id: Ankole.Attrs.get(attrs, :parent_id),
+             private_owner_uid: Ankole.Attrs.get(attrs, :private_owner_uid)
+           }),
+         {:ok, target} <-
+           Ankole.Ash.create(DbTable, :create_in_tx, %{
+             page_id: page.id,
+             name: source.name,
+             position: Ankole.Ecto.UUIDv7.autogenerate()
+           }),
+         definitions <- Database.fields(source.id),
+         {:ok, copied_fields, mapping} <- copy_fields(definitions, target),
+         :ok <- copy_views(source.id, target.id, mapping),
+         {:ok, count} <-
+           copy_records(
+             uid,
+             source,
+             target,
+             definitions,
+             copied_fields,
+             Ankole.Attrs.get(attrs, :filter),
+             limits
+           ),
+         :ok <- copy_attachments(source, target),
+         {:ok, target} <- update_count(target, count, copied_fields) do
+      {:ok, %{page: page, table: target}}
     end
-
-    result
   end
 
   defp copy_fields(definitions, table) do
@@ -173,19 +177,21 @@ defmodule Ankole.Pod.Copy do
       {author_param, params} =
         Formula.bind(params, to_string(Ankole.ActorRef.from_writer(uid, Repo.tenant_id!(), [])))
 
-      sql = """
-      WITH selected AS (
-        SELECT row_number() OVER (ORDER BY r.id) AS row_num, jsonb_strip_nulls(#{data_sql}) AS data
-        FROM db_records r
-        WHERE r.tenant_id=$1::text::uuid AND r.table_id=$2::text::uuid AND (#{where})
-      )
-      INSERT INTO db_records (tenant_id,table_id,id,data,versions,created_by,created_at,updated_by,updated_at)
-      SELECT $1::text::uuid,#{target_param}::text::uuid,(#{ids_param}::text[]::uuid[])[row_num::int],data,
-        COALESCE((SELECT jsonb_object_agg(key,1) FROM jsonb_object_keys(data) AS key),'{}'::jsonb),
-        #{author_param}::text,now(),#{author_param}::text,now() FROM selected
-      """
-
-      with {:ok, _} <- Repo.query(sql, params) do
+      with {:ok, _} <-
+             Repo.query(
+               """
+               WITH selected AS (
+                 SELECT row_number() OVER (ORDER BY r.id) AS row_num, jsonb_strip_nulls(#{data_sql}) AS data
+                 FROM db_records r
+                 WHERE r.tenant_id=$1::text::uuid AND r.table_id=$2::text::uuid AND (#{where})
+               )
+               INSERT INTO db_records (tenant_id,table_id,id,data,versions,created_by,created_at,updated_by,updated_at)
+               SELECT $1::text::uuid,#{target_param}::text::uuid,(#{ids_param}::text[]::uuid[])[row_num::int],data,
+                 COALESCE((SELECT jsonb_object_agg(key,1) FROM jsonb_object_keys(data) AS key),'{}'::jsonb),
+                 #{author_param}::text,now(),#{author_param}::text,now() FROM selected
+               """,
+               params
+             ) do
         with :ok <- validate_record_sizes(target.id, limits), do: {:ok, count}
       end
     end

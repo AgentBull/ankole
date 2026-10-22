@@ -45,7 +45,7 @@ defmodule AnkoleWeb.OIDCController do
                :ok <- LoginPolicy.authorize_source(client, auth["provider_id"]),
                :ok <- LoginPolicy.completed_authentication_allowed?(auth, params),
                :ok <- Grants.gateway(client.id, auth["principal_uid"], params["scope"]),
-               {:ok, code} <- Grants.authorize(params, auth) do
+               {:ok, code} <- Grants.authorize_in_tx(params, auth) do
             {:ok, authorization_redirect(conn, params, code)}
           end
         end

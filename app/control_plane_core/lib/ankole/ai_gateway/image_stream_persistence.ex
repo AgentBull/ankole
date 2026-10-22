@@ -11,7 +11,7 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
   alias Ankole.AIGateway.Artifacts
   alias Ankole.AIGateway.HostedTools.ImageGeneration.Error
   alias Ankole.AIGateway.OpenAIError
-  alias Ankole.Repo
+  alias Ankole.AIGateway.Schemas.Artifact
 
   defstruct subject_uid: nil,
             message_id: nil,
@@ -45,13 +45,20 @@ defmodule Ankole.AIGateway.ImageStreamPersistence do
 
   @spec persist_response(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def persist_response(subject_uid, response, opts \\ []) when is_map(response) do
-    output = Map.get(response, "output", [])
-
-    case Repo.transact(fn _repo -> persist_output_items(subject_uid, output, opts) end) do
+    case Ankole.Ash.run_action(Artifact, :persist_output, %{
+           subject_uid: subject_uid,
+           output: Map.get(response, "output", []),
+           options: opts
+         }) do
       {:ok, persisted} -> {:ok, Map.put(response, "output", persisted)}
       {:error, reason} -> {:error, Error.normalize_persistence(reason)}
     end
   end
+
+  @doc false
+  # Runs the `:persist_output` action: all images of one response commit together.
+  def persist_output(%{subject_uid: subject_uid, output: output, options: opts}),
+    do: persist_output_items(subject_uid, output, opts)
 
   @spec observe(t(), map()) :: observation()
   def observe(%__MODULE__{} = state, %{} = event) do

@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.Link do
   @moduledoc "One immutable directed edge with native null-equal retry identity."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_links")
@@ -63,8 +63,6 @@ defmodule Ankole.Brain.Schemas.Link do
     defaults([:read])
 
     create_if_absent :add do
-      transaction?(false)
-
       accept([
         :id,
         :from_object_slug,
@@ -83,7 +81,6 @@ defmodule Ankole.Brain.Schemas.Link do
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
     end
   end

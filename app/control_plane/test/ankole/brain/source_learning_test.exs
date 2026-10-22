@@ -14,7 +14,6 @@ defmodule Ankole.Brain.SourceLearningTest do
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.SourceLearning
-  alias Ankole.Brain.Sources
   alias Ankole.Repo
   alias Ankole.AgentWorkers.WorkerRoute
 
@@ -143,10 +142,12 @@ defmodule Ankole.Brain.SourceLearningTest do
            }
 
     assert {:error, {:source_managed, ^slug, _details}} =
-             Objects.update_object(
-               slug,
-               %{body: "instance edit", expected_content_hash: content_hash},
-               :system
+             Ankole.Errors.reason(
+               Ankole.Brain.update_object(
+                 slug,
+                 %{body: "instance edit", expected_content_hash: content_hash},
+                 :system
+               )
              )
   end
 
@@ -337,7 +338,7 @@ defmodule Ankole.Brain.SourceLearningTest do
     learning = Task.async(Repo.bind_tenant(fn -> SourceLearning.learn(source.id) end))
 
     assert_receive {:archive_fence_reached, upstream_request}
-    assert {:ok, _archived} = Sources.archive(source.id)
+    assert {:ok, _archived} = Ankole.Brain.archive_source(source.id)
     send(upstream_request, :release_archive_fence)
 
     assert Task.await(learning, 5_000) == {:error, :source_archived}

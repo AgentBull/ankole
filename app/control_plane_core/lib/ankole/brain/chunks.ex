@@ -4,9 +4,9 @@ defmodule Ankole.Brain.Chunks do
 
   Body chunks precede timeline chunks. An unchanged position retains its row
   and vector; a changed position invalidates vector state. Embeddings do not
-  move between positions.
+  move between positions. The `:reconcile_chunks` action of
+  `Ankole.Brain.Schemas.Object` owns the transaction of a reconcile.
   """
-  import Ecto.Query, only: [from: 2]
   require Ash.Query
 
   alias Ankole.Brain.Chunker
@@ -17,17 +17,24 @@ defmodule Ankole.Brain.Chunks do
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Repo
 
-  @doc "Reconciles an object's positions under its current persisted row lock."
-  @spec reconcile(Object.t(), keyword()) :: {:ok, Object.t()} | {:error, term()}
-  def reconcile(%Object{} = object, opts \\ []) do
-    chunking = Keyword.get(opts, :chunking, Config.chunking())
+  @doc """
+  Reconciles an object's positions in the caller's transaction, under the
+  current persisted row lock. `chunking:` overrides the configured chunking.
+  """
+  @spec reconcile_in_tx(Object.t(), keyword()) :: {:ok, Object.t()} | {:error, term()}
+  def reconcile_in_tx(%Object{} = object, opts \\ []) do
+    chunking = Keyword.get(opts, :chunking) || Config.chunking()
 
-    Repo.transact(fn repo ->
-      case repo.one(from(o in Object, where: o.id == ^object.id, lock: "FOR UPDATE")) do
+    with :ok <- Repo.require_transaction(Repo) do
+      Object
+      |> Ash.Query.filter(id == ^object.id)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read_one!()
+      |> case do
         %Object{} = current -> reconcile_current(current, chunking)
         nil -> {:error, :not_found}
       end
-    end)
+    end
   end
 
   @doc "Records a vector result only while the text and prior embedding state still match."
@@ -65,15 +72,11 @@ defmodule Ankole.Brain.Chunks do
 
     Chunk
     |> Ash.Query.filter(id == ^chunk.id)
-    |> Ankole.Ash.bulk_update(:record_embedding, input,
-      strategy: [:atomic],
-      return_errors?: true,
-      return_records?: true
-    )
+    |> Ankole.Ash.update_where(:record_embedding, input)
     |> case do
-      %Ash.BulkResult{status: :success, records: []} -> {:ok, :stale}
-      %Ash.BulkResult{status: :success, records: [_chunk]} -> {:ok, :updated}
-      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+      {:ok, []} -> {:ok, :stale}
+      {:ok, [_chunk]} -> {:ok, :updated}
+      {:error, _error} = error -> error
     end
   end
 
@@ -104,11 +107,8 @@ defmodule Ankole.Brain.Chunks do
     else
       Chunk
       |> Ash.Query.filter(object_id == ^object_id and chunk_index in ^stale_indexes)
-      |> Ankole.Ash.bulk_destroy(:remove_projection, %{},
-        strategy: [:atomic],
-        return_errors?: true
-      )
-      |> bulk_result()
+      |> Ankole.Ash.destroy_where(:remove_projection)
+      |> written()
     end
   end
 
@@ -142,11 +142,8 @@ defmodule Ankole.Brain.Chunks do
     else
       Chunk
       |> Ash.Query.filter(id == ^chunk.id)
-      |> Ankole.Ash.bulk_update(:replace_projection, position_attrs(spec),
-        strategy: [:atomic],
-        return_errors?: true
-      )
-      |> bulk_result()
+      |> Ankole.Ash.update_where(:replace_projection, position_attrs(spec))
+      |> written()
     end
   end
 
@@ -159,10 +156,8 @@ defmodule Ankole.Brain.Chunks do
     }
   end
 
-  defp bulk_result(%Ash.BulkResult{status: :success}), do: :ok
-
-  defp bulk_result(%Ash.BulkResult{errors: errors}),
-    do: {:error, Ash.Error.to_error_class(errors)}
+  defp written({:ok, _records}), do: :ok
+  defp written({:error, _error} = error), do: error
 
   defp desired_chunks(object, chunking) do
     with {:ok, segments} <- Markdoc.segments(object.body) do

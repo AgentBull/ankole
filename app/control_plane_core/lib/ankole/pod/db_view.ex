@@ -1,6 +1,6 @@
 defmodule Ankole.Pod.DbView do
   @moduledoc "A table view and its schema version."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Pod
 
   postgres do
     table("db_views")
@@ -44,18 +44,59 @@ defmodule Ankole.Pod.DbView do
     defaults([:read])
 
     create :create_in_tx do
-      transaction?(false)
       accept([:id, :table_id, :name, :position, :type, :config])
     end
 
-    atomic_in_tx_update :update_definition do
+    update :update_definition do
+      require_atomic?(true)
       accept([:name, :position, :type, :config])
       change(atomic_update(:version, expr(version + 1)))
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :create_view, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Database, :committed_schema})
+
+      run(fn %{arguments: a}, _context ->
+        Ankole.Pod.Access.write(a.authority, fn ->
+          Ankole.Pod.Database.Schema.create_view_in_tx(a.uid, a.id, a.attrs)
+        end)
+      end)
+    end
+
+    action :update_view, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Database, :committed_schema})
+
+      run(fn %{arguments: a}, _context ->
+        Ankole.Pod.Access.write(a.authority, fn ->
+          Ankole.Pod.Database.Schema.update_view_in_tx(a.uid, a.id, a.attrs)
+        end)
+      end)
+    end
+
+    action :delete_view, :term do
+      argument(:uid, :term)
+      argument(:id, :term)
+      argument(:version, :term)
+      argument(:authority, :term)
+      after_commit({Ankole.Pod.Database, :committed_schema})
+
+      run(fn %{arguments: a}, _context ->
+        Ankole.Pod.Access.write(a.authority, fn ->
+          Ankole.Pod.Database.Schema.delete_view_in_tx(a.uid, a.id, a.version)
+        end)
+      end)
     end
   end
 

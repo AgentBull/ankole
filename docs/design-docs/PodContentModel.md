@@ -153,6 +153,30 @@ that commits the content. The RPC broker passes this authority from the
 authenticated turn. A delayed file relay cannot commit after that turn closes
 or its attempt is replaced.
 
+### Persistence and transactions
+
+The root module `Ankole.Pod` is the Ash domain. Its resources are `Page`,
+`PageContent`, `PageChange`, `PageUserState`, `DbTable`, `DbField`, and
+`DbView`. Each Pod operation that writes, or reads under a row lock, is a
+generic action of its subject resource: page, document, file, applet, and purge
+operations on `Page`; table, record, query, and copy operations on `DbTable`;
+field operations on `DbField`; view operations on `DbView`. The generic action
+owns the transaction. Its first step checks and locks the Agent's turn when the
+operation has write authority. The module functions (`Ankole.Pod.Pages.create/3`
+and the others) run these actions and give the domain reason of a failure. The
+`*_in_tx` functions are the action bodies; another Pod operation can call one of
+them in its own transaction, as a Database copy calls `Pages.create_in_tx/2`.
+Broadcasts to the page, access, and table topics run after the commit
+(`after_commit`), and only when the action succeeds.
+
+The page tree read model is native SQL in `Ankole.Pod.Access` (`path/1`,
+`canonical_navigation/2`, `subtree_preserves_permissions?/4`) and in
+`Ankole.Pod.Jobs.PurgePage.descendants/1`. The recursive queries select only
+the tree and permission columns and give maps, not `Page` records. Other page
+reads use Ash queries. Permission grants belong to AuthZ: the Pod reads them
+through the AuthZ domain and changes them through its in-transaction grant
+functions.
+
 Each content table carries `tenant_id`. Composite foreign keys prevent a
 reference to another tenant. `Ankole.Repo` requires an explicit tenant context.
 Tenant deletion removes records and other children in batches before pages.
@@ -167,10 +191,11 @@ foreign-key cascades to perform bulk deletion.
 ## Documents and collaboration
 
 `Ankole.Pod.Documents` owns revisions and writes. Ash resources own the persisted
-Page, PageContent, PageChange, and PageUserState facts. Their actions require the
-calling aggregate transaction. Page revision increments run as database
-expressions. PageChange entries are immutable; the write transaction appends and
-prunes them with the content update. Favorite and visit upserts change only the
+Page, PageContent, PageChange, and PageUserState facts. Their create, update,
+and destroy actions run in the transaction of the calling generic action. Page
+revision increments run as database expressions. PageChange entries are
+immutable; the write transaction appends and prunes them with the content
+update. Favorite and visit upserts change only the
 fields that the caller supplies. The existing tree lock and AuthZ proof remain
 part of the aggregate transaction.
 
@@ -233,15 +258,22 @@ a selection or an Agent document rewrite leaves the page in the tree.
 their Database page's access and lifecycle. Schema operations do not run DDL.
 A table has one primary field and at most 100,000 records.
 
-The four models are Ash resources in `Ankole.Pod.Domain`. Create actions set
+Tables, fields, and views are Ash resources in `Ankole.Pod`. Records are not:
+users define their fields at runtime, and record queries are built from user
+filters. The Database subsystem (`Ankole.Pod.Database` and its `Write`,
+`Records`, and `Schema` modules, `Ankole.Pod.Query`, `Ankole.Pod.Copy`, and
+`Ankole.Pod.Values`) owns `db_records` through the `Ankole.Pod.DbRecord` Ecto
+schema. Only this subsystem writes record rows; it reads tables, fields, and
+views through Ash. Create actions and the record create changeset set
 identity and ownership once. Field and view updates advance their stored
 version with SQL expressions. The locked write journal advances each affected
 table's stored version and counters once per commit. PostgreSQL checks reject
 negative counters, record counts above the limit, nonpositive schema versions,
 and JSON values that are not objects. Database authorization and sorted table
 locks remain in the aggregate write transaction. Record copy, field conversion,
-and field-value removal use typed resource actions with bounded SQL processing.
-Purge uses the same resource destroy actions in batches of 1,000 rows.
+and field-value removal use bounded SQL statements of the Database subsystem.
+Purge uses the same resource destroy actions in batches of 1,000 rows; the
+Database subsystem removes record rows in batches of the same size.
 
 Records use JSONB maps keyed by field UUID. The `versions` map holds a separate
 compare-and-set value per field. An update supplies the versions of changed

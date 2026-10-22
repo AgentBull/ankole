@@ -12,7 +12,6 @@ defmodule AnkoleWeb.BrainControllerTest do
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Brain.Chunks
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
@@ -95,13 +94,13 @@ defmodule AnkoleWeb.BrainControllerTest do
     assert {:ok, _} = SchemaPacks.install_packs([])
 
     assert {:ok, object} =
-             Objects.create_object(
+             Ankole.Brain.create_object(
                %{slug: "notes/private", type: "note", title: "Private"},
                other.uid
              )
 
     assert {:ok, %{claim: claim}} =
-             Ankole.Brain.Claims.write_fact(
+             Ankole.Brain.write_fact(
                %{
                  object_slug: object.slug,
                  claim: "Private original",

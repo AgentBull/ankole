@@ -25,16 +25,30 @@ defmodule Ankole.Files do
   Paths are relative, use `/` as the separator, and have no empty, `.`, or
   `..` segment. A folder is only a path prefix; there are no folder rows.
   A file cannot also be the parent of another file.
-  """
 
-  import Ecto.Query
+  This module is also the Ash domain of the `Blob` and `DriveFile` resources.
+  A commit, move, delete, or snapshot listing runs a generic action of
+  `DriveFile`, which owns the transaction. Another domain that names files in
+  its own transaction calls `commit/4`.
+  """
+  use Ankole.Ash.Domain
+
   require Ash.Query
+  require Ash.Sort
 
   alias Ankole.Files.Schemas.DriveFile
   alias Ankole.Files.Schemas.Blob
   alias Ankole.ObjectStore
   alias Ankole.Principals
   alias Ankole.Repo
+
+  resources do
+    resource(Blob)
+
+    resource DriveFile do
+      define(:list_drive_files, action: :read)
+    end
+  end
 
   defguardp is_drive(drive) when is_binary(drive) or drive == :pod
 
@@ -89,9 +103,13 @@ defmodule Ankole.Files do
   """
   @spec commit(drive(), [upsert()], [String.t()]) ::
           {:ok, commit_result()} | {:error, term()}
-  def commit(drive, upserts, deletes \\ []) when is_drive(drive) do
-    Repo.transact(fn repo -> commit(repo, drive, upserts, deletes) end)
-  end
+  def commit(drive, upserts, deletes \\ []) when is_drive(drive),
+    do:
+      Ankole.Ash.run_action(DriveFile, :commit_paths, %{
+        drive: drive,
+        upserts: upserts,
+        deletes: deletes
+      })
 
   @doc """
   Same as `commit/3` inside the caller's transaction on `repo`.
@@ -106,7 +124,7 @@ defmodule Ankole.Files do
          :ok <- lock_drive(repo, drive),
          {:ok, sizes} <- reference_blobs(Enum.map(upserts, & &1.sha256)),
          deleted = deletes |> Enum.map(&delete_path_in_tx(drive, &1)) |> Enum.sum(),
-         :ok <- validate_path_tree(repo, drive, upserts) do
+         :ok <- validate_path_tree(drive, upserts) do
       files =
         Enum.map(upserts, fn upsert ->
           {:ok, file} = upsert_file(drive, upsert)
@@ -218,28 +236,33 @@ defmodule Ankole.Files do
   def list(drive, prefix \\ "", opts \\ []) when is_drive(drive) do
     limit = opts |> Keyword.get(:limit, @default_list_limit) |> min(@max_list_limit) |> max(1)
 
-    if Keyword.get(opts, :snapshot, false) do
-      Repo.transact(fn repo ->
-        with :ok <- lock_drive(repo, drive),
-             {:ok, query} <- prefix_query(files_query(drive), prefix),
-             {:ok, page} <-
-               list(drive, prefix, Keyword.put(opts, :snapshot, false)) do
-          manifest =
-            query
-            |> Ash.Query.unload([:size])
-            |> Ash.Query.select([:path, :sha256, :mode])
-            |> Ash.Query.sort(path: :asc)
-            |> Ankole.Ash.read!()
-            |> Enum.map(&{&1.path, &1.sha256, &1.mode})
+    if Keyword.get(opts, :snapshot, false),
+      do:
+        Ankole.Ash.run_action(DriveFile, :list_snapshot, %{
+          drive: drive,
+          prefix: prefix,
+          opts: opts
+        }),
+      else: list_page(drive, prefix, opts, limit)
+  end
 
-          revision =
-            :crypto.hash(:sha256, :erlang.term_to_binary(manifest)) |> Base.encode16(case: :lower)
+  @doc false
+  def list_snapshot_in_tx(drive, prefix, opts) do
+    with :ok <- lock_drive(Repo, drive),
+         {:ok, query} <- prefix_query(files_query(drive), prefix),
+         {:ok, page} <- list(drive, prefix, Keyword.put(opts, :snapshot, false)) do
+      manifest =
+        query
+        |> Ash.Query.unload([:size])
+        |> Ash.Query.select([:path, :sha256, :mode])
+        |> Ash.Query.sort(path: :asc)
+        |> Ankole.Ash.read!()
+        |> Enum.map(&{&1.path, &1.sha256, &1.mode})
 
-          {:ok, Map.put(page, :revision, revision)}
-        end
-      end)
-    else
-      list_page(drive, prefix, opts, limit)
+      revision =
+        :crypto.hash(:sha256, :erlang.term_to_binary(manifest)) |> Base.encode16(case: :lower)
+
+      {:ok, Map.put(page, :revision, revision)}
     end
   end
 
@@ -273,25 +296,23 @@ defmodule Ankole.Files do
 
     with {:ok, scope} <- children_scope(prefix) do
       {like_pattern, offset} = scope
+      base = Ash.Query.filter(files_query(drive), fragment("? LIKE ?", path, ^like_pattern))
+      folder = Ash.Sort.expr_sort(fragment("split_part(substr(?, ?), '/', 1)", path, ^offset))
 
-      base =
-        from(file in DriveFile,
-          where: ^drive_scope(drive),
-          where: like(file.path, ^like_pattern)
-        )
-
+      # One row for each subfolder: the first path under it.
       folders =
         base
-        |> where([file], fragment("strpos(substr(?, ?), '/') > 0", file.path, ^offset))
-        |> select([file], fragment("split_part(substr(?, ?), '/', 1)", file.path, ^offset))
-        |> distinct(true)
-        |> order_by([file], fragment("1"))
-        |> limit(^(limit + 1))
-        |> Repo.all()
+        |> Ash.Query.unload([:size])
+        |> Ash.Query.filter(fragment("strpos(substr(?, ?), '/') > 0", path, ^offset))
+        |> Ash.Query.distinct([{folder, :asc}])
+        |> Ash.Query.sort([{folder, :asc}])
+        |> Ash.Query.select([:path])
+        |> Ash.Query.limit(limit + 1)
+        |> Ankole.Ash.read!()
+        |> Enum.map(&folder_name(&1.path, offset))
 
       files =
-        files_query(drive)
-        |> Ash.Query.filter(fragment("? LIKE ?", path, ^like_pattern))
+        base
         |> Ash.Query.filter(fragment("strpos(substr(?, ?), '/') = 0", path, ^offset))
         |> Ash.Query.sort(path: :asc)
         |> Ash.Query.limit(limit + 1)
@@ -320,34 +341,37 @@ defmodule Ankole.Files do
     with {:ok, from_path} <- normalize_path(from_path),
          {:ok, to_path} <- normalize_path(to_path),
          :ok <- validate_move_target(from_path, to_path) do
-      Repo.transact(fn repo ->
-        with :ok <- lock_drive(repo, drive) do
-          # Remove the source paths before checking the final tree. A folder
-          # can move up into its parent without conflicting with itself.
-          sources = remove_paths_in_tx(drive, from_path)
+      Ankole.Ash.run_action(DriveFile, :move_paths, %{drive: drive, from: from_path, to: to_path})
+    end
+  end
 
-          moved = Enum.map(sources, &%{&1 | path: moved_path(&1.path, from_path, to_path)})
+  @doc false
+  def move_in_tx(drive, from_path, to_path) do
+    with :ok <- lock_drive(Repo, drive) do
+      # Remove the source paths before checking the final tree. A folder
+      # can move up into its parent without conflicting with itself.
+      sources = remove_paths_in_tx(drive, from_path)
 
-          with :ok <- require_sources(sources),
-               :ok <- validate_path_tree(repo, drive, moved),
-               :ok <- insert_moved(moved) do
-            {:ok, length(moved)}
-          end
-        end
-      end)
+      moved = Enum.map(sources, &%{&1 | path: moved_path(&1.path, from_path, to_path)})
+
+      with :ok <- require_sources(sources),
+           :ok <- validate_path_tree(drive, moved),
+           :ok <- insert_moved(moved) do
+        {:ok, length(moved)}
+      end
     end
   end
 
   @doc "Removes one path and every path under it. Returns how many files were removed."
   @spec delete(drive(), String.t()) :: {:ok, non_neg_integer()} | {:error, term()}
   def delete(drive, path) when is_drive(drive) do
-    with {:ok, path} <- normalize_path(path) do
-      Repo.transact(fn repo ->
-        with :ok <- lock_drive(repo, drive) do
-          {:ok, delete_path_in_tx(drive, path)}
-        end
-      end)
-    end
+    with {:ok, path} <- normalize_path(path),
+         do: Ankole.Ash.run_action(DriveFile, :delete_paths, %{drive: drive, path: path})
+  end
+
+  @doc false
+  def delete_in_tx(drive, path) do
+    with :ok <- lock_drive(Repo, drive), do: {:ok, delete_path_in_tx(drive, path)}
   end
 
   @doc "Returns whether the drive already names one content at some path."
@@ -355,9 +379,14 @@ defmodule Ankole.Files do
   def drive_has_content?(drive, sha256) when is_drive(drive) do
     case decode_sha256(sha256) do
       {:ok, digest} ->
-        Repo.exists?(
-          from(file in DriveFile, where: ^drive_scope(drive), where: file.sha256 == ^digest)
-        )
+        drive
+        |> files_query()
+        |> Ash.Query.unload([:size])
+        |> Ash.Query.filter(sha256 == ^digest)
+        |> Ash.Query.select([:path])
+        |> Ash.Query.limit(1)
+        |> Ankole.Ash.read_one!()
+        |> is_struct()
 
       {:error, _reason} ->
         false
@@ -455,9 +484,9 @@ defmodule Ankole.Files do
 
   def file_name(_name), do: "file"
 
-  defp validate_path_tree(_repo, _drive, []), do: :ok
+  defp validate_path_tree(_drive, []), do: :ok
 
-  defp validate_path_tree(repo, drive, upserts) do
+  defp validate_path_tree(drive, upserts) do
     paths = MapSet.new(upserts, & &1.path)
 
     ancestors =
@@ -471,25 +500,21 @@ defmodule Ankole.Files do
         end)
       )
 
-    descendant =
-      Enum.reduce(paths, dynamic(false), fn path, predicate ->
-        prefix = Repo.escape_like(path) <> "/%"
-        dynamic([file], ^predicate or like(file.path, ^prefix))
-      end)
-
-    conflict_path = dynamic([file], file.path in ^Map.keys(ancestors) or ^descendant)
+    prefixes = Enum.map(paths, &(Repo.escape_like(&1) <> "/%"))
 
     conflict =
       Enum.find(Map.keys(ancestors), &MapSet.member?(paths, &1)) ||
-        repo.one(
-          from(file in DriveFile,
-            where: ^drive_scope(drive),
-            where: ^conflict_path,
-            select: file.path,
-            order_by: file.path,
-            limit: 1
-          )
+        drive
+        |> files_query()
+        |> Ash.Query.unload([:size])
+        |> Ash.Query.filter(
+          path in ^Map.keys(ancestors) or fragment("? LIKE ANY(?::text[])", path, ^prefixes)
         )
+        |> Ash.Query.select([:path])
+        |> Ash.Query.sort(path: :asc)
+        |> Ash.Query.limit(1)
+        |> Ankole.Ash.read_one!()
+        |> then(&(&1 && &1.path))
 
     case conflict do
       nil ->
@@ -616,21 +641,14 @@ defmodule Ankole.Files do
   defp reference_blobs(digests) do
     digests = Enum.uniq(digests)
 
-    rows =
-      Blob
-      |> Ash.Query.filter(sha256 in ^digests)
-      |> Ankole.Ash.bulk_update(:reference, %{},
-        strategy: [:atomic],
-        return_records?: true,
-        return_errors?: true
-      )
-      |> bulk_records!()
+    with {:ok, rows} <-
+           Blob |> Ash.Query.filter(sha256 in ^digests) |> Ankole.Ash.update_where(:reference) do
+      sizes = Map.new(rows, &{&1.sha256, &1.size})
 
-    sizes = Map.new(rows, &{&1.sha256, &1.size})
-
-    case Enum.find(digests, &(not Map.has_key?(sizes, &1))) do
-      nil -> {:ok, sizes}
-      missing -> {:error, {:blob_missing, Base.encode16(missing, case: :lower)}}
+      case Enum.find(digests, &(not Map.has_key?(sizes, &1))) do
+        nil -> {:ok, sizes}
+        missing -> {:error, {:blob_missing, Base.encode16(missing, case: :lower)}}
+      end
     end
   end
 
@@ -693,21 +711,19 @@ defmodule Ankole.Files do
     |> Enum.map(&Map.take(&1, @move_fields))
     |> Enum.chunk_every(1000)
     |> Enum.reduce_while(:ok, fn rows, :ok ->
-      records =
+      result =
         Ankole.Ash.bulk_create(rows, DriveFile, :move,
           return_records?: true,
           return_errors?: true
         )
-        |> bulk_records!()
 
-      if length(records) == length(rows),
-        do: {:cont, :ok},
-        else: {:halt, {:error, :already_exists}}
+      cond do
+        result.status != :success -> {:halt, {:error, result.errors}}
+        length(result.records) == length(rows) -> {:cont, :ok}
+        true -> {:halt, {:error, :already_exists}}
+      end
     end)
   end
-
-  defp bulk_records!(%Ash.BulkResult{status: :success, records: records}), do: records
-  defp bulk_records!(%Ash.BulkResult{errors: errors}), do: raise(Ash.Error.to_error_class(errors))
 
   defp children_scope(prefix) when prefix in ["", nil], do: {:ok, {"%", 1}}
 
@@ -719,8 +735,9 @@ defmodule Ankole.Files do
     end
   end
 
-  defp drive_scope(:pod), do: dynamic([file], is_nil(file.agent_uid))
-  defp drive_scope(drive), do: dynamic([file], file.agent_uid == ^drive)
+  # PostgreSQL `substr` counts characters, so the offset counts characters too.
+  defp folder_name(path, offset),
+    do: path |> String.slice((offset - 1)..-1//1) |> String.split("/", parts: 2) |> hd()
 
   defp files_query(drive) do
     query = Ash.Query.load(DriveFile, :size)

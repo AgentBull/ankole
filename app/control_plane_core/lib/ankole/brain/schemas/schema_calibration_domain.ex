@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.SchemaCalibrationDomain do
   @moduledoc "An installed calibration domain and its aggregator."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_schema_calibration_domains")
@@ -31,7 +31,6 @@ defmodule Ankole.Brain.Schemas.SchemaCalibrationDomain do
     defaults([:read])
 
     create :register do
-      transaction?(false)
       accept([:id, :name, :aggregator, :pack_name, :created_at])
     end
   end

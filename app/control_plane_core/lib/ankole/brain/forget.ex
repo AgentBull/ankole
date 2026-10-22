@@ -13,6 +13,7 @@ defmodule Ankole.Brain.Forget do
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Scope
   alias Ankole.Repo
 
@@ -32,8 +33,8 @@ defmodule Ankole.Brain.Forget do
       Repo.transact(fn _repo ->
         result =
           case claim.claim_type do
-            :fact -> Claims.expire_fact(claim.id)
-            :take -> Claims.deactivate_take(claim.id)
+            :fact -> Claims.expire_fact_in_tx(claim.id)
+            :take -> Claims.deactivate_take_in_tx(claim.id)
           end
 
         with {:ok, updated} <- result do
@@ -54,7 +55,11 @@ defmodule Ankole.Brain.Forget do
     with :ok <- validate_reason(reason),
          {:ok, object} <- Objects.resolve_slug(slug),
          :ok <- validate_object_eligibility(object, caller) do
-      Objects.soft_delete(object.slug, reason: String.trim(reason), by: caller_label(caller))
+      Ankole.Ash.run_action(Object, :soft_delete_object, %{
+        slug: object.slug,
+        reason: String.trim(reason),
+        by: caller_label(caller)
+      })
     end
   end
 

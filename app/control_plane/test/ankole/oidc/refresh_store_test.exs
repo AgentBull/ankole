@@ -30,10 +30,37 @@ defmodule Ankole.OIDC.RefreshStoreTest do
       claims: %{"session_id" => session.id}
     }
 
+    # The code exchange issues the first token of a family in its transaction.
     {:ok, issued} =
-      Attesto.RefreshToken.issue(RefreshStore, context, ttl: 2_592_000, family_ttl: 2_592_000)
+      Repo.transact(fn ->
+        Attesto.RefreshToken.issue(RefreshStore, context, ttl: 2_592_000, family_ttl: 2_592_000)
+      end)
 
     {:ok, client: client, session: session, issued: issued}
+  end
+
+  test "an online authorization of the same login keeps the Session of live refresh tokens",
+       ctx do
+    authentication =
+      Ankole.BrowserSessions.authentication(
+        %{
+          "id" => ctx.session.authentication_id,
+          "revision" => ctx.session.authentication_revision
+        },
+        :oauth
+      )
+
+    assert {:ok, session} = Sessions.ensure(ctx.client.id, authentication, "openid")
+    assert session.id == ctx.session.id
+    assert session.expires_at == ctx.session.expires_at
+
+    assert {:ok, %{refresh_token: rotated}} =
+             Ankole.OIDC.Grants.exchange(ctx.client, %{
+               "grant_type" => "refresh_token",
+               "refresh_token" => ctx.issued.token
+             })
+
+    assert rotated != ctx.issued.token
   end
 
   test "rotation persists encrypted successor and retries return the same live child", ctx do

@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.SigningKeyRecord do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.OIDC.Domain
+  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.OIDC
 
   postgres do
     table("oidc_signing_keys")
@@ -43,7 +43,6 @@ defmodule Ankole.OIDC.SigningKeyRecord do
 
     create_if_absent :initialize_in_tx, upsert_fields: [:id] do
       accept([:id, :kid, :public_jwk, :private_key_ciphertext])
-      transaction?(false)
       validate(attribute_equals(:id, "primary"))
     end
   end

@@ -495,7 +495,7 @@ defmodule Ankole.AgentWorkers do
   @spec running_turn_agents([String.t()]) :: MapSet.t(String.t())
   def running_turn_agents(agent_uids) do
     {:ok, jobs} =
-      Ankole.BackgroundAgentJobs.Domain.list_jobs(
+      Ankole.BackgroundAgentJobs.list_jobs(
         query: [filter: [agent_uid: [in: agent_uids], status: :running], select: [:agent_uid]]
       )
 

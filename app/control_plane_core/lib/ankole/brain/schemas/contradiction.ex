@@ -2,7 +2,7 @@ defmodule Ankole.Brain.Schemas.Contradiction do
   @moduledoc "Immutable proposal facts and their one-time review decision."
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Brain.Domain,
+    domain: Ankole.Brain,
     extensions: [AshStateMachine]
 
   postgres do
@@ -89,16 +89,37 @@ defmodule Ankole.Brain.Schemas.Contradiction do
       change(Ankole.Brain.Changes.ClassifyContradiction)
     end
 
-    atomic_in_tx_update :resolve do
+    update :resolve do
+      require_atomic?(true)
       accept([:resolution_note])
       change(set_attribute(:decided_at, &DateTime.utc_now/0))
       change(transition_state(:resolved))
     end
 
-    atomic_in_tx_update :dismiss do
+    update :dismiss do
+      require_atomic?(true)
       accept([:resolution_note])
       change(set_attribute(:decided_at, &DateTime.utc_now/0))
       change(transition_state(:dismissed))
+    end
+
+    # An operator decision locks the finding and owns its transaction.
+    action :decide, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:contradiction_id, :uuid, allow_nil?: false)
+
+      argument(:status, :atom,
+        allow_nil?: false,
+        constraints: [one_of: [:resolved, :dismissed]]
+      )
+
+      argument(:resolution_note, :string, constraints: [trim?: false, allow_empty?: true])
+
+      run(fn %{arguments: args}, _context ->
+        args.contradiction_id
+        |> Ankole.Brain.Dreaming.decide_contradiction_in_tx(args.status, args[:resolution_note])
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 

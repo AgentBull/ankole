@@ -9,7 +9,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.BackgroundAgentJobs.Domain,
+    domain: Ankole.BackgroundAgentJobs,
     extensions: [AshStateMachine]
 
   alias Ankole.BackgroundAgentJobs.Trajectory
@@ -30,14 +30,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
 
   @spec kinds() :: [String.t()]
   def kinds, do: @kinds
-
-  @doc "Checks the canonical turn transition table."
-  @spec transition_allowed?(status(), status()) :: boolean()
-  def transition_allowed?(current, next) when is_atom(current) and is_atom(next) do
-    __MODULE__
-    |> AshStateMachine.Info.state_machine_transitions(:checkpoint)
-    |> Enum.any?(&(current in List.wrap(&1.from) and next in List.wrap(&1.to)))
-  end
 
   @doc "Whether the turn ran on the given lead thread."
   @spec lead?(t(), String.t() | nil) :: boolean()
@@ -146,6 +138,21 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
     identity(:runtime_turn, [:job_id, :runtime_turn_id], all_tenants?: true)
   end
 
+  relationships do
+    belongs_to :job, Ankole.BackgroundAgentJobs.Schemas.Job do
+      source_attribute(:job_id)
+      attribute_type(:integer)
+      define_attribute?(false)
+      allow_nil?(false)
+      public?(true)
+    end
+
+    has_many :items, Ankole.BackgroundAgentJobs.Schemas.TurnItem do
+      destination_attribute(:turn_id)
+      public?(true)
+    end
+  end
+
   state_machine do
     state_attribute(:status)
     initial_states(@statuses)
@@ -192,7 +199,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
     defaults([:read])
 
     create :record do
-      transaction?(false)
       accept([:status | @checkpoint_attributes])
 
       validate(fn changeset, _context -> validate_checkpoint(changeset) end,
@@ -200,7 +206,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
       )
     end
 
-    in_tx_update :checkpoint do
+    update :checkpoint do
       accept(@checkpoint_attributes -- [:job_id, :attempt, :runtime_thread_id, :runtime_turn_id])
 
       argument(:next_status, Ankole.Ash.Types.State,
@@ -208,7 +214,10 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
         allow_nil?: false
       )
 
-      change(Ankole.BackgroundAgentJobs.Changes.TransitionToArgument)
+      change(
+        {Ankole.BackgroundAgentJobs.Changes.TransitionToArgument,
+         missing: :background_agent_job_turn_status_missing}
+      )
 
       validate(fn changeset, _context -> validate_checkpoint(changeset) end,
         only_when_valid?: true
@@ -228,7 +237,8 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
       end)
     end
 
-    atomic_in_tx_update :interrupt do
+    update :interrupt do
+      require_atomic?(true)
       accept([])
       argument(:now, :utc_datetime_usec, allow_nil?: false)
 
@@ -246,7 +256,7 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
       change(atomic_update(:progress, expr(fragment("? - 'active_item'", progress))))
     end
 
-    in_tx_update :mark_content_truncated do
+    update :mark_content_truncated do
       accept([])
 
       change(
@@ -261,6 +271,35 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
           )
         )
       )
+    end
+
+    # Records one Worker checkpoint and its items, with the Worker turn fence,
+    # the Agent slot lock, and the Job lock, in one transaction.
+    action :record_from_worker, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:job_id, :integer, allow_nil?: false)
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      argument(:turn_ref, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: Ankole.Sessions.JobTurnRef]
+      )
+
+      argument(:worker_id, :string, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BackgroundAgentJobs.Lifecycle.upsert_turn_from_worker_in_tx(
+            Ankole.Repo,
+            input.arguments.job_id,
+            input.arguments.agent_uid,
+            input.arguments.attrs,
+            input.arguments.turn_ref,
+            input.arguments.worker_id
+          )
+        )
+      end)
     end
   end
 

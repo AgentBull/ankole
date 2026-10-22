@@ -896,6 +896,38 @@ stop the quota row. Rows are never updated or deleted while the Agent exists;
 deleting the Agent Principal removes them with its other AIGateway records.
 [Agent Token Quota](AgentTokenQuota.md) lists the columns.
 
+### Persistence Contract
+
+`Ankole.AIGateway` is the Ash domain of the gateway resources. Other domains
+read Conversation, Message, Artifact, CompactionArtifact, UsageRecord, and
+Provider rows through its `get_*` and `list_*` defines.
+`get_conversation_by_id` reads one Conversation by its ID;
+`get_conversation/3` reads the Conversation of one subject.
+
+A write with more than one step is a generic action of its resource. The
+action owns its transaction and runs only as the top-level call. A caller that
+already has a transaction uses the `_in_tx` function of the same step. The
+Message actions are:
+
+- `renew_lease`: the heartbeat and the next orphan deadline.
+- `commit_terminal`: the first terminal commit of a Response.
+- `fail_generating` and `reconcile_orphan`: the failure of a generating
+  Response.
+- `admit_run`: the stateful admission, with the optional checkpoint and the
+  caller callbacks.
+- `install_recovery_checkpoint`: the replay recovery checkpoint.
+
+These actions publish their live events after the commit. A progress-only
+write is one conditional update and has no transaction. The Artifact action
+`persist_output` stores all generated images of one response in one
+transaction. The Provider actions `change`, `retire`, `put_cooldown`, and
+`rotate_credential` lock the row before the update reads the current
+credential pool.
+
+The history reads walk the `previous_message_id` chain with one recursive SQL
+query. The query binds the tenant at each step and gives the row IDs in chain
+order. The rows then come from the Message resource.
+
 ## How a Stateful Response Runs
 
 A stateful model round follows this sequence:

@@ -3,8 +3,8 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
   alias Ankole.{Errors, Principals.WorkAccess}
   alias Ankole.Sessions.JobTurnRef
   alias Ankole.Sessions.RunRef
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Lifecycle
-  alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Signals.Signal
   alias Ankole.AgentWorkers
@@ -53,10 +53,11 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
     Lifecycle.lock_agent_slots(repo, uid)
   end
 
-  defp job(repo, ref, effect) do
-    lock = if effect != :read, do: "FOR UPDATE"
-    Queries.get_for_agent(repo, ref.job_id, ref.agent_uid, lock: lock)
-  end
+  defp job(_repo, ref, :read),
+    do: BackgroundAgentJobs.get_job_for_agent(ref.job_id, ref.agent_uid)
+
+  defp job(repo, ref, _effect),
+    do: BackgroundAgentJobs.lock_job_in_tx(repo, ref.job_id, ref.agent_uid)
 
   defp admitted_access(_repo, %{last_attempt_at: %DateTime{}}), do: :ok
   defp admitted_access(repo, event), do: WorkAccess.check_in_tx(repo, event)

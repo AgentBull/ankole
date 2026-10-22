@@ -13,14 +13,14 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   owner Agent message result, the Console, and thread replay reveal them.
   """
 
-  import Ecto.Query
+  require Ash.Expr
+  require Ash.Query
 
   alias Ankole.AIGateway.OpaqueContent
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.BackgroundAgentJobs.Schemas.Turn
   alias Ankole.BackgroundAgentJobs.Schemas.TurnItem
   alias Ankole.BackgroundAgentJobs.TurnItemProjection
-  alias Ankole.Repo
   alias Ankole.Text
 
   @cursor_version 2
@@ -87,23 +87,10 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
         job
         |> lineage_query()
         |> lineage_after(boundary)
-        |> order_by([row, turn, _job],
-          asc: turn.started_at,
-          asc: turn.id,
-          asc: row.position
-        )
-        |> limit(^(limit + 1))
-        |> select([row, turn, _job], %{
-          turn_id: row.turn_id,
-          runtime_thread_id: turn.runtime_thread_id,
-          runtime_turn_id: turn.runtime_turn_id,
-          attempt: turn.attempt,
-          started_at: turn.started_at,
-          position: row.position,
-          item_key: row.item_key,
-          item: row.item
-        })
-        |> Repo.all()
+        |> Ash.Query.sort(walk_order(:asc))
+        |> Ash.Query.limit(limit + 1)
+        |> Ankole.Ash.read!()
+        |> Enum.map(&lineage_row/1)
 
       {delivered, rest} = Enum.split(rows, limit)
 
@@ -148,58 +135,74 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
   # existing Job-attempt timeline index and never materializes the lineage.
   defp lineage_query(%Job{} = job) do
     TurnItem
-    |> join(:inner, [row], turn in Turn, on: turn.id == row.turn_id)
-    |> join(:inner, [_row, turn], lineage_job in Job, on: lineage_job.id == turn.job_id)
-    |> where(
-      [_row, _turn, lineage_job],
-      lineage_job.workspace_owner_job_id == ^job.workspace_owner_job_id and
-        lineage_job.agent_uid == ^job.agent_uid
+    |> Ash.Query.filter(
+      turn.job.workspace_owner_job_id == ^job.workspace_owner_job_id and
+        turn.job.agent_uid == ^job.agent_uid and
+        fragment(
+          "? = (SELECT lead.runtime_thread_id FROM background_agent_job_turns AS lead WHERE lead.tenant_id = ? AND lead.job_id = ? AND lead.attempt = ? ORDER BY lead.started_at ASC, lead.id ASC LIMIT 1)",
+          turn.runtime_thread_id,
+          turn.tenant_id,
+          turn.job_id,
+          turn.attempt
+        )
     )
-    |> where(
-      [_row, turn, _job],
-      fragment(
-        "? = (SELECT lead.runtime_thread_id FROM background_agent_job_turns AS lead WHERE lead.tenant_id = ? AND lead.job_id = ? AND lead.attempt = ? ORDER BY lead.started_at ASC, lead.id ASC LIMIT 1)",
-        turn.runtime_thread_id,
-        turn.tenant_id,
-        turn.job_id,
-        turn.attempt
-      )
+    |> Ash.Query.load(
+      turn: Ash.Query.select(Turn, [:runtime_thread_id, :runtime_turn_id, :attempt, :started_at])
     )
+  end
+
+  # Items walk in Turn start order, then Turn id, then item position.
+  defp walk_order(direction) do
+    [
+      {Ash.Expr.calc(turn.started_at, type: :utc_datetime_usec), direction},
+      turn_id: direction,
+      position: direction
+    ]
+  end
+
+  defp lineage_row(%TurnItem{turn: %Turn{} = turn} = row) do
+    %{
+      turn_id: row.turn_id,
+      runtime_thread_id: turn.runtime_thread_id,
+      runtime_turn_id: turn.runtime_turn_id,
+      attempt: turn.attempt,
+      started_at: turn.started_at,
+      position: row.position,
+      item_key: row.item_key,
+      item: row.item
+    }
   end
 
   defp lineage_cursor_boundary(_job, nil), do: {:ok, nil}
 
   defp lineage_cursor_boundary(
          %Job{} = job,
-         %{turn_id: turn_id, position: position, attempt: attempt}
+         %{turn_id: id, position: item_position, attempt: attempt}
        ) do
-    boundary =
-      job
-      |> lineage_query()
-      |> where([row], row.turn_id == ^turn_id and row.position == ^position)
-      |> select([row, turn, _job], %{
-        turn_id: row.turn_id,
-        attempt: turn.attempt,
-        started_at: turn.started_at,
-        position: row.position
-      })
-      |> Repo.one()
+    job
+    |> lineage_query()
+    |> Ash.Query.filter(turn_id == ^id and position == ^item_position)
+    |> Ankole.Ash.read_one!()
+    |> case do
+      %TurnItem{} = row ->
+        case lineage_row(row) do
+          %{attempt: ^attempt} = boundary -> {:ok, boundary}
+          _other -> {:error, :invalid_background_agent_job_trajectory_cursor}
+        end
 
-    case boundary do
-      %{attempt: ^attempt} -> {:ok, boundary}
-      _other -> {:error, :invalid_background_agent_job_trajectory_cursor}
+      nil ->
+        {:error, :invalid_background_agent_job_trajectory_cursor}
     end
   end
 
   defp lineage_after(query, nil), do: query
 
-  defp lineage_after(query, %{started_at: started_at, turn_id: turn_id, position: position}) do
-    where(
+  defp lineage_after(query, %{started_at: started_at, turn_id: id, position: item_position}) do
+    Ash.Query.filter(
       query,
-      [row, turn, _job],
       turn.started_at > ^started_at or
-        (turn.started_at == ^started_at and turn.id > ^turn_id) or
-        (turn.started_at == ^started_at and turn.id == ^turn_id and row.position > ^position)
+        (turn.started_at == ^started_at and turn_id > ^id) or
+        (turn.started_at == ^started_at and turn_id == ^id and position > ^item_position)
     )
   end
 
@@ -273,8 +276,11 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
     end
   end
 
-  defp cursor_unit_exists?(_walk, turn_id, position) do
-    case Repo.get_by(TurnItem, turn_id: turn_id, position: position) do
+  defp cursor_unit_exists?(_walk, id, item_position) do
+    TurnItem
+    |> Ash.Query.filter(turn_id == ^id and position == ^item_position)
+    |> Ankole.Ash.read_one!()
+    |> case do
       nil -> false
       %TurnItem{item: item} -> match?({[_ | _], _}, TurnItemProjection.project(item))
     end
@@ -401,22 +407,19 @@ defmodule Ankole.BackgroundAgentJobs.TrajectoryReader do
 
   defp fetch_window(%{turn_ids: turn_ids, boundary: boundary, batch: batch}) do
     TurnItem
-    |> join(:inner, [row], turn in Turn, on: turn.id == row.turn_id)
-    |> where([row], row.turn_id in ^turn_ids)
+    |> Ash.Query.filter(turn_id in ^turn_ids)
     |> window_beyond(boundary)
-    |> order_by([row, turn], desc: turn.started_at, desc: turn.id, desc: row.position)
-    |> limit(^batch)
-    |> Repo.all()
+    |> Ash.Query.sort(walk_order(:desc))
+    |> Ash.Query.limit(batch)
+    |> Ankole.Ash.read!()
   end
 
   defp window_beyond(query, nil), do: query
 
-  defp window_beyond(query, {turn_id, position, beyond_turn_ids}) do
-    where(
+  defp window_beyond(query, {id, item_position, beyond_turn_ids}) do
+    Ash.Query.filter(
       query,
-      [row],
-      (row.turn_id == ^turn_id and row.position < ^position) or
-        row.turn_id in ^beyond_turn_ids
+      (turn_id == ^id and position < ^item_position) or turn_id in ^beyond_turn_ids
     )
   end
 

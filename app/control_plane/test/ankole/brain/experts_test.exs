@@ -5,7 +5,6 @@ defmodule Ankole.Brain.ExpertsTest do
 
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Experts
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
 
   setup do
@@ -16,7 +15,7 @@ defmodule Ankole.Brain.ExpertsTest do
     %{principal: outsider} = human_fixture()
 
     {:ok, _topic} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/quantum-sensing", type: "concept", title: "Quantum Sensing"},
         querier.uid
       )
@@ -24,7 +23,7 @@ defmodule Ankole.Brain.ExpertsTest do
     holder = "people/" <> expert.uid
 
     {:ok, _fact} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: "concepts/quantum-sensing",
           claim: "Quantum sensing market doubles every two years",
@@ -59,7 +58,7 @@ defmodule Ankole.Brain.ExpertsTest do
       )
 
     {:ok, _resolved} =
-      Claims.resolve_take(
+      Ankole.Brain.resolve_take(
         reachable.id,
         %{resolved_quality: "correct", resolved_outcome: true},
         context.expert.uid
@@ -82,7 +81,7 @@ defmodule Ankole.Brain.ExpertsTest do
       )
 
     {:ok, _resolved} =
-      Claims.resolve_take(
+      Ankole.Brain.resolve_take(
         unreachable.id,
         %{resolved_quality: "incorrect", resolved_outcome: false},
         context.expert.uid

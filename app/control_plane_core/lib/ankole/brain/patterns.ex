@@ -187,13 +187,13 @@ defmodule Ankole.Brain.Patterns do
     result =
       case existing do
         nil ->
-          Objects.create_object(
+          Objects.create_object_in_tx(
             Map.merge(attrs, %{slug: pattern.slug, type: "analysis"}),
             :system
           )
 
         %Object{type: "analysis"} = object ->
-          Objects.update_object(
+          Objects.update_object_in_tx(
             pattern.slug,
             Map.put(attrs, :expected_content_hash, object.content_hash),
             :system

@@ -5,10 +5,8 @@ defmodule Ankole.Brain.RecallVectorTest do
   use Ankole.AIGatewayCase
 
   alias Ankole.AppConfigure
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Dreaming
   alias Ankole.Brain.Embeddings
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Claim
@@ -63,7 +61,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "vector arm retrieves and orders claims through the ANN query", %{member: member} do
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/pigments", type: "concept", title: "Pigments", body: "Pigment notes."},
         member.uid
       )
@@ -88,7 +86,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "vector arm ignores rows from another embedding signature", %{member: member} do
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/model-switch", type: "concept", title: "Model Switch"},
         member.uid
       )
@@ -115,7 +113,7 @@ defmodule Ankole.Brain.RecallVectorTest do
          member: member
        } do
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/disabled-maintainer", type: "concept", title: "Disabled Maintainer"},
         member.uid
       )
@@ -174,7 +172,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "self-healing skips deleted Object claims and keeps channel claims", %{member: member} do
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/deleted-embedding", type: "concept", title: "Deleted Embedding"},
         member.uid
       )
@@ -185,7 +183,7 @@ defmodule Ankole.Brain.RecallVectorTest do
     channel = insert_channel!()
 
     {:ok, %{claim: channel_claim}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           conversation_id: channel.id,
           claim: "Cobalt channel memory remains live",
@@ -210,7 +208,7 @@ defmodule Ankole.Brain.RecallVectorTest do
         "dimensions" => @dimensions
       })
 
-    assert {:ok, _object} = Objects.soft_delete(object.slug)
+    assert {:ok, _object} = Ankole.Brain.soft_delete_object(object.slug)
     assert %{claims: 1} = SelfHealing.embed_pending()
 
     current_signature = NativeKernel.xxh3_128_hex("openrouter|fake-embed-v2|#{@dimensions}")
@@ -220,7 +218,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "a Fact's first healed vector closes an embedding-outage dedup gap", %{member: member} do
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/aurora-budget", type: "concept", title: "Aurora budget"},
         member.uid
       )
@@ -238,12 +236,12 @@ defmodule Ankole.Brain.RecallVectorTest do
     }
 
     assert {:ok, %{claim: degraded, status: :inserted}} =
-             Claims.write_fact(attrs, member.uid, embed: false)
+             Ankole.Brain.write_fact(attrs, member.uid, %{options: [embed: false]})
 
     assert is_nil(degraded.embedding)
 
     assert {:ok, %{claim: learned, status: :inserted}} =
-             Claims.write_fact(
+             Ankole.Brain.write_fact(
                %{
                  attrs
                  | claim: "The Aurora budget must stay under five thousand.",
@@ -267,7 +265,7 @@ defmodule Ankole.Brain.RecallVectorTest do
 
   test "evidence found by both routes outranks a fresher single-route claim", %{member: member} do
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "concepts/orders", type: "concept", title: "Orders", body: "Order notes."},
         member.uid
       )
@@ -297,7 +295,7 @@ defmodule Ankole.Brain.RecallVectorTest do
   end
 
   defp write_fact(object, member, claim_text, confidence \\ 0.9) do
-    Claims.write_fact(
+    Ankole.Brain.write_fact(
       %{
         object_slug: object.slug,
         claim: claim_text,

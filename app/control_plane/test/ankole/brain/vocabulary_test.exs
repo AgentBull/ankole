@@ -3,7 +3,6 @@ defmodule Ankole.Brain.VocabularyTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Vocabulary
 
@@ -21,9 +20,11 @@ defmodule Ankole.Brain.VocabularyTest do
     %{principal: human} = human_fixture()
 
     assert {:error, {:unknown_object_type, "tickets", details}} =
-             Objects.create_object(
-               %{slug: "notes/some-note", type: "tickets", title: "Note", body: ""},
-               human.uid
+             Ankole.Errors.reason(
+               Ankole.Brain.create_object(
+                 %{slug: "notes/some-note", type: "tickets", title: "Note", body: ""},
+                 human.uid
+               )
              )
 
     assert "note" in details.installed_types

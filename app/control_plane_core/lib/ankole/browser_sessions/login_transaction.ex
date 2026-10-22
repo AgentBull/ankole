@@ -2,7 +2,7 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
   @moduledoc false
   use Ankole.Ash.Resource,
     tenancy: :site,
-    domain: Ankole.BrowserSessions.Domain,
+    domain: Ankole.BrowserSessions,
     extensions: [AshStateMachine]
 
   postgres do
@@ -112,55 +112,196 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
         :expires_at
       ])
 
-      transaction?(false)
       validate(Ankole.BrowserSessions.Validations.TargetScope, only_when_valid?: true)
     end
 
-    in_tx_update :bind_provider_in_tx do
+    update :bind_provider_in_tx do
       accept([:provider_id, :upstream_state, :redirect_uri])
       validate(attribute_equals(:status, :pending))
     end
 
-    in_tx_update :password_ticket_in_tx do
+    update :password_ticket_in_tx do
       accept([:password_ticket])
       validate(attribute_equals(:status, :pending))
     end
 
-    in_tx_update :bind_proof_in_tx do
+    update :bind_proof_in_tx do
       accept([:authentication_id, :authentication_revision, :upstream_state])
       validate(attribute_equals(:status, :pending))
       validate(present([:authentication_id, :authentication_revision]))
     end
 
-    in_tx_update :authenticate_in_tx do
+    update :authenticate_in_tx do
       accept([:authentication_id, :authentication_revision, :request, :started_revision])
       validate(present([:authentication_id, :authentication_revision]))
       change(transition_state(:authenticated))
       change(set_attribute(:password_ticket, nil))
     end
 
-    in_tx_update :consume_in_tx do
+    update :consume_in_tx do
       accept([:authentication_id, :authentication_revision, :request, :started_revision])
       change(transition_state(:consumed))
       change(set_attribute(:password_ticket, nil))
     end
 
-    in_tx_update :reauthenticate_in_tx do
+    update :reauthenticate_in_tx do
       accept([:expected_authentication_id, :request, :started_revision])
       change(transition_state(:pending))
       change(set_attribute(:authentication_id, nil))
       change(set_attribute(:authentication_revision, nil))
     end
 
-    atomic_in_tx_update :cancel_in_tx do
+    update :cancel_in_tx do
+      require_atomic?(true)
       accept([])
       change(transition_state(:cancelled))
       change(set_attribute(:password_ticket, nil))
     end
 
     destroy :expire_in_tx do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :begin_login, :term do
+      argument(:browser_ref, :term)
+      argument(:purpose, :term)
+      argument(:request, :term)
+      argument(:opts, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.begin_login_in_tx(
+            args.browser_ref,
+            args.purpose,
+            args.request,
+            args.opts
+          )
+        )
+      end)
+    end
+
+    action :bind_provider, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:provider_id, :term)
+      argument(:state, :term)
+      argument(:redirect_uri, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.bind_provider_in_tx(
+            args.browser_ref,
+            args.id,
+            args.provider_id,
+            args.state,
+            args.redirect_uri
+          )
+        )
+      end)
+    end
+
+    action :put_password_ticket, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:ticket, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.put_password_ticket_in_tx(
+            args.browser_ref,
+            args.id,
+            args.ticket
+          )
+        )
+      end)
+    end
+
+    action :complete_login, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:auth, :term)
+      argument(:before_commit, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.complete_login_in_tx(
+            args.browser_ref,
+            args.id,
+            args.auth,
+            args.before_commit
+          )
+        )
+      end)
+    end
+
+    action :complete_site_login, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:provider_id, :term)
+      argument(:proof, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.complete_site_login_in_tx(
+            args.browser_ref,
+            args.id,
+            args.provider_id,
+            args.proof
+          )
+        )
+      end)
+    end
+
+    action :select_authorization, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:authentication_ref, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.select_authorization_in_tx(
+            args.browser_ref,
+            args.id,
+            args.authentication_ref
+          )
+        )
+      end)
+    end
+
+    action :consume_authorization, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:authentication_ref, :term)
+      argument(:issue, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.consume_authorization_in_tx(
+            args.browser_ref,
+            args.id,
+            args.authentication_ref,
+            args.issue
+          )
+        )
+      end)
+    end
+
+    action :consume_login, :term do
+      argument(:browser_ref, :term)
+      argument(:id, :term)
+      argument(:purpose, :term)
+      argument(:complete, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.consume_login_in_tx(
+            args.browser_ref,
+            args.id,
+            args.purpose,
+            args.complete
+          )
+        )
+      end)
     end
   end
 

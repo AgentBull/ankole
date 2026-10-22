@@ -1,6 +1,6 @@
 defmodule Ankole.BrowserSessions.Authentication do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.BrowserSessions.Domain
+  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.BrowserSessions
 
   @proof_fields [
     :revision,
@@ -90,17 +90,56 @@ defmodule Ankole.BrowserSessions.Authentication do
 
     create :create_in_tx do
       accept([:browser_id, :tenant_id, :provider_id, :subject_id, :purpose] ++ @proof_fields)
-      transaction?(false)
     end
 
-    in_tx_update :renew_in_tx do
+    update :renew_in_tx do
       accept(@proof_fields)
       change(set_attribute(:revoked_at, nil))
     end
 
-    in_tx_update :revoke_in_tx do
+    update :revoke_in_tx do
       accept([:revision])
       change(set_attribute(:revoked_at, &DateTime.utc_now/0))
+    end
+
+    action :revoke, :term do
+      argument(:browser_ref, :term)
+      argument(:authentication_ref, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.revoke_in_tx(args.browser_ref, args.authentication_ref)
+        )
+      end)
+    end
+
+    action :create_pod_access, :term do
+      argument(:authentication_ref, :term)
+      argument(:create, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.create_pod_access_in_tx(args.authentication_ref, args.create)
+        )
+      end)
+    end
+
+    action :connect_pod_access, :term do
+      argument(:authentication_ref, :term)
+      argument(:verified_ref, :term)
+      argument(:tenant_id, :term)
+      argument(:connect, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.BrowserSessions.connect_pod_access_in_tx(
+            args.authentication_ref,
+            args.verified_ref,
+            args.tenant_id,
+            args.connect
+          )
+        )
+      end)
     end
   end
 

@@ -1,7 +1,6 @@
 defmodule Ankole.Ecto.BrainContentHashMigrationTest do
   use Ankole.DataCase, async: false
 
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Object
 
@@ -27,7 +26,7 @@ defmodule Ankole.Ecto.BrainContentHashMigrationTest do
           {:ok, _} = SchemaPacks.install_packs([])
 
           {:ok, object} =
-            Objects.create_object(
+            Ankole.Brain.create_object(
               %{
                 slug: "notes/migration",
                 type: "note",

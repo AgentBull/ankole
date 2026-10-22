@@ -6,7 +6,6 @@ defmodule Ankole.Brain.GetPageTest do
   alias Ankole.AuthZ
   alias Ankole.Brain.GetPage
   alias Ankole.Brain.Links
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
 
   setup do
@@ -35,7 +34,7 @@ defmodule Ankole.Brain.GetPageTest do
     """
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "companies/minghu-ai", type: "company", title: "Minghu AI", body: body},
         member.uid
       )
@@ -143,7 +142,7 @@ defmodule Ankole.Brain.GetPageTest do
 
   test "ambiguous natural names return candidates without guessing", context do
     {:ok, _other} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "people/minghu-founder", type: "person", title: "Minghu Founder"},
         context.member.uid
       )
@@ -155,7 +154,7 @@ defmodule Ankole.Brain.GetPageTest do
     assert "companies/minghu-ai" in slugs
     assert "people/minghu-founder" in slugs
 
-    assert {:ok, _deleted} = Objects.soft_delete("people/minghu-founder")
+    assert {:ok, _deleted} = Ankole.Brain.soft_delete_object("people/minghu-founder")
     assert {:ok, live} = GetPage.get_page(context.member.uid, "明湖 AI")
     assert live.slug == "companies/minghu-ai"
   end
@@ -280,7 +279,7 @@ defmodule Ankole.Brain.GetPageTest do
   end
 
   defp write_group_fact(member, scope, text) do
-    Ankole.Brain.Claims.write_fact(
+    Ankole.Brain.write_fact(
       %{
         object_slug: "companies/minghu-ai",
         claim: text,
@@ -315,7 +314,7 @@ defmodule Ankole.Brain.GetPageTest do
     member_scope = "principal:#{context.member.uid}"
 
     {:ok, private_page} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "analysis/conversation-reader",
           type: "analysis",
