@@ -8,8 +8,7 @@ defmodule Ankole.AIAgent.ModelProfiles do
   through `brain.*` AppConfigure keys.
   """
 
-  import Ecto.Query, warn: false
-
+  alias Ankole.AIAgent.Operations
   alias Ankole.AIGateway.ImageModelCatalog
   alias Ankole.AIGateway.ModelMetadata
   alias Ankole.AIGateway.ProviderConfigs
@@ -20,7 +19,6 @@ defmodule Ankole.AIAgent.ModelProfiles do
   alias Ankole.Attrs
   alias Ankole.Principals
   alias Ankole.Principals.Agent
-  alias Ankole.Repo
 
   @profiles ~w(
     primary light heavy coding vision_fallback web_search web_fetch image_generate
@@ -167,19 +165,27 @@ defmodule Ankole.AIAgent.ModelProfiles do
   @spec put_model_profile(String.t(), profile(), map() | nil) ::
           {:ok, %{agent: Agent.t(), profile: map() | nil}} | {:error, term()}
   def put_model_profile(agent_uid, profile, attrs) do
-    Repo.transact(fn repo ->
-      with %Agent{} = agent <- lock_agent(repo, agent_uid),
-           {:ok, profile} <- normalize_profile(profile),
-           {:ok, normalized_profile} <- normalize_profile_attrs(profile, attrs),
-           {:ok, options} <-
-             put_profile_options(agent.options || %{}, profile, normalized_profile),
-           {:ok, agent} <- update_agent_options(repo, agent, options) do
-        {:ok, %{agent: agent, profile: normalized_profile}}
-      else
-        nil -> {:error, :agent_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+    Ankole.Ash.run_action(Operations, :put_model_profile, %{
+      agent_uid: normalize_uid!(agent_uid),
+      profile: profile,
+      attrs: attrs
+    })
+  end
+
+  @doc false
+  # Runs the `:put_model_profile` action of `Ankole.AIAgent.Operations`.
+  def put_profile_locked(%{agent_uid: agent_uid, profile: profile} = arguments) do
+    with %Agent{} = agent <- lock_agent(agent_uid),
+         {:ok, profile} <- normalize_profile(profile),
+         {:ok, normalized_profile} <- normalize_profile_attrs(profile, arguments.attrs),
+         {:ok, options} <-
+           put_profile_options(agent.options || %{}, profile, normalized_profile),
+         {:ok, agent} <- update_agent_options(agent, options) do
+      {:ok, %{agent: agent, profile: normalized_profile}}
+    else
+      nil -> {:error, :agent_not_found}
+      {:error, _reason} = error -> error
+    end
   end
 
   @doc """
@@ -190,18 +196,25 @@ defmodule Ankole.AIAgent.ModelProfiles do
   """
   @spec put_provider_hosted_capabilities(String.t(), map()) :: {:ok, map()} | {:error, term()}
   def put_provider_hosted_capabilities(agent_uid, attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      with %Agent{} = agent <- lock_agent(repo, agent_uid),
-           {:ok, updates} <- normalize_provider_hosted_attrs(attrs),
-           capabilities = Map.merge(provider_hosted_from_agent(agent), updates),
-           options = put_provider_hosted_options(agent.options || %{}, capabilities),
-           {:ok, _agent} <- update_agent_options(repo, agent, options) do
-        {:ok, capabilities}
-      else
-        nil -> {:error, :agent_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+    Ankole.Ash.run_action(Operations, :put_provider_hosted_capabilities, %{
+      agent_uid: normalize_uid!(agent_uid),
+      attrs: attrs
+    })
+  end
+
+  @doc false
+  # Runs the `:put_provider_hosted_capabilities` action of `Ankole.AIAgent.Operations`.
+  def put_provider_hosted_locked(%{agent_uid: agent_uid, attrs: attrs}) do
+    with %Agent{} = agent <- lock_agent(agent_uid),
+         {:ok, updates} <- normalize_provider_hosted_attrs(attrs),
+         capabilities = Map.merge(provider_hosted_from_agent(agent), updates),
+         options = put_provider_hosted_options(agent.options || %{}, capabilities),
+         {:ok, _agent} <- update_agent_options(agent, options) do
+      {:ok, capabilities}
+    else
+      nil -> {:error, :agent_not_found}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp normalize_provider_hosted_attrs(attrs) do
@@ -387,24 +400,23 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp fetch_agent(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      case Repo.get(Agent, agent_uid) do
-        %Agent{} = agent -> {:ok, agent}
-        nil -> {:error, :agent_not_found}
+      case Ankole.Principals.Domain.get_agent(agent_uid) do
+        {:ok, %Agent{} = agent} -> {:ok, agent}
+        {:ok, nil} -> {:error, :agent_not_found}
+        {:error, _error} = error -> error
       end
     end
   end
 
-  defp lock_agent(repo, agent_uid) do
-    normalized_uid = normalize_uid!(agent_uid)
-
-    Agent
-    |> where([agent], agent.uid == ^normalized_uid)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+  defp lock_agent(agent_uid) do
+    {:ok, agent} = Ankole.Principals.Domain.get_agent(agent_uid, query: [lock: :for_update])
+    agent
   end
 
-  defp update_agent_options(_repo, agent, options) do
-    Ankole.Ash.update(agent, :options_in_tx, %{options: options})
+  defp update_agent_options(agent, options) do
+    agent
+    |> Ankole.Principals.Domain.options_agent(%{options: options})
+    |> Ankole.Errors.reason()
   end
 
   defp profiles_from_agent(%Agent{options: options}) when is_map(options) do

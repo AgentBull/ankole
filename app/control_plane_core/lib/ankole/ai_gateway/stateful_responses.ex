@@ -24,11 +24,10 @@ defmodule Ankole.AIGateway.StatefulResponses do
   and exactly one `ai_gateway_messages` row (see plan §3.9 step 5–10).
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIGateway.CompactionArtifacts
   alias Ankole.AIGateway.Conversations
-  alias Ankole.AIGateway.Events
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Principals
@@ -41,16 +40,16 @@ defmodule Ankole.AIGateway.StatefulResponses do
       decode_optional_response_id: 1,
       previous_response_id: 1,
       conversation_id: 1,
-      complete_message_for_active_subject: 3,
-      lock_active_owned_conversation: 3,
-      latest_visible_leaf_for_uuid: 2,
-      insert_checkpoint_row: 6
+      complete_message_for_active_subject: 2,
+      lock_active_owned_conversation: 2,
+      latest_visible_leaf_for_uuid: 1,
+      insert_checkpoint_row: 5
     ]
 
   import Ankole.AIGateway.ToolResultJournal, only: [request_items_metadata: 1]
 
   import Ankole.AIGateway.ResponseCommit,
-    only: [notify_ai_message_deadline: 2, lock_generating_message_by_id: 2]
+    only: [notify_ai_message_deadline: 1, lock_generating_message: 1]
 
   @doc """
   Admits a stateful response run and creates its `generating` message row.
@@ -106,27 +105,18 @@ defmodule Ankole.AIGateway.StatefulResponses do
              previous_response_id,
              expected_previous_response_id
            ) do
-      case Repo.transact(fn repo ->
-             with :ok <- Keyword.get(opts, :authorize_run_in_tx, fn _repo -> :ok end).(repo),
-                  {:ok, message} <-
-                    admit_planned_response_run(
-                      repo,
-                      subject_uid,
-                      selector,
-                      compaction,
-                      initial_content,
-                      Map.merge(merged_metadata, Keyword.get(opts, :response_metadata, %{}))
-                    ),
-                  :ok <-
-                    Keyword.get(opts, :record_response_in_tx, fn _repo, _message -> :ok end).(
-                      repo,
-                      message
-                    ) do
-               {:ok, message}
-             end
-           end) do
-        {:ok, %Message{} = message} ->
-          Events.publish(message, :response_started, %{})
+      Message
+      |> Ankole.Ash.run_action(:admit_run, %{
+        subject_uid: subject_uid,
+        selector: selector,
+        compaction: compaction,
+        content: initial_content,
+        metadata: Map.merge(merged_metadata, Keyword.get(opts, :response_metadata, %{})),
+        authorize_run: Keyword.get(opts, :authorize_run_in_tx, fn _repo -> :ok end),
+        record_response: Keyword.get(opts, :record_response_in_tx, fn _repo, _message -> :ok end)
+      })
+      |> case do
+        {:ok, {:publish, %Message{} = message, :response_started, _payload}} ->
           {:ok, message}
 
         {:error, :invalid_response_id} ->
@@ -147,11 +137,28 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   @doc false
+  # Runs the `:admit_run` action. The response starts only after its commit.
+  def admit_run(%{authorize_run: authorize_run, record_response: record_response} = arguments) do
+    with :ok <- authorize_run.(Repo),
+         {:ok, message} <-
+           admit_planned_response_run(
+             arguments.subject_uid,
+             arguments.selector,
+             arguments.compaction,
+             arguments.content,
+             arguments.metadata
+           ),
+         :ok <- record_response.(Repo, message) do
+      {:ok, {:publish, message, :response_started, %{}}}
+    end
+  end
+
+  @doc false
   @spec ensure_implicit_response_run_available(binary()) ::
           :ok | {:error, :invalid_conversation | :response_run_in_progress}
   def ensure_implicit_response_run_available(conversation_id) do
     with {:ok, conversation_id} <- cast_uuid(conversation_id) do
-      ensure_no_generating_response(Repo, conversation_id)
+      ensure_no_generating_response(conversation_id)
     else
       {:error, _reason} -> {:error, :invalid_conversation}
     end
@@ -184,45 +191,53 @@ defmodule Ankole.AIGateway.StatefulResponses do
         }
       )
       when is_map(artifact_attrs) and is_map(checkpoint_metadata) do
-    Repo.transact(fn repo ->
-      with %Message{} = current <- lock_generating_message_by_id(repo, message.id),
-           true <-
-             current.subject_uid == message.subject_uid and
-               current.conversation_id == message.conversation_id,
-           artifact_attrs =
-             Map.merge(artifact_attrs, %{
-               subject_uid: current.subject_uid,
-               conversation_id: current.conversation_id
-             }),
-           {:ok, artifact} <- CompactionArtifacts.insert_artifact(artifact_attrs),
-           {:ok, checkpoint} <-
-             insert_checkpoint_row(
-               repo,
-               current.subject_uid,
-               current.conversation_id,
-               current.previous_message_id,
-               artifact.id,
-               checkpoint_metadata
-             ),
-           {:ok, updated} <-
-             Ankole.Ash.update(current, :update_context, %{
-               previous_message_id: checkpoint.id,
-               metadata: injection,
-               drop_keys: ~w(brain_context_pack brain_context_pack_claimed)
-             }),
-           :ok <- notify_ai_message_deadline(repo, updated) do
-        {:ok, %{checkpoint: checkpoint, message: updated}}
-      else
-        nil -> {:error, :response_not_generating}
-        false -> {:error, :response_not_generating}
-        {:error, _reason} = error -> error
-        _invalid -> {:error, :invalid_compaction_plan}
-      end
-    end)
+    Ankole.Ash.run_action(Message, :install_recovery_checkpoint, %{
+      message: message,
+      artifact_attrs: artifact_attrs,
+      checkpoint_metadata: checkpoint_metadata,
+      injection: injection
+    })
   end
 
   def install_replay_recovery_checkpoint(%Message{}, _invalid_plan),
     do: {:error, :invalid_compaction_plan}
+
+  @doc false
+  # Runs the `:install_recovery_checkpoint` action.
+  def install_recovery_checkpoint(%{message: message} = arguments) do
+    with %Message{} = current <- lock_generating_message(message.id),
+         true <-
+           current.subject_uid == message.subject_uid and
+             current.conversation_id == message.conversation_id,
+         artifact_attrs =
+           Map.merge(arguments.artifact_attrs, %{
+             subject_uid: current.subject_uid,
+             conversation_id: current.conversation_id
+           }),
+         {:ok, artifact} <- CompactionArtifacts.insert_artifact(artifact_attrs),
+         {:ok, checkpoint} <-
+           insert_checkpoint_row(
+             current.subject_uid,
+             current.conversation_id,
+             current.previous_message_id,
+             artifact.id,
+             arguments.checkpoint_metadata
+           ),
+         {:ok, updated} <-
+           Ankole.Ash.update(current, :update_context, %{
+             previous_message_id: checkpoint.id,
+             metadata: arguments.injection,
+             drop_keys: ~w(brain_context_pack brain_context_pack_claimed)
+           }),
+         :ok <- notify_ai_message_deadline(updated) do
+      {:ok, %{checkpoint: checkpoint, message: updated}}
+    else
+      nil -> {:error, :response_not_generating}
+      false -> {:error, :response_not_generating}
+      {:error, _reason} = error -> error
+      _invalid -> {:error, :invalid_compaction_plan}
+    end
+  end
 
   defp response_run_request_items(attrs),
     do: Ankole.Attrs.get(attrs, :request_items, [])
@@ -262,39 +277,31 @@ defmodule Ankole.AIGateway.StatefulResponses do
        do: {:error, :stateful_anchor_conflict}
 
   defp admit_planned_response_run(
-         repo,
          subject_uid,
          {:implicit, conversation_id, expected_previous_message_id},
          compaction,
          initial_content,
          merged_metadata
        ) do
-    with %Conversation{} <-
-           lock_active_owned_conversation(repo, subject_uid, conversation_id),
-         :ok <- ensure_no_generating_response(repo, conversation_id),
-         :ok <-
-           ensure_expected_visible_leaf(
-             repo,
-             conversation_id,
-             expected_previous_message_id
-           ),
+    with %Conversation{} <- lock_active_owned_conversation(subject_uid, conversation_id),
+         :ok <- ensure_no_generating_response(conversation_id),
+         :ok <- ensure_expected_visible_leaf(conversation_id, expected_previous_message_id),
          {:ok, previous_message_id} <-
            maybe_insert_planned_compaction(
-             repo,
              subject_uid,
              conversation_id,
              expected_previous_message_id,
              compaction
            ),
          {:ok, message} <-
-           insert_response_run_in_tx(repo, %{
+           insert_response_run(%{
              subject_uid: subject_uid,
              conversation_id: conversation_id,
              previous_message_id: previous_message_id,
              initial_content: initial_content,
              merged_metadata: merged_metadata
            }),
-         :ok <- notify_ai_message_deadline(repo, message) do
+         :ok <- notify_ai_message_deadline(message) do
       {:ok, message}
     else
       nil -> {:error, :invalid_conversation}
@@ -303,7 +310,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp admit_planned_response_run(
-         repo,
          subject_uid,
          {:explicit, previous_message_id},
          compaction,
@@ -311,24 +317,23 @@ defmodule Ankole.AIGateway.StatefulResponses do
          merged_metadata
        ) do
     with %Message{conversation_id: conversation_id} <-
-           complete_message_for_active_subject(repo, subject_uid, previous_message_id),
+           complete_message_for_active_subject(subject_uid, previous_message_id),
          {:ok, previous_message_id} <-
            maybe_insert_planned_compaction(
-             repo,
              subject_uid,
              conversation_id,
              previous_message_id,
              compaction
            ),
          {:ok, message} <-
-           insert_response_run_in_tx(repo, %{
+           insert_response_run(%{
              subject_uid: subject_uid,
              conversation_id: conversation_id,
              previous_message_id: previous_message_id,
              initial_content: initial_content,
              merged_metadata: merged_metadata
            }),
-         :ok <- notify_ai_message_deadline(repo, message) do
+         :ok <- notify_ai_message_deadline(message) do
       {:ok, message}
     else
       nil -> {:error, :invalid_anchor}
@@ -336,19 +341,21 @@ defmodule Ankole.AIGateway.StatefulResponses do
     end
   end
 
-  defp ensure_no_generating_response(repo, conversation_id) do
-    generating? =
+  defp ensure_no_generating_response(conversation_id) do
+    generating =
       Message
-      |> where([message], message.conversation_id == ^conversation_id)
-      |> where([message], message.type == :message)
-      |> where([message], message.status == :generating)
-      |> repo.exists?()
+      |> Ash.Query.filter(
+        conversation_id == ^conversation_id and type == :message and status == :generating
+      )
+      |> Ash.Query.limit(1)
+      |> Ash.Query.select([:id])
+      |> Ankole.Ash.read!()
 
-    if generating?, do: {:error, :response_run_in_progress}, else: :ok
+    if generating == [], do: :ok, else: {:error, :response_run_in_progress}
   end
 
-  defp ensure_expected_visible_leaf(repo, conversation_id, expected_previous_message_id) do
-    if latest_visible_leaf_for_uuid(repo, conversation_id) == expected_previous_message_id do
+  defp ensure_expected_visible_leaf(conversation_id, expected_previous_message_id) do
+    if latest_visible_leaf_for_uuid(conversation_id) == expected_previous_message_id do
       :ok
     else
       {:error, :response_run_in_progress}
@@ -356,7 +363,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp maybe_insert_planned_compaction(
-         _repo,
          _subject_uid,
          _conversation_id,
          previous_message_id,
@@ -365,7 +371,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
        do: {:ok, previous_message_id}
 
   defp maybe_insert_planned_compaction(
-         repo,
          subject_uid,
          conversation_id,
          previous_message_id,
@@ -384,7 +389,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
     with {:ok, artifact} <- CompactionArtifacts.insert_artifact(artifact_attrs),
          {:ok, checkpoint} <-
            insert_checkpoint_row(
-             repo,
              subject_uid,
              conversation_id,
              previous_message_id,
@@ -396,7 +400,6 @@ defmodule Ankole.AIGateway.StatefulResponses do
   end
 
   defp maybe_insert_planned_compaction(
-         _repo,
          _subject_uid,
          _conversation_id,
          _previous_message_id,
@@ -404,7 +407,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
        ),
        do: {:error, :invalid_compaction_plan}
 
-  defp insert_response_run_in_tx(repo, %{
+  defp insert_response_run(%{
          subject_uid: subject_uid,
          conversation_id: conversation_id,
          previous_message_id: previous_message_id,
@@ -419,7 +422,7 @@ defmodule Ankole.AIGateway.StatefulResponses do
              content: initial_content,
              metadata: merged_metadata
            }) do
-      :ok = Conversations.touch_conversation_in_tx(repo, conversation_id)
+      :ok = Conversations.touch_conversation_in_tx(Repo, conversation_id)
       {:ok, message}
     end
   end

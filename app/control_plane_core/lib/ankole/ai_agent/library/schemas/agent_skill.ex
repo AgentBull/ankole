@@ -1,6 +1,6 @@
 defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
   @moduledoc "Per-Agent Skill registry metadata; Skill bytes remain in their filesystem bundles."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent.Library.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent
 
   postgres do
     table("agent_skills")
@@ -92,7 +92,6 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
         :updated_at
       ])
 
-      transaction?(false)
       upsert?(true)
       upsert_identity(:agent_skill)
 
@@ -113,13 +112,21 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkill do
 
     update :set_override do
       accept([:enabled_override])
-      transaction?(false)
       require_atomic?(true)
     end
 
     destroy :remove_stale do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :sync_catalog, :term do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:sources, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments |> Ankole.AIAgent.Library.sync_catalog() |> Ankole.Errors.wrap()
+      end)
     end
   end
 

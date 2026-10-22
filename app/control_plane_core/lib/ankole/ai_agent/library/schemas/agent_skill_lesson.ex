@@ -1,6 +1,6 @@
 defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
   @moduledoc "Immutable lesson content with a renewable lease and terminal retirement."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent.Library.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIAgent
 
   postgres do
     table("agent_skill_lessons")
@@ -77,7 +77,6 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
 
     create :teach_human do
       accept([:agent_uid, :skill_name, :content, :author])
-      transaction?(false)
       change(set_attribute(:author_kind, :human))
       change(Ankole.AIAgent.Library.Changes.PrepareLesson, only_when_valid?: true)
     end
@@ -94,20 +93,68 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentSkillLesson do
         :review_after
       ])
 
-      transaction?(false)
       change(set_attribute(:author_kind, :dreaming))
       change(Ankole.AIAgent.Library.Changes.PrepareLesson, only_when_valid?: true)
     end
 
-    in_tx_update :renew do
+    update :renew do
       accept([:review_after, :checked_release, :checked_skill_hash])
       change(filter(expr(is_nil(retired_at) and author_kind == :dreaming)))
     end
 
-    in_tx_update :retire do
+    update :retire do
       accept([:retired_at, :retire_reason])
       validate(present([:retired_at, :retire_reason]))
       change(filter(expr(is_nil(retired_at))))
+    end
+
+    action :apply_adds, :term do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:adds, :term, allow_nil?: false)
+      argument(:context, :term, allow_nil?: false)
+      argument(:sources, :term, allow_nil?: false)
+      argument(:catalog_options, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments |> Ankole.AIAgent.Library.apply_adds() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :teach, :term do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:skill_name, :term)
+      argument(:content, :term)
+      argument(:author, :term)
+      argument(:sources, :term, allow_nil?: false)
+      argument(:catalog_options, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments |> Ankole.AIAgent.Library.teach() |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :apply_reviews, :term do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:reviews, :term, allow_nil?: false)
+      argument(:docket_ids, :term, allow_nil?: false)
+      argument(:context, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments
+        |> Ankole.AIAgent.Library.SkillLessons.apply_reviews()
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :revoke, :term do
+      argument(:agent_uid, :string, allow_nil?: false)
+      argument(:lesson_id, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        input.arguments |> Ankole.AIAgent.Library.SkillLessons.revoke() |> Ankole.Errors.wrap()
+      end)
     end
   end
 
