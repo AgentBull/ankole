@@ -7,7 +7,7 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
   live here.
   """
 
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AIGateway
 
   postgres do
     table("ai_gateway_compaction_artifacts")
@@ -48,7 +48,6 @@ defmodule Ankole.AIGateway.Schemas.CompactionArtifact do
     defaults([:read])
 
     create :store do
-      transaction?(false)
       accept([:id, :subject_uid, :conversation_id, :content])
 
       validate(
