@@ -28,6 +28,20 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
     end
   end
 
+  @doc """
+  Declares the ID token that the host verifies for a Google login.
+
+  The UserInfo `sub` claim must match the signed `sub` claim.
+  """
+  @spec id_token_verification(map()) :: Ankole.IdentityProviders.OIDC.verification()
+  def id_token_verification(config) do
+    %{
+      issuer: "https://accounts.google.com",
+      client_id: Config.identity_client(config).client_id,
+      subject_claim: "sub"
+    }
+  end
+
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def exchange_code(config, code, opts \\ []) do
     client = Config.identity_client(config)
@@ -37,17 +51,9 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapter.IdentityProvider do
              code: code,
              redirect_uri: Keyword.get(opts, :redirect_uri)
            ),
-         {:ok, verified} <-
-           Ankole.IdentityProviders.OIDC.verify(
-             token,
-             "https://accounts.google.com",
-             client.client_id,
-             opts
-           ),
          {:ok, claims} <- Auth.userinfo(client, token.access_token),
-         :ok <- Ankole.IdentityProviders.OIDC.bind_subject(verified, claims),
          :ok <- verify_login_claims(claims, config) do
-      {:ok, %{token: token, user: login_user(claims), auth_time: verified["auth_time"]}}
+      {:ok, %{token: token, claims: claims, user: login_user(claims)}}
     end
   end
 

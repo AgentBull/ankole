@@ -1,6 +1,15 @@
 defmodule Ankole.Work.Owner do
-  @moduledoc "Resolves each durable work kind to its domain and authorization contract."
-  import Ecto.Query
+  @moduledoc """
+  Resolves each durable work kind to its domain and authorization contract.
+
+  Each work resource declares its contract with `use Ankole.Work.Provenance`.
+  This registry reads and locks work rows through Ash. A read across tenants
+  uses the `:work_across_tenants` action that the contract declares.
+  """
+
+  require Ash.Query
+
+  alias Ankole.Repo
 
   defp parent_schemas do
     [
@@ -20,29 +29,56 @@ defmodule Ankole.Work.Owner do
 
   def schema(kind), do: entries() |> List.keyfind(kind, 0) |> then(&if(&1, do: elem(&1, 1)))
 
+  @doc "Keeps the work rows that a reviewer can resolve."
   def unresolved_query(query, schema) do
     states = schema.__work_provenance__()[:review_states]
-    from(w in query, where: w.status in ^states)
+    Ash.Query.filter(query, status in ^states)
   end
 
   def reauthorizable_state?(%schema{} = work),
     do: work.status in schema.__work_provenance__()[:reauthorizable_states]
 
+  @doc "Reads one work row of the selected tenant, or gives `nil`."
+  def get(schema, id),
+    do: schema |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
+
+  @doc "Locks one work row of the selected tenant for update, or gives `nil`."
+  def lock(schema, id) do
+    schema
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!(lock_identity: {schema.__schema__(:source), id})
+  end
+
+  @doc """
+  Reads a query of an `allow_global` read action in all tenants.
+
+  `Ankole.Ash.read/2` requires the selected tenant, so this function reads
+  with the tenant of `Ankole.Ash.default_options/0`, which is `nil` across
+  tenants. A locked read gives its `lock_identity`.
+  """
+  def read_across_tenants(query, lock_identity \\ nil) do
+    Repo.across_tenants(fn ->
+      Ankole.LockOrder.with_identity(lock_identity, fn ->
+        Ash.read!(query, Ankole.Ash.default_options())
+      end)
+    end)
+  end
+
   def revoke_human_work_in_tx(repo, uid, version, now) do
-    lock_revocation_parents_in_tx(repo, uid, version)
+    lock_revocation_parents_in_tx(uid, version)
 
     Map.new(schemas(), fn schema ->
       opts = schema.__work_provenance__()
       {module, action} = opts[:revoke_action]
 
       tenants =
-        repo.all(
-          from(work in schema,
-            where: work.human_uid == ^uid and work.human_access_version < ^version,
-            distinct: true,
-            select: work.tenant_id
-          )
-        )
+        schema
+        |> human_work_query(uid, version)
+        |> Ash.Query.select([:tenant_id])
+        |> read_across_tenants()
+        |> Enum.map(& &1.tenant_id)
+        |> Enum.uniq()
 
       count =
         Enum.reduce(tenants, 0, fn tenant_id, count ->
@@ -58,20 +94,28 @@ defmodule Ankole.Work.Owner do
     end)
   end
 
-  defp lock_revocation_parents_in_tx(repo, uid, version) do
+  defp lock_revocation_parents_in_tx(uid, version) do
     Enum.each(parent_schemas(), fn schema ->
-      query =
-        from(work in schema,
-          where: work.human_uid == ^uid and work.human_access_version < ^version
-        )
+      ids =
+        schema
+        |> human_work_query(uid, version)
+        |> unresolved_query(schema)
+        |> Ash.Query.select([:id])
+        |> read_across_tenants()
+        |> Enum.map(& &1.id)
 
-      query = unresolved_query(query, schema)
-      ids = repo.all(from(work in query, select: work.id))
-
-      repo.all(
-        from(work in schema, where: work.id in ^ids, order_by: work.id, lock: "FOR UPDATE"),
-        lock_identity: {schema.__schema__(:source), ids}
-      )
+      schema
+      |> Ash.Query.for_read(:work_across_tenants)
+      |> Ash.Query.filter(id in ^ids)
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.lock(:for_update)
+      |> read_across_tenants({schema.__schema__(:source), ids})
     end)
+  end
+
+  defp human_work_query(schema, uid, version) do
+    schema
+    |> Ash.Query.for_read(:work_across_tenants)
+    |> Ash.Query.filter(human_uid == ^uid and human_access_version < ^version)
   end
 end

@@ -75,32 +75,42 @@ defmodule Ankole.IdentityProviders.Directory do
   @spec upsert_user(String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def upsert_user(provider_id, attrs, opts \\ [])
       when is_binary(provider_id) and is_map(attrs) and is_list(opts) do
-    Ankole.Repo.transact(fn repo ->
-      observation = Keyword.get(opts, :access_observation)
-
-      if is_binary(observation),
-        do:
-          Ankole.AuthZ.Store.lock_built_in_admin_group_for_update(
-            repo,
-            Ankole.AuthZ.Root.admin_group_name()
-          )
-
-      with {:ok, observed} <-
-             Principals.upsert_platform_subject_human(
-               Map.put_new(attrs, :authoritative_profile, true)
-             ),
-           :ok <- bind_attested_email(repo, provider_id, observed.principal.uid, attrs),
-           :ok <- ensure_members_group_membership(provider_id, observed.principal.uid),
-           {:ok, _sync} <- maybe_sync_memberships(provider_id, observed.principal.uid, opts),
-           {:ok, principal} <-
-             restrict_observed_user(provider_id, observed.principal, observation, opts) do
-        {:ok, %{observed | principal: principal}}
-      end
-    end)
+    Ankole.Ash.run_action(Ankole.IdentityProviders.DirectoryState, :upsert_user, %{
+      provider_id: provider_id,
+      attrs: attrs,
+      opts: opts
+    })
   end
 
-  defp restrict_observed_user(provider_id, principal, reason, opts) when is_binary(reason) do
-    Principals.HumanAccess.restrict_from_provider(
+  @doc false
+  def upsert_user_in_tx(repo, provider_id, attrs, opts) do
+    observation = Keyword.get(opts, :access_observation)
+
+    if is_binary(observation),
+      do:
+        Ankole.AuthZ.Store.lock_built_in_admin_group_for_update(
+          repo,
+          Ankole.AuthZ.Root.admin_group_name()
+        )
+
+    with {:ok, observed} <-
+           Principals.upsert_platform_subject_human_in_tx(
+             repo,
+             Map.put_new(attrs, :authoritative_profile, true)
+           ),
+         :ok <- bind_attested_email(repo, provider_id, observed.principal.uid, attrs),
+         :ok <- ensure_members_group_membership(repo, provider_id, observed.principal.uid),
+         {:ok, _sync} <- maybe_sync_memberships(repo, provider_id, observed.principal.uid, opts),
+         {:ok, principal} <-
+           restrict_observed_user(repo, provider_id, observed.principal, observation, opts) do
+      {:ok, %{observed | principal: principal}}
+    end
+  end
+
+  defp restrict_observed_user(repo, provider_id, principal, reason, opts)
+       when is_binary(reason) do
+    Principals.HumanAccess.restrict_from_provider_in_tx(
+      repo,
       principal.uid,
       provider_id,
       reason,
@@ -109,7 +119,8 @@ defmodule Ankole.IdentityProviders.Directory do
     )
   end
 
-  defp restrict_observed_user(_provider_id, principal, _observation, _opts), do: {:ok, principal}
+  defp restrict_observed_user(_repo, _provider_id, principal, _observation, _opts),
+    do: {:ok, principal}
 
   # Returns the AuthZ group name that holds every member of one provider.
   #
@@ -157,8 +168,9 @@ defmodule Ankole.IdentityProviders.Directory do
 
   # Every synced subject also joins the provider-wide members group, so
   # permission policy can address "everyone from this identity provider".
-  defp ensure_members_group_membership(provider_id, principal_uid) do
-    AuthZ.ensure_synced_group_member(
+  defp ensure_members_group_membership(repo, provider_id, principal_uid) do
+    AuthZ.ensure_synced_group_member_in_tx(
+      repo,
       %{
         name: members_group_name(provider_id),
         display_name: "#{provider_id} members",
@@ -255,10 +267,11 @@ defmodule Ankole.IdentityProviders.Directory do
     end
   end
 
-  defp maybe_sync_memberships(provider_id, principal_uid, opts) do
+  defp maybe_sync_memberships(repo, provider_id, principal_uid, opts) do
     case Keyword.fetch(opts, :group_external_ids) do
       {:ok, ids} when is_list(ids) ->
-        AuthZ.sync_external_directory_group_memberships(
+        AuthZ.Store.sync_external_directory_group_memberships(
+          repo,
           provider_id,
           principal_uid,
           ids,

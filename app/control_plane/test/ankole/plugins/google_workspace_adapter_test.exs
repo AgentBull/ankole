@@ -279,10 +279,14 @@ defmodule Ankole.Plugins.GoogleWorkspaceAdapterTest do
 
       use_req_test!()
 
-      assert {:ok, %{user: user, auth_time: ^auth_time}} =
-               IdentityProvider.exchange_code(config, "code-1",
-                 nonce: "nonce-1",
-                 redirect_uri: "https://ankole.example.com/cb"
+      opts = [nonce: "nonce-1", redirect_uri: "https://ankole.example.com/cb"]
+      assert {:ok, %{user: user} = login} = IdentityProvider.exchange_code(config, "code-1", opts)
+
+      assert {:ok, ^auth_time} =
+               Ankole.IdentityProviders.OIDC.verify_login(
+                 IdentityProvider.id_token_verification(config),
+                 login,
+                 opts
                )
 
       assert user["id"] == "103200300400500600700"

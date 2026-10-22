@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.ExternalIdentity do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
 
   postgres do
     table("principal_external_identities")
@@ -53,12 +53,15 @@ defmodule Ankole.Principals.ExternalIdentity do
   actions do
     defaults([:read])
 
-    create :bind_in_tx do
-      accept([:principal_uid, :provider, :external_id, :metadata])
-      transaction?(false)
+    read :read_across_tenants do
+      multitenancy(:allow_global)
     end
 
-    in_tx_update :observe_in_tx do
+    create :bind_in_tx do
+      accept([:principal_uid, :provider, :external_id, :metadata])
+    end
+
+    update :observe_in_tx do
       accept([:metadata])
     end
   end

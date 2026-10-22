@@ -58,6 +58,10 @@ with a local password:
 | `must_change_password` | When true, the next sign-in must set a new password |
 
 Only a human user can hold a local credential; the foreign key enforces this.
+`Ankole.Principals` owns the credential rows. `LocalPassword` hashes a new
+password before the write transaction and gives the Principals domain only
+the hash (`Principals.put_local_credential/3`,
+`Principals.complete_forced_password_change/3`).
 The kernel owns the Argon2id primitives (`argon2id_hash`, `argon2id_verify`).
 The control plane never stores or logs a plain password, and the minimum
 length is 6 characters. Local accounts create no

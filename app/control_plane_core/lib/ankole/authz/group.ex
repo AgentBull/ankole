@@ -1,6 +1,6 @@
 defmodule Ankole.AuthZ.Group do
   @moduledoc "Principal group used by the AuthZ rule engine."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ
 
   @fields [
     :name,
@@ -72,6 +72,11 @@ defmodule Ankole.AuthZ.Group do
     has_many(:grants, Ankole.AuthZ.Grant, destination_attribute: :group_id)
   end
 
+  aggregates do
+    count(:member_count, :memberships)
+    count(:grant_count, :grants)
+  end
+
   changes do
     change(fn changeset, _context ->
       case Ash.Changeset.get_attribute(changeset, :name) do
@@ -104,18 +109,16 @@ defmodule Ankole.AuthZ.Group do
 
     create :create_in_tx do
       accept(@fields)
-      transaction?(false)
     end
 
     create :ensure_in_tx do
       accept(@fields)
-      transaction?(false)
       upsert?(true)
       upsert_identity(:name)
       upsert_fields([:name])
     end
 
-    in_tx_update :profile_in_tx do
+    update :profile_in_tx do
       accept(@fields -- [:built_in])
 
       validate(fn changeset, _context ->
@@ -134,10 +137,81 @@ defmodule Ankole.AuthZ.Group do
       end)
     end
 
-    destroy :delete_in_tx do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    destroy(:delete_in_tx)
+
+    action :delete_operator_group, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id_or_name, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.AuthZ.Store.delete_operator_group(Ankole.Repo, input.arguments.id_or_name)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :add_member, :struct do
+      constraints(instance_of: Ankole.AuthZ.Membership)
+      argument(:principal_uid, :term, allow_nil?: false)
+      argument(:group, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.AuthZ.Store.add_principal_to_group(
+          input.arguments.principal_uid,
+          input.arguments.group,
+          Ankole.AuthZ.Root.admin_group_name()
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :remove_member, :atom do
+      argument(:principal_uid, :term, allow_nil?: false)
+      argument(:group, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.AuthZ.Store.remove_principal_from_group(
+          input.arguments.principal_uid,
+          input.arguments.group,
+          Ankole.AuthZ.Root.admin_group_name()
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :replace_static_members, :map do
+      argument(:group_id, :term, allow_nil?: false)
+      argument(:expected_domain, :atom, allow_nil?: false)
+      argument(:principal_uids, {:array, :term}, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.AuthZ.Store.replace_static_group_members(
+          input.arguments.group_id,
+          input.arguments.expected_domain,
+          input.arguments.principal_uids
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :apply_static_member_delta, :map do
+      argument(:group_id, :term, allow_nil?: false)
+      argument(:expected_domain, :atom, allow_nil?: false)
+      argument(:added_uids, {:array, :term}, allow_nil?: false)
+      argument(:removed_uids, {:array, :term}, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.AuthZ.Store.apply_static_group_member_delta(
+          input.arguments.group_id,
+          input.arguments.expected_domain,
+          input.arguments.added_uids,
+          input.arguments.removed_uids
+        )
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 

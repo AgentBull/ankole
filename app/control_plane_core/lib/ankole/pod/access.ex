@@ -547,10 +547,10 @@ defmodule Ankole.Pod.Access do
   def page_grants(id), do: grants(resource_pattern: "pod:**:#{id}:**", action: [in: @actions])
 
   @doc "Removes permission grants in the caller's transaction, which holds the tree lock."
-  def remove_grants(grants), do: Enum.each(grants, &Ankole.AuthZ.Domain.delete_grant!/1)
+  def remove_grants(grants), do: Enum.each(grants, &Ankole.AuthZ.delete_grant!/1)
 
   @doc "Lists the permission grants that match a keyword filter."
-  def grants(filter), do: Ankole.AuthZ.Domain.list_grants!(query: [filter: filter])
+  def grants(filter), do: Ankole.AuthZ.list_grants!(query: [filter: filter])
 
   defp owner_match?(%{principal_uid: uid}, grant), do: grant.principal_uid == uid
   defp owner_match?(%{group_id: id}, grant), do: grant.group_id == id

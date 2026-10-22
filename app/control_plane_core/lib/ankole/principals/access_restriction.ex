@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.AccessRestriction do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
 
   postgres do
     table("human_access_restrictions")
@@ -51,20 +51,19 @@ defmodule Ankole.Principals.AccessRestriction do
 
     create :restrict_in_tx do
       accept([:principal_uid, :source, :reason, :operation_id, :provider_time])
-      transaction?(false)
       change(set_attribute(:recovery_verified_at, nil))
     end
 
-    in_tx_update :repeat_restriction_in_tx do
+    update :repeat_restriction_in_tx do
       accept([:source, :reason, :operation_id, :provider_time])
       change(set_attribute(:recovery_verified_at, nil))
     end
 
-    in_tx_update :verify_recovery_in_tx do
+    update :verify_recovery_in_tx do
       accept([:recovery_verified_at])
     end
 
-    in_tx_update :clear_in_tx do
+    update :clear_in_tx do
       accept([:cleared_at])
     end
   end

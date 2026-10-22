@@ -1,9 +1,12 @@
 defmodule Ankole.Principals.HumanAccess do
   @moduledoc """
   Human restrictions and persistent credential revocation.
+
+  Each change is a generic action of `Ankole.Principals.Principal` that owns
+  its transaction; the `_in_tx` functions are its steps.
   """
 
-  import Ecto.Query
+  require Ash.Query
   alias Ankole.AuthZ
   alias Ankole.AuthZ.Store
   alias Ankole.Principals
@@ -13,8 +16,8 @@ defmodule Ankole.Principals.HumanAccess do
   alias Ankole.Repo
 
   def check(uid, version) when is_binary(uid) and is_integer(version) do
-    case Repo.get(Principal, uid) do
-      %Principal{type: :human, status: :active, access_version: ^version} -> :ok
+    case Principals.get_principal_across_tenants(uid) do
+      {:ok, %Principal{type: :human, status: :active, access_version: ^version}} -> :ok
       _ -> {:error, :human_access_revoked}
     end
   end
@@ -32,13 +35,17 @@ defmodule Ankole.Principals.HumanAccess do
   end
 
   def restrictions(uid) do
-    Repo.all(from r in AccessRestriction, where: r.principal_uid == ^uid, order_by: r.inserted_at)
+    AccessRestriction
+    |> Ash.Query.filter(principal_uid == ^uid)
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ankole.Ash.read!()
   end
 
   def history(uid) do
-    Repo.all(
-      from e in AccessEvent, where: e.principal_uid == ^uid, order_by: [desc: e.inserted_at]
-    )
+    AccessEvent
+    |> Ash.Query.filter(principal_uid == ^uid)
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ankole.Ash.read!()
   end
 
   @doc """
@@ -46,12 +53,19 @@ defmodule Ankole.Principals.HumanAccess do
   Only the operator command calls this operation; browser setup does not use it.
   """
   def recover_admin(uid, operator, reason) when is_binary(operator) and operator != "" do
-    Repo.transact(fn repo ->
-      with {:ok, _} <- Ankole.Tenants.lock_administration(repo),
-           {:ok, tenant} <- Ankole.Tenants.privileged() do
-        Repo.with_tenant(tenant.id, fn -> recover_site_admin(repo, uid, operator, reason) end)
-      end
-    end)
+    Ankole.Ash.run_action(Principal, :recover_admin, %{
+      uid: uid,
+      operator: operator,
+      reason: reason
+    })
+  end
+
+  @doc false
+  def recover_admin_in_tx(repo, uid, operator, reason) do
+    with {:ok, _} <- Ankole.Tenants.lock_administration(repo),
+         {:ok, tenant} <- Ankole.Tenants.privileged() do
+      Repo.with_tenant(tenant.id, fn -> recover_site_admin(repo, uid, operator, reason) end)
+    end
   end
 
   defp recover_site_admin(repo, uid, operator, reason) do
@@ -86,29 +100,42 @@ defmodule Ankole.Principals.HumanAccess do
     })
   end
 
-  defp restrict(uid, attrs) do
-    Repo.transact(fn repo ->
-      with :ok <- lock_disable(repo, uid, attrs),
-           {:ok, %Principal{type: :human} = principal} <-
-             Store.fetch_principal_for_update(repo, uid) do
-        case repo.get_by(AccessEvent,
-               principal_uid: principal.uid,
-               source: attrs.source,
-               operation_id: attrs.operation_id
-             ) do
-          %AccessEvent{} ->
-            {:ok, principal}
+  @doc false
+  def restrict_from_provider_in_tx(repo, uid, provider_id, reason, operation_id, provider_time) do
+    restrict_in_tx(repo, uid, %{
+      source: "provider:" <> provider_id,
+      reason: reason,
+      operation_id: operation_id,
+      provider_time: provider_time
+    })
+  end
 
-          nil ->
-            if stale_provider_observation?(repo, principal.uid, attrs),
-              do: {:ok, principal},
-              else: restrict_in_tx(repo, principal, attrs)
-        end
-      else
-        {:ok, %Principal{}} -> {:error, :not_human}
-        error -> error
+  defp restrict(uid, attrs),
+    do: Ankole.Ash.run_action(Principal, :restrict, %{uid: uid, attrs: attrs})
+
+  @doc false
+  def restrict_in_tx(repo, uid, attrs) do
+    with :ok <- lock_disable(repo, uid, attrs),
+         {:ok, %Principal{type: :human} = principal} <-
+           Principals.lock_principal_in_tx(repo, uid) do
+      case AccessEvent
+           |> Ash.Query.filter(
+             principal_uid == ^principal.uid and source == ^attrs.source and
+               operation_id == ^attrs.operation_id
+           )
+           |> Ankole.Ash.read_one!() do
+        %AccessEvent{} ->
+          {:ok, principal}
+
+        nil ->
+          if stale_provider_observation?(principal.uid, attrs),
+            do: {:ok, principal},
+            else: revoke_in_tx(repo, principal, attrs)
       end
-    end)
+    else
+      {:ok, %Principal{}} -> {:error, :not_human}
+      error -> error
+    end
   end
 
   defp lock_disable(_repo, uid, %{source: "manual", actor: %Ankole.ActorRef{uid: uid}}),
@@ -122,14 +149,14 @@ defmodule Ankole.Principals.HumanAccess do
     :ok
   end
 
-  defp restrict_in_tx(repo, principal, attrs) do
+  defp revoke_in_tx(repo, principal, attrs) do
     restriction =
-      repo.one(
-        from r in AccessRestriction,
-          where:
-            r.principal_uid == ^principal.uid and r.source == ^attrs.source and
-              r.reason == ^attrs.reason and is_nil(r.cleared_at)
-      ) || %AccessRestriction{}
+      AccessRestriction
+      |> Ash.Query.filter(
+        principal_uid == ^principal.uid and source == ^attrs.source and
+          reason == ^attrs.reason and is_nil(cleared_at)
+      )
+      |> Ankole.Ash.read_one!() || %AccessRestriction{}
 
     with {:ok, _restriction} <-
            persist_restriction(restriction, Map.put(attrs, :principal_uid, principal.uid)),
@@ -159,111 +186,150 @@ defmodule Ankole.Principals.HumanAccess do
         Map.take(attrs, [:source, :reason, :operation_id, :provider_time])
       )
 
-  defp stale_provider_observation?(repo, uid, %{
+  defp stale_provider_observation?(uid, %{
          source: "provider:" <> _ = source,
          provider_time: %DateTime{} = time
        }) do
-    repo.exists?(
-      from r in AccessRestriction,
-        where: r.principal_uid == ^uid and r.source == ^source and r.recovery_verified_at > ^time
+    AccessRestriction
+    |> Ash.Query.filter(
+      principal_uid == ^uid and source == ^source and recovery_verified_at > ^time
     )
+    |> exists?()
   end
 
-  defp stale_provider_observation?(_repo, _uid, _attrs), do: false
+  defp stale_provider_observation?(_uid, _attrs), do: false
 
   def verify_provider_recovery(uid, provider_id, operation_id) do
-    Repo.transact(fn repo ->
-      with {:ok, principal} <- Store.fetch_principal_for_update(repo, uid) do
-        source = "provider:" <> provider_id
-        now = DateTime.utc_now()
+    Ankole.Ash.run_action(Principal, :verify_provider_recovery, %{
+      uid: uid,
+      provider_id: provider_id,
+      operation_id: operation_id
+    })
+  end
 
-        active =
-          from r in AccessRestriction,
-            where:
-              r.principal_uid == ^principal.uid and r.source == ^source and is_nil(r.cleared_at)
+  @doc false
+  def verify_provider_recovery_in_tx(repo, uid, provider_id, operation_id) do
+    with {:ok, principal} <- Principals.lock_principal_in_tx(repo, uid) do
+      source = "provider:" <> provider_id
+      now = DateTime.utc_now()
 
-        newly_verified? = repo.exists?(from r in active, where: is_nil(r.recovery_verified_at))
+      active =
+        AccessRestriction
+        |> Ash.Query.filter(
+          principal_uid == ^principal.uid and source == ^source and is_nil(cleared_at)
+        )
+        |> Ankole.Ash.read!()
 
-        Enum.each(repo.all(active), fn restriction ->
-          {:ok, _} =
-            Ankole.Ash.update(restriction, :verify_recovery_in_tx, %{recovery_verified_at: now})
-        end)
+      newly_verified? = Enum.any?(active, &is_nil(&1.recovery_verified_at))
 
-        if not newly_verified? do
-          {:ok, principal}
-        else
-          record(repo, principal, principal, "provider_recovery_verified", %{
-            source: source,
-            reason: "current_provider_state_allows_recovery",
-            operation_id: operation_id
-          })
-        end
+      Enum.each(active, fn restriction ->
+        {:ok, _} =
+          Ankole.Ash.update(restriction, :verify_recovery_in_tx, %{recovery_verified_at: now})
+      end)
+
+      if not newly_verified? do
+        {:ok, principal}
+      else
+        record(repo, principal, principal, "provider_recovery_verified", %{
+          source: source,
+          reason: "current_provider_state_allows_recovery",
+          operation_id: operation_id
+        })
       end
-    end)
+    end
   end
 
   def clear_restriction(uid, restriction_id, actor_uid, reason, operation_id) do
-    Repo.transact(fn repo ->
-      with {:ok, principal} <- Store.fetch_principal_for_update(repo, uid) do
-        case repo.get_by(AccessRestriction, id: restriction_id, principal_uid: uid) do
-          nil ->
-            {:error, :not_found}
+    Ankole.Ash.run_action(Principal, :clear_restriction, %{
+      uid: uid,
+      restriction_id: restriction_id,
+      actor: actor_uid,
+      reason: reason,
+      operation_id: operation_id
+    })
+  end
 
-          %AccessRestriction{cleared_at: cleared_at} when not is_nil(cleared_at) ->
-            {:ok, principal}
+  @doc false
+  def clear_restriction_in_tx(repo, uid, restriction_id, actor_uid, reason, operation_id) do
+    with {:ok, principal} <- Principals.lock_principal_in_tx(repo, uid) do
+      case fetch_restriction(restriction_id, principal.uid) do
+        nil ->
+          {:error, :not_found}
 
-          restriction ->
-            with :ok <- recovery_allowed(restriction),
-                 {:ok, _} <-
-                   Ankole.Ash.update(restriction, :clear_in_tx, %{cleared_at: DateTime.utc_now()}) do
-              record(repo, principal, principal, "clear_restriction", %{
-                source: "manual",
-                reason: reason,
-                actor: actor_uid,
-                operation_id: operation_id,
-                details: %{"restriction_id" => restriction.id}
-              })
-            end
-        end
+        %AccessRestriction{cleared_at: cleared_at} when not is_nil(cleared_at) ->
+          {:ok, principal}
+
+        restriction ->
+          with :ok <- recovery_allowed(restriction),
+               {:ok, _} <-
+                 Ankole.Ash.update(restriction, :clear_in_tx, %{cleared_at: DateTime.utc_now()}) do
+            record(repo, principal, principal, "clear_restriction", %{
+              source: "manual",
+              reason: reason,
+              actor: actor_uid,
+              operation_id: operation_id,
+              details: %{"restriction_id" => restriction.id}
+            })
+          end
       end
-    end)
+    end
+  end
+
+  defp fetch_restriction(restriction_id, uid) do
+    case Ecto.UUID.cast(restriction_id) do
+      {:ok, id} ->
+        AccessRestriction
+        |> Ash.Query.filter(id == ^id and principal_uid == ^uid)
+        |> Ankole.Ash.read_one!()
+
+      :error ->
+        nil
+    end
   end
 
   def restore(uid, review_fingerprint, actor_uid, reason, operation_id) do
-    Repo.transact(fn repo ->
-      Store.lock_built_in_admin_group_for_update(repo, Ankole.AuthZ.Root.admin_group_name())
+    Ankole.Ash.run_action(Principal, :restore, %{
+      uid: uid,
+      review_fingerprint: review_fingerprint,
+      actor: actor_uid,
+      reason: reason,
+      operation_id: operation_id
+    })
+  end
 
-      with {:ok, %Principal{type: :human, status: :disabled} = principal} <-
-             Store.fetch_principal_for_update(repo, uid),
-           :ok <- tenant_allows_restoration(principal.tenant_id),
-           false <-
-             repo.exists?(
-               from r in AccessRestriction,
-                 where: r.principal_uid == ^principal.uid and is_nil(r.cleared_at)
-             ),
-           {:ok, %{fingerprint: ^review_fingerprint} = review} <- AuthZ.restoration_review(uid),
-           {:ok, restored} <-
-             Ankole.Ash.update(principal, :enable_in_tx, %{}),
-           {:ok, _} <-
-             record(repo, principal, restored, "restore", %{
-               source: "manual",
-               reason: reason,
-               actor: actor_uid,
-               operation_id: operation_id,
-               details: %{
-                 "approved_permissions" => review.permissions,
-                 "identity_verified" => true
-               }
-             }) do
-        {:ok, restored}
-      else
-        true -> {:error, :active_restrictions}
-        {:ok, %Principal{type: :human, status: :active} = principal} -> {:ok, principal}
-        {:ok, %Principal{}} -> {:error, :not_human}
-        {:ok, %{fingerprint: _}} -> {:error, :permission_review_changed}
-        error -> error
-      end
-    end)
+  @doc false
+  def restore_in_tx(repo, uid, review_fingerprint, actor_uid, reason, operation_id) do
+    Store.lock_built_in_admin_group_for_update(repo, Ankole.AuthZ.Root.admin_group_name())
+
+    with {:ok, %Principal{type: :human, status: :disabled} = principal} <-
+           Principals.lock_principal_in_tx(repo, uid),
+         :ok <- tenant_allows_restoration(principal.tenant_id),
+         false <-
+           AccessRestriction
+           |> Ash.Query.filter(principal_uid == ^principal.uid and is_nil(cleared_at))
+           |> exists?(),
+         {:ok, %{fingerprint: ^review_fingerprint} = review} <- AuthZ.restoration_review(uid),
+         {:ok, restored} <-
+           Ankole.Ash.update(principal, :enable_in_tx, %{}),
+         {:ok, _} <-
+           record(repo, principal, restored, "restore", %{
+             source: "manual",
+             reason: reason,
+             actor: actor_uid,
+             operation_id: operation_id,
+             details: %{
+               "approved_permissions" => review.permissions,
+               "identity_verified" => true
+             }
+           }) do
+      {:ok, restored}
+    else
+      true -> {:error, :active_restrictions}
+      {:ok, %Principal{type: :human, status: :active} = principal} -> {:ok, principal}
+      {:ok, %Principal{}} -> {:error, :not_human}
+      {:ok, %{fingerprint: _}} -> {:error, :permission_review_changed}
+      error -> error
+    end
   end
 
   defp tenant_allows_restoration(tenant_id) do
@@ -286,6 +352,9 @@ defmodule Ankole.Principals.HumanAccess do
   end
 
   defp recovery_allowed(_), do: {:error, :provider_recovery_not_verified}
+
+  defp exists?(query),
+    do: query |> Ash.Query.limit(1) |> Ankole.Ash.read!() |> Enum.any?()
 
   defp record(_repo, before, after_state, action, attrs) do
     Ankole.Ash.create(

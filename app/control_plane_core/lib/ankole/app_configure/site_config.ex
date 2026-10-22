@@ -3,7 +3,7 @@ defmodule Ankole.AppConfigure.SiteConfig do
 
   use Ankole.Ash.Resource,
     tenancy: :site,
-    domain: Ankole.AppConfigure.Domain
+    domain: Ankole.AppConfigure
 
   postgres do
     table("site_app_configurations")
@@ -52,7 +52,6 @@ defmodule Ankole.AppConfigure.SiteConfig do
     create :put do
       accept([:scope, :key])
       argument(:input, :term)
-      transaction?(false)
       upsert?(true)
       upsert_identity(:scope_key)
       upsert_fields([:value, :updated_at])
@@ -61,7 +60,8 @@ defmodule Ankole.AppConfigure.SiteConfig do
       change(Ankole.AppConfigure.Changes.EncodeValue, only_when_valid?: true)
     end
 
-    atomic_in_tx_update :record_platform_application do
+    update :record_platform_application do
+      require_atomic?(true)
       accept([])
       argument(:application, :string, constraints: [trim?: false])
 
@@ -69,8 +69,32 @@ defmodule Ankole.AppConfigure.SiteConfig do
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :ensure_generated_global, :term do
+      argument(:definition, :term, allow_nil?: false)
+      after_commit({Ankole.AppConfigure, :refresh_committed})
+
+      run(fn input, _context ->
+        Ankole.AppConfigure.ensure_generated_global_in_tx(Ankole.Repo, input.arguments.definition)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :update_global, :term do
+      argument(:definition, :term, allow_nil?: false)
+      argument(:updater, :function, allow_nil?: false, constraints: [arity: 1])
+      after_commit({Ankole.AppConfigure, :refresh_committed})
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.AppConfigure.update_global_in_tx(
+          input.arguments.definition,
+          input.arguments.updater
+        )
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 

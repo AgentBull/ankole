@@ -20,7 +20,7 @@ defmodule AnkoleWeb.Plugs.PutDataContext do
 
   defp put_context(conn, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Tenant{deleting_at: nil} = tenant <- Repo.get(Tenant, id) do
+         {:ok, %Tenant{deleting_at: nil} = tenant} <- Ankole.Tenants.get_tenant(id) do
       Repo.put_tenant_id(tenant.id)
       conn
     else

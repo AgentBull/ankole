@@ -67,9 +67,7 @@ defmodule Ankole.Pod.Values do
   def cast(%{type: :user}, value, _) when is_list(value) do
     with {:ok, ids} <- normalize_ids(value, &Ankole.Principals.normalize_uid/1),
          principals <-
-           Ankole.Principals.Domain.list_principals!(
-             query: [filter: [uid: [in: ids]], select: [:uid]]
-           ),
+           Ankole.Principals.list_principals!(query: [filter: [uid: [in: ids]], select: [:uid]]),
          true <- length(principals) == length(ids) do
       {:ok, ids}
     else

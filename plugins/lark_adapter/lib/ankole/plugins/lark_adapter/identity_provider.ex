@@ -55,6 +55,15 @@ defmodule Ankole.Plugins.LarkAdapter.IdentityProvider do
   end
 
   @doc """
+  Declares that a Lark login has no ID token.
+
+  Lark login is OAuth 2.0: the user access token reads the user, so the login
+  has no signed authentication time.
+  """
+  @spec id_token_verification(map()) :: Ankole.IdentityProviders.OIDC.verification()
+  def id_token_verification(_config), do: :none
+
+  @doc """
   Exchanges an OIDC code and hydrates the user with contact data when possible.
   """
   @spec exchange_code(map(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}

@@ -1,14 +1,14 @@
 defmodule Ankole.AuthZ.Root do
   @moduledoc false
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
+  alias Ankole.AuthZ.Grant
   alias Ankole.AuthZ.Group
   alias Ankole.AuthZ.Membership
   alias Ankole.AuthZ.Store
   alias Ankole.AuthZ.Root
   alias Ankole.Principals
-  alias Ankole.Principals.Principal
   alias Ankole.Repo
 
   @admin_group_name "siteadmin"
@@ -29,17 +29,15 @@ defmodule Ankole.AuthZ.Root do
       admin_group_name = Root.admin_group_name()
 
       Repo.with_tenant(tenant.id, fn ->
-        Repo.exists?(
-          from membership in Membership,
-            join: group in Group,
-            on: group.id == membership.group_id,
-            join: principal in Principal,
-            on: principal.uid == membership.principal_uid,
-            where:
-              membership.principal_uid == ^principal_uid and group.name == ^admin_group_name and
-                group.built_in == true and group.kind == :static and principal.type == :human and
-                principal.status == :active and principal.tenant_id == ^tenant.id
+        Membership
+        |> Ash.Query.filter(
+          principal_uid == ^principal_uid and group.name == ^admin_group_name and
+            group.built_in == true and group.kind == :static and principal.type == :human and
+            principal.status == :active
         )
+        |> Ash.Query.limit(1)
+        |> Ankole.Ash.read!()
+        |> Enum.any?()
       end)
     else
       {:error, _reason} -> false
@@ -75,6 +73,31 @@ defmodule Ankole.AuthZ.Root do
     })
   end
 
+  @doc """
+  Deletes the site administration group and its grants in the selected tenant.
+
+  It runs in the caller's transaction, after the transfer of site
+  administration to another tenant.
+  """
+  def delete_site_admin_group_in_tx(_repo) do
+    Ankole.Pod.Pages.lock_tree()
+
+    case Group
+         |> Ash.Query.filter(name == ^@admin_group_name and built_in == true)
+         |> Ankole.Ash.read_one!() do
+      nil ->
+        :ok
+
+      group ->
+        with {:ok, _grants} <-
+               Grant
+               |> Ash.Query.filter(group_id == ^group.id)
+               |> Ankole.Ash.destroy_where(:delete_in_tx),
+             {:ok, _group} <- Ankole.Ash.destroy(group, :delete_in_tx),
+             do: :ok
+    end
+  end
+
   def ensure_all_humans_group(repo) do
     upsert_builtin_group(repo, %{
       name: @all_humans_group_name,
@@ -100,13 +123,12 @@ defmodule Ankole.AuthZ.Root do
     end
   end
 
-  defp lock_admin_memberships(repo, admin_group_id) do
-    repo.all(
-      from membership in Membership,
-        where: membership.group_id == ^admin_group_id,
-        order_by: [asc: membership.principal_uid],
-        lock: "FOR UPDATE"
-    )
+  defp lock_admin_memberships(_repo, admin_group_id) do
+    Membership
+    |> Ash.Query.filter(group_id == ^admin_group_id)
+    |> Ash.Query.sort(principal_uid: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!()
   end
 
   defp upsert_builtin_group(repo, attrs) do

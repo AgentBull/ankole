@@ -131,7 +131,7 @@ defmodule Ankole.BrowserSessions do
 
   defp current_binding?(%Authentication{purpose: :site} = authentication, proof) do
     Ankole.IdentityProviders.SiteSources.registered?(authentication.provider_id) and
-      Ankole.Principals.Domain.list_external_identities!(
+      Ankole.Principals.list_external_identities!(
         query: [
           filter: [
             provider: authentication.provider_id,
@@ -1079,7 +1079,7 @@ defmodule Ankole.BrowserSessions do
   defp lock_principal(uid) do
     Ankole.LockOrder.with_identity({"principals", uid}, fn ->
       principals =
-        Ankole.Principals.Domain.list_principals!(query: [filter: [uid: uid], lock: "FOR SHARE"])
+        Ankole.Principals.list_principals!(query: [filter: [uid: uid], lock: "FOR SHARE"])
 
       List.first(principals)
     end)

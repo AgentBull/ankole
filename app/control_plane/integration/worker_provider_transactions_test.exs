@@ -124,7 +124,12 @@ defmodule Ankole.WorkerProviderTransactionsTest do
        context do
     plugin_provider!(context)
     legacy!(context.uid)
-    disable = hold(fn -> PluginConfig.put_configured_enabled("vercel-worker-provider", false) end)
+
+    disable =
+      hold(fn ->
+        PluginConfig.put_configured_enabled_in_tx(Repo, "vercel-worker-provider", false)
+      end)
+
     assignment = start(fn -> Providers.assign(context.uid, context.first) end)
     assert_blocked_by(assignment, disable)
     release(disable)
@@ -164,7 +169,7 @@ defmodule Ankole.WorkerProviderTransactionsTest do
     telegram = Ankole.Plugins.TelegramAdapter.plugin_id()
     assert {:ok, _} = PluginConfig.put_configured_enabled(slack, false)
     assert {:ok, _} = PluginConfig.put_configured_enabled(telegram, false)
-    first = hold(fn -> PluginConfig.put_configured_enabled(slack, true) end)
+    first = hold(fn -> PluginConfig.put_configured_enabled_in_tx(Repo, slack, true) end)
     second = start(fn -> PluginConfig.put_configured_enabled(telegram, true) end)
     assert_blocked_by(second, first)
     release(first)

@@ -175,7 +175,7 @@ defmodule Ankole.OIDC.Sessions do
 
   # Tenants owns the row. FOR KEY SHARE keeps the tenant while a credential refers to it.
   defp lock_tenant do
-    case Ankole.Tenants.Domain.get_tenant!(Repo.tenant_id!(), query: [lock: "FOR KEY SHARE"]) do
+    case Ankole.Tenants.get_tenant!(Repo.tenant_id!(), query: [lock: "FOR KEY SHARE"]) do
       nil -> {:error, :context_unavailable}
       _tenant -> :ok
     end
@@ -185,9 +185,7 @@ defmodule Ankole.OIDC.Sessions do
   defp lock_principal(uid) do
     Ankole.LockOrder.with_identity({"principals", uid}, fn ->
       principals =
-        Ankole.Principals.Domain.list_principals!(
-          query: [filter: [uid: uid], lock: "FOR KEY SHARE"]
-        )
+        Ankole.Principals.list_principals!(query: [filter: [uid: uid], lock: "FOR KEY SHARE"])
 
       List.first(principals)
     end)

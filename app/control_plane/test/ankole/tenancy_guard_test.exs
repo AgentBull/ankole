@@ -28,8 +28,6 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_worker_count" => 1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_workers" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/authz/snapshot.ex:load_authorization_snapshot" =>
-      1,
     "across_tenants:../control_plane_core/lib/ankole/brain/config.ex:model_provider_references" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:site_principals" => 1,
@@ -48,20 +46,14 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/oidc/tokens.ex:access_context" => 1,
     "across_tenants:../control_plane_core/lib/ankole/plugins/channel_sync.ex:enqueue_enabled_bindings" =>
       1,
+    "across_tenants:../control_plane_core/lib/ankole/authz/snapshot.ex:fetch_principal" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/principals.ex:list_platform_subject_bindings" =>
+      1,
     "across_tenants:../control_plane_core/lib/ankole/principals.ex:resolve_tenant" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:classify" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:from_sender" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:list_for_human" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:list_unresolved" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:lock_authorizer" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:lock_authorizers_in_tx" =>
-      1,
+    "across_tenants:../control_plane_core/lib/ankole/principals/work_cleanup.ex:cleanup_in_tx" =>
+      2,
     "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:valid_subject_now?" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/principals/work_cleanup.ex:cleanup" => 2,
     "across_tenants:../control_plane_core/lib/ankole/sessions/reconciler.ex:reconcile_inputs" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:delete_agent_config_rows_in_tx" =>
@@ -78,6 +70,7 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:lib/ankole/upgrade_202610.ex:migrate_shared_key" => 1,
     "across_tenants:../control_plane_core/lib/ankole/workflow/recovery.ex:reconcile_run_wakeups" =>
       1,
+    "across_tenants:../control_plane_core/lib/ankole/work/owner.ex:read_across_tenants" => 1,
     "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock" => 1,
     "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock!" => 1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/provider_configs.ex:provider_references" =>

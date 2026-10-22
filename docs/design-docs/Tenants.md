@@ -20,15 +20,20 @@ lifecycle state. Tenant-owned schemas declare that ownership through
 predicate before executing queries. A missing context fails. Site-owned schemas
 and deliberate `Repo.across_tenants` operations remain explicit.
 
-The site-owned `Tenant` resource belongs to `Ankole.Tenants.Domain`. Its typed
-actions own profile validation and persistence. Profile writes cannot set
+The site-owned `Tenant` resource belongs to the `Ankole.Tenants` domain. Its
+typed actions own profile validation and persistence. Profile writes cannot set
 suspension or deletion markers. Dedicated lifecycle actions set those markers;
 repeated deletion preserves the first deletion time. The final destroy action
-requires a deletion marker. `Tenants` retains the administration and tenant
-locks, scaffold transaction, protected-tenant checks, and deletion job. That job
-still removes external resources and durable child rows in their existing
-order before it calls the final destroy action. No generic cascade replaces
-that lifecycle.
+requires a deletion marker. Each lifecycle operation (scaffold, profile
+change, suspend, resume, begin deletion, site-administration transfer) is a
+generic action of `Tenant`. It locks the site-administration row and then the
+tenant row in its own transaction, and checks the protected tenant. Another
+domain does the same steps in its transaction through the `_in_tx` functions,
+for example `Tenants.create_in_tx/2`. `Tenants.create/1` still opens its own
+transaction, because the SaaS Pod creation calls it in a transaction. The deletion job is a registered set
+maintenance module: it still removes external resources and durable child rows
+in their existing order with tenant-scoped SQL before it calls the final
+destroy action. No generic cascade replaces that lifecycle.
 
 Oban job and peer tables are site-owned. The `oban` query option does not skip
 tenant checks on business tables, subqueries or CTEs. Struct writes validate

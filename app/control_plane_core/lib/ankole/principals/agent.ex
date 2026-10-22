@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.Agent do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
 
   postgres do
     table("agents")
@@ -106,11 +106,9 @@ defmodule Ankole.Principals.Agent do
         :group_memory_disclosure_mode,
         :created_by
       ])
-
-      transaction?(false)
     end
 
-    in_tx_update :profile_in_tx do
+    update :profile_in_tx do
       accept([
         :handle,
         :type,
@@ -122,7 +120,7 @@ defmodule Ankole.Principals.Agent do
       ])
     end
 
-    in_tx_update :options_in_tx do
+    update :options_in_tx do
       accept([:options])
     end
   end
