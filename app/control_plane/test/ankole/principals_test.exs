@@ -769,4 +769,50 @@ defmodule Ankole.PrincipalsTest do
                ~r/\A[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/
     end
   end
+
+  describe "locks and cross-tenant reads" do
+    test "lock_active_human_in_tx/2 locks an active Human with its profile" do
+      %{principal: human} = human_fixture()
+      %{principal: agent} = agent_fixture()
+      uid = human.uid
+
+      assert {:ok, {:ok, %{principal: %{uid: ^uid}, human_user: %{principal_uid: ^uid}}}} =
+               Repo.transact(fn repo -> {:ok, Principals.lock_active_human_in_tx(repo, uid)} end)
+
+      for {subject, reason} <- [
+            {agent.uid, :human_access_revoked},
+            {Ankole.Kernel.gen_uuid_v7(), :not_found}
+          ] do
+        assert {:ok, {:error, ^reason}} =
+                 Repo.transact(fn repo ->
+                   {:ok, Principals.lock_active_human_in_tx(repo, subject)}
+                 end)
+      end
+    end
+
+    test "list_platform_subject_bindings/2 reads one subject in every tenant", %{tenant: tenant} do
+      other = create_tenant()
+      subject = %{provider: "site", external_id: "subject-#{System.unique_integer([:positive])}"}
+
+      bind = fn ->
+        %{principal: principal} = human_fixture()
+
+        {:ok, _identity} =
+          Principals.bind_external_identity(
+            Repo,
+            Map.put(subject, :principal_uid, principal.uid)
+          )
+
+        principal.uid
+      end
+
+      here = bind.()
+      there = Repo.with_tenant(other.id, bind)
+
+      assert subject.provider
+             |> Principals.list_platform_subject_bindings(subject.external_id)
+             |> Enum.map(&{&1.tenant_id, &1.principal_uid}) ==
+               Enum.sort_by([{tenant.id, here}, {other.id, there}], &elem(&1, 1))
+    end
+  end
 end
