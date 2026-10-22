@@ -11,12 +11,10 @@ defmodule Ankole.Sessions.AmbientCuration do
   whose group-message policy is `may_intervene`.
   """
 
-  import Ecto.Query
   require Ash.Query
 
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
-  alias Ankole.Repo
   alias Ankole.Sessions.Queue
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.Ambient
@@ -48,17 +46,22 @@ defmodule Ankole.Sessions.AmbientCuration do
       handoff_job_id: Map.get(attrs, :handoff_job_id)
     }
 
-    Repo.transact(fn repo ->
-      with %Signal{} = event <- repo.get(Signal, signal_id),
-           :ok <- Ankole.Sessions.Admission.authorize_new_work_in_tx(repo, event) do
-        lock_and_commit_judgment(repo, key, signal_id, route, attrs)
-      else
-        nil -> {:error, :signal_not_found}
-        error -> error
-      end
-    end)
+    key
+    |> Ankole.Sessions.record_ambient_judgment(signal_id, route, attrs)
+    |> Ankole.Errors.reason()
     |> case do
       {:ok, result} -> {:ok, Map.delete(result, :command_event)}
+      error -> error
+    end
+  end
+
+  @doc false
+  def record_judgment_in_tx(repo, key, signal_id, route, attrs) do
+    with %Signal{} = event <- Ankole.Signals.get_signal!(signal_id),
+         :ok <- Ankole.Sessions.Admission.authorize_new_work_in_tx(repo, event) do
+      lock_and_commit_judgment(repo, key, signal_id, route, attrs)
+    else
+      nil -> {:error, :signal_not_found}
       error -> error
     end
   end
@@ -97,14 +100,13 @@ defmodule Ankole.Sessions.AmbientCuration do
 
   @doc "Preserves judgment progress before its accepted message anchor is removed."
   def message_removed_in_tx(_repo, %Message{} = message) do
-    AmbientJudgment
-    |> Ash.Query.filter(conversation_id == ^message.conversation_id)
-    |> Ash.Query.filter(asked_by_message_id == ^message.id and asked_by_state == "accepted")
-    |> Ankole.Ash.bulk_update(:degrade_anchor, %{}, strategy: [:atomic], return_errors?: true)
-    |> case do
-      %Ash.BulkResult{status: :success} -> :ok
-      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
-    end
+    {:ok, _degraded} =
+      AmbientJudgment
+      |> Ash.Query.filter(conversation_id == ^message.conversation_id)
+      |> Ash.Query.filter(asked_by_message_id == ^message.id and asked_by_state == "accepted")
+      |> Ankole.Ash.update_where(:degrade_anchor)
+
+    :ok
   end
 
   @doc """
@@ -118,30 +120,23 @@ defmodule Ankole.Sessions.AmbientCuration do
   @spec set_standing_orders(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
   def set_standing_orders(agent_uid, signal_id, orders) do
-    with {:ok, orders} <- normalize_orders(orders) do
-      now = DateTime.utc_now(:microsecond)
+    agent_uid
+    |> Ankole.Sessions.set_standing_orders(signal_id, orders, DateTime.utc_now(:microsecond))
+    |> Ankole.Errors.reason()
+  end
 
-      Repo.transact(fn repo ->
-        with {:ok, event} <- channel_event(repo, agent_uid, signal_id) do
-          set_by = entry_author_name(event) || agent_uid
-
-          case update_channel_orders(repo, event.conversation_id, orders, set_by, now) do
-            {1, _rows} ->
-              {:ok,
-               %{
-                 orders: orders,
-                 set_by: set_by,
-                 active: orders != nil and binding_may_intervene?(repo, event)
-               }}
-
-            {0, _rows} ->
-              {:error, :channel_not_found}
-
-            {:error, _} = error ->
-              error
-          end
-        end
-      end)
+  @doc "Replaces the standing orders inside the caller's transaction. See `set_standing_orders/3`."
+  def set_standing_orders_in_tx(_repo, agent_uid, signal_id, orders, now) do
+    with {:ok, orders} <- normalize_orders(orders),
+         {:ok, event} <- channel_event(agent_uid, signal_id),
+         set_by = entry_author_name(event) || agent_uid,
+         {:ok, _channel} <- update_channel_orders(event.conversation_id, orders, set_by, now) do
+      {:ok,
+       %{
+         orders: orders,
+         set_by: set_by,
+         active: orders != nil and binding_may_intervene?(event)
+       }}
     end
   end
 
@@ -151,7 +146,7 @@ defmodule Ankole.Sessions.AmbientCuration do
   @spec conversation_standing_orders(String.t()) :: {:ok, map()} | {:error, :channel_not_found}
   def conversation_standing_orders(conversation_id) when is_binary(conversation_id) do
     with {:ok, id} <- Ecto.UUID.cast(conversation_id),
-         %Conversation{} = conversation <- Repo.get_by(Conversation, id: id) do
+         %Conversation{} = conversation <- Ankole.Conversations.get_conversation!(id) do
       {:ok, standing_orders_projection(conversation)}
     else
       _ -> {:error, :channel_not_found}
@@ -168,33 +163,22 @@ defmodule Ankole.Sessions.AmbientCuration do
     with {:ok, orders} <- normalize_orders(orders) do
       now = DateTime.utc_now(:microsecond)
 
-      case update_channel_orders(Repo, channel_id, orders, set_by, now) do
-        {1, _rows} -> conversation_standing_orders(channel_id)
-        {0, _rows} -> {:error, :channel_not_found}
-        {:error, _} = error -> error
-      end
+      with {:ok, _channel} <- update_channel_orders(channel_id, orders, set_by, now),
+           do: conversation_standing_orders(channel_id)
     end
   end
 
-  defp update_channel_orders(_repo, channel_id, orders, set_by, now) do
-    result =
-      Conversation
-      |> Ash.Query.filter(id == ^channel_id)
-      |> Ankole.Ash.bulk_update(
-        :set_standing_orders,
-        %{
-          ambient_standing_orders: orders,
-          ambient_standing_orders_set_by: set_by,
-          ambient_standing_orders_updated_at: now
-        },
-        strategy: [:atomic],
-        return_records?: true,
-        return_errors?: true
-      )
-
-    case result do
-      %Ash.BulkResult{status: :success, records: rows} -> {length(rows), rows}
-      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+  # One atomic statement; a missing channel gives `:channel_not_found`.
+  defp update_channel_orders(channel_id, orders, set_by, now) do
+    with {:ok, %Conversation{} = channel} <- Ankole.Conversations.get_conversation(channel_id) do
+      Ankole.Conversations.set_standing_orders_conversation(channel, %{
+        ambient_standing_orders: orders,
+        ambient_standing_orders_set_by: set_by,
+        ambient_standing_orders_updated_at: now
+      })
+    else
+      {:ok, nil} -> {:error, :channel_not_found}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -210,19 +194,16 @@ defmodule Ankole.Sessions.AmbientCuration do
 
   # Returns true when the binding of one Signal allows ambient intervention.
   #
-  @spec binding_may_intervene?(module(), Signal.t()) :: boolean()
-  defp binding_may_intervene?(repo, %Signal{reply_binding_name: name} = event)
+  @spec binding_may_intervene?(Signal.t()) :: boolean()
+  defp binding_may_intervene?(%Signal{reply_binding_name: name} = event)
        when is_binary(name) and name != "" do
-    binding =
-      Binding
-      |> where([binding], binding.agent_uid == ^event.agent_uid)
-      |> where([binding], binding.name == ^event.reply_binding_name)
-      |> repo.one()
-
-    match?(%Binding{unaddressed_group_message_policy: :may_intervene}, binding)
+    match?(
+      %Binding{unaddressed_group_message_policy: :may_intervene},
+      Ankole.Signals.get_binding!(event.agent_uid, name)
+    )
   end
 
-  defp binding_may_intervene?(_repo, _event), do: false
+  defp binding_may_intervene?(_event), do: false
 
   defp lock_handoff_job(
          repo,
@@ -266,7 +247,7 @@ defmodule Ankole.Sessions.AmbientCuration do
   defp settle_in_tx(_repo, _event, _judgment, _now), do: :ok
 
   defp enforce_authority(
-         repo,
+         _repo,
          event,
          %{action: "NEW_WORK", authority: "STANDING_ORDER"} = route,
          _asked_by_state
@@ -277,10 +258,7 @@ defmodule Ankole.Sessions.AmbientCuration do
       |> Ankole.Attrs.optional_text()
 
     current =
-      Conversation
-      |> where([channel], channel.id == ^event.conversation_id)
-      |> lock("FOR UPDATE")
-      |> repo.one()
+      Ankole.Conversations.get_conversation!(event.conversation_id, query: [lock: :for_update])
 
     case current do
       %Conversation{ambient_standing_orders: ^snapshot} when is_binary(snapshot) -> route
@@ -412,8 +390,8 @@ defmodule Ankole.Sessions.AmbientCuration do
     end
   end
 
-  defp channel_event(repo, agent_uid, signal_id) do
-    case event_for_agent(repo, agent_uid, signal_id) do
+  defp channel_event(agent_uid, signal_id) do
+    case event_for_agent(agent_uid, signal_id) do
       {:ok, %Signal{conversation_id: channel_id} = event} when is_binary(channel_id) ->
         {:ok, event}
 
@@ -425,8 +403,8 @@ defmodule Ankole.Sessions.AmbientCuration do
     end
   end
 
-  defp event_for_agent(repo, agent_uid, signal_id) do
-    case repo.get(Signal, signal_id) do
+  defp event_for_agent(agent_uid, signal_id) do
+    case Ankole.Signals.get_signal!(signal_id) do
       %Signal{agent_uid: ^agent_uid} = event -> {:ok, event}
       %Signal{} -> {:error, :signal_agent_mismatch}
       nil -> {:error, :signal_not_found}
@@ -444,7 +422,7 @@ defmodule Ankole.Sessions.AmbientCuration do
         {nil, "degraded", nil}
 
       observed_human_entry?(event, proposed) and
-          entry_exists?(repo, event.conversation_id, proposed) ->
+          entry_exists?(event.conversation_id, proposed) ->
         authorization = asked_authorization(repo, event, proposed)
 
         if Ankole.Principals.WorkAccess.valid_now?(authorization),
@@ -471,11 +449,11 @@ defmodule Ankole.Sessions.AmbientCuration do
     end
   end
 
-  defp entry_exists?(repo, conversation_id, message_id) do
-    Message
-    |> where([entry], entry.conversation_id == ^conversation_id)
-    |> where([entry], entry.id == ^message_id)
-    |> repo.exists?()
+  defp entry_exists?(conversation_id, message_id) do
+    match?(
+      %Message{conversation_id: ^conversation_id},
+      Ankole.Conversations.get_message!(message_id)
+    )
   end
 
   defp insert_judgment(
@@ -504,8 +482,8 @@ defmodule Ankole.Sessions.AmbientCuration do
   defp apply_asked_anchor(_repo, event, asked_by_id, "accepted", authorization)
        when is_binary(asked_by_id) do
     with {:ok, event} <-
-           Ankole.Ash.update(event, :update_metadata, %{ambient_asked_message_id: asked_by_id}),
-         {:ok, _event} <- Ankole.Ash.update(event, :reauthorize, authorization),
+           Ankole.Signals.update_metadata_signal(event, %{ambient_asked_message_id: asked_by_id}),
+         {:ok, _event} <- Ankole.Signals.reauthorize_signal(event, authorization),
          do: :ok
   end
 
@@ -545,18 +523,18 @@ defmodule Ankole.Sessions.AmbientCuration do
   defp entry_author_name(%Signal{producer: :kernel} = event) do
     case Ankole.Conversations.message_for_signal(event) do
       %Message{author_uid: uid} when is_binary(uid) ->
-        case Repo.get(Ankole.Principals.Principal, uid) do
-          %{display_name: name} when is_binary(name) and name != "" -> name
+        case Ankole.Principals.get_principal(uid) do
+          {:ok, %{display_name: name}} when is_binary(name) and name != "" -> name
           _ -> uid
         end
 
       %Message{id: id, conversation_id: conversation_id} ->
-        case Repo.get_by(Ankole.Conversations.ExternalMessageRef,
-               message_id: id,
-               conversation_id: conversation_id
-             ) do
-          %{author: author} when is_map(author) -> Context.speaker_name(author)
-          _ -> nil
+        case Ankole.Conversations.get_external_message_ref!(id) do
+          %{conversation_id: ^conversation_id, author: author} when is_map(author) ->
+            Context.speaker_name(author)
+
+          _ ->
+            nil
         end
 
       nil ->

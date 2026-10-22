@@ -87,12 +87,16 @@ defmodule Ankole.Sessions.Tools do
         "Tool execution was interrupted; its result is unknown. Do not repeat a side effect without checking its authoritative state."
       )
 
-  defp error_message(%module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
+  # Ash error classes: an invalid input gives its validation details; a
+  # framework or unknown error goes to the server log only.
+  defp error_message(%Ash.Changeset{} = changeset),
+    do: changeset |> Ankole.Ash.validation_details() |> Ankole.JSON.encode!()
+
+  defp error_message(%{class: :invalid} = error) when is_exception(error),
     do: error |> Ankole.Ash.validation_details() |> Ankole.JSON.encode!()
 
-  defp error_message(%Ash.Error.Forbidden{}), do: "access denied"
-
-  defp error_message(%module{} = error) when module in [Ash.Error.Framework, Ash.Error.Unknown] do
+  defp error_message(%{class: class} = error)
+       when is_exception(error) and class in [:framework, :unknown] do
     Ankole.Logging.warning(
       "sessions.tools.unexpected_action_error",
       "tool action failed",

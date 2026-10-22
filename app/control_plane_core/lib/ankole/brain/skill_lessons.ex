@@ -247,7 +247,7 @@ defmodule Ankole.Brain.SkillLessons do
         select: [:name]
       ]
     ]
-    |> Ankole.Signals.Domain.list_bindings!()
+    |> Ankole.Signals.list_bindings!()
     |> case do
       [] -> {:error, :agent_has_no_binding}
       [binding] -> {:ok, binding.name}

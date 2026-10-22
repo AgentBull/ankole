@@ -15,7 +15,7 @@ defmodule Ankole.BackgroundAgentJobs.JobSignals do
   @doc "Lists the Signals that match a keyword filter."
   @spec list(keyword(), keyword()) :: [Signal.t()]
   def list(filter, query \\ []),
-    do: Ankole.Signals.Domain.list_signals!(query: [{:filter, filter} | query])
+    do: Ankole.Signals.list_signals!(query: [{:filter, filter} | query])
 
   @doc "Gives the first Signal that matches a keyword filter, or `nil`."
   @spec first(keyword()) :: Signal.t() | nil

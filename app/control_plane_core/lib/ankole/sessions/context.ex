@@ -18,7 +18,6 @@ defmodule Ankole.Sessions.Context do
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.Principals.Agent, as: PrincipalAgent
   alias Ankole.Principals.Principal
-  alias Ankole.Repo
   alias Ankole.Sessions.ModelHistory
   alias Ankole.Conversations.ExternalTarget
   alias Ankole.SystemConfig
@@ -46,7 +45,7 @@ defmodule Ankole.Sessions.Context do
     with {:ok, agent} <- agent_profile(event.agent_uid),
          {:ok, documents} <- Library.list_agent_documents(event.agent_uid),
          %Ankole.Conversations.Conversation{} = room <-
-           Repo.get_by(Ankole.Conversations.Conversation, id: event.conversation_id) do
+           Ankole.Conversations.get_conversation!(event.conversation_id) do
       {:ok,
        %{
          agent: agent,
@@ -54,7 +53,8 @@ defmodule Ankole.Sessions.Context do
          conversation: %{
            timezone: installation_timezone(),
            origin_channel: %{
-             adapter: List.first(String.split(room.provider_conversation_id || "", ":")),
+             adapter:
+               Ankole.Signals.Adapters.conversation_adapter_id(room.provider_conversation_id),
              label: room.title
            }
          }
@@ -88,11 +88,11 @@ defmodule Ankole.Sessions.Context do
   end
 
   defp resolve_job_conversation(agent_uid, job_id) do
-    with %Job{} = job <- Repo.get_by(Job, id: job_id, agent_uid: agent_uid),
+    with %Job{} = job <- BackgroundAgentJobs.get_job_for_agent(job_id, agent_uid),
          conversation_id when is_binary(conversation_id) <-
            Map.get(job.metadata || %{}, "owner_conversation_id"),
-         %Conversation{} = conversation <-
-           Repo.get_by(Conversation, id: conversation_id, subject_uid: agent_uid) do
+         %Conversation{subject_uid: ^agent_uid} = conversation <-
+           Ankole.AIGateway.get_conversation_by_id!(conversation_id) do
       {:ok, conversation}
     else
       _missing -> {:error, :owner_conversation_not_found}
@@ -120,9 +120,9 @@ defmodule Ankole.Sessions.Context do
   end
 
   defp agent_profile(agent_uid) do
-    case Repo.get(Principal, agent_uid) do
-      %Principal{} = principal ->
-        agent = Repo.get(PrincipalAgent, principal.uid)
+    case Ankole.Principals.get_principal(agent_uid) do
+      {:ok, %Principal{} = principal} ->
+        agent = Ankole.Principals.get_agent_record!(principal.uid)
 
         {:ok,
          %{
@@ -130,7 +130,7 @@ defmodule Ankole.Sessions.Context do
            role: agent_role(agent)
          }}
 
-      nil ->
+      {:error, _reason} ->
         {:error, :agent_profile_not_found}
     end
   end

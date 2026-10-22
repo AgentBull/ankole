@@ -132,7 +132,7 @@ defmodule Ankole.Sessions.ReceiptsTest do
   end
 
   test "receipts reject a surrounding transaction before preparing any effect", %{run: run} do
-    assert_raise ArgumentError, fn ->
+    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
       Repo.transact(fn _ ->
         Receipts.execute(run, "resp_outer", "call_1", fn _ ->
           flunk("nested preparation executed")

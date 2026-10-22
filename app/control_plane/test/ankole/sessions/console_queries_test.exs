@@ -143,6 +143,80 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
     assert {:ok, %{conversations: []}} = ConsoleQueries.list_conversations(search: "needle_%")
   end
 
+  describe "list_conversations/1 compared with the earlier Ecto query" do
+    test "gives the same id order for each filter and for the joined pages" do
+      %{principal: agent} = PrincipalsFixtures.agent_fixture()
+      %{principal: other} = PrincipalsFixtures.agent_fixture()
+      %{principal: peer} = PrincipalsFixtures.human_fixture(%{display_name: "Parity Peer"})
+      group = channel_fixture("lark:oc_parity", kind: :im_group, name: "Parity 群")
+      tie = ~U[2026-07-03 10:00:00.000000Z]
+
+      channel =
+        conversation_fixture(agent.uid, "signal-channel:lark:oc_parity", %{
+          metadata: %{"origin" => %{"channel_id" => "lark:oc_parity"}},
+          updated_at: ~U[2026-07-03 12:00:00.000000Z]
+        })
+
+      dm =
+        conversation_fixture(agent.uid, "custom:parity-dm", %{
+          metadata: %{"origin" => %{"peer_uid" => peer.uid}},
+          updated_at: tie
+        })
+
+      origin =
+        conversation_fixture(agent.uid, "custom:parity-origin", %{
+          metadata: %{"origin" => %{"conversation_id" => group.id}},
+          updated_at: tie
+        })
+
+      ended =
+        conversation_fixture(agent.uid, "manual:parity_%ended", %{
+          updated_at: ~U[2026-07-03 09:00:00.000000Z]
+        })
+
+      foreign =
+        conversation_fixture(other.uid, "manual:parity-other", %{
+          updated_at: ~U[2026-07-03 11:00:00.000000Z]
+        })
+
+      ended |> Ecto.Changeset.change(ended_at: tie) |> Repo.update!()
+      for _ <- 1..3, do: message_fixture(channel)
+      message_fixture(dm)
+      for _ <- 1..2, do: message_fixture(origin)
+      message_fixture(foreign)
+
+      filters = [
+        [],
+        [subject_uid: agent.uid],
+        [subject_uid: other.uid],
+        [conversation_key: "parity_%"],
+        [conversation_key: "parity"],
+        [search: "Parity 群"],
+        [search: "Parity Peer"],
+        [search: "lark:oc_parity"],
+        [search: agent.uid],
+        [search: "parity"],
+        [active: true],
+        [active: false],
+        [min_messages: 1],
+        [min_messages: 2],
+        [min_messages: 3],
+        [search: "parity", active: true, min_messages: 1],
+        [subject_uid: agent.uid, search: "Parity", min_messages: 2]
+      ]
+
+      for filter <- filters do
+        expected = legacy_ids(filter)
+        assert {:ok, %{conversations: rows}} = ConsoleQueries.list_conversations(filter)
+        assert Enum.map(rows, & &1.id) == expected, "filter #{inspect(filter)}"
+        assert paged_ids(filter, nil, []) == expected, "pages of #{inspect(filter)}"
+      end
+
+      assert {:error, :invalid_cursor} =
+               ConsoleQueries.list_conversations(cursor: "not-a-keyset")
+    end
+  end
+
   describe "list_conversations/1 with a conversation key filter" do
     test "treats underscore and percent as literal characters" do
       %{principal: agent} = PrincipalsFixtures.agent_fixture()
@@ -285,6 +359,107 @@ defmodule Ankole.Sessions.ConsoleQueriesTest do
   end
 
   defp reload(conversation), do: ConsoleQueries.get_conversation(conversation.id)
+
+  defp paged_ids(filter, cursor, ids) do
+    assert {:ok, page} =
+             ConsoleQueries.list_conversations(filter ++ [limit: 2, cursor: cursor])
+
+    ids = ids ++ Enum.map(page.conversations, & &1.id)
+    if page.next_cursor, do: paged_ids(filter, page.next_cursor, ids), else: ids
+  end
+
+  # The Ecto query that the console list used before the console_list read
+  # action. The parity test compares the two id sequences.
+  defp legacy_ids(opts) do
+    import Ecto.Query
+
+    query = from(conversation in Conversation, as: :conversation)
+
+    query =
+      case opts[:subject_uid] do
+        nil -> query
+        subject_uid -> where(query, [c], c.subject_uid == ^subject_uid)
+      end
+
+    query =
+      case opts[:conversation_key] do
+        nil ->
+          query
+
+        key ->
+          where(query, [c], ilike(c.conversation_key, ^("%" <> Repo.escape_like(key) <> "%")))
+      end
+
+    query =
+      case opts[:search] do
+        nil ->
+          query
+
+        search ->
+          pattern = "%#{Repo.escape_like(search)}%"
+          prefix = Ankole.Sessions.Key.conversation("")
+          subject = String.downcase(search)
+
+          channel_match =
+            from channel in PublicConversation,
+              where:
+                (ilike(channel.title, ^pattern) or
+                   ilike(channel.provider_conversation_id, ^pattern)) and
+                  (parent_as(:conversation).conversation_key ==
+                     fragment("? || ?::text", ^prefix, channel.id) or
+                     fragment(
+                       "? -> 'origin' ->> 'conversation_id' = ?::text",
+                       parent_as(:conversation).metadata,
+                       channel.id
+                     ))
+
+          peer_match =
+            from principal in Ankole.Principals.Principal,
+              where:
+                ilike(principal.display_name, ^pattern) and
+                  principal.uid ==
+                    fragment("? -> 'origin' ->> 'peer_uid'", parent_as(:conversation).metadata)
+
+          where(
+            query,
+            [c],
+            c.subject_uid == ^subject or ilike(c.conversation_key, ^pattern) or
+              exists(channel_match) or exists(peer_match)
+          )
+      end
+
+    query =
+      case opts[:active] do
+        nil -> query
+        true -> where(query, [c], is_nil(c.ended_at))
+        false -> where(query, [c], not is_nil(c.ended_at))
+      end
+
+    query =
+      case opts[:min_messages] do
+        min when is_integer(min) and min > 0 ->
+          where(
+            query,
+            [c],
+            fragment(
+              "(SELECT COUNT(*) FROM (SELECT 1 FROM ai_gateway_messages m WHERE m.tenant_id = ? AND m.subject_uid = ? AND m.conversation_id = ? LIMIT ?) bounded) >= ?",
+              c.tenant_id,
+              c.subject_uid,
+              c.id,
+              ^min,
+              ^min
+            )
+          )
+
+        _none ->
+          query
+      end
+
+    query
+    |> order_by([c], desc: c.updated_at, desc: c.id)
+    |> Repo.all()
+    |> Enum.map(& &1.id)
+  end
 
   defp conversation_fixture(subject_uid, key, attrs \\ %{}) do
     {key, attrs} =

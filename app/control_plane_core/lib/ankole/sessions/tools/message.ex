@@ -1,12 +1,11 @@
 defmodule Ankole.Sessions.Tools.Message do
   @behaviour Ankole.Sessions.Tool
   @moduledoc false
-  import Ecto.Query
+  import Ash.Expr, only: [expr: 1]
   alias Ankole.Sessions.Run
   alias Ankole.Sessions.Tools
   alias Ankole.Files
 
-  alias Ankole.Signals.Signal
   alias Ankole.Signals.Adapters
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.Delivery
@@ -120,13 +119,18 @@ defmodule Ankole.Sessions.Tools.Message do
 
   @impl true
   def observe(run, wait, _steered?, expired?) do
+    outbound_prefix = wait.outbound_key <> ":"
+
     rows =
-      Ankole.Repo.all(
-        from row in Ankole.Conversations.Delivery.Intent,
-          where:
-            row.agent_uid == ^run.agent_uid and row.binding_name == ^wait.binding_name and
-              (row.outbound_key == ^wait.outbound_key or
-                 fragment("starts_with(?, ?)", row.outbound_key, ^(wait.outbound_key <> ":")))
+      Ankole.Conversations.list_intents!(
+        query: [
+          filter:
+            expr(
+              agent_uid == ^run.agent_uid and binding_name == ^wait.binding_name and
+                (outbound_key == ^wait.outbound_key or
+                   fragment("starts_with(?, ?)", outbound_key, ^outbound_prefix))
+            )
+        ]
       )
 
     text = Enum.find(rows, &(&1.outbound_key == wait.outbound_key))
@@ -163,16 +167,21 @@ defmodule Ankole.Sessions.Tools.Message do
     end
   end
 
-  defp conversation_in_tx(repo, run, binding, _adapter, %{"conversation_id" => id}) do
-    with true <-
-           repo.exists?(
-             from e in Signal,
-               where:
-                 e.agent_uid == ^run.agent_uid and e.reply_binding_name == ^binding.name and
-                   e.conversation_id == ^id
+  defp conversation_in_tx(_repo, run, binding, _adapter, %{"conversation_id" => id}) do
+    with [_signal] <-
+           Ankole.Signals.list_signals!(
+             query: [
+               filter: [
+                 agent_uid: run.agent_uid,
+                 reply_binding_name: binding.name,
+                 conversation_id: id
+               ],
+               select: [:id],
+               limit: 1
+             ]
            ),
          %Conversation{kind: :external, external_kind: kind} = channel <-
-           repo.get_by(Conversation, id: id),
+           Ankole.Conversations.get_conversation!(id),
          true <- kind in [:im_dm, :im_group] do
       {:ok, channel}
     else

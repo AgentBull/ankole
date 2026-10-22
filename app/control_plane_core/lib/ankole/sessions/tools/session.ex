@@ -308,12 +308,14 @@ defmodule Ankole.Sessions.Tools.Session do
   def prepare_in_tx(repo, run, call, args),
     do: {:ok, [], fn -> commit_tool_in_tx(repo, run, call, args) end}
 
-  defp commit_tool_in_tx(_repo, run, %{"name" => "set_channel_standing_orders"}, args) do
+  defp commit_tool_in_tx(repo, run, %{"name" => "set_channel_standing_orders"}, args) do
     with {:ok, saved} <-
-           Ankole.Sessions.AmbientCuration.set_standing_orders(
+           Ankole.Sessions.AmbientCuration.set_standing_orders_in_tx(
+             repo,
              run.agent_uid,
              run.signal_id,
-             args["orders"]
+             args["orders"],
+             DateTime.utc_now(:microsecond)
            ) do
       {:ok,
        Tools.result(%{

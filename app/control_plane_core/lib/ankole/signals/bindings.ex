@@ -11,7 +11,7 @@ defmodule Ankole.Signals.Bindings do
   their separate configuration contracts. See `docs/design-docs/Signals.md`.
   """
 
-  import Ecto.Query, warn: false
+  import Ash.Expr, only: [expr: 1]
   require Ash.Query
 
   alias Ankole.Signals.Target, as: ExecutionTarget
@@ -52,30 +52,39 @@ defmodule Ankole.Signals.Bindings do
 
   @doc false
   def delete_agent_config_rows_in_tx(repo, uid) do
-    binding = Ankole.Signals.Binding
-    refs = repo.all(from(row in binding, where: row.agent_uid == ^uid, select: row.config_ref))
-
-    Enum.each(refs, fn
-      "app-config://" <> key = reference ->
-        if not Repo.across_tenants(fn ->
-             repo.exists?(
-               from(row in binding, where: row.config_ref == ^reference and row.agent_uid != ^uid)
-             )
-           end) do
+    Binding
+    |> Ash.Query.filter(agent_uid == ^uid)
+    |> Ash.Query.select([:config_ref])
+    |> Ankole.Ash.read!()
+    |> Enum.each(fn
+      %Binding{config_ref: "app-config://" <> key = reference} ->
+        # AppConfigure has no removal of a global row in a caller's transaction yet.
+        if not config_ref_shared?(reference, uid) do
           Ankole.AppConfigure.SiteConfig
           |> Ash.Query.filter(scope == "global" and key == ^key)
-          |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true)
+          |> Ankole.Ash.destroy_where(:remove)
           |> case do
-            %Ash.BulkResult{status: :success} -> :ok
-            %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
+            {:ok, _removed} -> :ok
+            {:error, error} -> repo.rollback(error)
           end
         end
 
-      _ ->
+      %Binding{} ->
         :ok
     end)
 
     :ok
+  end
+
+  # A global configuration row stays while a Binding of another Agent, in any
+  # tenant, references it.
+  defp config_ref_shared?(reference, uid) do
+    Repo.across_tenants(fn ->
+      Binding
+      |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+      |> Ash.Query.filter(config_ref == ^reference and agent_uid != ^uid)
+      |> Ash.exists?(authorize?: false)
+    end)
   end
 
   def put_binding(agent_uid, "cloudevents", binding_name, attrs) when is_map(attrs),
@@ -103,17 +112,19 @@ defmodule Ankole.Signals.Bindings do
              principal.uid,
              binding_name
            ),
-         {:ok, binding} <-
-           persist_binding_assignment(
-             definition,
-             principal.uid,
-             binding_name,
-             normalized_config,
-             application,
-             config_key,
-             policy,
-             unmatched_sender_policy
-           ),
+         {:ok, {binding, _committed_config}} <-
+           %{
+             definition: definition,
+             agent_uid: principal.uid,
+             binding_name: binding_name,
+             config: normalized_config,
+             application: application,
+             config_key: config_key,
+             policy: policy,
+             unmatched_sender_policy: unmatched_sender_policy
+           }
+           |> Ankole.Signals.assign_binding()
+           |> Ankole.Errors.reason(),
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
          :ok <- Delivery.wake_blocked_for_binding(principal.uid, binding_name),
          :ok <-
@@ -133,9 +144,9 @@ defmodule Ankole.Signals.Bindings do
   def update_binding(source_agent_uid, target_agent_uid, binding_name, attrs)
       when is_binary(source_agent_uid) and is_binary(target_agent_uid) and
              is_binary(binding_name) and is_map(attrs) do
-    case Repo.get_by(Binding,
-           agent_uid: Ankole.PrincipalKey.canonicalize(source_agent_uid),
-           name: binding_name
+    case Ankole.Signals.get_binding!(
+           Ankole.PrincipalKey.canonicalize(source_agent_uid),
+           binding_name
          ) do
       %Binding{adapter: "cloudevents"} = binding ->
         update_cloud_binding(binding, target_agent_uid, binding_name, attrs)
@@ -151,28 +162,33 @@ defmodule Ankole.Signals.Bindings do
   defp update_cloud_binding(binding, target_agent_uid, binding_name, attrs) do
     with {:ok, %{principal: target}} <- Principals.get_agent(target_agent_uid),
          {:ok, current_config} <- stored_binding_config(binding),
-         {:ok, patch} <- binding_config(attrs) do
-      attrs = Map.put(attrs, "config", Map.merge(current_config, patch))
+         {:ok, patch} <- binding_config(attrs),
+         attrs = Map.put(attrs, "config", Map.merge(current_config, patch)),
+         {:ok, cloud_binding} <- prepare_cloud_binding(target.uid, binding_name, attrs) do
+      binding
+      |> Ankole.Signals.move_cloud_binding(current_config, cloud_binding)
+      |> Ankole.Errors.reason()
+    end
+  end
 
-      Repo.transact(fn repo ->
-        with {:ok, binding} <-
-               lock_binding_update(
-                 repo,
-                 binding.agent_uid,
-                 target.uid,
-                 binding_name,
-                 binding.adapter,
-                 current_config
-               ),
-             {:ok, result} <- put_cloud_binding(target.uid, binding_name, attrs),
-             {:ok, _binding} <-
-               if(result.binding.agent_uid != binding.agent_uid,
-                 do: Ankole.Ash.destroy(binding, :remove),
-                 else: {:ok, binding}
-               ) do
-          {:ok, result}
-        end
-      end)
+  @doc false
+  def move_cloud_binding_in_tx(repo, source, current_config, cloud_binding) do
+    with {:ok, source} <-
+           lock_binding_update(
+             repo,
+             source.agent_uid,
+             cloud_binding.agent_uid,
+             cloud_binding.name,
+             source.adapter,
+             current_config
+           ),
+         {:ok, result} <- put_cloud_binding_in_tx(repo, cloud_binding),
+         {:ok, _binding} <-
+           if(result.binding.agent_uid != source.agent_uid,
+             do: Ankole.Ash.destroy(source, :remove),
+             else: {:ok, source}
+           ) do
+      {:ok, result}
     end
   end
 
@@ -181,7 +197,7 @@ defmodule Ankole.Signals.Bindings do
          {:ok, %{principal: source_principal}} <- Principals.get_agent(source_agent_uid),
          {:ok, %{principal: target_principal}} <- Principals.get_agent(target_agent_uid),
          %Binding{} = source_binding <-
-           Repo.get_by(Binding, agent_uid: source_principal.uid, name: binding_name),
+           Ankole.Signals.get_binding!(source_principal.uid, binding_name),
          {:ok, definition} <- Adapters.fetch(source_binding.adapter),
          {:ok, current_config} <- stored_binding_config(source_binding),
          {:ok, config_patch} <- binding_config(attrs),
@@ -206,19 +222,21 @@ defmodule Ankole.Signals.Bindings do
              target_principal.uid,
              binding_name
            ),
-         {:ok, {binding, normalized_config}} <-
-           persist_binding_update(
-             definition,
-             source_principal.uid,
-             target_principal.uid,
-             binding_name,
-             current_config,
-             normalized_config,
-             application,
-             config_key,
-             policy,
-             unmatched_sender_policy
-           ),
+         {:ok, {binding, _committed_config, normalized_config}} <-
+           %{
+             definition: definition,
+             source_agent_uid: source_principal.uid,
+             agent_uid: target_principal.uid,
+             binding_name: binding_name,
+             current_config: current_config,
+             config: normalized_config,
+             application: application,
+             config_key: config_key,
+             policy: policy,
+             unmatched_sender_policy: unmatched_sender_policy
+           }
+           |> Ankole.Signals.reassign_binding()
+           |> Ankole.Errors.reason(),
          :ok <- maybe_handle_binding_saved(definition, binding, normalized_config),
          :ok <- Delivery.wake_blocked_for_binding(target_principal.uid, binding_name),
          :ok <-
@@ -238,6 +256,12 @@ defmodule Ankole.Signals.Bindings do
     to: Ankole.Signals.BindingCatalog
 
   defp put_cloud_binding(agent_uid, binding_name, attrs) do
+    with {:ok, cloud_binding} <- prepare_cloud_binding(agent_uid, binding_name, attrs) do
+      cloud_binding |> Ankole.Signals.put_cloud_binding() |> Ankole.Errors.reason()
+    end
+  end
+
+  defp prepare_cloud_binding(agent_uid, binding_name, attrs) do
     attrs = Ankole.Attrs.normalize_external_attrs(attrs)
 
     with {:ok, name} <- normalize_binding_name(binding_name),
@@ -245,31 +269,33 @@ defmodule Ankole.Signals.Bindings do
          {:ok, config} <- binding_config(attrs),
          {:ok, endpoint_id} <- Ecto.UUID.cast(config["webhook_endpoint_id"]),
          %Ankole.Signals.WebhookEndpoint{event_format: "cloudevents"} <-
-           Repo.get(Ankole.Signals.WebhookEndpoint, endpoint_id),
+           Ankole.Signals.get_webhook_endpoint!(endpoint_id),
          {:ok, target} <- cloud_target(attrs, config) do
-      Repo.transact(fn repo ->
-        if cloud_target_owned?(repo, principal.uid, target) do
-          with {:ok, binding} <-
-                 Ankole.Ash.create(Binding, :put, %{
-                   agent_uid: principal.uid,
-                   name: name,
-                   adapter: "cloudevents",
-                   config_ref: "webhook-endpoint://#{endpoint_id}",
-                   target: target,
-                   filters: Map.get(attrs, "filters", cloud_filters(config)),
-                   enabled: true
-                 }) do
-            {:ok, %{binding: binding, config_key: nil}}
-          end
-        else
-          {:error, :conversation_not_found}
-        end
-      end)
+      {:ok,
+       %{
+         agent_uid: principal.uid,
+         name: name,
+         adapter: "cloudevents",
+         config_ref: "webhook-endpoint://#{endpoint_id}",
+         target: target,
+         filters: Map.get(attrs, "filters", cloud_filters(config)),
+         enabled: true
+       }}
     else
       :error -> {:error, :invalid_cloud_event_binding}
       nil -> {:error, :webhook_endpoint_not_found}
       %Ankole.Signals.WebhookEndpoint{} -> {:error, :invalid_cloud_event_binding}
       {:error, _} = error -> error
+    end
+  end
+
+  @doc false
+  def put_cloud_binding_in_tx(_repo, cloud_binding) do
+    if cloud_target_owned?(cloud_binding.agent_uid, cloud_binding.target) do
+      with {:ok, binding} <- Ankole.Ash.create(Binding, :put, cloud_binding),
+           do: {:ok, %{binding: binding, config_key: nil}}
+    else
+      {:error, :conversation_not_found}
     end
   end
 
@@ -310,21 +336,17 @@ defmodule Ankole.Signals.Bindings do
     end
   end
 
-  defp cloud_target_owned?(repo, uid, %{"conversation_id" => id}) do
-    case Ecto.UUID.cast(id) do
-      {:ok, id} ->
-        repo.exists?(
-          from(p in Ankole.Conversations.Participant,
-            where: p.conversation_id == ^id and p.principal_uid == ^uid and p.role == :agent
-          )
-        )
-
-      :error ->
-        false
+  defp cloud_target_owned?(uid, %{"conversation_id" => id}) do
+    with {:ok, id} <- Ecto.UUID.cast(id),
+         {:ok, %Ankole.Conversations.Participant{role: :agent}} <-
+           Ankole.Conversations.get_participant(id, uid) do
+      true
+    else
+      _other -> false
     end
   end
 
-  defp cloud_target_owned?(_repo, _uid, _target), do: true
+  defp cloud_target_owned?(_uid, _target), do: true
 
   defp cloud_filters(%{"filter_cel" => cel}) when is_binary(cel) and cel != "",
     do: %{"cel" => cel}
@@ -333,10 +355,7 @@ defmodule Ankole.Signals.Bindings do
 
   @spec get_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   def get_binding(agent_uid, binding_name) when is_binary(agent_uid) do
-    case Repo.get_by(Binding,
-           agent_uid: Ankole.PrincipalKey.canonicalize(agent_uid),
-           name: binding_name
-         ) do
+    case Ankole.Signals.get_binding!(Ankole.PrincipalKey.canonicalize(agent_uid), binding_name) do
       %Binding{enabled: true, unavailable_reason: reason} when is_binary(reason) ->
         {:error, {:binding_unavailable, reason}}
 
@@ -361,28 +380,30 @@ defmodule Ankole.Signals.Bindings do
   @spec list_bindings(String.t() | nil) :: {:ok, [Binding.t()]}
   def list_bindings(agent_uid \\ nil) do
     bindings =
-      Binding
+      binding_query()
       |> maybe_where_agent(agent_uid)
-      |> order_by([binding], asc: binding.agent_uid, asc: binding.adapter, asc: binding.name)
-      |> Repo.all()
+      |> Ash.Query.sort(agent_uid: :asc, adapter: :asc, name: :asc)
+      |> read_bindings()
 
     {:ok, bindings}
   end
 
   defp maybe_where_agent(query, nil), do: query
 
-  defp maybe_where_agent(query, agent_uid) when is_binary(agent_uid),
-    do: where(query, [binding], binding.agent_uid == ^String.downcase(agent_uid))
+  defp maybe_where_agent(query, uid) when is_binary(uid) do
+    uid = String.downcase(uid)
+    Ash.Query.filter(query, agent_uid == ^uid)
+  end
 
   @spec list_agent_bindings(String.t()) ::
           {:ok, [Binding.t()]} | {:error, term()}
   def list_agent_bindings(agent_uid) when is_binary(agent_uid) do
     with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid) do
       bindings =
-        Binding
-        |> where([binding], binding.agent_uid == ^principal.uid)
-        |> order_by([binding], asc: binding.adapter, asc: binding.name)
-        |> Repo.all()
+        binding_query()
+        |> Ash.Query.filter(agent_uid == ^principal.uid)
+        |> Ash.Query.sort(adapter: :asc, name: :asc)
+        |> read_bindings()
 
       {:ok, bindings}
     else
@@ -395,20 +416,22 @@ defmodule Ankole.Signals.Bindings do
 
   @spec disable_binding(String.t(), String.t()) :: {:ok, Binding.t()} | {:error, term()}
   def disable_binding(agent_uid, binding_name)
-      when is_binary(agent_uid) and is_binary(binding_name) do
-    Repo.transact(fn repo ->
-      with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
-           %Binding{} = binding <- lock_binding(repo, principal.uid, binding_name) do
-        Ankole.Ash.update(binding, :disable, %{})
-      else
-        nil -> {:error, :binding_not_found}
-        {:error, :not_found} -> {:error, :agent_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
-  end
+      when is_binary(agent_uid) and is_binary(binding_name),
+      do: agent_uid |> Ankole.Signals.disable_binding(binding_name) |> Ankole.Errors.reason()
 
   def disable_binding(_agent_uid, _binding_name), do: {:error, :binding_not_found}
+
+  @doc false
+  def disable_binding_in_tx(_repo, agent_uid, binding_name) do
+    with {:ok, %{principal: principal}} <- Principals.get_agent(agent_uid),
+         %Binding{} = binding <- lock_binding(principal.uid, binding_name) do
+      Ankole.Ash.update(binding, :disable, %{})
+    else
+      nil -> {:error, :binding_not_found}
+      {:error, :not_found} -> {:error, :agent_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
 
   defp maybe_handle_binding_saved(%Definition{} = definition, %Binding{} = binding, config)
        when is_map(config) do
@@ -553,18 +576,18 @@ defmodule Ankole.Signals.Bindings do
          config,
          application
        ) do
-    repo.all(
-      from(binding in Binding,
-        left_join: config in Ankole.AppConfigure.SiteConfig,
-        on:
-          config.scope == "global" and
-            binding.config_ref == fragment("'app-config://' || ?", config.key),
-        where:
-          binding.adapter == ^definition.id and binding.enabled == true and
-            (binding.agent_uid != ^agent_uid or binding.name != ^binding_name),
-        select: {binding, fragment("?->>'platform_application'", config.value)}
+    bindings =
+      Binding
+      |> Ash.Query.filter(
+        adapter == ^definition.id and enabled == true and
+          (agent_uid != ^agent_uid or name != ^binding_name)
       )
-    )
+      |> Ankole.Ash.read!()
+
+    applications = config_applications(bindings)
+
+    bindings
+    |> Enum.map(&{&1, Map.get(applications, &1.config_ref)})
     |> Enum.reduce_while(:ok, fn {binding, other_application}, :ok ->
       case validate_application_binding(
              repo,
@@ -578,6 +601,23 @@ defmodule Ankole.Signals.Bindings do
         {:error, _reason} = error -> {:halt, error}
       end
     end)
+  end
+
+  # Gives the platform application of each global configuration that a
+  # Binding references.
+  defp config_applications(bindings) do
+    keys = for %Binding{config_ref: "app-config://" <> key} <- bindings, do: key
+
+    {:ok, configs} =
+      AppConfigure.list_site_configs(
+        query: [
+          filter: [scope: "global", key: [in: keys]],
+          calculate:
+            {:platform_application, :string, expr(fragment("?->>'platform_application'", value))}
+        ]
+      )
+
+    Map.new(configs, &{"app-config://" <> &1.key, &1.calculations[:platform_application]})
   end
 
   defp validate_application_binding(
@@ -624,134 +664,112 @@ defmodule Ankole.Signals.Bindings do
        {Map.fetch!(@application_binding_config_errors, adapter_id), binding.agent_uid,
         binding.name, reason}}
 
-  defp persist_binding_assignment(
-         %Definition{} = definition,
-         agent_uid,
-         binding_name,
-         normalized_config,
-         application,
-         config_key,
-         policy,
-         unmatched_sender_policy
-       ) do
-    case Repo.transact(fn repo ->
-           with :ok <- validate_platform_application_in_tx(repo, application),
-                :ok <-
-                  validate_application_bindings(
-                    definition,
-                    repo,
-                    agent_uid,
-                    binding_name,
-                    normalized_config,
-                    application
-                  ),
-                :ok <-
-                  validate_binding_assignment(
-                    definition,
-                    repo,
-                    agent_uid,
-                    binding_name,
-                    normalized_config
-                  ),
-                {:ok, binding} <-
-                  Ankole.Ash.create(Binding, :put, %{
-                    agent_uid: agent_uid,
-                    name: binding_name,
-                    adapter: definition.id,
-                    config_ref: "app-config://#{config_key}",
-                    filters: %{},
-                    unaddressed_group_message_policy: policy,
-                    unmatched_sender_policy: unmatched_sender_policy,
-                    enabled: true
-                  }),
-                {:ok, committed_config} <-
-                  AppConfigure.put_global_by_key_in_tx(repo, config_key, normalized_config),
-                :ok <- record_platform_application_in_tx(repo, committed_config, application) do
-             {:ok, {binding, committed_config}}
-           end
-         end) do
-      {:ok, {binding, committed_config}} ->
-        AppConfigure.cache_committed_write(committed_config)
-        {:ok, binding}
+  @doc false
+  def assign_in_tx(repo, assignment) do
+    %{definition: definition, agent_uid: agent_uid, binding_name: binding_name} = assignment
 
-      {:error, _reason} = error ->
-        error
+    with :ok <- validate_platform_application_in_tx(repo, assignment.application),
+         :ok <-
+           validate_application_bindings(
+             definition,
+             repo,
+             agent_uid,
+             binding_name,
+             assignment.config,
+             assignment.application
+           ),
+         :ok <-
+           validate_binding_assignment(
+             definition,
+             repo,
+             agent_uid,
+             binding_name,
+             assignment.config
+           ),
+         {:ok, binding} <-
+           Ankole.Ash.create(Binding, :put, %{
+             agent_uid: agent_uid,
+             name: binding_name,
+             adapter: definition.id,
+             config_ref: "app-config://#{assignment.config_key}",
+             filters: %{},
+             unaddressed_group_message_policy: assignment.policy,
+             unmatched_sender_policy: assignment.unmatched_sender_policy,
+             enabled: true
+           }),
+         {:ok, committed_config} <-
+           AppConfigure.put_global_by_key_in_tx(repo, assignment.config_key, assignment.config),
+         :ok <-
+           record_platform_application_in_tx(repo, committed_config, assignment.application) do
+      {:ok, {binding, committed_config}}
     end
   end
 
-  defp persist_binding_update(
-         %Definition{} = definition,
-         source_agent_uid,
-         target_agent_uid,
-         binding_name,
-         current_config,
-         normalized_config,
-         application,
-         config_key,
-         policy,
-         unmatched_sender_policy
-       ) do
-    case Repo.transact(fn repo ->
-           with :ok <- validate_platform_application_in_tx(repo, application),
-                {:ok, source_binding} <-
-                  lock_binding_update(
-                    repo,
-                    source_agent_uid,
-                    target_agent_uid,
-                    binding_name,
-                    definition.id,
-                    current_config
-                  ),
-                {:ok, _source_binding} <-
-                  maybe_disable_source_binding(repo, source_binding, target_agent_uid),
-                :ok <-
-                  validate_application_bindings(
-                    definition,
-                    repo,
-                    target_agent_uid,
-                    binding_name,
-                    normalized_config,
-                    application
-                  ),
-                :ok <-
-                  validate_binding_assignment(
-                    definition,
-                    repo,
-                    target_agent_uid,
-                    binding_name,
-                    normalized_config
-                  ),
-                {:ok, binding} <-
-                  Ankole.Ash.create(Binding, :put, %{
-                    agent_uid: target_agent_uid,
-                    name: binding_name,
-                    adapter: definition.id,
-                    config_ref: "app-config://#{config_key}",
-                    filters: source_binding.filters,
-                    unaddressed_group_message_policy:
-                      policy || source_binding.unaddressed_group_message_policy,
-                    unmatched_sender_policy:
-                      unmatched_sender_policy || source_binding.unmatched_sender_policy,
-                    enabled: true,
-                    unavailable_reason: nil
-                  }),
-                {:ok, committed_config} <-
-                  AppConfigure.put_global_by_key_in_tx(repo, config_key, normalized_config),
-                :ok <- record_platform_application_in_tx(repo, committed_config, application) do
-             {:ok, {binding, committed_config, normalized_config}}
-           end
-         end) do
-      {:ok, {binding, committed_config, normalized_config}} ->
-        AppConfigure.cache_committed_write(committed_config)
-        {:ok, {binding, normalized_config}}
+  @doc false
+  def reassign_in_tx(repo, assignment) do
+    %{
+      definition: definition,
+      source_agent_uid: source_agent_uid,
+      agent_uid: target_agent_uid,
+      binding_name: binding_name
+    } = assignment
 
-      {:error, _reason} = error ->
-        error
+    with :ok <- validate_platform_application_in_tx(repo, assignment.application),
+         {:ok, source_binding} <-
+           lock_binding_update(
+             repo,
+             source_agent_uid,
+             target_agent_uid,
+             binding_name,
+             definition.id,
+             assignment.current_config
+           ),
+         {:ok, _source_binding} <- maybe_disable_source_binding(source_binding, target_agent_uid),
+         :ok <-
+           validate_application_bindings(
+             definition,
+             repo,
+             target_agent_uid,
+             binding_name,
+             assignment.config,
+             assignment.application
+           ),
+         :ok <-
+           validate_binding_assignment(
+             definition,
+             repo,
+             target_agent_uid,
+             binding_name,
+             assignment.config
+           ),
+         {:ok, binding} <-
+           Ankole.Ash.create(Binding, :put, %{
+             agent_uid: target_agent_uid,
+             name: binding_name,
+             adapter: definition.id,
+             config_ref: "app-config://#{assignment.config_key}",
+             filters: source_binding.filters,
+             unaddressed_group_message_policy:
+               assignment.policy || source_binding.unaddressed_group_message_policy,
+             unmatched_sender_policy:
+               assignment.unmatched_sender_policy || source_binding.unmatched_sender_policy,
+             enabled: true,
+             unavailable_reason: nil
+           }),
+         {:ok, committed_config} <-
+           AppConfigure.put_global_by_key_in_tx(repo, assignment.config_key, assignment.config),
+         :ok <-
+           record_platform_application_in_tx(repo, committed_config, assignment.application) do
+      {:ok, {binding, committed_config, assignment.config}}
     end
   end
+
+  @doc "Refreshes the configuration cache after a committed Binding assignment."
+  def cache_committed_assignment(result),
+    do: AppConfigure.cache_committed_write(elem(result, 1))
 
   defp lock_binding_update(repo, source_uid, target_uid, name, adapter, current_config) do
-    with %Binding{} = binding <- lock_binding(repo, source_uid, name),
+    with %Binding{} = binding <- lock_binding(source_uid, name),
          :ok <- ensure_binding_adapter(binding, adapter),
          {:ok, locked_config} <- binding_config_in_tx(repo, binding),
          true <- locked_config == current_config,
@@ -828,22 +846,18 @@ defmodule Ankole.Signals.Bindings do
        ),
        do: :ok
 
-  defp ensure_target_binding_available(repo, %Binding{}, target_agent_uid, binding_name) do
-    case lock_binding(repo, target_agent_uid, binding_name) do
+  defp ensure_target_binding_available(_repo, %Binding{}, target_agent_uid, binding_name) do
+    case lock_binding(target_agent_uid, binding_name) do
       nil -> :ok
       %Binding{enabled: false} -> :ok
       %Binding{enabled: true} -> {:error, :binding_target_conflict}
     end
   end
 
-  defp maybe_disable_source_binding(
-         _repo,
-         %Binding{agent_uid: agent_uid} = source_binding,
-         agent_uid
-       ),
-       do: {:ok, source_binding}
+  defp maybe_disable_source_binding(%Binding{agent_uid: agent_uid} = source_binding, agent_uid),
+    do: {:ok, source_binding}
 
-  defp maybe_disable_source_binding(_repo, %Binding{} = source_binding, _target_agent_uid),
+  defp maybe_disable_source_binding(%Binding{} = source_binding, _target_agent_uid),
     do: Ankole.Ash.update(source_binding, :disable, %{})
 
   @doc "Adapter-owned identity resolution; callers run this before acquiring database locks."
@@ -869,46 +883,73 @@ defmodule Ankole.Signals.Bindings do
     with {:ok, _} <-
            Ankole.AdvisoryLock.lock(repo, "signals:application:" <> application) do
       conflict =
-        Repo.across_tenants(fn ->
-          repo.exists?(
-            from(row in Ankole.AppConfigure.AppConfig,
-              where:
-                fragment("?->>'platform_application' = ?", row.value, ^application) and
-                  row.tenant_id != ^tenant_id
-            )
-          ) or
-            repo.exists?(
-              from(row in Ankole.AppConfigure.SiteConfig,
-                join: binding in Binding,
-                on: binding.config_ref == fragment("'app-config://' || ?", row.key),
-                where:
-                  fragment("?->>'platform_application' = ?", row.value, ^application) and
-                    binding.tenant_id != ^tenant_id
-              )
-            )
-        end)
+        tenant_application_in_other_tenant?(application, tenant_id) or
+          site_application_bound_in_other_tenant?(application, tenant_id)
 
       if conflict, do: {:error, :platform_app_bound_to_another_tenant}, else: :ok
     end
   end
 
+  # AppConfigure has no read of tenant configurations across tenants yet.
+  defp tenant_application_in_other_tenant?(application, tenant_id) do
+    import Ecto.Query, only: [from: 2]
+
+    Repo.across_tenants(fn ->
+      Repo.exists?(
+        from(row in AppConfig,
+          where:
+            fragment("?->>'platform_application' = ?", row.value, ^application) and
+              row.tenant_id != ^tenant_id
+        )
+      )
+    end)
+  end
+
+  # A global configuration that names the application is in use by the
+  # Bindings that reference it.
+  defp site_application_bound_in_other_tenant?(application, tenant_id) do
+    {:ok, configs} =
+      AppConfigure.list_site_configs(
+        query: [
+          filter: expr(fragment("?->>'platform_application' = ?", value, ^application)),
+          select: [:key]
+        ]
+      )
+
+    references = Enum.map(configs, &("app-config://" <> &1.key))
+
+    references != [] and
+      Repo.across_tenants(fn ->
+        Binding
+        |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+        |> Ash.Query.filter(config_ref in ^references and tenant_id != ^tenant_id)
+        |> Ash.exists?(authorize?: false)
+      end)
+  end
+
   # Public identity metadata belongs to the same durable config row as its
   # encrypted credentials. It is never accepted from an API request.
   @doc false
-  def record_platform_application_in_tx(repo, {_parsed, scope, key}, application) do
-    schema = AppConfig.for_scope(scope)
+  def record_platform_application_in_tx(_repo, {_parsed, scope, key}, application) do
+    {get, record} =
+      case AppConfig.for_scope(scope) do
+        AppConfig ->
+          {&AppConfigure.get_app_config/2, &AppConfigure.record_platform_application_app_config/2}
 
-    schema
-    |> Ash.Query.filter(scope == ^scope and key == ^key)
-    |> Ankole.Ash.bulk_update(:record_platform_application, %{application: application},
-      strategy: [:atomic],
-      return_records?: true,
-      return_errors?: true
-    )
-    |> case do
-      %Ash.BulkResult{status: :success, records: [_config]} -> :ok
-      %Ash.BulkResult{status: :success, records: []} -> {:error, :configuration_not_found}
-      %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
+        _site_config ->
+          {&AppConfigure.get_site_config/2,
+           &AppConfigure.record_platform_application_site_config/2}
+      end
+
+    case get.(scope, key) do
+      {:ok, nil} ->
+        {:error, :configuration_not_found}
+
+      {:ok, config} ->
+        with {:ok, _config} <- record.(config, %{application: application}), do: :ok
+
+      {:error, _error} = error ->
+        error
     end
   end
 
@@ -919,25 +960,32 @@ defmodule Ankole.Signals.Bindings do
     end
   end
 
-  defp lock_binding(repo, agent_uid, binding_name) do
+  defp lock_binding(agent_uid, binding_name) do
     Binding
-    |> where([binding], binding.agent_uid == ^agent_uid and binding.name == ^binding_name)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(agent_uid == ^agent_uid and name == ^binding_name)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
-  defp available_bindings_query do
-    Binding
-    |> where([binding], binding.enabled == true)
-    |> where([binding], is_nil(binding.unavailable_reason))
+  # A caller that selected all tenants reads the Bindings of every tenant.
+  defp binding_query do
+    if Repo.across_tenants?(),
+      do: Ash.Query.for_read(Binding, :lookup_across_tenants, %{}, authorize?: false),
+      else: Ash.Query.new(Binding)
+  end
+
+  defp read_bindings(query) do
+    if Repo.across_tenants?(),
+      do: Ash.read!(query, authorize?: false),
+      else: Ankole.Ash.read!(query)
   end
 
   @spec list_enabled_bindings(String.t()) :: [Binding.t()]
   def list_enabled_bindings(adapter) when is_binary(adapter) do
-    available_bindings_query()
-    |> where([binding], binding.adapter == ^adapter)
-    |> order_by([binding], asc: binding.agent_uid, asc: binding.name)
-    |> Repo.all()
+    binding_query()
+    |> Ash.Query.filter(enabled == true and is_nil(unavailable_reason) and adapter == ^adapter)
+    |> Ash.Query.sort(agent_uid: :asc, name: :asc)
+    |> read_bindings()
   end
 
   @spec binding_config(Binding.t(), module()) :: {:ok, map()} | :error | {:error, term()}
@@ -962,7 +1010,7 @@ defmodule Ankole.Signals.Bindings do
 
   @spec delivery_config(Intent.t(), module()) :: {:ok, map()} | {:error, term()}
   def delivery_config(%Intent{} = intent, config_module) do
-    case Repo.get_by(Binding, agent_uid: intent.agent_uid, name: intent.binding_name) do
+    case Ankole.Signals.get_binding!(intent.agent_uid, intent.binding_name) do
       %Binding{config_ref: nil} ->
         {:error, :binding_config_ref_missing}
 

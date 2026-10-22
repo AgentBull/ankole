@@ -63,7 +63,7 @@ defmodule Ankole.AgentWorkers.WorkerRouteAuth do
   defp admitted_access(repo, event), do: WorkAccess.check_in_tx(repo, event)
 
   defp input(repo, ref, terminal?, opts) do
-    case Ankole.Signals.Domain.get_signal(ref.signal_id) do
+    case Ankole.Signals.get_signal(ref.signal_id) do
       {:ok, %Signal{} = snapshot} ->
         with true <- same_input?(snapshot, ref),
              :ok <- input_open(snapshot, terminal?),

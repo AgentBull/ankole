@@ -8,7 +8,7 @@ defmodule Ankole.Signals.WebhookEndpoint do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Signals.Domain,
+    domain: Ankole.Signals,
     extensions: [AshStateMachine]
 
   @modes ~w(one_shot standing)
@@ -95,9 +95,12 @@ defmodule Ankole.Signals.WebhookEndpoint do
   actions do
     defaults([:read])
 
+    read :lookup_across_tenants do
+      multitenancy(:allow_global)
+    end
+
     create :create do
       primary?(true)
-      transaction?(false)
 
       accept([
         :token_digest,
@@ -136,21 +139,79 @@ defmodule Ankole.Signals.WebhookEndpoint do
       )
     end
 
-    in_tx_update :fire do
+    update :fire do
       accept([:fired_at])
       change(transition_state(:fired))
       validate(present(:fired_at))
     end
 
-    in_tx_update :cancel do
+    update :cancel do
       accept([:cancelled_at])
       change(transition_state(:cancelled))
       validate(present(:cancelled_at))
     end
 
-    atomic_in_tx_update :expire do
+    update :expire do
+      require_atomic?(true)
       accept([])
       change(transition_state(:expired))
+    end
+
+    action :create_endpoint, :term do
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:token, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Signals.Webhooks.create_endpoint_in_tx(
+            Ankole.Repo,
+            input.arguments.attrs,
+            input.arguments.token
+          )
+        )
+      end)
+    end
+
+    action :cancel_endpoint, :term do
+      argument(:agent_uid, :term)
+      argument(:session_id, :term)
+      argument(:endpoint_id, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn input, _context ->
+        args = input.arguments
+
+        Ankole.Errors.wrap(
+          Ankole.Signals.Webhooks.cancel_endpoint_in_tx(
+            Ankole.Repo,
+            args.agent_uid,
+            args.session_id,
+            args.endpoint_id,
+            args.now
+          )
+        )
+      end)
+    end
+
+    action :receive, :term do
+      argument(:token, :term, allow_nil?: false)
+      argument(:format, :term, allow_nil?: false)
+      argument(:input, :term, allow_nil?: false)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+
+      run(fn input, _context ->
+        args = input.arguments
+
+        Ankole.Errors.wrap(
+          Ankole.Signals.Webhooks.receive_in_tx(
+            Ankole.Repo,
+            args.token,
+            args.format,
+            args.input,
+            args.now
+          )
+        )
+      end)
     end
   end
 end

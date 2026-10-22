@@ -838,7 +838,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp batch_binding(%InboundBatch{binding_name: name} = batch)
        when is_binary(name) and name != "" do
-    case Ankole.Signals.Domain.get_binding!(batch.agent_uid, name) do
+    case Ankole.Signals.get_binding!(batch.agent_uid, name) do
       nil -> {:error, :binding_not_found}
       binding -> {:ok, binding}
     end

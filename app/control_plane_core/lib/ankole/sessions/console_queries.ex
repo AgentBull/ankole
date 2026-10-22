@@ -2,18 +2,17 @@ defmodule Ankole.Sessions.ConsoleQueries do
   @moduledoc """
   Read-only model history and Session projections for the operator console.
 
-  Operator authorization is checked by the controller. This module combines
+  Operator authorization is checked by the controller. This module normalizes
+  the console parameters, reads through the AIGateway domain, and combines
   generic model history with Session and external conversation display facts.
+  The `console_list` read action of `Ankole.AIGateway.Schemas.Conversation`
+  and `Ankole.Sessions.ConsoleQueries.Prepare` own the list filters.
   """
 
-  import Ecto.Query, warn: false
-
+  alias Ankole.AIGateway
   alias Ankole.AIGateway.Schemas.Conversation
   alias Ankole.AIGateway.Schemas.Message
   alias Ankole.Principals
-  alias Ankole.Principals.Principal
-  alias Ankole.Repo
-  alias Ankole.Conversations.Conversation, as: PublicConversation
   alias Ankole.Conversations.ExternalTarget
 
   @conversation_limit_max 100
@@ -29,40 +28,41 @@ defmodule Ankole.Sessions.ConsoleQueries do
          {:ok, conversation_key} <-
            normalize_conversation_key(Keyword.get(opts, :conversation_key)),
          {:ok, search} <- normalize_search(Keyword.get(opts, :search)),
-         {:ok, cursor} <- decode_cursor(Keyword.get(opts, :cursor)) do
+         {:ok, cursor} <- normalize_keyset(Keyword.get(opts, :cursor)) do
       limit =
         clamp(Keyword.get(opts, :limit, @conversation_limit_default), @conversation_limit_max)
 
-      active = Keyword.get(opts, :active)
-      min_messages = Keyword.get(opts, :min_messages)
-
-      rows =
-        from(conversation in Conversation, as: :conversation)
-        |> maybe_filter_subject_uid(subject_uid)
-        |> maybe_filter_conversation_key(conversation_key)
-        |> maybe_filter_search(search)
-        |> maybe_filter_active(active)
-        |> maybe_filter_min_messages(min_messages)
-        |> maybe_before_cursor(cursor)
-        |> order_by([conversation], desc: conversation.updated_at, desc: conversation.id)
-        |> limit(^(limit + 1))
-        |> Repo.all()
-
-      page = Enum.take(rows, limit)
-
-      next_cursor =
-        if length(rows) > limit do
-          page |> List.last() |> encode_cursor(& &1.updated_at)
-        end
-
-      {:ok, %{conversations: page, next_cursor: next_cursor}}
+      %{
+        subject_uid: subject_uid,
+        conversation_key: conversation_key,
+        search: search,
+        active: normalize_active(Keyword.get(opts, :active)),
+        min_messages: normalize_min_messages(Keyword.get(opts, :min_messages))
+      }
+      |> AIGateway.list_console_conversations(page: page_options(limit, cursor))
+      |> conversation_page(cursor)
     end
   end
+
+  # The keyset of the last row is the cursor of the next page. A cursor that
+  # the read cannot decode is the only invalid input after normalization.
+  defp conversation_page({:ok, %{results: conversations, more?: more?}}, _cursor) do
+    next_cursor = if more?, do: List.last(conversations).__metadata__[:keyset]
+    {:ok, %{conversations: conversations, next_cursor: next_cursor}}
+  end
+
+  defp conversation_page({:error, %{class: :invalid}}, cursor) when is_binary(cursor),
+    do: {:error, :invalid_cursor}
+
+  defp conversation_page({:error, _reason} = error, _cursor), do: error
+
+  defp page_options(limit, nil), do: [limit: limit]
+  defp page_options(limit, cursor), do: [limit: limit, after: cursor]
 
   @spec get_conversation(String.t()) :: Conversation.t() | nil
   def get_conversation(conversation_id) when is_binary(conversation_id) do
     case Ecto.UUID.cast(conversation_id) do
-      {:ok, conversation_id} -> Repo.get(Conversation, conversation_id)
+      {:ok, conversation_id} -> AIGateway.get_conversation_by_id!(conversation_id)
       :error -> nil
     end
   end
@@ -79,12 +79,13 @@ defmodule Ankole.Sessions.ConsoleQueries do
       limit = clamp(Keyword.get(opts, :limit, @message_limit_default), @message_limit_max)
 
       rows =
-        Message
-        |> where([message], message.conversation_id == ^conversation_id)
-        |> maybe_after_cursor(cursor)
-        |> order_by([message], asc: message.inserted_at, asc: message.id)
-        |> limit(^(limit + 1))
-        |> Repo.all()
+        AIGateway.list_messages!(
+          query: [
+            filter: [{:conversation_id, conversation_id} | after_cursor(cursor)],
+            sort: [inserted_at: :asc, id: :asc],
+            limit: limit + 1
+          ]
+        )
 
       page = Enum.take(rows, limit)
 
@@ -145,8 +146,8 @@ defmodule Ankole.Sessions.ConsoleQueries do
     }
   end
 
-  # Page-local decoration uses one grouped count and one shared channel
-  # projection. The count constrains both columns of the
+  # Page-local decoration uses one count read and one shared channel
+  # projection. The `messages` relationship constrains both columns of the
   # `(subject_uid, conversation_id)` messages index.
   defp decorate_conversations([]), do: %{}
 
@@ -170,14 +171,15 @@ defmodule Ankole.Sessions.ConsoleQueries do
 
   defp message_counts(conversations) do
     ids = Enum.map(conversations, & &1.id)
-    subject_uids = conversations |> Enum.map(& &1.subject_uid) |> Enum.uniq()
 
-    Message
-    |> where([message], message.conversation_id in ^ids and message.subject_uid in ^subject_uids)
-    |> group_by([message], message.conversation_id)
-    |> select([message], {message.conversation_id, count(message.id)})
-    |> Repo.all()
-    |> Map.new()
+    AIGateway.list_conversations!(
+      query: [
+        filter: [id: [in: ids]],
+        select: [:id],
+        aggregate: {:message_count, :count, :messages}
+      ]
+    )
+    |> Map.new(&{&1.id, &1.aggregates[:message_count] || 0})
   end
 
   # Display kind derived from the key constructors (signal ingress, background
@@ -197,108 +199,15 @@ defmodule Ankole.Sessions.ConsoleQueries do
   defp signal_channel_value(%{signal_origin?: true} = channel, key), do: Map.get(channel, key)
   defp signal_channel_value(_channel, _key), do: nil
 
-  defp maybe_filter_subject_uid(query, nil), do: query
+  defp after_cursor(nil), do: []
 
-  defp maybe_filter_subject_uid(query, subject_uid),
-    do: where(query, [conversation], conversation.subject_uid == ^subject_uid)
-
-  defp maybe_filter_conversation_key(query, nil), do: query
-
-  defp maybe_filter_conversation_key(query, conversation_key),
-    do:
-      where(
-        query,
-        [conversation],
-        ilike(conversation.conversation_key, ^("%" <> Repo.escape_like(conversation_key) <> "%"))
-      )
-
-  defp maybe_filter_search(query, nil), do: query
-
-  # One operator search box: an exact subject UID, a session-key fragment, or a
-  # fragment of a name the list shows. The name sources are the public
-  # conversation for groups and Principal display names for DM peers. The
-  # filter matches them as a disjunction. It does not copy the display
-  # precedence.
-  defp maybe_filter_search(query, search) do
-    pattern = "%#{Repo.escape_like(search)}%"
-    conversation_prefix = Ankole.Sessions.Key.conversation("")
-    # Stored subject UIDs are canonical lowercase.
-    subject = String.downcase(search)
-
-    channel_match =
-      from channel in PublicConversation,
-        where:
-          (ilike(channel.title, ^pattern) or ilike(channel.provider_conversation_id, ^pattern)) and
-            (parent_as(:conversation).conversation_key ==
-               fragment("? || ?::text", ^conversation_prefix, channel.id) or
-               fragment(
-                 "? -> 'origin' ->> 'conversation_id' = ?::text",
-                 parent_as(:conversation).metadata,
-                 channel.id
-               ))
-
-    peer_match =
-      from principal in Principal,
-        where:
-          ilike(principal.display_name, ^pattern) and
-            principal.uid ==
-              fragment("? -> 'origin' ->> 'peer_uid'", parent_as(:conversation).metadata)
-
-    where(
-      query,
-      [conversation],
-      conversation.subject_uid == ^subject or
-        ilike(conversation.conversation_key, ^pattern) or
-        exists(channel_match) or
-        exists(peer_match)
-    )
-  end
-
-  defp maybe_filter_active(query, nil), do: query
-  defp maybe_filter_active(query, true), do: where(query, [c], is_nil(c.ended_at))
-  defp maybe_filter_active(query, false), do: where(query, [c], not is_nil(c.ended_at))
-
-  # Both predicates match the leading columns of the
-  # `ai_gateway_messages_conversation_index` composite index. The inner LIMIT
-  # bounds the count at the threshold, so a long conversation costs `min`
-  # index reads instead of one per message.
-  defp maybe_filter_min_messages(query, min) when is_integer(min) and min > 0 do
-    where(
-      query,
-      [conversation],
-      fragment(
-        "(SELECT COUNT(*) FROM (SELECT 1 FROM ai_gateway_messages m WHERE m.tenant_id = ? AND m.subject_uid = ? AND m.conversation_id = ? LIMIT ?) bounded) >= ?",
-        conversation.tenant_id,
-        conversation.subject_uid,
-        conversation.id,
-        ^min,
-        ^min
-      )
-    )
-  end
-
-  defp maybe_filter_min_messages(query, _value), do: query
-
-  defp maybe_before_cursor(query, nil), do: query
-
-  defp maybe_before_cursor(query, {updated_at, id}) do
-    where(
-      query,
-      [conversation],
-      conversation.updated_at < ^updated_at or
-        (conversation.updated_at == ^updated_at and conversation.id < ^id)
-    )
-  end
-
-  defp maybe_after_cursor(query, nil), do: query
-
-  defp maybe_after_cursor(query, {inserted_at, id}) do
-    where(
-      query,
-      [message],
-      message.inserted_at > ^inserted_at or
-        (message.inserted_at == ^inserted_at and message.id > ^id)
-    )
+  defp after_cursor({inserted_at, id}) do
+    [
+      or: [
+        [inserted_at: [greater_than: inserted_at]],
+        [inserted_at: inserted_at, id: [greater_than: id]]
+      ]
+    ]
   end
 
   defp clamp(value, max) when is_integer(value) do
@@ -328,6 +237,12 @@ defmodule Ankole.Sessions.ConsoleQueries do
     end
   end
 
+  # The read action decodes the keyset cursor.
+  defp normalize_keyset(nil), do: {:ok, nil}
+  defp normalize_keyset(""), do: {:ok, nil}
+  defp normalize_keyset(cursor) when is_binary(cursor), do: {:ok, cursor}
+  defp normalize_keyset(_cursor), do: {:error, :invalid_cursor}
+
   defp normalize_subject_uid(nil), do: {:ok, nil}
   defp normalize_subject_uid(""), do: {:ok, nil}
 
@@ -356,6 +271,13 @@ defmodule Ankole.Sessions.ConsoleQueries do
     do: {:ok, conversation_key}
 
   defp normalize_conversation_key(_value), do: {:error, :invalid_conversation_key}
+
+  defp normalize_active(active) when is_boolean(active), do: active
+  defp normalize_active(_active), do: nil
+
+  # A threshold applies only when it is a positive integer.
+  defp normalize_min_messages(min) when is_integer(min) and min > 0, do: min
+  defp normalize_min_messages(_min), do: nil
 
   defp iso8601(nil), do: nil
   defp iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)

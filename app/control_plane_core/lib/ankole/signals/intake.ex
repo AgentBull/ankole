@@ -1,6 +1,6 @@
 defmodule Ankole.Signals.Intake do
   @moduledoc false
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Conversations.{Conversation, Participant}
@@ -18,10 +18,10 @@ defmodule Ankole.Signals.Intake do
   end
 
   defp accept_in_tx(repo, attrs) do
-    with {:ok, target} <- resolve_target(repo, Ankole.Attrs.get(attrs, :target)),
+    with {:ok, target} <- resolve_target(Ankole.Attrs.get(attrs, :target)),
          {:ok, facts} <- facts(repo, attrs, target),
          :ok <- Queue.lock_session_in_tx(repo, target.agent_uid, target.session_id),
-         {:ok, signal} <- persist(repo, facts),
+         {:ok, signal} <- persist(facts),
          {:ok, _} <- Interactions.supersede_older_in_tx(repo, signal, signal.inserted_at),
          :ok <-
            EnsureDriver.enqueue_in_tx(
@@ -33,11 +33,11 @@ defmodule Ankole.Signals.Intake do
     end
   end
 
-  defp resolve_target(repo, %{agent_uid: uid} = target) when is_binary(uid) do
-    with %Principal{type: :agent, uid: uid} <- repo.get(Principal, String.downcase(uid)) do
+  defp resolve_target(%{agent_uid: uid} = target) when is_binary(uid) do
+    with {:ok, %Principal{type: :agent, uid: uid}} <- Ankole.Principals.get_principal(uid) do
       case ExecutionTarget.parse(target) do
         {:session, key} -> {:ok, %{agent_uid: uid, session_id: key}}
-        {:conversation, id} -> resolve_conversation(repo, uid, id)
+        {:conversation, id} -> resolve_conversation(uid, id)
         :error -> {:error, :invalid_signal_target}
       end
     else
@@ -45,37 +45,31 @@ defmodule Ankole.Signals.Intake do
     end
   end
 
-  defp resolve_target(repo, {:conversation, _} = target) do
+  # A native conversation has one Agent participant: the Agent of the target.
+  defp resolve_target({:conversation, _} = target) do
     with {:conversation, id} <- ExecutionTarget.parse(target),
-         %Principal{uid: uid} <-
-           repo.one(
-             from(c in Conversation,
-               join: participant in Participant,
-               on: participant.conversation_id == c.id and participant.role == :agent,
-               join: agent in Principal,
-               on: agent.uid == participant.principal_uid and agent.type == :agent,
-               where: c.id == ^id and c.kind == :native,
-               select: agent
-             )
-           ) do
-      resolve_conversation(repo, uid, id)
+         {:ok, %Conversation{kind: :native}} <- Ankole.Conversations.get_conversation(id),
+         {:ok, [%Participant{principal_uid: uid}]} <-
+           Ankole.Conversations.list_participants(
+             query: [filter: [conversation_id: id, role: :agent]]
+           ),
+         {:ok, %Principal{type: :agent}} <- Ankole.Principals.get_principal(uid) do
+      resolve_conversation(uid, id)
     else
       _ -> {:error, :conversation_not_found}
     end
   end
 
-  defp resolve_target(_repo, _target), do: {:error, :invalid_signal_target}
+  defp resolve_target(_target), do: {:error, :invalid_signal_target}
 
-  defp resolve_conversation(repo, uid, id) do
-    if repo.exists?(
-         from(p in Participant,
-           where: p.conversation_id == ^id and p.role == :agent and p.principal_uid == ^uid
-         )
-       ) do
-      {:ok,
-       %{agent_uid: uid, session_id: Ankole.Sessions.Key.conversation(id), conversation_id: id}}
-    else
-      {:error, :conversation_not_found}
+  defp resolve_conversation(uid, id) do
+    case Ankole.Conversations.get_participant(id, uid) do
+      {:ok, %Participant{role: :agent}} ->
+        {:ok,
+         %{agent_uid: uid, session_id: Ankole.Sessions.Key.conversation(id), conversation_id: id}}
+
+      _other ->
+        {:error, :conversation_not_found}
     end
   end
 
@@ -120,21 +114,25 @@ defmodule Ankole.Signals.Intake do
     end
   end
 
-  defp persist(repo, attrs) do
-    key = Map.take(attrs, [:agent_uid, :source, :source_event_id])
+  defp persist(attrs) do
+    existing =
+      Signal
+      |> Ash.Query.filter(
+        agent_uid == ^attrs.agent_uid and source == ^attrs.source and
+          source_event_id == ^attrs.source_event_id
+      )
+      |> Ankole.Ash.read_one!()
 
-    case repo.get_by(Signal, key) do
+    case existing do
       %Signal{} = signal ->
         same_producer(signal, attrs.producer)
 
       nil ->
+        # The Session advisory lock serializes the sequence allocation.
         sequence =
-          repo.one(
-            from(s in Signal,
-              where: s.agent_uid == ^attrs.agent_uid and s.session_id == ^attrs.session_id,
-              select: coalesce(max(s.queue_sequence), 0) + 1
-            )
-          )
+          (Signal
+           |> Ash.Query.filter(agent_uid == ^attrs.agent_uid and session_id == ^attrs.session_id)
+           |> Ankole.Ash.max!(:queue_sequence) || 0) + 1
 
         with {:ok, signal} <-
                Ankole.Ash.create(Signal, :accept, Map.put(attrs, :queue_sequence, sequence),

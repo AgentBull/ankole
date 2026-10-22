@@ -53,6 +53,7 @@ defmodule Ankole.AIGateway do
       # `get_conversation/3` reads a conversation of one subject.
       define(:get_conversation_by_id, action: :read, get_by: [:id], not_found_error?: false)
       define(:list_conversations, action: :read)
+      define(:list_console_conversations, action: :console_list)
     end
 
     resource Ankole.AIGateway.Schemas.Message do

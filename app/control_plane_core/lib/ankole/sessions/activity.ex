@@ -1,7 +1,7 @@
 defmodule Ankole.Sessions.Activity do
   @moduledoc "Native activity display rules and bounded projections of the existing Session Driver."
-  import Ecto.Query
-  alias Ankole.{Repo, Sessions}
+  require Ash.Query
+  alias Ankole.Sessions
   alias Ankole.Sessions.{Key, Presentation, Run, SessionWorkspace}
   alias Ankole.Signals.Signal
 
@@ -9,19 +9,12 @@ defmodule Ankole.Sessions.Activity do
 
   def native_source(run) do
     with {:conversation, id} <- Key.parse(run.session_id),
-         true <-
-           Repo.exists?(
-             from(c in Ankole.Conversations.Conversation,
-               where: c.id == ^id and c.kind == :native
-             ),
-             timeout: @snapshot_timeout
-           ) do
+         {:ok, %{kind: :native}} <-
+           Ankole.Conversations.get_conversation(id, timeout: @snapshot_timeout) do
       id
     else
       _ -> nil
     end
-  rescue
-    _error in [DBConnection.ConnectionError, Postgrex.Error] -> nil
   end
 
   # Presentation normalizes Worker labels before this native-only filter.
@@ -192,44 +185,44 @@ defmodule Ankole.Sessions.Activity do
   # Check durable epoch and open input together. The process registry alone is
   # insufficient when an old Driver survives a takeover.
   def valid?(snapshot) do
-    Repo.exists?(
-      from(w in SessionWorkspace,
-        join: s in Signal,
-        on: s.agent_uid == w.agent_uid and s.session_id == w.session_id,
-        where:
-          w.agent_uid == ^snapshot.agentUID and w.session_id == ^snapshot.sessionID and
-            w.epoch == ^snapshot.epoch and s.id == ^snapshot.signalID and
-            s.status in [:queued, :running] and
-            s.available_at <= ^DateTime.utc_now()
-      ),
-      timeout: @snapshot_timeout
-    )
-  rescue
-    _error in [DBConnection.ConnectionError, Postgrex.Error] -> false
+    with {:ok, %SessionWorkspace{epoch: epoch}} when epoch == snapshot.epoch <-
+           workspace(snapshot.agentUID, snapshot.sessionID),
+         {:ok, %Signal{} = signal} <-
+           Ankole.Signals.get_signal(snapshot.signalID, timeout: @snapshot_timeout) do
+      signal.agent_uid == snapshot.agentUID and signal.session_id == snapshot.sessionID and
+        signal.status in [:queued, :running] and
+        DateTime.compare(signal.available_at, DateTime.utc_now()) != :gt
+    else
+      _unavailable -> false
+    end
   end
 
   def unavailable(key) do
-    row =
-      Repo.one(
-        from(w in SessionWorkspace,
-          left_join: s in Signal,
-          on:
-            s.agent_uid == w.agent_uid and s.session_id == w.session_id and
-              s.status in [:queued, :running],
-          where: w.agent_uid == ^key.agent_uid and w.session_id == ^key.session_id,
-          group_by: w.epoch,
-          select: {w.epoch, count(s.id)}
-        ),
-        timeout: @snapshot_timeout
-      )
-
-    case row do
-      {epoch, 0} -> fallback(key, epoch, "settled")
-      {epoch, _} -> fallback(key, epoch, "unavailable")
-      nil -> fallback(key, 0, "unavailable")
+    with {:ok, %SessionWorkspace{epoch: epoch}} <- workspace(key.agent_uid, key.session_id),
+         {:ok, open} <-
+           Ankole.Signals.list_signals(
+             query: [
+               filter: [
+                 agent_uid: key.agent_uid,
+                 session_id: key.session_id,
+                 status: [in: [:queued, :running]]
+               ],
+               select: [:id],
+               limit: 1
+             ],
+             timeout: @snapshot_timeout
+           ) do
+      fallback(key, epoch, if(open == [], do: "settled", else: "unavailable"))
+    else
+      _unavailable -> fallback(key, 0, "unavailable")
     end
-  rescue
-    _error in [DBConnection.ConnectionError, Postgrex.Error] -> fallback(key, 0, "unavailable")
+  end
+
+  # A snapshot read fails closed: a slow or unavailable database gives no row.
+  defp workspace(agent_uid, session_id) do
+    SessionWorkspace
+    |> Ash.Query.filter(agent_uid == ^agent_uid and session_id == ^session_id)
+    |> Ankole.Ash.read_one(timeout: @snapshot_timeout)
   end
 
   defp fallback(key, epoch, state) do

@@ -1,14 +1,14 @@
 defmodule Ankole.Sessions.WorkflowTask do
   use Ankole.Sessions.RunType
   @moduledoc "Owns one Workflow task's admission and terminal result contract."
-  alias Ankole.{Repo, Workflow}
+  alias Ankole.Workflow
   alias Ankole.Sessions.Prompt
   alias Ankole.Sessions.Run
   alias Ankole.Signals.Signal
   alias Ankole.Sessions.Queue
 
   def prepare_input(event, now) do
-    case Repo.get(Signal, event.id) do
+    case Ankole.Signals.get_signal!(event.id) do
       %Signal{status: :completed} = current ->
         {:closed, %{status: :completed, signal: current}}
 
@@ -34,18 +34,20 @@ defmodule Ankole.Sessions.WorkflowTask do
   end
 
   defp complete_workflow_input(event, now) do
-    case Repo.transact(fn repo ->
-           with {:ok, :not_committed} <-
-                  Run.finalize_committed_workflow_input_in_tx(repo, event),
-                %Signal{} = current <- Ankole.Signals.lock_signal_in_tx(repo, event.id),
-                {:ok, completed} <- Queue.mark_event_completed_in_tx(repo, current, now) do
-             {:ok, %{status: :completed, signal: completed}}
-           else
-             {:ok, %{status: :completed} = result} -> {:ok, result}
-             error -> error
-           end
-         end) do
+    case event |> Ankole.Sessions.close_workflow_input(now) |> Ankole.Errors.reason() do
       {:ok, value} -> {:closed, value}
+      error -> error
+    end
+  end
+
+  @doc false
+  def complete_input_in_tx(repo, event, now) do
+    with {:ok, :not_committed} <- Run.finalize_committed_workflow_input_in_tx(repo, event),
+         %Signal{} = current <- Ankole.Signals.lock_signal_in_tx(repo, event.id),
+         {:ok, completed} <- Queue.mark_event_completed_in_tx(repo, current, now) do
+      {:ok, %{status: :completed, signal: completed}}
+    else
+      {:ok, %{status: :completed} = result} -> {:ok, result}
       error -> error
     end
   end

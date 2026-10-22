@@ -218,7 +218,7 @@ defmodule Ankole.Conversations.Delivery.Mirror do
   defp delivery_source_session_id(_repo, nil), do: nil
 
   defp delivery_source_session_id(_repo, signal_id) do
-    case Ankole.Signals.Domain.get_signal!(signal_id) do
+    case Ankole.Signals.get_signal!(signal_id) do
       %Signal{session_id: session_id} -> session_id
       nil -> nil
     end

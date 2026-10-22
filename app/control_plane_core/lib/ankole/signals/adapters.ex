@@ -13,6 +13,13 @@ defmodule Ankole.Signals.Adapters do
   alias Ankole.Conversations.Delivery.PreviewAdapter
 
   @contract_id "signals.adapter"
+
+  @doc "Gives the adapter ID that prefixes an external provider conversation ID."
+  @spec conversation_adapter_id(String.t() | nil) :: String.t() | nil
+  def conversation_adapter_id(provider_conversation_id) when is_binary(provider_conversation_id),
+    do: provider_conversation_id |> String.split(":", parts: 2) |> hd()
+
+  def conversation_adapter_id(_provider_conversation_id), do: nil
   @adapter_categories ["enterprise_im", "consumer_im", "email"]
 
   defmodule Definition do

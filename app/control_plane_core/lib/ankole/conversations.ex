@@ -635,7 +635,7 @@ defmodule Ankole.Conversations do
   end
 
   defp control_signal(agent, conversation, command_id) do
-    Ankole.Signals.Domain.list_signals!(
+    Ankole.Signals.list_signals!(
       query: [
         filter: [
           agent_uid: agent.uid,
@@ -675,7 +675,7 @@ defmodule Ankole.Conversations do
            :ok <- edit_last_in_tx(repo, message, action, attrs),
            {:ok, retry} <- Ankole.Sessions.Commands.retry_in_tx(repo, key, command, now),
            {:ok, retry} <-
-             Ankole.Signals.Domain.update_metadata_signal(retry, %{
+             Ankole.Signals.update_metadata_signal(retry, %{
                data: Map.put(retry.data, "model_profile", ModelPreferences.logical(conversation))
              }),
            :ok <- remove_native_reply_in_tx(repo, conversation.id, input.id, now) do
@@ -791,7 +791,7 @@ defmodule Ankole.Conversations do
 
   defp pause_inputs(inputs) do
     Enum.reduce_while(inputs, {:ok, []}, fn input, {:ok, paused} ->
-      case Ankole.Signals.Domain.update_metadata_signal(input, %{
+      case Ankole.Signals.update_metadata_signal(input, %{
              data: Map.put(input.data, "delivery_mode", "queue")
            }) do
         {:ok, input} -> {:cont, {:ok, [input | paused]}}
@@ -807,7 +807,7 @@ defmodule Ankole.Conversations do
            Ankole.Ash.update(message, :edit, %{text: text, links: page_links(text)}),
          :ok <- message_changed_in_tx(repo, message, updated, DateTime.utc_now(:microsecond)),
          {:ok, input} <-
-           Ankole.Signals.Domain.update_metadata_signal(input, %{
+           Ankole.Signals.update_metadata_signal(input, %{
              data: put_input_text(input.data, text)
            }),
          do: {:ok, [input]}
@@ -822,7 +822,7 @@ defmodule Ankole.Conversations do
              input.data["model_profile"] || "primary"
            ),
          {:ok, input} <-
-           Ankole.Signals.Domain.update_metadata_signal(input, %{
+           Ankole.Signals.update_metadata_signal(input, %{
              data: Map.put(input.data, "delivery_mode", "steer")
            }),
          do: {:ok, [input]}
@@ -835,7 +835,7 @@ defmodule Ankole.Conversations do
     with %Message{} = message <- message(input.message_id),
          :ok <- message_changed_in_tx(repo, message, nil, now),
          {:ok, input} <-
-           Ankole.Signals.Domain.update_metadata_signal(input, %{
+           Ankole.Signals.update_metadata_signal(input, %{
              data: Map.put(input.data, "removed", true)
            }),
          {:ok, input} <- Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, input, now),
@@ -862,7 +862,7 @@ defmodule Ankole.Conversations do
       ids
       |> Enum.with_index((maximum || 0) + 1)
       |> Enum.reduce_while({:ok, []}, fn {id, sequence}, {:ok, changed} ->
-        case Ankole.Signals.Domain.update_metadata_signal(Map.fetch!(by_id, id), %{
+        case Ankole.Signals.update_metadata_signal(Map.fetch!(by_id, id), %{
                queue_sequence: sequence
              }) do
           {:ok, input} -> {:cont, {:ok, [input | changed]}}
@@ -877,7 +877,7 @@ defmodule Ankole.Conversations do
   defp reorder_inputs(_inputs, _ids), do: {:error, :invalid_request}
 
   defp max_queue_sequence(input) do
-    case Ankole.Signals.Domain.list_signals!(
+    case Ankole.Signals.list_signals!(
            query: [
              filter: [agent_uid: input.agent_uid, session_id: input.session_id],
              sort: [queue_sequence: :desc],
@@ -922,7 +922,7 @@ defmodule Ankole.Conversations do
   end
 
   defp busy?(id) do
-    Ankole.Signals.Domain.list_signals!(
+    Ankole.Signals.list_signals!(
       query: [
         filter: [
           or: [[conversation_id: id], [session_id: Ankole.Sessions.Key.conversation(id)]],
@@ -1255,7 +1255,7 @@ defmodule Ankole.Conversations do
 
     used? =
       AIGateway.conversation_exists_by_key?(repo, agent_uid, session_id) or
-        Ankole.Signals.Domain.list_signals!(
+        Ankole.Signals.list_signals!(
           query: [
             filter: [agent_uid: agent_uid, session_id: session_id],
             limit: 1,
@@ -1563,7 +1563,7 @@ defmodule Ankole.Conversations do
       )
       |> List.first()
 
-    pending_inputs = Ankole.Signals.Domain.list_signals!(query: pending_query(conversation.id))
+    pending_inputs = Ankole.Signals.list_signals!(query: pending_query(conversation.id))
 
     %{
       conversation: conversation,

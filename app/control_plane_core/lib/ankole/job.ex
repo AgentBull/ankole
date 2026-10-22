@@ -31,11 +31,14 @@ defmodule Ankole.Job do
 
   The worker's unique keys select the wakeup. A wakeup that is available,
   scheduled or retryable moves to the new time. An executing wakeup keeps its
-  claim, so the insert gives the next wakeup its own row.
+  claim, so the insert gives the next wakeup its own row. With
+  `only_earlier: true`, a pending wakeup moves only to an earlier time, so a
+  later request cannot postpone a committed wakeup.
   """
-  @spec schedule_in_tx(module(), module(), map(), DateTime.t()) :: :ok | {:error, term()}
-  def schedule_in_tx(repo, worker, args, due_at) do
-    import Ecto.Query, only: [from: 2]
+  @spec schedule_in_tx(module(), module(), map(), DateTime.t(), keyword()) ::
+          :ok | {:error, term()}
+  def schedule_in_tx(repo, worker, args, due_at, opts \\ []) do
+    import Ecto.Query, only: [from: 2, where: 3]
 
     with {:ok, job} <- Oban.insert(worker.new(args, scheduled_at: due_at)) do
       state =
@@ -43,15 +46,33 @@ defmodule Ankole.Job do
           do: "scheduled",
           else: "available"
 
-      repo.update_all(
-        from(job in Oban.Job,
-          where: job.id == ^job.id and job.state in ["available", "scheduled", "retryable"]
-        ),
-        set: [scheduled_at: due_at, state: state]
-      )
+      # An inline test engine runs the job without a row.
+      if job.id do
+        query =
+          from(job in Oban.Job,
+            where: job.id == ^job.id and job.state in ["available", "scheduled", "retryable"]
+          )
+
+        query =
+          if Keyword.get(opts, :only_earlier, false),
+            do: where(query, [job], job.scheduled_at > ^due_at),
+            else: query
+
+        repo.update_all(query, set: [scheduled_at: due_at, state: state])
+      end
 
       :ok
     end
+  end
+
+  @doc "Moves the pending wakeup of `worker` in its own transaction. See `schedule_in_tx/5`."
+  @spec schedule(module(), map(), DateTime.t(), keyword()) :: :ok | {:error, term()}
+  def schedule(worker, args, due_at, opts \\ []) do
+    with {:ok, :ok} <-
+           Ankole.Repo.transact(fn repo ->
+             with :ok <- schedule_in_tx(repo, worker, args, due_at, opts), do: {:ok, :ok}
+           end),
+         do: :ok
   end
 
   @doc false
@@ -69,9 +90,9 @@ defmodule Ankole.Job do
 
   def perform(:tenant, %Oban.Job{args: %{"tenant_id" => tenant_id}} = job, run) do
     Ankole.Repo.with_tenant(tenant_id, fn ->
-      case Ankole.Repo.get(Ankole.Tenants.Tenant, tenant_id) do
-        nil -> {:cancel, :tenant_deleted}
-        _tenant -> run.(job)
+      case Ankole.Tenants.get(tenant_id) do
+        {:ok, _tenant} -> run.(job)
+        {:error, :not_found} -> {:cancel, :tenant_deleted}
       end
     end)
   end

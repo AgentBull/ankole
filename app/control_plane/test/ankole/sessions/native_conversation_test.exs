@@ -123,7 +123,7 @@ defmodule Ankole.Sessions.NativeConversationTest do
     error = %{"code" => "temporary_failure"}
     now = DateTime.utc_now(:microsecond)
 
-    assert_raise ArgumentError, ~r/use the _in_tx entry point/, fn ->
+    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
       Repo.transact(fn _repo -> Run.defer_retry(run, error, now) end)
     end
 

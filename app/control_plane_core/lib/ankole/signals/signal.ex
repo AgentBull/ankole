@@ -8,7 +8,7 @@ defmodule Ankole.Signals.Signal do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Signals.Domain,
+    domain: Ankole.Signals,
     extensions: [AshStateMachine]
 
   use Ankole.Work.Provenance,
@@ -16,10 +16,9 @@ defmodule Ankole.Signals.Signal do
     cleanup_key: "signals",
     review_states: [:queued, :running, :dead_letter],
     reauthorizable_states: [:queued, :running],
-    revoke_action: {Ankole.Sessions.Queue, :stop_human_work_in_tx}
+    revoke_action: {Ankole.Signals, :stop_human_work_in_tx}
 
   alias Ankole.Conversations.ExternalMessageRef
-  alias Ankole.Repo
 
   @turn_outcomes ~w(loop_finished iteration_exhausted silent)
   @type t :: %__MODULE__{}
@@ -117,6 +116,15 @@ defmodule Ankole.Signals.Signal do
       destination_attribute(:signal_id)
       public?(false)
     end
+
+    # The native conversation of the input. Its queue pause holds queued
+    # follow-up input (see `Ankole.Sessions.Queue`).
+    has_one :native_conversation, Ankole.Conversations.Conversation do
+      source_attribute(:conversation_id)
+      destination_attribute(:id)
+      filter(expr(kind == :native))
+      public?(false)
+    end
   end
 
   identities do
@@ -149,7 +157,6 @@ defmodule Ankole.Signals.Signal do
 
     create :accept do
       primary?(true)
-      transaction?(false)
       upsert?(true)
       upsert_identity(:source_identity)
       upsert_fields([:source_event_id])
@@ -180,20 +187,20 @@ defmodule Ankole.Signals.Signal do
       ])
     end
 
-    in_tx_update :admit do
+    update :admit do
       require_attributes([:last_attempt_at])
       accept([:last_attempt_at, :data])
       change(atomic_update(:attempt_count, expr(attempt_count + 1)))
       change(transition_state(:running))
     end
 
-    in_tx_update :retry_triage do
+    update :retry_triage do
       accept([:available_at])
       change(atomic_update(:attempt_count, expr(attempt_count + 1)))
       change(transition_state(:queued))
     end
 
-    in_tx_update :refund_attempt do
+    update :refund_attempt do
       accept([])
       validate(attribute_in(:status, [:queued, :running]))
 
@@ -210,13 +217,13 @@ defmodule Ankole.Signals.Signal do
       )
     end
 
-    in_tx_update :start_attempt do
+    update :start_attempt do
       require_attributes([:last_attempt_at])
       accept([:last_attempt_at])
       change(transition_state(:running))
     end
 
-    in_tx_update :defer do
+    update :defer do
       accept([:available_at])
       argument(:provider_capacity?, :boolean, default: false, allow_nil?: false)
 
@@ -231,7 +238,8 @@ defmodule Ankole.Signals.Signal do
       change(transition_state(:queued))
     end
 
-    atomic_in_tx_update :reset_attempts do
+    update :reset_attempts do
+      require_atomic?(true)
       accept([:available_at])
       change(set_attribute(:attempt_count, 0))
       change(set_attribute(:provider_capacity_attempt_count, 0))
@@ -239,23 +247,23 @@ defmodule Ankole.Signals.Signal do
       change(transition_state(:queued))
     end
 
-    in_tx_update :complete do
+    update :complete do
       require_attributes([:completed_at])
       accept([:completed_at, :final_response_id, :turn_outcome, :data])
       change(transition_state(:completed))
     end
 
-    in_tx_update :dead_letter do
+    update :dead_letter do
       require_attributes([:dead_letter_at, :dead_letter_reason])
       accept([:dead_letter_at, :dead_letter_reason])
       change(transition_state(:dead_letter))
     end
 
-    in_tx_update :revise_input do
+    update :revise_input do
       accept([:data, :occurred_at, :provider_message_id, :available_at])
     end
 
-    in_tx_update :update_metadata do
+    update :update_metadata do
       accept([
         :data,
         :extensions,
@@ -268,16 +276,23 @@ defmodule Ankole.Signals.Signal do
       ])
     end
 
-    in_tx_update :reauthorize do
+    update :reauthorize do
       accept([:authorization_kind, :human_uid, :human_access_version])
     end
 
-    destroy :remove do
-      transaction?(false)
-      require_atomic?(false)
+    destroy(:remove)
+
+    action :intake, :term do
+      argument(:attrs, :map, allow_nil?: false)
+      after_commit({Ankole.Signals, :publish_committed})
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.Signals.Intake.accept(Ankole.Repo, input.arguments.attrs))
+      end)
     end
 
-    atomic_in_tx_update :revoke_unstarted do
+    update :revoke_unstarted do
+      require_atomic?(true)
       require_attributes([:dead_letter_at, :dead_letter_reason])
       accept([:dead_letter_at, :dead_letter_reason])
       change(transition_state(:dead_letter))
@@ -312,9 +327,12 @@ defmodule Ankole.Signals.Signal do
         %__MODULE__{ambient_asked_message_id: id, conversation_id: conversation_id} = event
       )
       when is_binary(id) and is_binary(conversation_id) do
-    case Repo.get_by(ExternalMessageRef, message_id: id, conversation_id: conversation_id) do
-      %ExternalMessageRef{provider_message_id: provider_id} -> provider_id
-      _ -> event.provider_message_id
+    case Ankole.Conversations.get_external_message_ref!(id) do
+      %ExternalMessageRef{conversation_id: ^conversation_id, provider_message_id: provider_id} ->
+        provider_id
+
+      _other ->
+        event.provider_message_id
     end
   end
 

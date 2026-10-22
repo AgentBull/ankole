@@ -43,6 +43,46 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
     )
   end
 
+  # Sessions owns these relationships and the console_list read action. They
+  # relate the model history to the display facts of the operator console.
+  relationships do
+    # The public conversation of a channel session: its Session key names the
+    # conversation, or its origin metadata records the conversation.
+    has_one :public_conversation, Ankole.Conversations.Conversation do
+      public?(false)
+      no_attributes?(true)
+
+      filter(
+        expr(
+          parent(conversation_key) ==
+            fragment("? || ?::text", ^Ankole.Sessions.Key.conversation(""), id) or
+            fragment("? -> 'origin' ->> 'conversation_id' = ?::text", parent(metadata), id)
+        )
+      )
+    end
+
+    # The direct-message peer that the origin metadata records.
+    has_one :peer, Ankole.Principals.Principal do
+      public?(false)
+      no_attributes?(true)
+      filter(expr(fragment("? = ? -> 'origin' ->> 'peer_uid'", uid, parent(metadata))))
+    end
+
+    # The Session that this model history belongs to, when a Session owns it.
+    has_one :session_workspace, Ankole.Sessions.SessionWorkspace do
+      public?(false)
+      no_attributes?(true)
+      filter(expr(agent_uid == parent(subject_uid) and session_id == parent(conversation_key)))
+    end
+
+    # The subject UID condition keeps the (subject_uid, conversation_id) index.
+    has_many :messages, Ankole.AIGateway.Schemas.Message do
+      public?(false)
+      destination_attribute(:conversation_id)
+      filter(expr(subject_uid == parent(subject_uid)))
+    end
+  end
+
   validations do
     validate(
       fn changeset, _context ->
@@ -82,6 +122,17 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
       accept([:ended_at])
       validate(present(:ended_at))
       change(filter(expr(is_nil(ended_at))))
+    end
+
+    # The operator console list. Sessions owns this action and its filters.
+    read :console_list do
+      argument(:subject_uid, :string)
+      argument(:conversation_key, :string, constraints: [trim?: false])
+      argument(:search, :string, constraints: [trim?: false])
+      argument(:active, :boolean)
+      argument(:min_messages, :integer)
+      pagination(keyset?: true, default_limit: 50, max_page_size: 100)
+      prepare(Ankole.Sessions.ConsoleQueries.Prepare)
     end
   end
 

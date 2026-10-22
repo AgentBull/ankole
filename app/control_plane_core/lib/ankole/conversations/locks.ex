@@ -11,7 +11,7 @@ defmodule Ankole.Conversations.Locks do
   def signals(query) when is_list(query) do
     rows =
       Ankole.LockOrder.with_identity({:rows, "signals", :id}, fn ->
-        Ankole.Signals.Domain.list_signals!(query: Keyword.put(query, :lock, :for_update))
+        Ankole.Signals.list_signals!(query: Keyword.put(query, :lock, :for_update))
       end)
 
     Ankole.LockOrder.check_rows("signals", Enum.map(rows, & &1.id))

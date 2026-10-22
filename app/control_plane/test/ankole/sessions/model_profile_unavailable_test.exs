@@ -60,14 +60,7 @@ defmodule Ankole.Sessions.ModelProfileUnavailableTest do
 
       assert input.type == "im.message.may_intervene"
 
-      assert {:ok,
-              %{
-                status: :model_profile_unavailable,
-                profile: "light",
-                profile_error: :model_profile_not_configured,
-                posted: %{intents: []},
-                notice_error: nil
-              }} =
+      assert {:ok, :settled} =
                Ankole.Sessions.AmbientTriage.run(
                  %{agent_uid: agent.uid, session_id: input.session_id},
                  input

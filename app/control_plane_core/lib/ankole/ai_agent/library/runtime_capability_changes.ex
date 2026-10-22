@@ -112,7 +112,7 @@ defmodule Ankole.AIAgent.Library.RuntimeCapabilityChanges do
       session = Ankole.Sessions.Key.job(job.id)
 
       {:ok, signals} =
-        Ankole.Signals.Domain.list_signals(
+        Ankole.Signals.list_signals(
           query: [
             filter: [
               agent_uid: agent_uid,

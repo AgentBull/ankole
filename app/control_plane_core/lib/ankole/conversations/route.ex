@@ -207,7 +207,7 @@ defmodule Ankole.Conversations.Route do
   @spec source(%{signal_id: Ecto.UUID.t()}) ::
           {:ok, source()} | {:error, :reply_route_not_in_turn}
   def source(%{signal_id: signal_id}) when is_binary(signal_id) do
-    case Ankole.Signals.Domain.get_signal!(signal_id) do
+    case Ankole.Signals.get_signal!(signal_id) do
       %Signal{} = event ->
         {:ok,
          %{
@@ -329,7 +329,7 @@ defmodule Ankole.Conversations.Route do
   end
 
   def snapshot(turn) do
-    case Ankole.Signals.Domain.get_signal!(turn.signal_id) do
+    case Ankole.Signals.get_signal!(turn.signal_id) do
       %Signal{} = event ->
         route =
           %{
@@ -371,7 +371,7 @@ defmodule Ankole.Conversations.Route do
   end
 
   defp agent_signal(id, uid),
-    do: first(Ankole.Signals.Domain.list_signals!(query: [filter: [id: id, agent_uid: uid]]))
+    do: first(Ankole.Signals.list_signals!(query: [filter: [id: id, agent_uid: uid]]))
 
   defp agent_job(id, uid),
     do: first(Ankole.BackgroundAgentJobs.list_jobs!(query: [filter: [id: id, agent_uid: uid]]))

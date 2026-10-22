@@ -60,7 +60,7 @@ defmodule Ankole.Brain.RequestContext do
   defp owned_event(subject_uid, signal_id) do
     case Ecto.UUID.cast(signal_id) do
       {:ok, id} ->
-        case Ankole.Signals.Domain.get_signal(id) do
+        case Ankole.Signals.get_signal(id) do
           {:ok, %Signal{agent_uid: ^subject_uid} = event} -> {:ok, event}
           {:ok, %Signal{}} -> {:error, :signal_not_owned}
           {:ok, nil} -> {:error, :signal_not_found}
@@ -81,7 +81,7 @@ defmodule Ankole.Brain.RequestContext do
         select: [:id]
       ]
     ]
-    |> Ankole.Signals.Domain.list_signals!()
+    |> Ankole.Signals.list_signals!()
     |> case do
       [_live] -> :ok
       [] -> {:error, :turn_not_live}

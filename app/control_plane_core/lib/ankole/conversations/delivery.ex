@@ -660,7 +660,7 @@ defmodule Ankole.Conversations.Delivery do
   defp intent_route_binding(_repo, %Signal{reply_binding_name: name} = signal) do
     binding =
       if is_binary(name) and name != "",
-        do: Ankole.Signals.Domain.get_binding!(signal.agent_uid, name)
+        do: Ankole.Signals.get_binding!(signal.agent_uid, name)
 
     case binding do
       %Binding{} = binding ->

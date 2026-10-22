@@ -242,9 +242,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     do: {:error, :reply_interaction_operator_missing}
 
   defp find_source_event(binding, fact, callback) do
-    Ankole.Signals.Domain.list_signals!(
-      query: [filter: source_event_filter(binding, fact, callback)]
-    )
+    Ankole.Signals.list_signals!(query: [filter: source_event_filter(binding, fact, callback)])
     |> List.first()
     |> accepted_reply_surface(fact.provider_message_id, binding)
   end
@@ -440,7 +438,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   end
 
   defp first_newer_signal(event, filter) do
-    Ankole.Signals.Domain.list_signals!(
+    Ankole.Signals.list_signals!(
       query: [
         filter:
           [

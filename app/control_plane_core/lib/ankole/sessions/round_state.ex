@@ -1,6 +1,6 @@
 defmodule Ankole.Sessions.RoundState do
   @moduledoc "Session progress committed with its model request or tool journal."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Sessions.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Sessions
   require Ash.Query
   alias Ankole.Sessions.Outcome
   alias Ankole.Sessions.ToolResult
@@ -45,7 +45,6 @@ defmodule Ankole.Sessions.RoundState do
 
     create_if_absent :record_once, upsert_fields: [:message_id] do
       primary?(true)
-      transaction?(false)
 
       accept([
         :message_id,

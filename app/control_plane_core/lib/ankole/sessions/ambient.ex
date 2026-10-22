@@ -2,10 +2,8 @@ defmodule Ankole.Sessions.Ambient do
   @moduledoc false
   use Ankole.Sessions.RunType
 
-  import Ecto.Query, warn: false
   require Ash.Query
 
-  alias Ankole.Repo
   alias Ankole.Sessions.AmbientJudgment
   alias Ankole.BackgroundAgentJobs.Queries, as: BackgroundAgentJobQueries
   alias Ankole.Sessions.Queue
@@ -69,43 +67,45 @@ defmodule Ankole.Sessions.Ambient do
             })
       }
 
-      event = Repo.get!(Signal, run.signal_id)
+      %Signal{} = event = Ankole.Signals.get_signal!(run.signal_id)
       {:ok, {:prepare, %{run | event: event, delivered_event: event, spec: spec}}}
     else
       _ -> {:error, :ambient_turn_not_authorized}
     end
   end
 
-  def resolve(%Signal{} = event, now) do
-    Repo.transact(fn repo ->
-      with :ok <- Ankole.Sessions.Admission.authorize_attempt_in_tx(repo, event),
-           :ok <- Queue.lock_session_in_tx(repo, event.agent_uid, event.session_id) do
-        case Ankole.Signals.lock_signal_in_tx(repo, event.id) do
-          %Signal{status: :completed} = completed_event ->
-            {:ok, %{status: :already_completed, signal: completed_event}}
+  def resolve(%Signal{} = event, now),
+    do: event |> Ankole.Sessions.resolve_ambient(now) |> Ankole.Errors.reason()
 
-          %Signal{status: live_status} = locked_event when live_status in [:queued, :running] ->
-            cond do
-              AmbientJudgment
-              |> Ash.Query.filter(signal_id == ^locked_event.id)
-              |> Ankole.Ash.read_one!() ->
-                {:ok, %{status: :ambient_fresh, signal: locked_event}}
+  @doc false
+  def resolve_in_tx(repo, %Signal{} = event, now) do
+    with :ok <- Ankole.Sessions.Admission.authorize_attempt_in_tx(repo, event),
+         :ok <- Queue.lock_session_in_tx(repo, event.agent_uid, event.session_id) do
+      case Ankole.Signals.lock_signal_in_tx(repo, event.id) do
+        %Signal{status: :completed} = completed_event ->
+          {:ok, %{status: :already_completed, signal: completed_event}}
 
-              locked_event.last_attempt_at ->
-                resolve_attempted_event(repo, locked_event, now)
+        %Signal{status: live_status} = locked_event when live_status in [:queued, :running] ->
+          cond do
+            AmbientJudgment
+            |> Ash.Query.filter(signal_id == ^locked_event.id)
+            |> Ankole.Ash.read_one!() ->
+              {:ok, %{status: :ambient_fresh, signal: locked_event}}
 
-              true ->
-                resolve_locked_event(repo, locked_event, now)
-            end
+            locked_event.last_attempt_at ->
+              resolve_attempted_event(repo, locked_event, now)
 
-          %Signal{} = unavailable_event ->
-            {:ok, %{status: :ambient_unavailable, signal: unavailable_event}}
+            true ->
+              resolve_locked_event(repo, locked_event, now)
+          end
 
-          nil ->
-            {:ok, %{status: :idle}}
-        end
+        %Signal{} = unavailable_event ->
+          {:ok, %{status: :ambient_unavailable, signal: unavailable_event}}
+
+        nil ->
+          {:ok, %{status: :idle}}
       end
-    end)
+    end
   end
 
   defp resolve_attempted_event(repo, locked_event, now) do
@@ -177,27 +177,20 @@ defmodule Ankole.Sessions.Ambient do
   end
 
   defp lock_pending_ambient_events(repo, %Signal{} = event) do
-    Signal
-    |> where([pending], pending.agent_uid == ^event.agent_uid)
-    |> where([pending], pending.session_id == ^event.session_id)
-    |> where(
-      [pending],
-      pending.type == "im.message.may_intervene" and pending.producer == :kernel
+    channel =
+      if is_binary(event.conversation_id),
+        do: event.conversation_id,
+        else: [is_nil: true]
+
+    Ankole.Signals.lock_signals_in_tx(repo,
+      agent_uid: event.agent_uid,
+      session_id: event.session_id,
+      type: "im.message.may_intervene",
+      producer: :kernel,
+      status: [in: [:queued, :running]],
+      last_attempt_at: [is_nil: true],
+      conversation_id: channel
     )
-    |> where([pending], pending.status in [:queued, :running])
-    |> where([pending], is_nil(pending.last_attempt_at))
-    |> same_signal_channel(event.conversation_id)
-    |> order_by([pending], asc: pending.queue_sequence)
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("signals")
-  end
-
-  defp same_signal_channel(query, conversation_id) when is_binary(conversation_id) do
-    where(query, [pending], pending.conversation_id == ^conversation_id)
-  end
-
-  defp same_signal_channel(query, nil) do
-    where(query, [pending], is_nil(pending.conversation_id))
   end
 
   defp complete_superseded(repo, superseded, now) do
@@ -212,6 +205,9 @@ defmodule Ankole.Sessions.Ambient do
       end
     end)
   end
+
+  @doc "Gives the work candidates of an ambient input outside a transaction."
+  def candidates(event), do: candidates_in_tx(Ankole.Repo, event)
 
   def candidates_in_tx(repo, event) do
     BackgroundAgentJobQueries.ambient_candidates_in_tx(
@@ -287,11 +283,8 @@ defmodule Ankole.Sessions.Ambient do
 
   defp current_binding_allows_intervention?(repo, %Signal{} = event) do
     binding =
-      Binding
-      |> where([binding], binding.agent_uid == ^event.agent_uid)
-      |> where([binding], binding.name == ^event.reply_binding_name)
-      |> lock("FOR SHARE")
-      |> repo.one()
+      is_binary(event.reply_binding_name) &&
+        Ankole.Signals.share_binding_in_tx(repo, event.agent_uid, event.reply_binding_name)
 
     case binding do
       %Binding{

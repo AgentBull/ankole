@@ -1,9 +1,84 @@
 defmodule Ankole.Sessions do
-  @moduledoc "Wakes the single driver for committed Session input. PostgreSQL owns the inbox."
+  @moduledoc """
+  Wakes the single driver for committed Session input. PostgreSQL owns the inbox.
+
+  This module is the Sessions domain. Each Session operation is a generic
+  action of `Ankole.Sessions.SessionWorkspace` (declared in
+  `Ankole.Sessions.Operations`) that owns its transaction. A define gives the
+  Ash error class; the calling module gives back the domain reason with
+  `Ankole.Errors.reason/1`.
+  """
+  use Ankole.Ash.Domain
+
   alias Ankole.Sessions.Admission
   alias Ankole.Sessions.Jobs.EnsureDriver
   alias Ankole.Signals.Signal
   alias Ankole.Repo
+
+  resources do
+    resource Ankole.Sessions.SessionWorkspace do
+      define(:get_session_workspace, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_session_workspaces, action: :read)
+      define(:admit_input, args: [:key, :snapshot, :plan, :prepared, :now])
+      define(:dead_letter_input, args: [:event, :now, :reason])
+      define(:authorize_input, args: [:event])
+      define(:admit_job_input, args: [:admission, :snapshot])
+      define(:check_job_turn, args: [:run])
+      define(:claim_job_mailbox, args: [:run])
+      define(:abort_job_turn, args: [:ref, :worker_id, :error, :now])
+      define(:reject_job_admission, args: [:job, :event, :code, :reason, :now])
+      define(:defer_run_retry, args: [:run, :error, :now])
+      define(:record_run_round, args: [:run])
+      define(:inject_run_input, args: [:run, :events, :now])
+      define(:finalize_run, args: [:run, :outcome, :reason, :images])
+      define(:refund_run, args: [:run, :mode])
+      define(:check_run, args: [:run, :lock])
+      define(:reclaim_run, args: [:run])
+      define(:apply_command, args: [:key, :event, :now])
+      define(:resolve_retry_action, args: [:run, :event])
+      define(:retry_current_turn, args: [:run, :event, :now])
+      define(:post_stopped_notice, args: [:event, :command_type])
+      define(:submit_workflow_failure, args: [:run, :failure])
+      define(:compensate_workflow_error, args: [:run, :error])
+      define(:consume_compress_command, args: [:input, :compaction, :now])
+      define(:consume_command_feedback, args: [:input, :text, :now])
+      define(:fail_workflow_model, args: [:event, :profile, :reason, :now])
+      define(:reject_suspended_input, args: [:event, :now])
+      define(:complete_without_turn, args: [:signal, :status, :fields, :commit_notice])
+      define(:apply_revision, args: [:run, :event, :now])
+      define(:process_message_removal, args: [:input, :now])
+      define(:resolve_ambient, args: [:event, :now])
+      define(:retry_ambient_triage, args: [:key, :event, :now])
+      define(:record_ambient_judgment, args: [:key, :signal_id, :route, :attrs])
+      define(:set_standing_orders, args: [:agent_uid, :signal_id, :orders, :now])
+      define(:execute_receipt, args: [:run, :response_id, :call_id, :operation])
+      define(:link_run_input, args: [:run])
+      define(:read_worker_status, args: [:run])
+      define(:enqueue_session_resets, args: [:boundary_at, :opts])
+      define(:reset_session, args: [:session_key, :input, :now])
+      define(:close_workflow_input, args: [:event, :now])
+    end
+
+    resource Ankole.Sessions.RoundState do
+      define(:get_round_state, action: :read, get_by: [:message_id], not_found_error?: false)
+      define(:list_round_states, action: :read)
+    end
+
+    resource Ankole.Sessions.Receipts do
+      define(:get_receipts,
+        action: :read,
+        get_by: [:response_id, :call_id],
+        not_found_error?: false
+      )
+
+      define(:list_receipts, action: :read)
+    end
+
+    resource Ankole.Sessions.AmbientJudgment do
+      define(:get_ambient_judgment, action: :read, get_by: [:signal_id], not_found_error?: false)
+      define(:list_ambient_judgments, action: :read)
+    end
+  end
 
   @doc "Returns the durable input identities included in one model request."
   def response_signal_ids(%{response_id: "resp_" <> id, metadata: metadata}) do
@@ -46,8 +121,8 @@ defmodule Ankole.Sessions do
   end
 
   def ensure_driver(key) do
-    case Repo.get(Ankole.Principals.Principal, key.agent_uid) do
-      %{type: :agent, tenant_id: tenant_id} -> ensure_in_tenant(key, tenant_id)
+    case Ankole.Principals.get_principal(key.agent_uid) do
+      {:ok, %{type: :agent, tenant_id: tenant_id}} -> ensure_in_tenant(key, tenant_id)
       _ -> {:error, :agent_not_found}
     end
   end

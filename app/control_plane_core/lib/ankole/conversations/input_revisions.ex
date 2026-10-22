@@ -177,11 +177,11 @@ defmodule Ankole.Conversations.InputRevisions do
 
       :cancel ->
         with {:ok, _} <- Deletion.commit_source_in_tx(repo, event),
-             :ok <- Ankole.Signals.Domain.remove_signal(event),
+             :ok <- Ankole.Signals.remove_signal(event),
              do: {:ok, :removed}
 
       {:update, attrs} ->
-        Ankole.Signals.Domain.revise_input_signal(event, attrs)
+        Ankole.Signals.revise_input_signal(event, attrs)
     end
   end
 
@@ -232,7 +232,7 @@ defmodule Ankole.Conversations.InputRevisions do
         status: [in: [:queued, :running]]
       ] ++ exact_event_thread(fact.provider_thread_id)
 
-    Ankole.Signals.Domain.list_signals!(query: [filter: filter, sort: [queue_sequence: :desc]])
+    Ankole.Signals.list_signals!(query: [filter: filter, sort: [queue_sequence: :desc]])
     |> Enum.find(&source_entry?(&1, provider_message_id))
     |> case do
       %Signal{id: id} -> [filter: [id: id] ++ filter] |> Locks.signals() |> List.first()
@@ -274,7 +274,7 @@ defmodule Ankole.Conversations.InputRevisions do
     do: Map.get(fact, :session_id) || Ankole.Sessions.Key.conversation(fact.conversation_id)
 
   defp latest_session_event?(_repo, %Signal{} = event) do
-    case Ankole.Signals.Domain.list_signals!(
+    case Ankole.Signals.list_signals!(
            query: [
              filter: [agent_uid: event.agent_uid, session_id: event.session_id],
              sort: [queue_sequence: :desc],
@@ -318,7 +318,7 @@ defmodule Ankole.Conversations.InputRevisions do
       ] ++ thread_filter(fact.provider_thread_id)
 
     [query: [filter: filter]]
-    |> Ankole.Signals.Domain.list_signals!()
+    |> Ankole.Signals.list_signals!()
     |> Enum.filter(&source_entry?(&1, fact.provider_message_id))
   end
 

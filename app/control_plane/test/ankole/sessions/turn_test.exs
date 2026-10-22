@@ -242,19 +242,24 @@ defmodule Ankole.Sessions.TurnTest do
     assert classifying.run == nil
 
     assert {settled, commands} =
-             Turn.step(classifying, {:completed, :ambient_triage, {:ok, %{status: :completed}}})
+             Turn.step(classifying, {:completed, :ambient_triage, {:ok, :settled}})
 
     assert settled.run == nil
     assert {:next, :rebuild} in commands
     refute :prepare in commands
 
     assert {ready, [:admit]} =
-             Turn.step(
-               classifying,
-               {:completed, :ambient_triage, {:ok, %{status: :ambient_ready, signal: event}}}
-             )
+             Turn.step(classifying, {:completed, :ambient_triage, {:ok, :intervene, event}})
 
     assert ready.event == event
+
+    due = %{event | available_at: DateTime.add(DateTime.utc_now(), 30)}
+
+    assert {deferred, [{:wait_until, at, :admit}]} =
+             Turn.step(classifying, {:completed, :ambient_triage, {:ok, :deferred, due}})
+
+    assert deferred.stage == :deferred
+    assert at == due.available_at
   end
 
   test "a retryable failure waits for a committed deadline before backing off" do

@@ -9,9 +9,8 @@ defmodule Ankole.Sessions.Commands do
   its epoch. A retry retains tool records when the visible suffix contains
   tool calls or results.
   """
-  import Ecto.Query
-  require Ash.Query
-  alias Ankole.{I18n, Repo}
+  import Ash.Expr, only: [expr: 1]
+  alias Ankole.I18n
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.Sessions.Fence
   alias Ankole.Sessions.Run
@@ -19,7 +18,6 @@ defmodule Ankole.Sessions.Commands do
   alias Ankole.Sessions.Queue
   alias Ankole.Sessions.ModelHistory
   alias Ankole.Conversations.Delivery.Preview
-  alias Ankole.Conversations.ExternalMessageRef
 
   alias Ankole.Sessions.MessageLifecycle
   alias Ankole.Conversations.Delivery.Deletion
@@ -132,21 +130,21 @@ defmodule Ankole.Sessions.Commands do
   defp process_authorized(key, %{type: "command.compress"} = event), do: compress(key, event)
 
   defp process_authorized(key, event) do
-    now = DateTime.utc_now(:microsecond)
+    key
+    |> Ankole.Sessions.apply_command(event, DateTime.utc_now(:microsecond))
+    |> Ankole.Errors.reason()
+  end
 
-    Repo.transact(fn repo ->
-      with :ok <- Queue.lock_session_in_tx(repo, key.agent_uid, key.session_id),
-           %Signal{status: live_status} = current
-           when live_status in [:queued, :running] <-
-             PreviewState.load(
-               Ankole.Signals.lock_signal_in_tx(repo, event.id),
-               repo
-             ) do
-        apply_command(repo, key, current, now)
-      else
-        _ -> {:ok, :already_consumed}
-      end
-    end)
+  @doc false
+  def apply_command_in_tx(repo, key, event, now) do
+    with :ok <- Queue.lock_session_in_tx(repo, key.agent_uid, key.session_id),
+         %Signal{status: live_status} = current
+         when live_status in [:queued, :running] <-
+           PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, event.id)) do
+      apply_command(repo, key, current, now)
+    else
+      _ -> {:ok, :already_consumed}
+    end
   end
 
   @spec interrupt(Run.t(), Signal.t()) :: {:ok, map()} | {:error, term()}
@@ -170,22 +168,22 @@ defmodule Ankole.Sessions.Commands do
     if retry_target(event) == :bare do
       {:ok, if(event.last_attempt_at, do: :continue, else: :interrupt)}
     else
-      Repo.transact(fn repo ->
-        with :ok <- Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id),
-             :ok <- Fence.check_in_tx(repo, run),
-             %Signal{status: live_status} = current
-             when live_status in [:queued, :running] <-
-               PreviewState.load(
-                 Ankole.Signals.lock_signal_in_tx(repo, event.id),
-                 repo
-               ) do
-          retry_target_action_in_tx(repo, run, current)
-        else
-          nil -> {:ok, :continue}
-          %Signal{} -> {:ok, :continue}
-          error -> error
-        end
-      end)
+      run |> Ankole.Sessions.resolve_retry_action(event) |> Ankole.Errors.reason()
+    end
+  end
+
+  @doc false
+  def retry_action_in_tx(repo, run, event) do
+    with :ok <- Queue.lock_session_in_tx(repo, run.agent_uid, run.session_id),
+         :ok <- Fence.check_in_tx(repo, run),
+         %Signal{status: live_status} = current
+         when live_status in [:queued, :running] <-
+           PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, event.id)) do
+      retry_target_action_in_tx(repo, run, current)
+    else
+      nil -> {:ok, :continue}
+      %Signal{} -> {:ok, :continue}
+      error -> error
     end
   end
 
@@ -214,38 +212,42 @@ defmodule Ankole.Sessions.Commands do
   end
 
   defp retry_current(run, event) do
-    now = DateTime.utc_now(:microsecond)
-
-    Repo.transact(fn repo ->
-      with :ok <- Run.lock_for_write_in_tx(repo, run),
-           :ok <- Fence.check_in_tx(repo, run),
-           {:ok, _} <-
-             ModelHistory.retract_generating_turn_in_tx(
-               repo,
-               run,
-               run.signal_id,
-               now,
-               "command.retry"
-             ),
-           # The model can commit a call before its terminal message arrives.
-           {:ok, {_state, run}} <- Run.restore(run),
-           {:ok, {run, _}} <- Run.record_pending_in_tx(repo, run),
-           {:ok, history} <-
-             ModelHistory.retract_visible_turn_suffix_in_tx(
-               repo,
-               run.agent_uid,
-               run.session_id,
-               run.signal_id,
-               now,
-               preserve_tool_history: true
-             ) do
-        commit_current_retry_in_tx(repo, run, event, history.status, now)
-      end
-    end)
+    run
+    |> Ankole.Sessions.retry_current_turn(event, DateTime.utc_now(:microsecond))
+    |> Ankole.Errors.reason()
   end
 
-  defp commit_current_retry_in_tx(_repo, run, event, :preserved, now) do
-    with {:ok, _} <- Ankole.Ash.update(event, :start_attempt, %{last_attempt_at: now}),
+  @doc false
+  def retry_current_in_tx(repo, run, event, now) do
+    with :ok <- Run.lock_for_write_in_tx(repo, run),
+         :ok <- Fence.check_in_tx(repo, run),
+         {:ok, _} <-
+           ModelHistory.retract_generating_turn_in_tx(
+             repo,
+             run,
+             run.signal_id,
+             now,
+             "command.retry"
+           ),
+         # The model can commit a call before its terminal message arrives.
+         {:ok, {_state, run}} <- Run.restore_in_tx(repo, run),
+         {:ok, {run, _}} <- Run.record_pending_in_tx(repo, run),
+         {:ok, history} <-
+           ModelHistory.retract_visible_turn_suffix_in_tx(
+             repo,
+             run.agent_uid,
+             run.session_id,
+             run.signal_id,
+             now,
+             preserve_tool_history: true
+           ) do
+      commit_current_retry_in_tx(repo, run, event, history.status, now)
+    end
+  end
+
+  defp commit_current_retry_in_tx(repo, run, event, :preserved, now) do
+    with {:ok, _} <-
+           Ankole.Signals.transition_in_tx(repo, event, :start_attempt, %{last_attempt_at: now}),
          do: {:ok, Run.reset(run)}
   end
 
@@ -253,18 +255,8 @@ defmodule Ankole.Sessions.Commands do
     ids = [run.signal_id | run.steer_event_ids]
 
     with {:ok, _} <- Queue.complete_command_event_in_tx(repo, event, completed_at: now),
-         %Ash.BulkResult{status: :success} <-
-           Signal
-           |> Ash.Query.filter(id in ^ids)
-           |> Ankole.Ash.bulk_update(:reset_attempts, %{available_at: now},
-             strategy: [:atomic],
-             return_errors?: true
-           ) do
-      {:ok, :retry}
-    else
-      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-      {:error, _} = error -> error
-    end
+         {:ok, _reset} <- Ankole.Signals.reset_attempts_in_tx(repo, ids, now),
+         do: {:ok, :retry}
   end
 
   defp stop_and_process(run, event) do
@@ -280,17 +272,11 @@ defmodule Ankole.Sessions.Commands do
     with %Signal{preview: %PreviewState{provider_message_id: id}} =
            event
          when is_binary(id) <-
-           PreviewState.load(Repo.get(Signal, reply_event.id), Repo),
+           PreviewState.load_signal(reply_event.id),
          {:error, reason} <-
-           Repo.transact(fn repo ->
-             Ankole.Sessions.Notices.post_in_tx(
-               repo,
-               event,
-               :stopped,
-               I18n.t("conversations.delivery.reply.command_stopped"),
-               %{"reason" => command.type}
-             )
-           end) do
+           event
+           |> Ankole.Sessions.post_stopped_notice(command.type)
+           |> Ankole.Errors.reason() do
       Ankole.Logging.warning(
         "sessions.commands.stopped_preview_not_committed",
         "stopped preview card not committed",
@@ -299,37 +285,57 @@ defmodule Ankole.Sessions.Commands do
     end
   end
 
+  @doc false
+  def post_stopped_notice_in_tx(repo, event, command_type) do
+    Ankole.Sessions.Notices.post_in_tx(
+      repo,
+      event,
+      :stopped,
+      I18n.t("conversations.delivery.reply.command_stopped"),
+      %{"reason" => command_type}
+    )
+  end
+
   def workflow_failure(run, failure) do
-    Repo.transact(fn repo ->
-      with :ok <- Run.lock_for_write_in_tx(repo, run),
-           :ok <- Fence.check_in_tx(repo, run),
-           {:ok, result} <-
-             Ankole.Workflow.TaskLifecycle.submit_result_in_tx(
-               repo,
-               run.spec.request_context["call_id"],
-               run.agent_uid,
-               run.session_id,
-               failure
-             ),
-           do: {:ok, result}
-    end)
+    run
+    |> Ankole.Sessions.submit_workflow_failure(failure)
+    |> Ankole.Errors.reason()
     |> Ankole.Workflow.cleanup_terminal_transition()
   end
 
+  @doc false
+  def workflow_failure_in_tx(repo, run, failure) do
+    with :ok <- Run.lock_for_write_in_tx(repo, run),
+         :ok <- Fence.check_in_tx(repo, run),
+         do:
+           Ankole.Workflow.TaskLifecycle.submit_result_in_tx(
+             repo,
+             run.spec.request_context["call_id"],
+             run.agent_uid,
+             run.session_id,
+             failure
+           )
+  end
+
   def workflow_error(run, error) do
-    Repo.transact(fn repo ->
-      with :ok <- Run.lock_for_write_in_tx(repo, run),
-           :ok <- Fence.check_in_tx(repo, run),
-           {:ok, _} <- Run.record_pending_in_tx(repo, run),
-           do:
-             Ankole.Workflow.TaskLifecycle.compensate_turn_error_in_tx(
-               repo,
-               run.event,
-               error,
-               DateTime.utc_now(:microsecond)
-             )
-    end)
+    run
+    |> Ankole.Sessions.compensate_workflow_error(error)
+    |> Ankole.Errors.reason()
     |> Ankole.Workflow.cleanup_terminal_transition()
+  end
+
+  @doc false
+  def workflow_error_in_tx(repo, run, error) do
+    with :ok <- Run.lock_for_write_in_tx(repo, run),
+         :ok <- Fence.check_in_tx(repo, run),
+         {:ok, _} <- Run.record_pending_in_tx(repo, run),
+         do:
+           Ankole.Workflow.TaskLifecycle.compensate_turn_error_in_tx(
+             repo,
+             run.event,
+             error,
+             DateTime.utc_now(:microsecond)
+           )
   end
 
   defp apply_command(repo, _key, %{type: "command.stop"} = event, now),
@@ -405,33 +411,38 @@ defmodule Ankole.Sessions.Commands do
     end
   end
 
-  defp consume_compress_command(%Signal{} = input, %{id: compaction_id} = compaction, now) do
-    Repo.transact(fn repo ->
-      with %Signal{} = input <-
-             PreviewState.load(
-               Ankole.Signals.lock_signal_in_tx(repo, input.id),
-               repo
-             ),
-           {:ok, intents} <-
-             command_feedback_intents(repo, input, "Conversation compressed."),
-           intents =
-             Enum.map(intents, &Map.put(&1, :ai_message_id, compaction_id)),
-           {:ok, _} <- commit_feedback_in_tx(repo, input, intents),
-           {:ok, completed_event} <-
-             Queue.complete_command_event_in_tx(repo, input, completed_at: now) do
-        {:ok,
-         %{
-           status: :command_consumed,
-           command: input.type,
-           feedback: "Conversation compressed.",
-           message: compaction,
-           signal: completed_event
-         }}
-      else
-        nil -> {:ok, %{status: :idle}}
-        {:error, _reason} = error -> error
-      end
-    end)
+  defp consume_compress_command(%Signal{} = input, compaction, now) do
+    input
+    |> Ankole.Sessions.consume_compress_command(compaction, now)
+    |> Ankole.Errors.reason()
+  end
+
+  @doc false
+  def consume_compress_command_in_tx(
+        repo,
+        %Signal{} = input,
+        %{id: compaction_id} = compaction,
+        now
+      ) do
+    with %Signal{} = input <-
+           PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, input.id)),
+         {:ok, intents} <- command_feedback_intents(repo, input, "Conversation compressed."),
+         intents = Enum.map(intents, &Map.put(&1, :ai_message_id, compaction_id)),
+         {:ok, _} <- commit_feedback_in_tx(repo, input, intents),
+         {:ok, completed_event} <-
+           Queue.complete_command_event_in_tx(repo, input, completed_at: now) do
+      {:ok,
+       %{
+         status: :command_consumed,
+         command: input.type,
+         feedback: "Conversation compressed.",
+         message: compaction,
+         signal: completed_event
+       }}
+    else
+      nil -> {:ok, %{status: :idle}}
+      {:error, _reason} = error -> error
+    end
   end
 
   defp consume_command_feedback(repo, %Signal{} = input, text, now) do
@@ -450,15 +461,17 @@ defmodule Ankole.Sessions.Commands do
   end
 
   defp process_command_feedback(%Signal{} = input, text, now) do
-    Repo.transact(fn repo ->
-      case PreviewState.load(
-             Ankole.Signals.lock_signal_in_tx(repo, input.id),
-             repo
-           ) do
-        %Signal{} = input -> consume_command_feedback(repo, input, text, now)
-        nil -> {:ok, %{status: :idle}}
-      end
-    end)
+    input
+    |> Ankole.Sessions.consume_command_feedback(text, now)
+    |> Ankole.Errors.reason()
+  end
+
+  @doc false
+  def command_feedback_in_tx(repo, %Signal{} = input, text, now) do
+    case PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, input.id)) do
+      %Signal{} = input -> consume_command_feedback(repo, input, text, now)
+      nil -> {:ok, %{status: :idle}}
+    end
   end
 
   defp llm_help_text([]) do
@@ -665,14 +678,8 @@ defmodule Ankole.Sessions.Commands do
   defp prepare_retry_response_graph(repo, %Signal{id: signal_id}, _now),
     do: {:ok, Deletion.intents(repo, signal_id, [])}
 
-  defp lock_retry_source(repo, session_key, target_signal_id) do
-    Signal
-    |> where([event], event.id == ^target_signal_id)
-    |> where([event], event.agent_uid == ^session_key.agent_uid)
-    |> where([event], event.session_id == ^session_key.session_id)
-    |> lock("FOR UPDATE")
-    |> repo.one(lock_identity: {"signals", target_signal_id})
-  end
+  defp lock_retry_source(repo, session_key, target_signal_id),
+    do: Ankole.Signals.lock_session_signal_in_tx(repo, session_key, target_signal_id)
 
   defp validate_retry_source(repo, command_event, source) do
     candidate_types = Preview.channel_reply_event_types()
@@ -719,37 +726,42 @@ defmodule Ankole.Sessions.Commands do
 
   defp terminal_retry_source?(%Signal{}), do: false
 
-  defp intermediate_signal?(repo, source, before_sequence) do
-    query =
-      Signal
-      |> where([event], event.agent_uid == ^source.agent_uid)
-      |> where([event], event.session_id == ^source.session_id)
-      |> where([event], event.queue_sequence > ^source.queue_sequence)
-      |> where([event], event.producer != :kernel or event.type != "command.retry")
+  defp intermediate_signal?(_repo, source, before_sequence) do
+    filter =
+      expr(
+        agent_uid == ^source.agent_uid and session_id == ^source.session_id and
+          queue_sequence > ^source.queue_sequence and
+          (producer != :kernel or type != "command.retry")
+      )
 
-    query =
+    filter =
       if before_sequence,
-        do: where(query, [event], event.queue_sequence < ^before_sequence),
-        else: query
+        do: expr(^filter and queue_sequence < ^before_sequence),
+        else: filter
 
-    repo.exists?(query)
+    Ankole.Signals.list_signals!(query: [filter: filter, select: [:id], limit: 1]) != []
   end
 
   defp retry_source_retained?(_repo, %Signal{conversation_id: nil}), do: true
 
-  defp retry_source_retained?(repo, %Signal{} = event) do
+  defp retry_source_retained?(_repo, %Signal{} = event) do
     provider_message_ids = Signal.provider_message_ids(event)
 
     if provider_message_ids == [] do
       true
     else
       retained_provider_message_ids =
-        ExternalMessageRef
-        |> where([entry], entry.conversation_id == ^event.conversation_id)
-        |> where([entry], entry.provider_message_id in ^provider_message_ids)
-        |> select([entry], entry.provider_message_id)
-        |> repo.all()
-        |> MapSet.new()
+        [
+          query: [
+            filter: [
+              conversation_id: event.conversation_id,
+              provider_message_id: [in: provider_message_ids]
+            ],
+            select: [:provider_message_id]
+          ]
+        ]
+        |> Ankole.Conversations.list_external_message_refs!()
+        |> MapSet.new(& &1.provider_message_id)
 
       Enum.all?(provider_message_ids, &MapSet.member?(retained_provider_message_ids, &1))
     end

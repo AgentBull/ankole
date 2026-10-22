@@ -11,7 +11,7 @@ defmodule Ankole.SignalsTest do
   end
 
   test "the public intake rejects a caller-owned transaction", context do
-    assert_raise ArgumentError, ~r/publish after commit/, fn ->
+    assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
       Repo.transact(fn _ -> Signals.accept(attrs(context)) end)
     end
 

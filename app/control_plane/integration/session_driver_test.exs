@@ -1228,7 +1228,8 @@ defmodule Ankole.Sessions.DriverTest do
              tenant_rpc(remote, worker.tenant_id, Ankole.Sessions, :ensure_driver, [key])
 
     assert node(second) == remote
-    assert eventually(fn -> session_workspace(key).epoch > old_run.epoch end)
+    # The first admission on the peer loads the Ash action modules of that node.
+    assert eventually(fn -> session_workspace(key).epoch > old_run.epoch end, 800)
     assert Repo.reload!(input).attempt_count == 1
     _ = await_request(key)
     assert_receive {:model_waiting, second_model}, 10000
@@ -1469,7 +1470,7 @@ defmodule Ankole.Sessions.DriverTest do
       Task.async(
         Repo.bind_tenant(fn ->
           Repo.transact(fn repo ->
-            Ankole.Workflow.cancel_in_tx(repo, call.run_id, key.agent_uid)
+            Ankole.Workflow.Lifecycle.cancel_in_tx(repo, call.run_id, key.agent_uid)
           end)
         end)
       )
@@ -1501,14 +1502,20 @@ defmodule Ankole.Sessions.DriverTest do
         Repo.bind_tenant(fn ->
           Repo.transact(fn repo ->
             assert {:ok, %{reconciled: 1}} =
-                     Ankole.Workflow.reconcile_stale_tasks(
+                     Ankole.Workflow.Recovery.reconcile_stale_tasks_in_tx(
+                       repo,
                        call.run_id,
                        DateTime.add(now, -3600),
                        now
                      )
 
             assert {:ok, %{call: %{attempts: 2} = current}} =
-                     Ankole.Workflow.claim_task_in_tx(repo, call.id, key.agent_uid, 8)
+                     Ankole.Workflow.TaskLifecycle.claim_task_in_tx(
+                       repo,
+                       call.id,
+                       key.agent_uid,
+                       8
+                     )
 
             %{rows: [[backend]]} = repo.query!("SELECT pg_backend_pid()")
             send(parent, {:workflow_reclaimed_locked, self(), backend})
@@ -1837,9 +1844,9 @@ defmodule Ankole.Sessions.DriverTest do
             send(parent, {:workflow_tool_committed, self()})
           end
 
+          # Recovery inspection reads the task call and then its Run without a lock.
           if self() == Ankole.Sessions.driver_pid(key) and String.starts_with?(query, "SELECT") and
-               String.contains?(query, "FROM \"workflow_agent_calls\"") and
-               String.contains?(query, "INNER JOIN \"workflow_runs\"") and
+               String.contains?(query, "FROM \"workflow_runs\"") and
                not String.contains?(query, "FOR UPDATE") and
                :atomics.compare_exchange(stages, 2, 0, 1) == :ok do
             send(parent, {:workflow_inspection_complete, self()})
@@ -1948,7 +1955,7 @@ defmodule Ankole.Sessions.DriverTest do
     assert {:ok, %{status: :completed, signal: replayed} = result} = Admission.admit(key, event)
     refute Map.has_key?(result, :run)
     refute Map.has_key?(result, :outcome)
-    assert replayed == completed
+    Ankole.DataCase.assert_persisted_equal(replayed, completed)
     Ankole.DataCase.assert_persisted_equal(Repo.reload!(completed), completed)
     Ankole.DataCase.assert_persisted_equal(Repo.reload!(stored_call), stored_call)
     Ankole.DataCase.assert_persisted_equal(Repo.reload!(workspace), workspace)
@@ -3725,17 +3732,15 @@ defmodule Ankole.Sessions.DriverTest do
     %{key: key}
   ) do
     {:ok, %{job: job, dispatch_event: event}} =
-      Repo.transact(fn _repo ->
-        Ankole.BackgroundAgentJobs.create_with_dispatch(%{
-          "source_signal_id" => Ankole.WorkFixtures.service_source(key.agent_uid).id,
-          "agent_uid" => key.agent_uid,
-          "owner_session_id" => key.session_id,
-          "source_tool_call_id" => "deferred-job",
-          "title" => "Deferred Job",
-          "task" => "Resume when the Worker is ready.",
-          "reply_route" => job_reply_route(key, "deferred-job-test")
-        })
-      end)
+      Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+        "source_signal_id" => Ankole.WorkFixtures.service_source(key.agent_uid).id,
+        "agent_uid" => key.agent_uid,
+        "owner_session_id" => key.session_id,
+        "source_tool_call_id" => "deferred-job",
+        "title" => "Deferred Job",
+        "task" => "Resume when the Worker is ready.",
+        "reply_route" => job_reply_route(key, "deferred-job-test")
+      })
 
     job_key = %{key | session_id: Ankole.BackgroundAgentJobs.job_session_id(job.id)}
     assert {:ok, driver} = Ankole.Sessions.ensure_driver(job_key)

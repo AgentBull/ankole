@@ -265,21 +265,14 @@ defmodule Ankole.Sessions.Driver do
 
   defp execute({:read_inbox, id}, data) do
     event =
-      Repo.get_by(Signal,
-        id: id,
-        agent_uid: data.turn.key.agent_uid,
-        session_id: data.turn.key.session_id
-      )
-
-    event =
-      case event do
-        %Signal{status: status} when status in [:queued, :running] ->
+      case session_signal(data.turn.key, id) do
+        %Signal{status: status} = event when status in [:queued, :running] ->
           case Admission.authorize_event(event) do
             {:ok, authorized} -> authorized
             {:error, _} -> nil
           end
 
-        _ ->
+        event ->
           event
       end
 
@@ -506,5 +499,12 @@ defmodule Ankole.Sessions.Driver do
     )
 
     :ok
+  end
+
+  defp session_signal(%{agent_uid: uid, session_id: session}, id) do
+    case Ankole.Signals.get_signal!(id) do
+      %Signal{agent_uid: ^uid, session_id: ^session} = event -> event
+      _other -> nil
+    end
   end
 end

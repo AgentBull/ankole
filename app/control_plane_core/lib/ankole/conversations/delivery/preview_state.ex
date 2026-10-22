@@ -227,7 +227,7 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
   def load(%Signal{} = signal, _repo), do: %{signal | preview: get(signal.id)}
 
   @doc "Reads a Signal with its preview state. The result is nil when the Signal is missing."
-  def load_signal(signal_id), do: signal_id |> Ankole.Signals.Domain.get_signal!() |> load()
+  def load_signal(signal_id), do: signal_id |> Ankole.Signals.get_signal!() |> load()
 
   def lock_in_tx(repo, %Signal{} = signal) do
     # Re-locking an already locked source is harmless. Every writer takes this
@@ -326,7 +326,7 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
          provider_thread_id
        ) do
     event
-    |> Ankole.Signals.Domain.update_metadata_signal(%{provider_thread_id: provider_thread_id})
+    |> Ankole.Signals.update_metadata_signal(%{provider_thread_id: provider_thread_id})
     |> case do
       {:ok, _event} -> {:ok, :thread_recorded}
       {:error, _changeset} = error -> error

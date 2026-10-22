@@ -11,10 +11,11 @@ defmodule Ankole.Signals.Binding do
   the gateway's routing key.
   """
 
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Signals.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Signals
 
   alias Ankole.Signals.Target, as: ExecutionTarget
   alias Ankole.Signals.BindingFilters
+  alias Ankole.Signals.Bindings
 
   @type t :: %__MODULE__{}
 
@@ -75,9 +76,12 @@ defmodule Ankole.Signals.Binding do
   actions do
     defaults([:read])
 
+    read :lookup_across_tenants do
+      multitenancy(:allow_global)
+    end
+
     create :put do
       primary?(true)
-      transaction?(false)
       upsert?(true)
 
       upsert_fields([
@@ -119,15 +123,67 @@ defmodule Ankole.Signals.Binding do
       )
     end
 
-    in_tx_update :disable do
+    update :disable do
       accept([])
       change(set_attribute(:enabled, false))
       change(set_attribute(:unavailable_reason, nil))
     end
 
-    destroy :remove do
-      transaction?(false)
-      require_atomic?(false)
+    destroy(:remove)
+
+    action :assign, :term do
+      argument(:assignment, :map, allow_nil?: false)
+      after_commit({Bindings, :cache_committed_assignment})
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Bindings.assign_in_tx(Ankole.Repo, input.arguments.assignment))
+      end)
+    end
+
+    action :reassign, :term do
+      argument(:assignment, :map, allow_nil?: false)
+      after_commit({Bindings, :cache_committed_assignment})
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Bindings.reassign_in_tx(Ankole.Repo, input.arguments.assignment))
+      end)
+    end
+
+    action :put_cloud, :term do
+      argument(:binding, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Bindings.put_cloud_binding_in_tx(Ankole.Repo, input.arguments.binding))
+      end)
+    end
+
+    action :move_cloud, :term do
+      argument(:source, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:current_config, :map, allow_nil?: false)
+      argument(:binding, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        args = input.arguments
+
+        Ankole.Errors.wrap(
+          Bindings.move_cloud_binding_in_tx(
+            Ankole.Repo,
+            args.source,
+            args.current_config,
+            args.binding
+          )
+        )
+      end)
+    end
+
+    action :disable_by_name, :term do
+      argument(:agent_uid, :term, allow_nil?: false)
+      argument(:name, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        args = input.arguments
+        Ankole.Errors.wrap(Bindings.disable_binding_in_tx(Ankole.Repo, args.agent_uid, args.name))
+      end)
     end
   end
 

@@ -97,12 +97,16 @@ defmodule Ankole.Sessions.JobDriver do
     do: {:keep_state, task(data, :mailbox, fn -> CodexJob.mailbox(data.attempt) end)}
 
   def handle_event(:info, {:inbox, id}, state, data) when state in [:starting, :running] do
-    case Repo.get_by(Signal,
-           id: id,
-           agent_uid: data.key.agent_uid,
-           session_id: data.key.session_id
-         ) do
-      %Signal{producer: :kernel, type: "command.steer", status: live_status}
+    %{agent_uid: uid, session_id: session} = data.key
+
+    case Ankole.Signals.get_signal!(id) do
+      %Signal{
+        agent_uid: ^uid,
+        session_id: ^session,
+        producer: :kernel,
+        type: "command.steer",
+        status: live_status
+      }
       when live_status in [:queued, :running] ->
         {:keep_state, task(data, :mailbox, fn -> CodexJob.mailbox(data.attempt) end)}
 

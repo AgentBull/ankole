@@ -173,20 +173,18 @@ defmodule Ankole.Sessions.ChatDriveTest do
     run = prepare_run(input)
 
     {:ok, %{job: job}} =
-      Repo.transact(fn _repo ->
-        Ankole.BackgroundAgentJobs.create_with_dispatch(%{
-          "source_signal_id" => input.id,
-          "agent_uid" => agent.uid,
-          "owner_session_id" => input.session_id,
-          "source_tool_call_id" => "job-drive",
-          "title" => "Prepare report",
-          "task" => "Prepare and save the report.",
-          "reply_route" => %{
-            "binding_name" => "bot",
-            "conversation_id" => input.conversation_id
-          }
-        })
-      end)
+      Ankole.BackgroundAgentJobs.create_with_dispatch(%{
+        "source_signal_id" => input.id,
+        "agent_uid" => agent.uid,
+        "owner_session_id" => input.session_id,
+        "source_tool_call_id" => "job-drive",
+        "title" => "Prepare report",
+        "task" => "Prepare and save the report.",
+        "reply_route" => %{
+          "binding_name" => "bot",
+          "conversation_id" => input.conversation_id
+        }
+      })
 
     assert job.metadata["owner_conversation_id"] == run.conversation.id
     session_id = Ankole.BackgroundAgentJobs.job_session_id(job.id)

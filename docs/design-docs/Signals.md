@@ -11,7 +11,8 @@ owns execution, input ordering, recovery, and the model history connection.
 
 ## One Intake
 
-`accept/1` opens a transaction and returns `{:ok, %Ankole.Signals.Signal{}}` or
+`accept/1` runs the `intake` generic action of `Signal` (the define
+`Ankole.Signals.intake/1`) and returns `{:ok, %Ankole.Signals.Signal{}}` or
 `{:error, reason}`. `accept_in_tx/2` has the same result and requires the caller
 to own a transaction. Use the latter when the stimulus must commit with a
 Message, schedule execution, Job result, or Workflow result.
@@ -87,6 +88,30 @@ terminal evidence, and `running` requires an admission time. Actions and bulk
 revocation use the caller's existing transaction and tenant context. Signal
 writes do not start a second transaction owner.
 
+`Ankole.Signals` is the Signals Ash domain (`Signal`, `Binding`,
+`WebhookEndpoint`). Other domains use its defines (`get_signal`, `list_signals`,
+`update_metadata_signal`, `revise_input_signal`, `reauthorize_signal`,
+`remove_signal`, `get_binding`, `list_bindings`, `get_webhook_endpoint`,
+`list_webhook_endpoints`) and its composition functions for a transaction that
+they own: `accept_in_tx/2`, `lock_signal_in_tx/2`, `lock_session_signal_in_tx/3`,
+`lock_signals_in_tx/2` (a keyword filter, queue order, row lock identity),
+`transition_in_tx/4` (one queue state transition of a locked Signal),
+`reset_attempts_in_tx/3`, and `signals_for_entry_in_tx/5`. The Session queue
+reads are `session_queue/3` and `session_status_signal/3`. Human revocation of
+unstarted Signals is `stop_human_work_in_tx/4`. A read across tenants runs in
+`Repo.across_tenants/1`: Signals use the Work provenance read action
+`work_across_tenants` (`due_sessions_across_tenants/1`,
+`count_admitted_attempts_for_human/2`), and Bindings and Endpoints use their
+`lookup_across_tenants` read action.
+
+Binding and Endpoint writes with more than one step are generic actions that
+own their transaction: `assign_binding`, `reassign_binding`,
+`put_cloud_binding`, `move_cloud_binding`, `disable_binding`,
+`create_webhook_endpoint`, `cancel_webhook_endpoint`, and `receive_webhook`.
+`Bindings` and `Webhooks` keep their public functions and give back the domain
+reason with `Ankole.Errors.reason/1`. A Binding assignment refreshes the
+configuration cache after its commit.
+
 An unresolved dead-lettered Signal remains visible in access review. Review
 states are separate from reauthorizable states: review cannot restart terminal
 work or change its recorded authority.
@@ -137,8 +162,9 @@ The provider-removal lifecycle type is `conversation.message.removed`.
 
 `accept_in_tx/2` returns the accepted Signal as a pending publication fact.
 Its outer transaction owner calls `Signals.publish_committed/1` in the same
-process after commit. The public `accept/1` owns both steps and rejects a
-caller-owned outer transaction. Publication sends a Session state notification,
+process after commit. The `intake` action declares the same publication with
+`after_commit`, and a call inside another transaction raises
+`Ankole.Errors.Framework.NestedOperation`. Publication sends a Session state notification,
 retains the `ensure_driver/1` startup fast path, and publishes ready Signal IDs
 on the Session input topic. Drivers read the durable input; an observation or
 raw Conversation message cannot create a second input through PubSub.

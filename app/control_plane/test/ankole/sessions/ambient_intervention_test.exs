@@ -201,7 +201,7 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
       })
 
     context = %{
-      "ambient_work_candidates" => Ankole.Sessions.Ambient.candidates_in_tx(Repo, event)
+      "ambient_work_candidates" => Ankole.Sessions.Ambient.candidates(event)
     }
 
     assert %{
@@ -314,23 +314,20 @@ defmodule Ankole.Sessions.AmbientInterventionTest do
 
   defp create_job!(agent_uid, event, suffix, overrides) do
     assert {:ok, %{job: job}} =
-             Repo.transact(fn _repo ->
-               BackgroundAgentJobs.create_with_dispatch(%{
-                 "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
-                 "agent_uid" => agent_uid,
-                 "owner_session_id" => Map.get(overrides, :owner_session_id, event.session_id),
-                 "source_tool_call_id" => "ambient-candidate-#{suffix}",
-                 "title" => "Investigate deploy #{suffix}",
-                 "task" => "Find the cause of deploy #{suffix}.",
-                 "reply_route" => %{
-                   "binding_name" => event.reply_binding_name,
-                   "conversation_id" =>
-                     Map.get(overrides, :conversation_id, event.conversation_id),
-                   "provider_thread_id" => event.provider_thread_id,
-                   "provider_message_id" => event.provider_message_id
-                 }
-               })
-             end)
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+               "agent_uid" => agent_uid,
+               "owner_session_id" => Map.get(overrides, :owner_session_id, event.session_id),
+               "source_tool_call_id" => "ambient-candidate-#{suffix}",
+               "title" => "Investigate deploy #{suffix}",
+               "task" => "Find the cause of deploy #{suffix}.",
+               "reply_route" => %{
+                 "binding_name" => event.reply_binding_name,
+                 "conversation_id" => Map.get(overrides, :conversation_id, event.conversation_id),
+                 "provider_thread_id" => event.provider_thread_id,
+                 "provider_message_id" => event.provider_message_id
+               }
+             })
 
     job
   end

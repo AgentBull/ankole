@@ -590,7 +590,7 @@ defmodule Ankole.Conversations.Observe do
   end
 
   defp resolved_retry_target(_repo, fact, command, signal_id) do
-    case Ankole.Signals.Domain.get_signal!(signal_id) do
+    case Ankole.Signals.get_signal!(signal_id) do
       %Signal{session_id: session_id} ->
         fact = Map.put(fact, :session_id, session_id)
         command = Map.put(command, "targetSignalId", signal_id)

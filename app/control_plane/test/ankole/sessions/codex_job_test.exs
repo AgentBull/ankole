@@ -620,7 +620,14 @@ defmodule Ankole.Sessions.CodexJobTest do
 
                running = repo.get!(Ankole.BackgroundAgentJobs.Schemas.Job, job.id)
                assert {:error, _} = Ankole.Ash.update(running, :claim_attempt, %{})
-               CodexJob.abort(first.job_ref, agent.uid, error)
+
+               CodexJob.abort_in_tx(
+                 repo,
+                 first.job_ref,
+                 agent.uid,
+                 error,
+                 DateTime.utc_now(:microsecond)
+               )
              end)
 
     assert event.status == :dead_letter
@@ -1029,23 +1036,19 @@ defmodule Ankole.Sessions.CodexJobTest do
 
   defp create_job!(agent_uid, suffix) do
     assert {:ok, %{job: job}} =
-             Repo.transact(fn _repo ->
-               BackgroundAgentJobs.create_with_dispatch(%{
-                 "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
-                 "agent_uid" => agent_uid,
-                 "owner_session_id" => "owner-session-#{suffix}",
-                 "source_tool_call_id" => "tool-background-agent-job-#{suffix}",
-                 "title" => "Job #{suffix}",
-                 "task" => "Complete job #{suffix}.",
-                 "reply_route" => %{
-                   "binding_name" => "bot",
-                   "conversation_id" =>
-                     Ankole.ExternalConversationsFixtures.external_conversation_id(
-                       "chat-#{suffix}"
-                     )
-                 }
-               })
-             end)
+             BackgroundAgentJobs.create_with_dispatch(%{
+               "source_signal_id" => Ankole.WorkFixtures.service_source(agent_uid).id,
+               "agent_uid" => agent_uid,
+               "owner_session_id" => "owner-session-#{suffix}",
+               "source_tool_call_id" => "tool-background-agent-job-#{suffix}",
+               "title" => "Job #{suffix}",
+               "task" => "Complete job #{suffix}.",
+               "reply_route" => %{
+                 "binding_name" => "bot",
+                 "conversation_id" =>
+                   Ankole.ExternalConversationsFixtures.external_conversation_id("chat-#{suffix}")
+               }
+             })
 
     job
   end

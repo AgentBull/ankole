@@ -52,13 +52,15 @@ defmodule Ankole.TenancyGuardTest do
       2,
     "across_tenants:../control_plane_core/lib/ankole/principals/work_access.ex:valid_subject_now?" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/sessions/reconciler.ex:reconcile_inputs" =>
+    "across_tenants:../control_plane_core/lib/ankole/signals.ex:count_admitted_attempts_for_human" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:delete_agent_config_rows_in_tx" =>
+    "across_tenants:../control_plane_core/lib/ankole/signals.ex:due_sessions_across_tenants" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:config_ref_shared?" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:site_application_bound_in_other_tenant?" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:validate_platform_application_in_tx" =>
+    "across_tenants:../control_plane_core/lib/ankole/signals/bindings.ex:tenant_application_in_other_tenant?" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/signals/webhooks.ex:receive_at_endpoint" =>
+    "across_tenants:../control_plane_core/lib/ankole/signals/webhooks.ex:endpoint_across_tenants" =>
       1,
     "across_tenants:lib/ankole/upgrade_202610.ex:agents" => 1,
     "across_tenants:lib/ankole/upgrade_202610.ex:backfill_application_identities" => 1,
@@ -122,7 +124,7 @@ defmodule Ankole.TenancyGuardTest do
     "sql_fragment:../control_plane_core/lib/ankole/conversations/inbound_batches.ex:observed_entry_batch" =>
       1,
     "sql_fragment:../control_plane_core/lib/ankole/oidc.ex:cleanup_expired_credentials" => 1,
-    "sql_fragment:../control_plane_core/lib/ankole/sessions/console_queries.ex:maybe_filter_min_messages" =>
+    "sql_fragment:../control_plane_core/lib/ankole/sessions/console_queries/prepare.ex:filter_min_messages" =>
       1,
     "sql_fragment:../control_plane_core/lib/ankole/signals.ex:signals_for_entry_in_tx" => 1
   }

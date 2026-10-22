@@ -11,8 +11,6 @@ defmodule Ankole.Sessions.Worker do
   alias Ankole.AgentWorkers.WorkerRoute
   alias Ankole.AgentWorkers.WorkerWebFetchConfig
 
-  alias Ankole.Repo
-
   @spec ref(Run.t()) :: Proto.RunRef.t()
   def ref(run),
     do: %Proto.RunRef{
@@ -25,14 +23,7 @@ defmodule Ankole.Sessions.Worker do
           | {:wait, atom()}
           | {:error, term()}
   def prepare_open(run) do
-    with {:ok, row} <-
-           Repo.transact(fn repo ->
-             with :ok <- Fence.check_in_tx(repo, run, :share) do
-               # Adoption first asks the current process about its existing
-               # workspace. The Worker enforces physical capacity for a new one.
-               {:ok, AgentWorkers.workspace_status(run.agent_uid)}
-             end
-           end),
+    with {:ok, row} <- run |> Ankole.Sessions.read_worker_status() |> Ankole.Errors.reason(),
          {:ok, row} <- row,
          {:ok, fetch} <- WorkerWebFetchConfig.runtime_config(run.agent_uid) do
       {:ok, row,
@@ -49,6 +40,15 @@ defmodule Ankole.Sessions.Worker do
              0
            )
        })}
+    end
+  end
+
+  @doc false
+  def worker_status_in_tx(repo, run) do
+    with :ok <- Fence.check_in_tx(repo, run, :share) do
+      # Adoption first asks the current process about its existing
+      # workspace. The Worker enforces physical capacity for a new one.
+      {:ok, AgentWorkers.workspace_status(run.agent_uid)}
     end
   end
 

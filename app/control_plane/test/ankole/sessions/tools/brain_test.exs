@@ -4,9 +4,7 @@ defmodule Ankole.Sessions.Tools.BrainTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.LibraryKnowledge
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.RuntimeFabric.V1.ReadToolRequest
   alias Ankole.Sessions.JobTurnRef
@@ -20,7 +18,7 @@ defmodule Ankole.Sessions.Tools.BrainTest do
     %{principal: agent} = agent_fixture(%{owner_principal_uid: owner.uid})
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "concepts/wire-format",
           type: "concept",
@@ -31,7 +29,7 @@ defmodule Ankole.Sessions.Tools.BrainTest do
       )
 
     {:ok, %{claim: _fact}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: object.slug,
           claim: "The wire format carries dated facts",
