@@ -14,7 +14,10 @@ defmodule Ankole.AIAgent.Library.Changes.PrepareDocument do
         |> Ash.Changeset.force_change_attribute(:content_hash, SourceReader.hash(content))
 
       {:error, reason} ->
-        Ash.Changeset.add_error(changeset, Ankole.Ash.DomainError.exception(reason: reason))
+        Ash.Changeset.add_error(
+          changeset,
+          Ankole.Errors.Invalid.Rejected.exception(reason: reason)
+        )
     end
   end
 end

@@ -50,7 +50,6 @@ defmodule Ankole.Conversations.InputTombstone do
 
     create :record do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:conversation_id, :provider_message_id, :tombstoned_until])
       upsert?(true)
       upsert_fields([:tombstoned_until])

@@ -372,10 +372,6 @@ defmodule AnkoleWeb.AIGatewayProviderController do
     ConsoleErrors.required_field(conn, key)
   end
 
-  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.changeset(conn, changeset)
-  end
-
   defp error(conn, :provider_id_mismatch) do
     ConsoleErrors.render(
       conn,

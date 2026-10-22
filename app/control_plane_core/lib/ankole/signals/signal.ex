@@ -178,8 +178,6 @@ defmodule Ankole.Signals.Signal do
         :occurred_at,
         :message_id
       ])
-
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :admit do
@@ -277,7 +275,6 @@ defmodule Ankole.Signals.Signal do
     destroy :remove do
       transaction?(false)
       require_atomic?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     atomic_in_tx_update :revoke_unstarted do

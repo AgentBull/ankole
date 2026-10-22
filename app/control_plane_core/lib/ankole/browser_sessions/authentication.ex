@@ -91,7 +91,6 @@ defmodule Ankole.BrowserSessions.Authentication do
     create :create_in_tx do
       accept([:browser_id, :tenant_id, :provider_id, :subject_id, :purpose] ++ @proof_fields)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :renew_in_tx do

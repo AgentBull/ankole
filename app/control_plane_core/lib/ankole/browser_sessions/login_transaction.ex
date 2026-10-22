@@ -113,7 +113,6 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
       ])
 
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       validate(Ankole.BrowserSessions.Validations.TargetScope, only_when_valid?: true)
     end
 
@@ -162,7 +161,6 @@ defmodule Ankole.BrowserSessions.LoginTransaction do
     destroy :expire_in_tx do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

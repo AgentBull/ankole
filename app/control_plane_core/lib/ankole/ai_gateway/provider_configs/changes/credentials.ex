@@ -14,7 +14,10 @@ defmodule Ankole.AIGateway.ProviderConfigs.Changes.Credentials do
         Ash.Changeset.force_change_attribute(changeset, :credential_pool, pool)
 
       {:error, reason} ->
-        Ash.Changeset.add_error(changeset, Ankole.Ash.DomainError.exception(reason: reason))
+        Ash.Changeset.add_error(
+          changeset,
+          Ankole.Errors.Invalid.Rejected.exception(reason: reason)
+        )
     end
   end
 

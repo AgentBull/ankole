@@ -71,7 +71,6 @@ defmodule Ankole.Principals.AccessEvent do
       ])
 
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     create :record_once_in_tx do
@@ -90,7 +89,6 @@ defmodule Ankole.Principals.AccessEvent do
       ])
 
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       upsert?(true)
       upsert_identity(:operation)
       upsert_fields([:operation_id])

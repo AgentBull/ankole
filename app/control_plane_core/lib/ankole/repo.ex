@@ -90,13 +90,13 @@ defmodule Ankole.Repo do
   @impl true
   def transact(fun_or_multi, opts) do
     Ankole.LockOrder.with_transaction(fn -> super(fun_or_multi, opts) end)
-    |> Ankole.Ash.normalize_result()
+    |> Ankole.Errors.boundary_result()
   end
 
   @impl true
   def transaction(fun_or_multi, opts) do
     Ankole.LockOrder.with_transaction(fn -> super(fun_or_multi, opts) end)
-    |> Ankole.Ash.normalize_result()
+    |> Ankole.Errors.boundary_result()
   end
 
   @impl true
@@ -178,7 +178,7 @@ defmodule Ankole.Repo do
 
   @impl true
   def prepare_query(_operation, query, opts) do
-    Ankole.LockOrder.check_query(query, opts[:lock_identity])
+    Ankole.LockOrder.check_query(query, Ankole.LockOrder.identity(opts[:lock_identity]))
 
     if opts[:ecto_query] == :schema_migration do
       {query, opts}
@@ -192,6 +192,13 @@ defmodule Ankole.Repo do
     rows = all(query, lock_identity: {:rows, table, key})
     Ankole.LockOrder.check_rows(table, Enum.map(rows, &Map.fetch!(&1, key)))
     rows
+  end
+
+  @doc "Gives the current time of the database clock."
+  @spec now!() :: DateTime.t()
+  def now! do
+    %Postgrex.Result{rows: [[now]]} = query!("SELECT clock_timestamp()")
+    now
   end
 
   @doc "Escapes PostgreSQL LIKE wildcard characters for a literal pattern fragment."

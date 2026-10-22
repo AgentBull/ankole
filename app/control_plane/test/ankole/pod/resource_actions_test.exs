@@ -14,7 +14,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
                Ankole.Ash.update(table, :initialize_copy, %{record_count: 2, next_auto_number: 3})
              end)
 
-    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Repo.transact(fn _ ->
                Ankole.Ash.update(table, :initialize_copy, %{
                  record_count: 20,
@@ -33,7 +33,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
         })
       end)
 
-    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Repo.transact(fn _ ->
                Ankole.Ash.destroy(state, :remove_empty)
              end)

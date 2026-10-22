@@ -59,7 +59,6 @@ defmodule Ankole.BrowserSessions.Session do
     create :create_in_tx do
       accept([:expires_at])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :activate_in_tx do
@@ -83,7 +82,6 @@ defmodule Ankole.BrowserSessions.Session do
     destroy :expire_in_tx do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

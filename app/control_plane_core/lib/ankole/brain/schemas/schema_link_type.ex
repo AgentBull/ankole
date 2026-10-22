@@ -32,7 +32,6 @@ defmodule Ankole.Brain.Schemas.SchemaLinkType do
 
     create :register do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:id, :name, :inverse, :pack_name, :created_at])
     end
   end

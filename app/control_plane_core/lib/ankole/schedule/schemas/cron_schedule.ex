@@ -130,7 +130,6 @@ defmodule Ankole.Schedule.Schemas.CronSchedule do
         :automation_job_id
       ])
 
-      change(Ankole.Ash.RequireTransaction)
       validate(Ankole.TimeZone, where: [changing(:timezone)], only_when_valid?: true)
     end
 

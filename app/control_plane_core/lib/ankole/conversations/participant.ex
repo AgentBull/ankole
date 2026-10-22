@@ -49,7 +49,6 @@ defmodule Ankole.Conversations.Participant do
 
     create_if_absent :join do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:conversation_id, :principal_uid, :role])
     end
   end

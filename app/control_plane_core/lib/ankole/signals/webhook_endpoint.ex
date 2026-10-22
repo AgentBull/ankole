@@ -116,8 +116,6 @@ defmodule Ankole.Signals.WebhookEndpoint do
         :automation_job_id
       ])
 
-      change(Ankole.Ash.RequireTransaction)
-
       change(transition_state(:active), where: [attribute_equals(:mode, "standing")])
       validate(one_of(:mode, @modes))
       validate(one_of(:event_format, ["raw", "cloudevents"]))

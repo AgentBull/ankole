@@ -886,13 +886,29 @@ defmodule AnkoleWeb.BrainController do
 
   defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
 
-  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
-    do: ConsoleErrors.changeset(conn, error)
-
   defp error(conn, :object_deleted),
     do: ConsoleErrors.render(conn, 409, "object_deleted", "restore the object before editing it")
 
   defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "resource not found")
+
+  defp error(conn, :writer_not_in_claim_scope),
+    do:
+      ConsoleErrors.render(
+        conn,
+        422,
+        "writer_not_in_claim_scope",
+        "the writer is not in the audience of this claim"
+      )
+
+  defp error(conn, {:writer_not_in_scope_group, group}),
+    do:
+      ConsoleErrors.render(
+        conn,
+        422,
+        "writer_not_in_scope_group",
+        "the writer is not a member of the audience group",
+        [%{path: "body", group: group}]
+      )
 
   defp error(conn, {:missing, key}),
     do:
@@ -966,8 +982,12 @@ defmodule AnkoleWeb.BrainController do
     do: ConsoleErrors.render(conn, 422, "brain_disabled", "Brain is disabled")
 
   defp error(conn, reason) do
-    ConsoleErrors.render(conn, 422, "brain_request_invalid", "brain request failed", [
-      %{reason: inspect(reason)}
-    ])
+    ConsoleErrors.unexpected(
+      conn,
+      "brain.api.unexpected_error",
+      reason,
+      "brain_request_invalid",
+      "brain request failed"
+    )
   end
 end

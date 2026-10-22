@@ -71,7 +71,6 @@ defmodule Ankole.AIGateway.Schemas.Conversation do
     create_if_absent :ensure, upsert_fields: [:metadata] do
       transaction?(false)
       accept([:subject_uid, :conversation_key, :metadata])
-      change(Ankole.Ash.RequireTransaction)
       upsert_identity(:active_key)
     end
 

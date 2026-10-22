@@ -13,11 +13,12 @@ defmodule Ankole.Repo.Migrations.ScopeTenantForeignKeys do
     {:cron_schedules, :id},
     {:human_users, :principal_uid},
     {:oidc_clients, :id},
-    {:oidc_refresh_token_families, :id},
     {:oidc_sessions, :id},
     {:workflow_runs, :id}
   ]
 
+  # RotateOidcCredentialStorage owns the session and family keys of OIDC
+  # authorization codes and refresh tokens.
   @foreign_keys [
     {:agent_library_container_entries, :agent_library_container_entries_agent_uid_fkey,
      :agent_uid, :principals, :uid, "CASCADE", "NO ACTION"},
@@ -104,8 +105,6 @@ defmodule Ankole.Repo.Migrations.ScopeTenantForeignKeys do
      :oidc_clients, :id, "CASCADE", "NO ACTION"},
     {:oidc_authorization_codes, :oidc_authorization_codes_principal_uid_fkey, :principal_uid,
      :principals, :uid, "CASCADE", "NO ACTION"},
-    {:oidc_authorization_codes, :oidc_authorization_codes_session_id_fkey, :session_id,
-     :oidc_sessions, :id, "CASCADE", "NO ACTION"},
     {:oidc_client_groups, :oidc_client_groups_client_id_fkey, :client_id, :oidc_clients, :id,
      "CASCADE", "NO ACTION"},
     {:oidc_client_groups, :oidc_client_groups_group_id_fkey, :group_id, :principal_groups, :id,
@@ -118,12 +117,8 @@ defmodule Ankole.Repo.Migrations.ScopeTenantForeignKeys do
      :oidc_sessions, :id, "CASCADE", "NO ACTION"},
     {:oidc_refresh_tokens, :oidc_refresh_tokens_client_id_fkey, :client_id, :oidc_clients, :id,
      "CASCADE", "NO ACTION"},
-    {:oidc_refresh_tokens, :oidc_refresh_tokens_family_id_fkey, :family_id,
-     :oidc_refresh_token_families, :id, "CASCADE", "NO ACTION"},
     {:oidc_refresh_tokens, :oidc_refresh_tokens_principal_uid_fkey, :principal_uid, :principals,
      :uid, "CASCADE", "NO ACTION"},
-    {:oidc_refresh_tokens, :oidc_refresh_tokens_session_id_fkey, :session_id, :oidc_sessions, :id,
-     "CASCADE", "NO ACTION"},
     {:oidc_sessions, :oidc_sessions_client_id_fkey, :client_id, :oidc_clients, :id, "CASCADE",
      "NO ACTION"},
     {:oidc_sessions, :oidc_sessions_principal_uid_fkey, :principal_uid, :human_users,

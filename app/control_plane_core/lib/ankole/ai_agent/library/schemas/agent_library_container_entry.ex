@@ -61,7 +61,6 @@ defmodule Ankole.AIAgent.Library.Schemas.AgentLibraryContainerEntry do
     create :put do
       accept([:agent_uid, :path, :source_kind, :content, :metadata])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       upsert?(true)
       upsert_identity(:active_path)
       upsert_fields([:source_kind, :content, :content_hash, :metadata, :deleted_at, :updated_at])

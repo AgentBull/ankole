@@ -60,7 +60,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.TurnItem do
 
     create :append do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:turn_id, :position, :revision, :item_key, :item])
 
       validate(fn changeset, _context ->

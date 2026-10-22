@@ -60,7 +60,6 @@ defmodule Ankole.Sessions.SessionWorkspace do
     create :allocate do
       primary?(true)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :agent_uid,

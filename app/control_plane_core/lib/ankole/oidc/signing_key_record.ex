@@ -44,7 +44,6 @@ defmodule Ankole.OIDC.SigningKeyRecord do
     create_if_absent :initialize_in_tx, upsert_fields: [:id] do
       accept([:id, :kid, :public_jwk, :private_key_ciphertext])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       validate(attribute_equals(:id, "primary"))
     end
   end

@@ -35,7 +35,6 @@ defmodule Ankole.Principals.LocalCredential do
     create :create_in_tx do
       accept([:principal_uid, :password_hash, :must_change_password])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :set_password_in_tx do

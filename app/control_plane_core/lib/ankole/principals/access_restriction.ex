@@ -52,7 +52,6 @@ defmodule Ankole.Principals.AccessRestriction do
     create :restrict_in_tx do
       accept([:principal_uid, :source, :reason, :operation_id, :provider_time])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       change(set_attribute(:recovery_verified_at, nil))
     end
 

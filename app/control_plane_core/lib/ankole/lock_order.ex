@@ -3,6 +3,27 @@ defmodule Ankole.LockOrder do
 
   @enabled Application.compile_env(:ankole, :check_lock_order, false)
   @key {__MODULE__, :held}
+  @identity {__MODULE__, :identity}
+
+  @doc """
+  Gives a lock identity to the queries of a function.
+
+  An Ash read cannot pass Ecto options to `Ankole.Repo`. `Ankole.Ash.read/2`
+  uses this function so that `Repo.prepare_query/3` finds the identity.
+  """
+  def with_identity(identity, fun) when is_function(fun, 0) do
+    previous = Process.put(@identity, identity)
+
+    try do
+      fun.()
+    after
+      if previous, do: Process.put(@identity, previous), else: Process.delete(@identity)
+    end
+  end
+
+  @doc "Gives the explicit query identity, or the identity of the current Ash read."
+  def identity(nil), do: Process.get(@identity)
+  def identity(identity), do: identity
 
   def with_transaction(fun) when is_function(fun, 0) do
     if @enabled and is_nil(Process.get(@key)) do

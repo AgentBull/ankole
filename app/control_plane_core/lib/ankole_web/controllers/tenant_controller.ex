@@ -194,13 +194,14 @@ defmodule AnkoleWeb.TenantController do
 
   defp fallback(conn, {:error, :forbidden}), do: ConsoleErrors.forbidden(conn, "Access denied")
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"validation_failed", "The tenant request is invalid"}
+      )
 
   defp error(conn, :not_found),
     do: ConsoleErrors.not_found(conn, "Tenant not found")
-
-  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid],
-    do: ConsoleErrors.changeset(conn, changeset, "The tenant request is invalid")
 
   defp error(conn, reason) when is_atom(reason),
     do:

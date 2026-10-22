@@ -224,7 +224,11 @@ defmodule AnkoleWeb.OIDCClientController do
     end
   end
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"validation_failed", "OIDC Client validation failed"}
+      )
 
   defp error(conn, :not_found),
     do: ConsoleErrors.not_found(conn, "OIDC Client was not found")
@@ -235,16 +239,6 @@ defmodule AnkoleWeb.OIDCClientController do
 
   defp error(conn, :client_type_immutable) do
     ConsoleErrors.render(conn, 409, "client_type_immutable", "OIDC Client type cannot be changed")
-  end
-
-  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "validation_failed",
-      "OIDC Client validation failed",
-      ConsoleErrors.changeset_details(error)
-    )
   end
 
   defp error(conn, reason)

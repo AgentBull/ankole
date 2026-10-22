@@ -39,7 +39,6 @@ defmodule Ankole.Brain.Schemas.ObjectVersion do
 
     create :snapshot do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:object_id, :author, :body, :meta, :tags])
     end
   end

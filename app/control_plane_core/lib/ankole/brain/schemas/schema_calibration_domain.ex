@@ -32,7 +32,6 @@ defmodule Ankole.Brain.Schemas.SchemaCalibrationDomain do
 
     create :register do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:id, :name, :aggregator, :pack_name, :created_at])
     end
   end

@@ -134,14 +134,12 @@ defmodule AnkoleWeb.AIGatewayConversationController do
   defp error(conn, :not_found), do: ConsoleErrors.not_found(conn, "conversation was not found")
 
   defp error(conn, reason) do
-    ConsoleErrors.render(
+    ConsoleErrors.unexpected(
       conn,
-      422,
+      "ai_gateway.conversation_api.unexpected_error",
+      reason,
       "invalid_conversation_request",
-      "conversation request is invalid",
-      [
-        %{reason: inspect(reason)}
-      ]
+      "conversation request is invalid"
     )
   end
 end

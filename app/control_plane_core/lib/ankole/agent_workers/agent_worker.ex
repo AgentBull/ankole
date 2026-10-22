@@ -130,7 +130,6 @@ defmodule Ankole.AgentWorkers.AgentWorker do
     create :register do
       transaction?(false)
       accept([:agent_uid, :provider_id])
-      change(Ankole.Ash.RequireTransaction)
       validate(present(:provider_id))
       change(set_attribute(:initial_start_pending, true))
     end
@@ -356,13 +355,13 @@ defmodule Ankole.AgentWorkers.AgentWorker do
           not is_nil(changeset.data.provider_id) ->
             Ash.Changeset.add_error(
               changeset,
-              Ankole.Ash.DomainError.exception(reason: :worker_provider_immutable)
+              Ankole.Errors.Invalid.Rejected.exception(reason: :worker_provider_immutable)
             )
 
           changeset.data.state == :deleting ->
             Ash.Changeset.add_error(
               changeset,
-              Ankole.Ash.DomainError.exception(reason: :agent_uid_pending_deletion)
+              Ankole.Errors.Invalid.Rejected.exception(reason: :agent_uid_pending_deletion)
             )
 
           true ->
@@ -377,7 +376,6 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
       validate(attribute_equals(:state, :deleting))
     end
   end

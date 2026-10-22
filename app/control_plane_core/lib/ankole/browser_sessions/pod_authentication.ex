@@ -34,7 +34,6 @@ defmodule Ankole.BrowserSessions.PodAuthentication do
     create :record_in_tx do
       accept([:authentication_id, :principal_uid, :access_version])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       upsert?(true)
       upsert_fields([:principal_uid, :access_version, :updated_at])
     end
@@ -42,7 +41,6 @@ defmodule Ankole.BrowserSessions.PodAuthentication do
     destroy :remove_in_tx do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

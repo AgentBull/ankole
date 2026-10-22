@@ -67,7 +67,6 @@ defmodule Ankole.Tenants.Tenant do
     create :create_in_tx do
       accept([:slug, :display_name])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :profile_in_tx do
@@ -100,7 +99,6 @@ defmodule Ankole.Tenants.Tenant do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
       validate(present(:deleting_at))
     end
   end

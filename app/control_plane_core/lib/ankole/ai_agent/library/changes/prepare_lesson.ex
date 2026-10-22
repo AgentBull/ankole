@@ -16,7 +16,10 @@ defmodule Ankole.AIAgent.Library.Changes.PrepareLesson do
       |> Ash.Changeset.force_change_attribute(:skill_name, name)
     else
       {:error, reason} ->
-        Ash.Changeset.add_error(changeset, Ankole.Ash.DomainError.exception(reason: reason))
+        Ash.Changeset.add_error(
+          changeset,
+          Ankole.Errors.Invalid.Rejected.exception(reason: reason)
+        )
     end
   end
 end

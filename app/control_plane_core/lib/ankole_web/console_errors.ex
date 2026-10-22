@@ -6,6 +6,15 @@ defmodule AnkoleWeb.ConsoleErrors do
   import Plug.Conn, only: [put_status: 2]
   import Phoenix.Controller, only: [json: 2]
 
+  alias Ankole.Errors.Invalid.{NotFound, Rejected, Stale, StatusTransition}
+
+  @conflicts [
+    Stale,
+    StatusTransition,
+    Ash.Error.Changes.StaleRecord,
+    AshStateMachine.Errors.NoMatchingTransition
+  ]
+
   @behaviour Plug
 
   @impl true
@@ -17,29 +26,68 @@ defmodule AnkoleWeb.ConsoleErrors do
   @doc """
   Handles a failed Console action.
 
-  Authorization failures share one response. A controller with business errors
-  supplies its local handler for every other reason, including its existing
-  validation policy. Controllers with only common errors can use this module
-  directly as their Phoenix action fallback.
+  Authorization failures share one response. An `Ash.Error.Invalid` error uses
+  the declared vocabulary of `Ankole.Errors`: a stale write or a refused state
+  transition gives 409, a missing target gives 404, a declared rejection goes
+  to the controller's local handler as its reason, and other errors are field
+  validation failures (422). Framework and unknown errors are logged and give
+  a generic response.
+
+  A controller with business errors supplies its local handler for every other
+  reason. The `validation:` option sets the code and message of a validation
+  failure as `{code, message}`, or as a function that receives the connection
+  and the validation details.
   """
-  def fallback(conn, failure, local_error \\ nil)
+  def fallback(conn, failure, local_error \\ nil, opts \\ [])
 
-  def fallback(conn, {:error, :forbidden}, _local_error), do: forbidden(conn)
+  def fallback(conn, {:error, :forbidden}, _local_error, _opts), do: forbidden(conn)
 
-  def fallback(conn, {:error, %Ash.Error.Forbidden{}}, _local_error), do: forbidden(conn)
+  def fallback(conn, {:error, %Ash.Changeset{} = changeset}, local_error, opts),
+    do: fallback(conn, {:error, Ash.Error.to_error_class(changeset)}, local_error, opts)
 
-  def fallback(conn, {:error, %module{} = error}, nil)
-      when module in [Ash.Changeset, Ash.Error.Invalid],
-      do: changeset(conn, error)
+  def fallback(conn, {:error, %Ash.Error.Invalid{errors: errors} = error}, local_error, opts) do
+    case declared_error(errors) do
+      :conflict -> conflict(conn)
+      :not_found -> not_found(conn, "the resource was not found")
+      {:rejected, reason} -> fallback(conn, {:error, reason}, local_error, opts)
+      nil -> validation(conn, error, Keyword.get(opts, :validation))
+    end
+  end
 
-  def fallback(conn, {:error, %module{} = error}, _local_error)
+  def fallback(conn, {:error, %module{} = error}, _local_error, _opts)
       when module in [Ash.Error.Framework, Ash.Error.Unknown],
       do: unexpected(conn, "console.ash.unexpected_error", error)
 
-  def fallback(conn, {:error, {:missing, key}}, nil), do: required_field(conn, key)
+  def fallback(conn, {:error, {:missing, key}}, nil, _opts), do: required_field(conn, key)
 
-  def fallback(conn, {:error, reason}, local_error) when is_function(local_error, 2),
+  def fallback(conn, {:error, reason}, local_error, _opts) when is_function(local_error, 2),
     do: local_error.(conn, reason)
+
+  defp declared_error(errors) do
+    Enum.find_value(errors, fn
+      %Rejected{reason: reason} -> {:rejected, reason}
+      %module{} when module in @conflicts -> :conflict
+      %NotFound{} -> :not_found
+      _error -> nil
+    end)
+  end
+
+  defp validation(conn, error, nil), do: changeset(conn, error)
+
+  defp validation(conn, error, {code, message}),
+    do: render(conn, 422, code, message, changeset_details(error))
+
+  defp validation(conn, error, local_validation) when is_function(local_validation, 2),
+    do: local_validation.(conn, changeset_details(error))
+
+  defp conflict(conn),
+    do:
+      render(
+        conn,
+        409,
+        "conflict",
+        "the resource changed or does not permit this change; reload it and try again"
+      )
 
   @doc "Renders a Console authorization failure."
   def forbidden(conn, message \\ "access denied"), do: render(conn, 403, "forbidden", message)
@@ -70,20 +118,22 @@ defmodule AnkoleWeb.ConsoleErrors do
   An unlisted reason is a server-side gap: the warning log carries the failure
   class for the operator, and the response stays generic. `log_event` names
   the owning API, for example `"ai_gateway.provider_api.unexpected_error"`.
+  A controller can keep its own code and message for the response.
   """
-  def unexpected(conn, log_event, reason) do
+  def unexpected(
+        conn,
+        log_event,
+        reason,
+        code \\ "invalid_value",
+        message \\ "the request failed for an unexpected reason; check the server log"
+      ) do
     Ankole.Logging.warning(
       log_event,
       "console API request failed for an unhandled reason",
       Ankole.Logging.failure_fields(:error, reason, [])
     )
 
-    render(
-      conn,
-      422,
-      "invalid_value",
-      "the request failed for an unexpected reason; check the server log"
-    )
+    render(conn, 422, code, message)
   end
 
   @doc """

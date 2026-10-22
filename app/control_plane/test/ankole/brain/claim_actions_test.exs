@@ -55,12 +55,12 @@ defmodule Ankole.Brain.ClaimActionsTest do
     fact = fact!(object)
     take = take!(object)
 
-    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Repo.transact(fn _ ->
                Ankole.Ash.update(take, :expire_fact, %{at: DateTime.utc_now()})
              end)
 
-    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Repo.transact(fn _ -> Ankole.Ash.update(fact, :deactivate_take, %{}) end)
 
     first = %{resolved_quality: "correct", resolved_outcome: true, resolved_by: "system"}
@@ -71,7 +71,7 @@ defmodule Ankole.Brain.ClaimActionsTest do
     assert resolved.active == false
     assert resolved.resolved_at
 
-    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Repo.transact(fn _ ->
                Ankole.Ash.update(take, :resolve_take, %{
                  first
@@ -96,7 +96,7 @@ defmodule Ankole.Brain.ClaimActionsTest do
 
     assert superseded.expired_at
 
-    assert {:error, %Ash.Error.Invalid{errors: [%Ash.Error.Changes.StaleRecord{}]}} =
+    assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Repo.transact(fn _ ->
                Ankole.Ash.update(original, :supersede, %{superseded_by: other.id})
              end)

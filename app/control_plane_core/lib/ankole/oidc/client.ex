@@ -136,7 +136,6 @@ defmodule Ankole.OIDC.Client do
     create :create_in_tx do
       accept([:id, :client_type, :secret_ciphertext] ++ @fields)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :configure_in_tx do
@@ -152,7 +151,6 @@ defmodule Ankole.OIDC.Client do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
   end
 

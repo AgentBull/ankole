@@ -143,8 +143,6 @@ defmodule Ankole.Workflow.Schemas.AgentCall do
         :result,
         :error
       ])
-
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :claim do

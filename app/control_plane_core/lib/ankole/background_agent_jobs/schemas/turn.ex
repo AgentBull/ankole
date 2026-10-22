@@ -193,7 +193,6 @@ defmodule Ankole.BackgroundAgentJobs.Schemas.Turn do
 
     create :record do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:status | @checkpoint_attributes])
 
       validate(fn changeset, _context -> validate_checkpoint(changeset) end,

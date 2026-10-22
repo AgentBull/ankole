@@ -217,9 +217,13 @@ defmodule AnkoleWeb.AppConfigurationController do
 
   defp error(conn, reason) do
     with :unhandled <- ConsoleErrors.render_config_field_error(conn, reason) do
-      ConsoleErrors.render(conn, 422, "invalid_value", "app configuration value is invalid", [
-        %{reason: inspect(reason)}
-      ])
+      ConsoleErrors.unexpected(
+        conn,
+        "app_configure.api.unexpected_error",
+        reason,
+        "invalid_value",
+        "app configuration value is invalid"
+      )
     end
   end
 

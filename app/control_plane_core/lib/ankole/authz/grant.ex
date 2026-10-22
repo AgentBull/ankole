@@ -136,13 +136,11 @@ defmodule Ankole.AuthZ.Grant do
     create :create_in_tx do
       accept(@fields)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     create :upsert_in_tx do
       accept(@fields)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       upsert?(true)
       upsert_fields([:description, :metadata, :updated_at])
     end
@@ -155,7 +153,6 @@ defmodule Ankole.AuthZ.Grant do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
   end
 

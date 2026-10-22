@@ -72,7 +72,6 @@ defmodule Ankole.OIDC.RefreshToken do
       ])
 
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     atomic_in_tx_update :consume_in_tx do
@@ -102,7 +101,6 @@ defmodule Ankole.OIDC.RefreshToken do
     destroy :remove_in_tx do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 end

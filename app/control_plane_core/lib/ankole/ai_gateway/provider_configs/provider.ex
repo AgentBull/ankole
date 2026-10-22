@@ -69,7 +69,6 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       accept([])
       argument(:input, :map, allow_nil?: false, sensitive?: true)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       change(Ankole.AIGateway.ProviderConfigs.Changes.PrepareConfiguration,
         only_when_valid?: true
@@ -167,7 +166,6 @@ defmodule Ankole.AIGateway.ProviderConfigs.Provider do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
       validate(present(:disabled_at))
       change(Ankole.AIGateway.ProviderConfigs.Changes.RequireUnused, only_when_valid?: true)
     end

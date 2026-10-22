@@ -46,7 +46,6 @@ defmodule Ankole.Brain.Schemas.SchemaType do
 
     create :register do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :id,

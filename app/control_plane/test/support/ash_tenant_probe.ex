@@ -1,8 +1,50 @@
-defmodule TenantIsolationFixture.Domain do
-  use Ash.Domain, validate_config_inclusion?: false
+defmodule TenantIsolationFixture.Published do
+  @moduledoc false
+  def notify(probe),
+    do: send(self(), {:published, probe.global_key, Ankole.Repo.in_transaction?()})
+end
 
-  resources do
-    allow_unregistered?(true)
+defmodule TenantIsolationFixture.Flag do
+  use Ankole.Ash.Resource,
+    tenancy: :tenant,
+    domain: TenantIsolationFixture.Domain
+
+  postgres do
+    table("ash_tenant_flags")
+    schema("pg_temp")
+    repo(Ankole.Repo)
+    migrate?(false)
+  end
+
+  attributes do
+    attribute(:id, Ankole.Ash.Types.UUIDv7,
+      primary_key?: true,
+      allow_nil?: false,
+      default: &Ankole.Ecto.UUIDv7.autogenerate/0,
+      public?: true
+    )
+
+    attribute(:key, :string, allow_nil?: false, public?: true)
+    attribute(:flag, :boolean, allow_nil?: false, default: false, public?: true)
+  end
+
+  actions do
+    defaults([:read])
+
+    create :create do
+      accept([:key, :flag])
+    end
+  end
+end
+
+defmodule TenantIsolationFixture.Note do
+  @moduledoc false
+  use Ankole.Schema, tenancy: :tenant
+
+  @primary_key {:id, Ankole.Ecto.UUIDv7, autogenerate: true}
+  @schema_prefix "pg_temp"
+  schema "ash_tenant_notes" do
+    field :body, :string
   end
 end
 
@@ -42,6 +84,13 @@ defmodule TenantIsolationFixture.Probe do
   identities do
     identity(:global_key, [:global_key], all_tenants?: true)
     identity(:calculated_key, [:lookup_key], all_tenants?: true)
+  end
+
+  relationships do
+    has_one :marker, TenantIsolationFixture.Flag do
+      no_attributes?(true)
+      filter(expr(key == parent(global_key)))
+    end
   end
 
   calculations do
@@ -116,8 +165,27 @@ defmodule TenantIsolationFixture.Probe do
     end
 
     action :count_rows, :integer do
-      transaction?(false)
       run(fn input, _context -> {:ok, Ankole.Repo.aggregate(input.resource, :count)} end)
+    end
+
+    action :commit_note, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:global_key, :string, allow_nil?: false)
+      argument(:outcome, :atom, constraints: [one_of: [:commit, :reject, :raise]])
+      after_commit({TenantIsolationFixture.Published, :notify})
+
+      run(fn input, _context ->
+        with {:ok, probe} <-
+               Ankole.Ash.create(__MODULE__, :upsert_global, %{
+                 global_key: input.arguments.global_key
+               }) do
+          case input.arguments.outcome do
+            :commit -> {:ok, probe}
+            :reject -> Ankole.Errors.wrap({:error, :rejected_after_write})
+            :raise -> raise ArgumentError, "the probe failed after its write"
+          end
+        end
+      end)
     end
 
     read :global do
@@ -167,7 +235,25 @@ defmodule TenantIsolationFixture.SiteProbe do
       transaction?(false)
       require_atomic?(false)
       atomic_upgrade?(false)
-      change(Ankole.Ash.RequireTransaction)
+    end
+  end
+end
+
+defmodule TenantIsolationFixture.Domain do
+  use Ankole.Ash.Domain
+
+  resources do
+    allow_unregistered?(true)
+
+    resource TenantIsolationFixture.Probe do
+      define(:get_probe, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_probes, action: :read)
+      define(:upsert_global_probe, action: :upsert_global)
+      define(:commit_note, action: :commit_note, args: [:global_key, :outcome])
+    end
+
+    resource TenantIsolationFixture.SiteProbe do
+      define(:list_site_probes, action: :read)
     end
   end
 end

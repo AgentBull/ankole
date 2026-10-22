@@ -122,19 +122,13 @@ defmodule AnkoleWeb.AgentLibraryController do
     ConsoleErrors.render(conn, 422, "validation_failed", "agent library document is invalid")
   end
 
-  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.changeset(conn, changeset)
-  end
-
   defp error(conn, reason) do
-    ConsoleErrors.render(
+    ConsoleErrors.unexpected(
       conn,
-      422,
+      "ai_agent.library_api.unexpected_error",
+      reason,
       "invalid_agent_library_document",
-      "agent library document is invalid",
-      [
-        %{reason: inspect(reason)}
-      ]
+      "agent library document is invalid"
     )
   end
 end

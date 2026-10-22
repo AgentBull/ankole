@@ -16,7 +16,7 @@ defmodule Ankole.AgentWorkers.Changes.AdmitConnection do
       end
 
     if reason do
-      Ash.Changeset.add_error(changeset, Ankole.Ash.DomainError.exception(reason: reason))
+      Ash.Changeset.add_error(changeset, Ankole.Errors.Invalid.Rejected.exception(reason: reason))
     else
       Ash.Changeset.filter(
         changeset,

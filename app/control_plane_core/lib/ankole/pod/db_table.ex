@@ -36,7 +36,6 @@ defmodule Ankole.Pod.DbTable do
 
     create :create_in_tx do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:id, :page_id, :name, :position])
     end
 
@@ -58,7 +57,6 @@ defmodule Ankole.Pod.DbTable do
     destroy :remove do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

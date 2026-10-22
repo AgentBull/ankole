@@ -14,11 +14,14 @@ defmodule Ankole.AIGateway.ProviderConfigs.Changes.RequireUnused do
       references when is_list(references) ->
         Ash.Changeset.add_error(
           changeset,
-          Ankole.Ash.DomainError.exception(reason: {:provider_in_use, references})
+          Ankole.Errors.Invalid.Rejected.exception(reason: {:provider_in_use, references})
         )
 
       {:error, reason} ->
-        Ash.Changeset.add_error(changeset, Ankole.Ash.DomainError.exception(reason: reason))
+        Ash.Changeset.add_error(
+          changeset,
+          Ankole.Errors.Invalid.Rejected.exception(reason: reason)
+        )
     end
   end
 end

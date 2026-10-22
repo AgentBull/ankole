@@ -29,7 +29,6 @@ defmodule Ankole.Pod.PageContent do
 
     create :create_in_tx do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:page_id, :content, :plain_text, :updated_by, :updated_at])
     end
 
@@ -40,7 +39,6 @@ defmodule Ankole.Pod.PageContent do
     destroy :purge do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

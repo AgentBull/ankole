@@ -650,12 +650,9 @@ defmodule Ankole.Files do
   defp delete_path_in_tx(drive, path), do: length(remove_paths_in_tx(drive, path))
 
   defp remove_paths_in_tx(drive, path) do
-    case Ankole.Ash.run_action(DriveFile, :remove_paths, %{
-           agent_uid: if(drive == :pod, do: nil, else: drive),
-           path: path
-         }) do
+    case DriveFile.remove_paths_in_tx(if(drive == :pod, do: nil, else: drive), path) do
       {:ok, files} -> files
-      {:error, error} -> raise Ash.Error.to_error_class(error)
+      {:error, reason} -> raise Ankole.Errors.Invalid.Rejected, reason: reason
     end
   end
 

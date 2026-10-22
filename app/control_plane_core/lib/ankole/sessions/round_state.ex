@@ -46,7 +46,6 @@ defmodule Ankole.Sessions.RoundState do
     create_if_absent :record_once, upsert_fields: [:message_id] do
       primary?(true)
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :message_id,

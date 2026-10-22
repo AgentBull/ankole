@@ -47,7 +47,6 @@ defmodule Ankole.AuthZ.Membership do
     create :add_in_tx do
       accept([:group_id, :principal_uid])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       upsert?(true)
       upsert_fields([:principal_uid])
     end
@@ -55,7 +54,6 @@ defmodule Ankole.AuthZ.Membership do
     destroy :remove_in_tx do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

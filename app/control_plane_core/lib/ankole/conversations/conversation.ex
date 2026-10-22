@@ -121,14 +121,12 @@ defmodule Ankole.Conversations.Conversation do
 
     create_if_absent :ensure_native do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
       accept([:id, :title, :created_by, :page_id, :last_activity_at])
       change(set_attribute(:kind, :native))
     end
 
     create :create_external do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :id,
@@ -190,7 +188,6 @@ defmodule Ankole.Conversations.Conversation do
     destroy :remove do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 end

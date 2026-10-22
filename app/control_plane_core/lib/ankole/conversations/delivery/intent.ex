@@ -158,7 +158,6 @@ defmodule Ankole.Conversations.Delivery.Intent do
 
     create_if_absent :commit do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :agent_uid,
@@ -207,7 +206,10 @@ defmodule Ankole.Conversations.Delivery.Intent do
             changeset
 
           {:error, reason} ->
-            Ash.Changeset.add_error(changeset, Ankole.Ash.DomainError.exception(reason: reason))
+            Ash.Changeset.add_error(
+              changeset,
+              Ankole.Errors.Invalid.Rejected.exception(reason: reason)
+            )
         end
       end)
 

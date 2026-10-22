@@ -57,7 +57,6 @@ defmodule Ankole.Principals.HumanUser do
     create :create_in_tx do
       accept([:principal_uid, :email, :mobile, :job_title])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :profile_in_tx do

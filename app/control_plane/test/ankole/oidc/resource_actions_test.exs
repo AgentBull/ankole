@@ -1,5 +1,6 @@
 defmodule Ankole.OIDC.ResourceActionsTest do
   use Ankole.DataCase, async: false
+  require Ash.Query
   alias Ankole.OIDC
   alias Ankole.OIDC.{Client, SigningKeyRecord}
 
@@ -68,15 +69,24 @@ defmodule Ankole.OIDC.ResourceActionsTest do
       Repo.transact(fn _repo -> Ankole.Ash.create(Client, :create_in_tx, attrs()) end)
 
     Repo.without_tenant(fn ->
-      assert_raise Ankole.TenantContextMissing, fn -> OIDC.get_active_client(client.id) end
+      assert_raise Ash.Error.Invalid, ~r/require a tenant/, fn ->
+        OIDC.get_active_client(client.id)
+      end
+
       assert {:ok, found} = Repo.across_tenants(fn -> OIDC.get_active_client(client.id) end)
       assert found.id == client.id
       assert found.tenant_id == client.tenant_id
     end)
 
-    assert_raise ArgumentError, ~r/global reads require Repo.across_tenants/, fn ->
-      Ash.Query.for_read(Client, :lookup_across_tenants)
-    end
+    other = create_tenant()
+
+    assert nil ==
+             Repo.with_tenant(other.id, fn ->
+               Client
+               |> Ash.Query.for_read(:lookup_across_tenants, %{}, authorize?: false)
+               |> Ash.Query.filter(id == ^client.id)
+               |> Ash.read_one!(authorize?: false)
+             end)
   end
 
   defp attrs,

@@ -64,7 +64,6 @@ defmodule Ankole.Brain.Schemas.Chunk do
 
     create :project do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :object_id,
@@ -111,7 +110,6 @@ defmodule Ankole.Brain.Schemas.Chunk do
     destroy :remove_projection do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

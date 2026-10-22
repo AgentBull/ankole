@@ -56,7 +56,6 @@ defmodule Ankole.Principals.ExternalIdentity do
     create :bind_in_tx do
       accept([:principal_uid, :provider, :external_id, :metadata])
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
     end
 
     in_tx_update :observe_in_tx do

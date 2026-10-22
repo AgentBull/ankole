@@ -21,7 +21,10 @@ defmodule Ankole.AgentWorkers.WorkerEnv.Changes.PrepareValue do
       |> Ash.Changeset.force_change_attribute(:value, value)
     else
       {:error, reason} ->
-        Ash.Changeset.add_error(changeset, Ankole.Ash.DomainError.exception(reason: reason))
+        Ash.Changeset.add_error(
+          changeset,
+          Ankole.Errors.Invalid.Rejected.exception(reason: reason)
+        )
     end
   end
 

@@ -47,7 +47,6 @@ defmodule Ankole.Pod.DbRecord do
 
     create :create_in_tx do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :id,
@@ -68,7 +67,6 @@ defmodule Ankole.Pod.DbRecord do
     destroy :remove do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

@@ -90,7 +90,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
     create :start do
       transaction?(false)
       accept([:subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
-      change(Ankole.Ash.RequireTransaction)
       change(set_attribute(:type, :message))
     end
 
@@ -112,7 +111,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
       transaction?(false)
       accept([:id, :subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
       argument(:journal_key, :string)
-      change(Ankole.Ash.RequireTransaction)
       change(set_attribute(:type, :message))
       change(set_attribute(:status, :complete))
       validate(fn changeset, _context -> validate_journal_key(changeset) end)
@@ -123,7 +121,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
       transaction?(false)
       accept([:id, :subject_uid, :conversation_id, :previous_message_id, :content, :metadata])
       argument(:journal_key, :string)
-      change(Ankole.Ash.RequireTransaction)
       change(set_attribute(:type, :message))
       change(set_attribute(:status, :error))
       validate(fn changeset, _context -> validate_journal_key(changeset) end)
@@ -244,7 +241,6 @@ defmodule Ankole.AIGateway.Schemas.Message do
     destroy :remove_suffix do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
       change(filter(expr(type == :message and status == :complete)))
     end
   end

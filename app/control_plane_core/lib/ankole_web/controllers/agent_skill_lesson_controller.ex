@@ -132,13 +132,13 @@ defmodule AnkoleWeb.AgentSkillLessonController do
   defp error(conn, {:missing, key}),
     do: ConsoleErrors.required_field(conn, key)
 
-  defp error(conn, %module{} = changeset) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.changeset(conn, changeset)
-  end
-
   defp error(conn, reason) do
-    ConsoleErrors.render(conn, 422, "invalid_skill_lesson", "agent skill lesson is invalid", [
-      %{reason: inspect(reason)}
-    ])
+    ConsoleErrors.unexpected(
+      conn,
+      "ai_agent.skill_lesson_api.unexpected_error",
+      reason,
+      "invalid_skill_lesson",
+      "agent skill lesson is invalid"
+    )
   end
 end

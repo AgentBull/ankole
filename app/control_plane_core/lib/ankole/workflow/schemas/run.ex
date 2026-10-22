@@ -170,8 +170,6 @@ defmodule Ankole.Workflow.Schemas.Run do
         :error
       ])
 
-      change(Ankole.Ash.RequireTransaction)
-
       change(fn changeset, _ ->
         case Ash.Changeset.get_attribute(changeset, :script) do
           text when is_binary(text) ->

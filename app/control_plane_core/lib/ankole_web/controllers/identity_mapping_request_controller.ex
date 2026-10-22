@@ -1,4 +1,5 @@
 defmodule AnkoleWeb.IdentityMappingRequestController do
+  alias AnkoleWeb.ConsoleErrors
   alias OpenApiSpex, as: OpenAPISpex
 
   @moduledoc """
@@ -132,9 +133,11 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
     end
   end
 
-  defp fallback(conn, {:error, reason}), do: error(conn, reason)
-
-  defp error(conn, :forbidden), do: error(conn, 403, "forbidden", "access denied")
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"invalid_request", "mapping is invalid"}
+      )
 
   defp error(conn, :not_found),
     do: error(conn, 404, "not_found", "mapping request was not found")
@@ -153,9 +156,6 @@ defmodule AnkoleWeb.IdentityMappingRequestController do
 
   defp error(conn, {:missing_param, field}),
     do: error(conn, 422, "invalid_request", "#{field} is required")
-
-  defp error(conn, %module{}) when module in [Ash.Changeset, Ash.Error.Invalid],
-    do: error(conn, 422, "invalid_request", "mapping is invalid")
 
   defp error(conn, reason) do
     Ankole.Logging.warning(

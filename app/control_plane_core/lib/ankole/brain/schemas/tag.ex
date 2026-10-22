@@ -42,7 +42,6 @@ defmodule Ankole.Brain.Schemas.Tag do
     destroy :remove do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

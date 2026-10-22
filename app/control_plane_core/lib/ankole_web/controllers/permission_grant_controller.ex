@@ -156,7 +156,11 @@ defmodule AnkoleWeb.PermissionGrantController do
     end
   end
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"validation_failed", "request is invalid"}
+      )
 
   defp error(conn, :not_found) do
     ConsoleErrors.not_found(conn, "permission grant or owner group was not found")
@@ -186,25 +190,13 @@ defmodule AnkoleWeb.PermissionGrantController do
     )
   end
 
-  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "validation_failed",
-      "request is invalid",
-      ConsoleErrors.changeset_details(error)
-    )
-  end
-
   defp error(conn, reason) do
-    ConsoleErrors.render(
+    ConsoleErrors.unexpected(
       conn,
-      422,
+      "authz.grant_api.unexpected_error",
+      reason,
       "invalid_permission_grant",
-      "permission grant request is invalid",
-      [
-        %{reason: inspect(reason)}
-      ]
+      "permission grant request is invalid"
     )
   end
 end

@@ -38,7 +38,6 @@ defmodule Ankole.Pod.PageChange do
 
     create :append do
       transaction?(false)
-      change(Ankole.Ash.RequireTransaction)
 
       accept([
         :page_id,
@@ -57,7 +56,6 @@ defmodule Ankole.Pod.PageChange do
     destroy :prune do
       transaction?(false)
       require_atomic?(true)
-      change(Ankole.Ash.RequireTransaction.Atomic)
     end
   end
 

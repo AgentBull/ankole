@@ -268,7 +268,11 @@ defmodule AnkoleWeb.AuthZGroupController do
     end
   end
 
-  defp fallback(conn, failure), do: ConsoleErrors.fallback(conn, failure, &error/2)
+  defp fallback(conn, failure),
+    do:
+      ConsoleErrors.fallback(conn, failure, &error/2,
+        validation: {"validation_failed", "request is invalid"}
+      )
 
   defp error(conn, :not_found) do
     ConsoleErrors.not_found(conn, "principal group, principal, or membership was not found")
@@ -350,29 +354,17 @@ defmodule AnkoleWeb.AuthZGroupController do
     ConsoleErrors.required_field(conn, key)
   end
 
-  defp error(conn, %module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid] do
-    ConsoleErrors.render(
-      conn,
-      422,
-      "validation_failed",
-      "request is invalid",
-      ConsoleErrors.changeset_details(error)
-    )
-  end
-
   defp error(conn, reason) when is_binary(reason) do
     ConsoleErrors.render(conn, 422, "validation_failed", reason)
   end
 
   defp error(conn, reason) do
-    ConsoleErrors.render(
+    ConsoleErrors.unexpected(
       conn,
-      422,
+      "authz.group_api.unexpected_error",
+      reason,
       "invalid_principal_group",
-      "principal group request is invalid",
-      [
-        %{reason: inspect(reason)}
-      ]
+      "principal group request is invalid"
     )
   end
 end
