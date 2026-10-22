@@ -1,7 +1,7 @@
 defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   @moduledoc "Detects a stalled Job from durable Codex trajectory activity."
-  import Ecto.Query
-  alias Ankole.{BackgroundAgentJobs, Repo}
+  require Ash.Query
+  alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Lifecycle
   alias Ankole.BackgroundAgentJobs.Queries
   alias Ankole.BackgroundAgentJobs.Turns
@@ -24,44 +24,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   def reconcile_stuck_job(job_id, opts \\ []) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    plan =
-      Repo.transact(fn repo ->
-        case Queries.get(job_id) do
-          %Job{status: :running} = job ->
-            _worker = AgentWorkers.lock_in_tx(repo, job.agent_uid)
-            :ok = Lifecycle.lock_agent_slots(repo, job.agent_uid)
-            job = Queries.get_for_agent(repo, job.id, job.agent_uid, lock: "FOR UPDATE")
-            # A Worker can accept an attempt and fail before its first trajectory.
-            # The claim time bounds that gap without another deadline owner.
-            activity = latest_active_turn_activity(repo, job.id) || job.updated_at
-
-            event =
-              Ankole.Sessions.Queue.oldest_open(
-                repo,
-                job.agent_uid,
-                BackgroundAgentJobs.job_session_id(job.id)
-              )
-
-            if (job.status == :running and activity) && event && stalled?(activity, now) do
-              ref = %JobTurnRef{
-                agent_uid: job.agent_uid,
-                session_id: event.session_id,
-                signal_id: event.id,
-                job_id: job.id,
-                attempt: job.attempts
-              }
-
-              {:ok, {ref, stall_count(repo, job.id) + 1}}
-            else
-              {:ok, :live}
-            end
-
-          _ ->
-            {:ok, :no_active_turn}
-        end
-      end)
-
-    case plan do
+    case Ankole.Ash.run_action(Job, :inspect_stall, %{job_id: job_id, now: now}) do
       {:ok, {ref, stalls}} ->
         reason = %{
           "code" => @stall_code,
@@ -83,6 +46,48 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   end
 
   @doc """
+  Reads the stall state of a running Job under the Worker, slot, and Job locks,
+  inside the `inspect_stall` action of the Job.
+  """
+  @spec inspect_stall_in_tx(module(), pos_integer(), DateTime.t()) ::
+          {:ok, {JobTurnRef.t(), pos_integer()} | :live | :no_active_turn}
+  def inspect_stall_in_tx(repo, job_id, %DateTime{} = now) do
+    case Queries.get(job_id) do
+      %Job{status: :running} = job ->
+        _worker = AgentWorkers.lock_in_tx(repo, job.agent_uid)
+        :ok = Lifecycle.lock_agent_slots(repo, job.agent_uid)
+        job = Queries.lock_for_agent_in_tx(job.id, job.agent_uid)
+        # A Worker can accept an attempt and fail before its first trajectory.
+        # The claim time bounds that gap without another deadline owner.
+        activity = latest_active_turn_activity(job.id) || job.updated_at
+
+        event =
+          Ankole.Sessions.Queue.oldest_open(
+            repo,
+            job.agent_uid,
+            BackgroundAgentJobs.job_session_id(job.id)
+          )
+
+        if (job.status == :running and activity) && event && stalled?(activity, now) do
+          ref = %JobTurnRef{
+            agent_uid: job.agent_uid,
+            session_id: event.session_id,
+            signal_id: event.id,
+            job_id: job.id,
+            attempt: job.attempts
+          }
+
+          {:ok, {ref, stall_count(job.id) + 1}}
+        else
+          {:ok, :live}
+        end
+
+      _ ->
+        {:ok, :no_active_turn}
+    end
+  end
+
+  @doc """
   Closes the runtime Turns of one stalled attempt inside the abort transaction.
 
   A retryable stall keeps its Signal open, so only the Turn rows close.
@@ -100,7 +105,7 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
       )
       when live_status in [:queued, :running] do
     with {:ok, job_id} <- BackgroundAgentJobs.parse_job_session_id(session_id),
-         %Job{} = job <- Queries.get_for_agent(repo, job_id, agent_uid, lock: "FOR UPDATE"),
+         %Job{} = job <- Queries.lock_for_agent_in_tx(job_id, agent_uid),
          :ok <-
            Turns.interrupt_active_for_current_attempt_in_tx(
              repo,
@@ -121,29 +126,19 @@ defmodule Ankole.BackgroundAgentJobs.TurnWatchdog do
   def compensate_in_tx(repo, %Signal{} = event, reason, %DateTime{} = now),
     do: BackgroundAgentJobs.compensate_turn_error_in_tx(repo, event, reason, now)
 
-  defp stall_count(repo, job_id) do
-    Turn
-    |> where([turn], turn.job_id == ^job_id)
-    |> where([turn], fragment("?->>'code'", turn.error) == ^@stall_code)
-    |> select([turn], count(turn.attempt, :distinct))
-    |> repo.one()
+  defp stall_count(job_id) do
+    %{attempts: attempts} =
+      Turn
+      |> Ash.Query.filter(job_id == ^job_id and fragment("?->>'code'", error) == ^@stall_code)
+      |> Ankole.Ash.aggregate!({:attempts, :count, field: :attempt, uniq?: true})
+
+    attempts
   end
 
-  defp latest_active_turn_activity(repo, job_id) do
-    active_turn_activity_query()
-    |> where([turn], turn.job_id == ^job_id)
-    |> repo.one()
-    |> case do
-      {_job_id, %DateTime{} = activity} -> activity
-      nil -> nil
-    end
-  end
-
-  defp active_turn_activity_query do
+  defp latest_active_turn_activity(job_id) do
     Turn
-    |> where([turn], turn.status == :in_progress)
-    |> group_by([turn], turn.job_id)
-    |> select([turn], {turn.job_id, max(turn.updated_at)})
+    |> Ash.Query.filter(job_id == ^job_id and status == :in_progress)
+    |> Ankole.Ash.max!(:updated_at)
   end
 
   defp stalled?(%DateTime{} = activity, now),

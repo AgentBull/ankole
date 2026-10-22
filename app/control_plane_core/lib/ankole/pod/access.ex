@@ -1,8 +1,14 @@
 defmodule Ankole.Pod.Access do
-  @moduledoc false
-  import Ecto.Query
+  @moduledoc """
+  Owns the Pod page permissions and the page tree read model.
+
+  The recursive page tree queries (`path/1`, `canonical_navigation/2`, and
+  `subtree_preserves_permissions?/4`) select only the columns that the
+  permission decision needs. They give maps, not `Ankole.Pod.Page` records.
+  """
+  require Ash.Query
   alias Ankole.{AuthZ, Principals, Repo}
-  alias Ankole.AuthZ.{Grant, Root}
+  alias Ankole.AuthZ.{Grants, Root}
   import Bitwise
   alias Ankole.Pod.Page
   alias Ankole.Sessions.{JobTurnRef, RunRef}
@@ -15,27 +21,29 @@ defmodule Ankole.Pod.Access do
   def actions(role) when is_binary(role) or is_atom(role), do: Map.fetch(@roles, to_string(role))
   def actions(_role), do: :error
 
-  @doc "Keeps an Agent's current turn locked through the durable Pod write."
-  def write_transaction(authority, fun)
+  @doc """
+  Runs one Pod write in the transaction of the calling generic action.
 
-  def write_transaction(nil, fun), do: Repo.transact(fun)
+  An Agent write first checks and locks the Agent's current turn, so a delayed
+  write cannot commit after that turn closes. The result uses the declared
+  errors of `Ankole.Errors`.
+  """
+  def write(authority, fun) when is_function(fun, 0),
+    do: Ankole.Errors.wrap(with(:ok <- writer_in_tx(authority), do: fun.()))
 
-  def write_transaction({ref, uid}, fun)
-      when (is_struct(ref, RunRef) or is_struct(ref, JobTurnRef)) and ref.agent_uid == uid do
-    Repo.transact(fn repo ->
-      with {:ok, :authorized} <-
-             Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn_in_tx(
-               repo,
-               ref,
-               uid,
-               :write,
-               lock: true
-             ),
-           do: fun.(repo)
-    end)
+  defp writer_in_tx(nil), do: :ok
+
+  defp writer_in_tx({ref, uid})
+       when (is_struct(ref, RunRef) or is_struct(ref, JobTurnRef)) and ref.agent_uid == uid do
+    case Ankole.AgentWorkers.WorkerRouteAuth.authorize_turn_in_tx(Repo, ref, uid, :write,
+           lock: true
+         ) do
+      {:ok, :authorized} -> :ok
+      error -> error
+    end
   end
 
-  def write_transaction(_authority, _fun), do: {:error, :worker_not_assigned_to_turn}
+  defp writer_in_tx(_authority), do: {:error, :worker_not_assigned_to_turn}
 
   def principal(uid) do
     with {:ok, %{status: :active} = principal} <- Principals.get_principal(uid),
@@ -85,26 +93,41 @@ defmodule Ankole.Pod.Access do
          do: {:ok, path}
   end
 
-  def path(%Page{parent_id: nil} = page), do: {:ok, [page]}
+  @doc """
+  Gives the path from the root page to a page.
 
-  def path(%Page{} = page) do
+  The ancestors are maps with the tree and permission columns; the last item
+  is the page itself.
+  """
+  def path(%{parent_id: nil} = page), do: {:ok, [page]}
+
+  def path(%{parent_id: parent_id} = page) do
     result =
       Repo.query!(
         """
         WITH RECURSIVE ancestors AS (
-          SELECT p.* FROM pages p WHERE p.tenant_id = $1::text::uuid AND p.id = $2::text::uuid
+          SELECT p.id, p.parent_id, p.private_owner_uid, p.inherit_permissions, p.deleted_at
+            FROM pages p WHERE p.tenant_id = $1::text::uuid AND p.id = $2::text::uuid
           UNION
-          SELECT p.* FROM pages p JOIN ancestors a ON p.id = a.parent_id
+          SELECT p.id, p.parent_id, p.private_owner_uid, p.inherit_permissions, p.deleted_at
+            FROM pages p JOIN ancestors a ON p.id = a.parent_id
             WHERE p.tenant_id = $1::text::uuid
-        ) SELECT * FROM ancestors
+        ) SELECT id::text, parent_id::text, private_owner_uid, inherit_permissions, deleted_at
+          FROM ancestors
         """,
-        [Repo.tenant_id!(), page.parent_id]
+        [Repo.tenant_id!(), parent_id]
       )
 
     parents =
-      Map.new(result.rows, fn row ->
-        parent = Repo.load(Page, {result.columns, row})
-        {parent.id, parent}
+      Map.new(result.rows, fn [id, parent_id, owner, inherit, deleted_at] ->
+        {id,
+         %{
+           id: id,
+           parent_id: parent_id,
+           private_owner_uid: owner,
+           inherit_permissions: inherit,
+           deleted_at: deleted_at
+         }}
       end)
 
     path(page, parents, [], MapSet.new())
@@ -189,7 +212,8 @@ defmodule Ankole.Pod.Access do
 
   defp moved_path(page, parent_id, nil) do
     with {:ok, parent_id} <- Ecto.UUID.cast(parent_id),
-         %Page{} = parent <- Repo.get(Page, parent_id),
+         %Page{} = parent <-
+           Page |> Ash.Query.filter(id == ^parent_id) |> Ankole.Ash.read_one!(),
          {:ok, ancestors} <- path(parent) do
       {:ok, ancestors ++ [%{page | parent_id: parent_id, private_owner_uid: nil}]}
     else
@@ -204,7 +228,7 @@ defmodule Ankole.Pod.Access do
          space_fallback?(before) == space_fallback?(after_move) do
       true
     else
-      grants = Repo.all(from g in Grant, where: g.action in ^@actions)
+      grants = grants(action: [in: @actions])
       {canonical, opaque} = Enum.split_with(grants, &canonical_grant?/1)
 
       if opaque == [] do
@@ -258,19 +282,24 @@ defmodule Ankole.Pod.Access do
   defp subtree_preserves_permissions?(before, after_move, canonical, opaque) do
     root_id = List.last(before).id
 
-    rows =
+    pages =
       Repo.query!(
         """
         WITH RECURSIVE subtree AS (
-          SELECT id, parent_id FROM pages WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid
-          UNION ALL SELECT c.id, c.parent_id FROM pages c JOIN subtree s ON c.parent_id = s.id
+          SELECT id, parent_id, private_owner_uid, inherit_permissions
+            FROM pages WHERE tenant_id = $1::text::uuid AND id = $2::text::uuid
+          UNION ALL
+          SELECT c.id, c.parent_id, c.private_owner_uid, c.inherit_permissions
+            FROM pages c JOIN subtree s ON c.parent_id = s.id
             WHERE c.tenant_id = $1::text::uuid
-        ) SELECT id::text FROM subtree
+        ) SELECT id::text, parent_id::text, private_owner_uid, inherit_permissions FROM subtree
         """,
         [Repo.tenant_id!(), root_id]
       ).rows
+      |> Enum.map(fn [id, parent_id, owner, inherit] ->
+        %{id: id, parent_id: parent_id, private_owner_uid: owner, inherit_permissions: inherit}
+      end)
 
-    pages = Repo.all(from p in Page, where: p.id in ^Enum.map(rows, &hd/1))
     children = Enum.group_by(pages, & &1.parent_id)
     subtree_policy?(before, after_move, children, canonical, opaque)
   end
@@ -330,11 +359,9 @@ defmodule Ankole.Pod.Access do
       group_ids = Enum.map(groups, & &1.id)
 
       grants =
-        Repo.all(
-          from g in Grant,
-            where:
-              g.action in ^@actions and
-                (g.principal_uid == ^uid or g.group_id in ^group_ids)
+        grants(
+          action: [in: @actions],
+          or: [[principal_uid: uid], [group_id: [in: group_ids]]]
         )
 
       if Enum.all?(grants, &canonical_grant?/1),
@@ -391,7 +418,18 @@ defmodule Ankole.Pod.Access do
   end
 
   defp evaluated_navigation(uid, grants) do
-    entries = Repo.all(Page) |> navigation_entries() |> Map.to_list()
+    entries =
+      Page
+      |> Ash.Query.select([
+        :id,
+        :parent_id,
+        :private_owner_uid,
+        :inherit_permissions,
+        :deleted_at
+      ])
+      |> Ankole.Ash.read!()
+      |> navigation_entries()
+      |> Map.to_list()
 
     direct_grants =
       grants
@@ -486,16 +524,15 @@ defmodule Ankole.Pod.Access do
 
   def put_role(owner, pattern, role) do
     with {:ok, wanted} <- actions(role) do
-      grants =
-        Repo.all(from g in Grant, where: g.resource_pattern == ^pattern and g.action in ^@actions)
+      grants = grants(resource_pattern: pattern, action: [in: @actions])
 
-      Enum.each(grants, fn grant ->
-        if owner_match?(owner, grant) and grant.action not in wanted,
-          do: AuthZ.delete_permission_grant(grant.id)
-      end)
+      grants
+      |> Enum.filter(&(owner_match?(owner, &1) and &1.action not in wanted))
+      |> remove_grants()
 
       Enum.reduce_while(wanted, :ok, fn action, :ok ->
-        case AuthZ.upsert_permission_grant(
+        case Grants.upsert_permission_grant(
+               Repo,
                Map.merge(owner, %{resource_pattern: pattern, action: action, condition: "true"})
              ) do
           {:ok, _} -> {:cont, :ok}
@@ -507,13 +544,13 @@ defmodule Ankole.Pod.Access do
     end
   end
 
-  def page_grants(id),
-    do:
-      Repo.all(
-        from g in Grant, where: g.resource_pattern == ^"pod:**:#{id}:**" and g.action in ^@actions
-      )
+  def page_grants(id), do: grants(resource_pattern: "pod:**:#{id}:**", action: [in: @actions])
 
-  def remove_grants(grants), do: Enum.each(grants, &AuthZ.delete_permission_grant(&1.id))
+  @doc "Removes permission grants in the caller's transaction, which holds the tree lock."
+  def remove_grants(grants), do: Enum.each(grants, &Ankole.AuthZ.Domain.delete_grant!/1)
+
+  @doc "Lists the permission grants that match a keyword filter."
+  def grants(filter), do: Ankole.AuthZ.Domain.list_grants!(query: [filter: filter])
 
   defp owner_match?(%{principal_uid: uid}, grant), do: grant.principal_uid == uid
   defp owner_match?(%{group_id: id}, grant), do: grant.group_id == id

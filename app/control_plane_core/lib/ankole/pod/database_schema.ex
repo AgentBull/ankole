@@ -1,13 +1,43 @@
 defmodule Ankole.Pod.Database.Schema do
-  @moduledoc false
+  @moduledoc """
+  Changes Database fields and views and converts the stored record values.
+
+  Each change runs a generic action of `Ankole.Pod.DbField` or
+  `Ankole.Pod.DbView`. The action result gives the written definition and the
+  changed tables; the table rooms get the change after the commit.
+  """
   import Ecto.Query
   require Ash.Query
   alias Ankole.{ActorRef, Repo}
-  alias Ankole.Pod.{Access, Database, DbField, DbRecord, DbTable, DbView, Formula, Values}
+  alias Ankole.Pod.{Database, DbField, DbRecord, DbTable, DbView, Formula, Values}
   alias Ankole.Pod.Database.{Records, Write}
 
-  def create_field(uid, id, attrs, authority \\ nil) do
-    schema_write(uid, id, authority, fn write ->
+  def create_field(uid, id, attrs, authority \\ nil),
+    do: run(DbField, :create_field, %{uid: uid, id: id, attrs: attrs, authority: authority})
+
+  def update_field(uid, id, attrs, authority \\ nil),
+    do: run(DbField, :update_field, %{uid: uid, id: id, attrs: attrs, authority: authority})
+
+  def delete_field(uid, id, version, authority \\ nil),
+    do: run(DbField, :delete_field, %{uid: uid, id: id, version: version, authority: authority})
+
+  def create_view(uid, id, attrs, authority \\ nil),
+    do: run(DbView, :create_view, %{uid: uid, id: id, attrs: attrs, authority: authority})
+
+  def update_view(uid, id, attrs, authority \\ nil),
+    do: run(DbView, :update_view, %{uid: uid, id: id, attrs: attrs, authority: authority})
+
+  def delete_view(uid, id, version, authority \\ nil),
+    do: run(DbView, :delete_view, %{uid: uid, id: id, version: version, authority: authority})
+
+  defp run(resource, action, arguments) do
+    with {:ok, %{written: written}} <- Ankole.Ash.run_action(resource, action, arguments),
+         do: {:ok, written}
+  end
+
+  @doc false
+  def create_field_in_tx(uid, id, attrs) do
+    schema_write(uid, id, fn write ->
       table = write.table
 
       attrs =
@@ -43,9 +73,10 @@ defmodule Ankole.Pod.Database.Schema do
     end)
   end
 
-  def update_field(uid, id, attrs, authority \\ nil) do
+  @doc false
+  def update_field_in_tx(uid, id, attrs) do
     with {:ok, field} <- field_by_id(id) do
-      schema_write(uid, field.table_id, authority, fn write ->
+      schema_write(uid, field.table_id, fn write ->
         table = write.table
         definitions = fields(table.id)
 
@@ -92,9 +123,10 @@ defmodule Ankole.Pod.Database.Schema do
     end
   end
 
-  def delete_field(uid, id, version, authority \\ nil) do
+  @doc false
+  def delete_field_in_tx(uid, id, version) do
     with {:ok, field} <- field_by_id(id) do
-      schema_write(uid, field.table_id, authority, fn write ->
+      schema_write(uid, field.table_id, fn write ->
         table = write.table
         field = Ankole.Ash.read_one!(Ash.Query.filter(DbField, id == ^id))
 
@@ -117,8 +149,9 @@ defmodule Ankole.Pod.Database.Schema do
     end
   end
 
-  def create_view(uid, id, attrs, authority \\ nil) do
-    schema_write(uid, id, authority, fn write ->
+  @doc false
+  def create_view_in_tx(uid, id, attrs) do
+    schema_write(uid, id, fn write ->
       attrs =
         atom_attrs(attrs, [:name, :type, :config, :position])
         |> Map.put(:table_id, id)
@@ -130,9 +163,10 @@ defmodule Ankole.Pod.Database.Schema do
     end)
   end
 
-  def update_view(uid, id, attrs, authority \\ nil) do
+  @doc false
+  def update_view_in_tx(uid, id, attrs) do
     with {:ok, view} <- view_by_id(id) do
-      schema_write(uid, view.table_id, authority, fn write ->
+      schema_write(uid, view.table_id, fn write ->
         view = Ankole.Ash.read_one!(Ash.Query.filter(DbView, id == ^id))
 
         with %DbView{} <- view,
@@ -157,9 +191,10 @@ defmodule Ankole.Pod.Database.Schema do
     end
   end
 
-  def delete_view(uid, id, version, authority \\ nil) do
+  @doc false
+  def delete_view_in_tx(uid, id, version) do
     with {:ok, view} <- view_by_id(id) do
-      schema_write(uid, view.table_id, authority, fn write ->
+      schema_write(uid, view.table_id, fn write ->
         view = Ankole.Ash.read_one!(Ash.Query.filter(DbView, id == ^id))
 
         cond do
@@ -496,9 +531,7 @@ defmodule Ankole.Pod.Database.Schema do
       before = Map.fetch!(previous, field.id)
 
       if before.config != field.config do
-        before
-        |> Ankole.Ash.for_update(:update_definition, %{config: field.config})
-        |> Ash.update!(authorize?: false)
+        {:ok, _field} = Ankole.Ash.update(before, :update_definition, %{config: field.config})
       end
     end)
   end
@@ -536,24 +569,11 @@ defmodule Ankole.Pod.Database.Schema do
 
   defp valid_view_config(_, _), do: {:error, :invalid_view}
 
-  defp schema_write(uid, id, authority, fun) do
-    result =
-      Access.write_transaction(authority, fn _repo ->
-        with {:ok, write} <- Write.open(uid, id),
-             {:ok, written, write} <- fun.(write),
-             {:ok, changed} <- Write.finish(Write.touch(write, id)) do
-          {:ok, %{written: written, changed: changed}}
-        end
-      end)
-
-    case result do
-      {:ok, %{written: written, changed: changed}} ->
-        Database.broadcast_schema(changed)
-
-        {:ok, written}
-
-      error ->
-        error
+  defp schema_write(uid, id, fun) do
+    with {:ok, write} <- Write.open(uid, id),
+         {:ok, written, write} <- fun.(write),
+         {:ok, changed} <- Write.finish(Write.touch(write, write.table.id)) do
+      {:ok, %{written: written, changed: changed}}
     end
   end
 

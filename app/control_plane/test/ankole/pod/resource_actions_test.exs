@@ -135,14 +135,7 @@ defmodule Ankole.Pod.ResourceActionsTest do
           {table, :commit_write,
            %{id: table.id, page_id: page.id, data_version: 100, delta: 0, inserted: 0}},
           {field, :update_definition, %{table_id: table.id, is_primary: false, version: 100}},
-          {view, :update_definition, %{table_id: table.id, version: 100}},
-          {record, :update_values,
-           %{
-             id: record.id,
-             table_id: table.id,
-             created_by: record.created_by,
-             created_at: record.created_at
-           }}
+          {view, :update_definition, %{table_id: table.id, version: 100}}
         ] do
       record = reload(record)
       assert {:error, error} = Repo.transact(fn _ -> Ankole.Ash.update(record, action, attrs) end)
@@ -153,6 +146,20 @@ defmodule Ankole.Pod.ResourceActionsTest do
       assert MapSet.new(rejected) == MapSet.new(Map.keys(attrs) -- [:delta, :inserted])
       assert reload(record) == record
     end
+
+    # Records belong to the Database subsystem's Ecto schema.
+    attrs = %{
+      id: record.id,
+      table_id: table.id,
+      created_by: record.created_by,
+      created_at: record.created_at
+    }
+
+    changeset = Ankole.Pod.DbRecord.update_values_changeset(record, attrs)
+    refute changeset.valid?
+    assert MapSet.new(Keyword.keys(changeset.errors)) == MapSet.new(Map.keys(attrs))
+    assert {:error, _changeset} = Repo.update(changeset)
+    assert reload(record) == record
   end
 
   test "PostgreSQL rejects invalid Database counters, versions, and JSON shapes" do

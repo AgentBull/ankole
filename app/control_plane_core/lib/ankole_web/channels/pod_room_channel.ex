@@ -71,7 +71,7 @@ defmodule AnkoleWeb.PodRoomChannel do
 
   defp page_id("table:" <> id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %DbTable{} = table <- Repo.get(DbTable, id),
+         {:ok, %DbTable{} = table} <- Ankole.Pod.get_db_table(id),
          do: {:ok, table.page_id},
          else: (_ -> {:error, :not_found})
   end

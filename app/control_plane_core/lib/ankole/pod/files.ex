@@ -1,19 +1,26 @@
 defmodule Ankole.Pod.Files do
-  @moduledoc "Page-owned files on the Pod drive, with page authorization and revision checks."
+  @moduledoc """
+  Page-owned files on the Pod drive, with page authorization and revision checks.
+
+  A manifest read and a file commit run generic actions of `Ankole.Pod.Page`
+  under the page row lock.
+  """
 
   alias Ankole.Files, as: Drive
-  alias Ankole.Pod.{Access, Pages}
+  alias Ankole.Pod.{Page, Pages}
   alias Ankole.Repo
 
   @doc "Lists one page's current file manifest. Paths are relative to the page directory."
-  def manifest(uid, page_id) do
-    Repo.transact(fn _repo ->
-      with {:ok, page} <- Pages.lock(page_id, :share),
-           {:ok, _page} <- Pages.authorize(uid, page.id, "page_view"),
-           {:ok, files} <- all_files(page.id) do
-        {:ok, %{page_id: page.id, revision: page.revision, files: Enum.map(files, &entry/1)}}
-      end
-    end)
+  def manifest(uid, page_id),
+    do: Ankole.Ash.run_action(Page, :read_page_files, %{uid: uid, id: page_id})
+
+  @doc false
+  def manifest_in_tx(uid, page_id) do
+    with {:ok, page} <- Pages.lock(page_id, :share),
+         {:ok, _page} <- Pages.authorize(uid, page.id, "page_view"),
+         {:ok, files} <- all_files(page.id) do
+      {:ok, %{page_id: page.id, revision: page.revision, files: Enum.map(files, &entry/1)}}
+    end
   end
 
   @doc "Reads a page file, optionally requiring its current content digest."
@@ -72,8 +79,8 @@ defmodule Ankole.Pod.Files do
   @doc "Saves an attachment visible in a conversation without granting access to the Agent's drive."
   def copy_from_message(uid, page_id, base_revision, message_id, source_path) do
     with {:ok, message_id} <- Ecto.UUID.cast(message_id),
-         %Ankole.Conversations.Message{} = message <-
-           Repo.get_by(Ankole.Conversations.Message, id: message_id),
+         {:ok, %Ankole.Conversations.Message{} = message} <-
+           Ankole.Conversations.Domain.get_message(message_id),
          {:ok, _conversation} <- Ankole.Conversations.get(uid, message.conversation_id),
          %{"blob_ref" => digest} = attachment <-
            Enum.find(message.attachments, &(Map.get(&1, "path") == source_path)),
@@ -99,27 +106,13 @@ defmodule Ankole.Pod.Files do
 
   def publish(uid, page_id, base_revision, files, authority) when is_list(files) do
     with {:ok, upserts} <- publish_files(page_id, files) do
-      mutate(uid, page_id, authority, fn repo, page ->
-        with :ok <- require_type(page, :applet),
-             :ok <- revision(page, base_revision),
-             :ok <- own_publish_contents(uid, page.id, upserts),
-             {:ok, routes} <- inspect_backend(page.id, upserts),
-             {:ok, result} <-
-               Drive.commit(repo, :pod, upserts, [
-                 prefix(page.id) <> "/src",
-                 prefix(page.id) <> "/dist",
-                 prefix(page.id) <> "/server"
-               ]),
-             {:ok, page} <- advance(repo, page) do
-          {:ok,
-           %{
-             page_id: page.id,
-             revision: page.revision,
-             files: Enum.map(result.files, &entry/1),
-             routes: routes
-           }}
-        end
-      end)
+      Ankole.Ash.run_action(Page, :publish_applet, %{
+        uid: uid,
+        id: page_id,
+        base_revision: base_revision,
+        upserts: upserts,
+        authority: authority
+      })
     end
   end
 
@@ -140,20 +133,63 @@ defmodule Ankole.Pod.Files do
 
   def parse_path(_path), do: {:error, :invalid_path}
 
+  @doc false
+  def publish_in_tx(uid, page_id, base_revision, upserts) do
+    edit_in_tx(uid, page_id, fn page ->
+      with :ok <- require_type(page, :applet),
+           :ok <- revision(page, base_revision),
+           :ok <- own_publish_contents(uid, page.id, upserts),
+           {:ok, routes} <- inspect_backend(page.id, upserts),
+           {:ok, result} <-
+             Drive.commit(Repo, :pod, upserts, [
+               prefix(page.id) <> "/src",
+               prefix(page.id) <> "/dist",
+               prefix(page.id) <> "/server"
+             ]),
+           {:ok, page} <- advance(page) do
+        {:ok,
+         %{
+           page_id: page.id,
+           revision: page.revision,
+           files: Enum.map(result.files, &entry/1),
+           routes: routes
+         }}
+      end
+    end)
+  end
+
   defp commit_upload(uid, page_id, role, base_revision, name, digest, content_type, authority) do
-    mutate(uid, page_id, authority, fn repo, page ->
+    Ankole.Ash.run_action(Page, :commit_page_file, %{
+      uid: uid,
+      id: page_id,
+      upload: %{
+        role: role,
+        base_revision: base_revision,
+        name: name,
+        digest: digest,
+        content_type: content_type
+      },
+      authority: authority
+    })
+  end
+
+  @doc false
+  def commit_upload_in_tx(uid, page_id, upload) do
+    %{role: role, base_revision: base_revision, name: name, digest: digest} = upload
+
+    edit_in_tx(uid, page_id, fn page ->
       with :ok <- allowed_role(page, role),
            :ok <- file_revision(page, base_revision),
            {:ok, path} <- upload_path(page.id, role, digest, name),
            deletes = if(role == "file", do: [prefix(page.id)], else: []),
            {:ok, %{files: [file]}} <-
              Drive.commit(
-               repo,
+               Repo,
                :pod,
-               [%{path: path, sha256: digest, source: "pod", content_type: content_type}],
+               [%{path: path, sha256: digest, source: "pod", content_type: upload.content_type}],
                deletes
              ),
-           {:ok, page} <- maybe_advance(repo, page) do
+           {:ok, page} <- maybe_advance(page) do
         result = %{page_id: page.id, revision: page.revision, file: entry(file)}
 
         result =
@@ -171,19 +207,14 @@ defmodule Ankole.Pod.Files do
     end)
   end
 
-  defp mutate(uid, page_id, authority, fun) do
-    Repo.assert_outside_transaction!()
+  @doc "Publishes a committed page file change to the page channel."
+  def committed(%{page_id: id}), do: Pages.broadcast(id)
 
-    result =
-      Access.write_transaction(authority, fn repo ->
-        with {:ok, page} <- Pages.lock(page_id),
-             {:ok, _page} <- Pages.authorize(uid, page.id, "page_edit") do
-          fun.(repo, page)
-        end
-      end)
-
-    if match?({:ok, _}, result), do: Pages.broadcast(page_id)
-    result
+  defp edit_in_tx(uid, page_id, fun) do
+    with {:ok, page} <- Pages.lock(page_id),
+         {:ok, _page} <- Pages.authorize(uid, page.id, "page_edit") do
+      fun.(page)
+    end
   end
 
   defp publish_files(page_id, files) do
@@ -281,11 +312,11 @@ defmodule Ankole.Pod.Files do
   defp revision(%{revision: revision}, revision), do: :ok
   defp revision(%{revision: revision}, _expected), do: {:error, {:revision_conflict, revision}}
 
-  defp advance(_repo, page),
+  defp advance(page),
     do: Ankole.Ash.update(page, :advance_revision, %{updated_at: DateTime.utc_now()})
 
-  defp maybe_advance(repo, %{type: :file} = page), do: advance(repo, page)
-  defp maybe_advance(_repo, page), do: {:ok, page}
+  defp maybe_advance(%{type: :file} = page), do: advance(page)
+  defp maybe_advance(page), do: {:ok, page}
 
   defp upload_path(id, "file", _digest, name), do: page_path(id, Drive.file_name(name))
 
