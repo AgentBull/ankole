@@ -1,12 +1,15 @@
 defmodule Ankole.Workflow.Queries do
   @moduledoc "Reads workflow and task facts."
-  import Ecto.Query, warn: false
+  import Ecto.Query, only: [from: 2]
   require Ankole.ModelIntegerID
+  require Ash.Query
   alias Ankole.Repo
+  alias Ankole.Signals.Signal
   alias Ankole.Text
   alias Ankole.Workflow.Schemas.AgentCall
   alias Ankole.Workflow.Schemas.Run
   @result_window_bytes 8000
+  @call_statuses [:queued, :running, :sleeping, :succeeded, :failed, :cancelled]
 
   def task_session_id(call_id) when Ankole.ModelIntegerID.valid?(call_id) do
     Ankole.Sessions.Key.workflow_task(call_id)
@@ -33,23 +36,22 @@ defmodule Ankole.Workflow.Queries do
 
   def get_task_for_agent(call_id, agent_uid)
       when is_integer(call_id) and call_id > 0 and is_binary(agent_uid) do
-    query =
-      from(call in AgentCall,
-        join: run in Run,
-        on: run.id == call.run_id,
-        where: call.id == ^call_id and call.agent_uid == ^agent_uid,
-        select: {call, run}
-      )
-
-    case Repo.one(query) do
-      {%AgentCall{} = call, %Run{} = run} -> {:ok, %{call: call, run: run}}
-      nil -> {:error, :workflow_task_not_found}
+    with {:ok, %AgentCall{} = call} <-
+           AgentCall
+           |> Ash.Query.filter(id == ^call_id and agent_uid == ^agent_uid)
+           |> Ankole.Ash.read_one(),
+         {:ok, %Run{} = run} <-
+           Run |> Ash.Query.filter(id == ^call.run_id) |> Ankole.Ash.read_one() do
+      {:ok, %{call: call, run: run}}
+    else
+      {:ok, nil} -> {:error, :workflow_task_not_found}
+      {:error, _reason} = error -> error
     end
   end
 
   def get(run_id, agent_uid, opts \\ [])
       when is_integer(run_id) and run_id > 0 and is_binary(agent_uid) and is_list(opts) do
-    case Repo.one(from(run in Run, where: run.id == ^run_id and run.agent_uid == ^agent_uid)) do
+    case Ankole.Workflow.Slot.get_run(run_id, agent_uid) do
       %Run{} = run ->
         with {:ok, result} <- result_projection(run, Keyword.get(opts, :result_offset)) do
           {:ok,
@@ -69,15 +71,14 @@ defmodule Ankole.Workflow.Queries do
   def list(agent_uid, opts \\ []) when is_binary(agent_uid) and is_list(opts) do
     with {:ok, statuses} <- list_statuses(Keyword.get(opts, :status)),
          {:ok, cursor} <- list_cursor(Keyword.get(opts, :cursor)) do
-      query =
-        from(run in Run,
-          where: run.agent_uid == ^agent_uid and run.status in ^statuses,
-          order_by: [desc: run.id],
-          limit: 33
-        )
+      {:ok, rows} =
+        Run
+        |> Ash.Query.filter(agent_uid == ^agent_uid and status in ^statuses)
         |> maybe_before_cursor(cursor)
+        |> Ash.Query.sort(id: :desc)
+        |> Ash.Query.limit(33)
+        |> Ankole.Ash.read()
 
-      rows = Repo.all(query)
       page = Enum.take(rows, 32)
 
       next_cursor =
@@ -100,33 +101,45 @@ defmodule Ankole.Workflow.Queries do
     end
   end
 
-  def counts(repo, run_id) do
-    status_counts =
-      AgentCall
-      |> where([call], call.run_id == ^run_id)
-      |> group_by([call], call.status)
-      |> select([call], {call.status, count(call.id)})
-      |> repo.all()
-      |> Map.new()
+  def counts(_repo, run_id), do: run_id |> List.wrap() |> run_counts() |> Map.fetch!(run_id)
 
-    %{
-      "total" => Enum.sum(Map.values(status_counts)),
-      "queued" => Map.get(status_counts, :queued, 0),
-      "running" => Map.get(status_counts, :running, 0),
-      "sleeping" => Map.get(status_counts, :sleeping, 0),
-      "succeeded" => Map.get(status_counts, :succeeded, 0),
-      "failed" => Map.get(status_counts, :failed, 0),
-      "cancelled" => Map.get(status_counts, :cancelled, 0)
-    }
+  @doc """
+  Counts the calls of each run by status. The result maps each run id to
+  `"total"` and one count for each call status.
+  """
+  def run_counts([]), do: %{}
+
+  def run_counts(run_ids) do
+    query =
+      Enum.reduce(
+        @call_statuses,
+        Run |> Ash.Query.filter(id in ^run_ids) |> Ash.Query.select([:id]),
+        fn status, query ->
+          Ash.Query.aggregate(query, status, :count, :agent_calls,
+            query: [filter: [status: status]],
+            default: 0,
+            authorize?: false
+          )
+        end
+      )
+
+    {:ok, runs} = Ankole.Ash.read(query)
+
+    Map.new(runs, fn run ->
+      counts = Map.new(@call_statuses, &{Atom.to_string(&1), Map.fetch!(run.aggregates, &1)})
+      {run.id, Map.put(counts, "total", Enum.sum(Map.values(counts)))}
+    end)
   end
 
-  def live_tasks(repo, run_id) do
-    AgentCall
-    |> where([call], call.run_id == ^run_id and call.status in [:queued, :running, :sleeping])
-    |> order_by([call], desc: call.attention, asc: call.call_seq)
-    |> limit(32)
-    |> repo.all()
-    |> Enum.map(fn call ->
+  def live_tasks(_repo, run_id) do
+    {:ok, calls} =
+      AgentCall
+      |> Ash.Query.filter(run_id == ^run_id and status in [:queued, :running, :sleeping])
+      |> Ash.Query.sort(attention: :desc, call_seq: :asc)
+      |> Ash.Query.limit(32)
+      |> Ankole.Ash.read()
+
+    Enum.map(calls, fn call ->
       %{
         "call_seq" => call.call_seq,
         "label" => call.label,
@@ -139,13 +152,15 @@ defmodule Ankole.Workflow.Queries do
     end)
   end
 
-  def failure_summaries(repo, run_id) do
-    AgentCall
-    |> where([call], call.run_id == ^run_id and call.status == :failed)
-    |> order_by([call], asc: call.call_seq)
-    |> limit(10)
-    |> repo.all()
-    |> Enum.map(fn call ->
+  def failure_summaries(_repo, run_id) do
+    {:ok, calls} =
+      AgentCall
+      |> Ash.Query.filter(run_id == ^run_id and status == :failed)
+      |> Ash.Query.sort(call_seq: :asc)
+      |> Ash.Query.limit(10)
+      |> Ankole.Ash.read()
+
+    Enum.map(calls, fn call ->
       result = call.result || call.error || %{}
 
       %{
@@ -158,12 +173,55 @@ defmodule Ankole.Workflow.Queries do
   end
 
   def task_sessions(run_id) do
-    AgentCall
-    |> where([call], call.run_id == ^run_id)
-    |> order_by([call], asc: call.id)
-    |> select([call], {call.id, call.status})
-    |> Repo.all()
-    |> Enum.map(fn {call_id, status} -> {task_session_id(call_id), status} end)
+    {:ok, calls} =
+      AgentCall
+      |> Ash.Query.filter(run_id == ^run_id)
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.select([:id, :status])
+      |> Ankole.Ash.read()
+
+    Enum.map(calls, &{task_session_id(&1.id), &1.status})
+  end
+
+  @doc """
+  Selects the oldest capacity waiter of an Agent that can run now.
+
+  The waiter is a queued call whose run has free concurrency and whose task
+  Signal is deferred past `now`. This read model joins calls, runs, and
+  Signals and gives only identifiers.
+  """
+  def capacity_candidate(agent_uid, now) do
+    running_calls =
+      from(call in AgentCall,
+        where: call.agent_uid == ^agent_uid and call.status == :running,
+        group_by: call.run_id,
+        select: %{run_id: call.run_id, count: count(call.id)}
+      )
+
+    from(call in AgentCall,
+      join: run in Run,
+      on: run.id == call.run_id,
+      left_join: running in subquery(running_calls),
+      on: running.run_id == call.run_id,
+      join: event in Signal,
+      on:
+        event.agent_uid == call.agent_uid and
+          fragment("? = concat('wf_task:', ?::text)", event.session_id, call.id),
+      where:
+        call.agent_uid == ^agent_uid and call.status == :queued and run.status == :running and
+          coalesce(running.count, 0) < run.concurrency and
+          event.status in [:queued, :running] and event.available_at > ^now and
+          call.wake_kind == :agent_capacity,
+      order_by: [asc: event.inserted_at, asc: event.queue_sequence, asc: call.id],
+      select: %{
+        run_id: call.run_id,
+        call_id: call.id,
+        session_id: event.session_id,
+        event_id: event.id
+      },
+      limit: 1
+    )
+    |> Repo.one()
   end
 
   def text_value(value) when is_binary(value) and value != "" do
@@ -233,7 +291,7 @@ defmodule Ankole.Workflow.Queries do
   end
 
   defp maybe_before_cursor(query, cursor) do
-    where(query, [run], run.id < ^cursor)
+    Ash.Query.filter(query, id < ^cursor)
   end
 
   defp result_projection(_run, nil) do

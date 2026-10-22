@@ -67,7 +67,13 @@ defmodule Ankole.Sessions.WorkflowTask do
         "retryable" => false
       })
 
-    Workflow.submit_result_in_tx(repo, id, event.agent_uid, event.session_id, failure)
+    Workflow.TaskLifecycle.submit_result_in_tx(
+      repo,
+      id,
+      event.agent_uid,
+      event.session_id,
+      failure
+    )
   end
 
   def plan(event, opts) do
@@ -99,7 +105,7 @@ defmodule Ankole.Sessions.WorkflowTask do
 
   def admit_in_tx(repo, event, %{kind: :workflow_task} = plan) do
     with {:ok, %{call: call, run: run}} <-
-           Workflow.claim_task_in_tx(
+           Workflow.TaskLifecycle.claim_task_in_tx(
              repo,
              plan.call_id,
              event.agent_uid,
@@ -172,7 +178,7 @@ defmodule Ankole.Sessions.WorkflowTask do
   def lock_progress_in_tx(repo, run) do
     with {:ok, call_id} <- Workflow.parse_task_session_id(run.session_id),
          do:
-           Workflow.lock_task_progress_in_tx(
+           Workflow.TaskLifecycle.lock_task_progress_in_tx(
              repo,
              call_id,
              run.agent_uid,
