@@ -1,10 +1,9 @@
 defmodule Ankole.Conversations.Delivery.Recovery do
   @moduledoc false
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.I18n
   alias Ankole.Logging
-  alias Ankole.Repo
   alias Ankole.Conversations.Delivery.Adapter
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Signals.Sanitizer
@@ -45,56 +44,43 @@ defmodule Ankole.Conversations.Delivery.Recovery do
              is_list(options) do
     now = Keyword.get(options, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      with %Intent{} = intent <-
-             Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(
-               repo,
-               agent_uid,
-               binding_name,
-               outbound_key
-             ),
-           {:ok, attrs} <- explicit_requeue_attrs(intent, now),
-           {:ok, intent} <- Ankole.Ash.update(intent, :requeue, attrs),
-           :ok <- notify_intent_deadline(repo, intent) do
-        {:ok, intent}
-      else
-        nil -> {:error, :intent_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+    agent_uid
+    |> Ankole.Conversations.requeue_intent(binding_name, outbound_key, now)
+    |> Ankole.Errors.reason()
   end
 
   def requeue(_agent_uid, _binding_name, _outbound_key, _options),
     do: {:error, :invalid_intent_key}
 
   @doc false
+  def requeue_in_tx(repo, agent_uid, binding_name, outbound_key, now) do
+    with %Intent{} = intent <-
+           Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(
+             repo,
+             agent_uid,
+             binding_name,
+             outbound_key
+           ),
+         {:ok, attrs} <- explicit_requeue_attrs(intent, now),
+         {:ok, intent} <- Ankole.Ash.update(intent, :requeue, attrs),
+         :ok <- notify_intent_deadline(repo, intent) do
+      {:ok, intent}
+    else
+      nil -> {:error, :intent_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
   @spec wake_blocked_for_binding(String.t(), String.t()) :: :ok | {:error, term()}
   def wake_blocked_for_binding(agent_uid, binding_name)
       when is_binary(agent_uid) and is_binary(binding_name) do
-    now = DateTime.utc_now(:microsecond)
-
-    case Repo.transact(fn repo ->
-           rows =
-             Intent
-             |> where([entry], entry.agent_uid == ^Ankole.PrincipalKey.canonicalize(agent_uid))
-             |> where([entry], entry.binding_name == ^binding_name)
-             |> where([entry], entry.delivery_class == :durable_ai_reply)
-             |> where([entry], entry.status == :failed)
-             |> where([entry], entry.recovery_status == :blocked)
-             |> lock("FOR UPDATE")
-             |> repo.all()
-
-           Enum.reduce_while(rows, {:ok, []}, fn intent, {:ok, acc} ->
-             with {:ok, attrs} <- explicit_requeue_attrs(intent, now),
-                  {:ok, intent} <-
-                    Ankole.Ash.update(intent, :requeue, attrs),
-                  :ok <- notify_intent_deadline(repo, intent) do
-               {:cont, {:ok, [intent | acc]}}
-             else
-               {:error, reason} -> {:halt, {:error, reason}}
-             end
-           end)
-         end) do
+    case agent_uid
+         |> Ankole.Conversations.wake_blocked_intents(
+           binding_name,
+           DateTime.utc_now(:microsecond)
+         )
+         |> Ankole.Errors.reason() do
       {:ok, _rows} -> :ok
       {:error, reason} -> {:error, reason}
     end
@@ -102,6 +88,28 @@ defmodule Ankole.Conversations.Delivery.Recovery do
 
   def wake_blocked_for_binding(_agent_uid, _binding_name),
     do: {:error, :invalid_signal_binding}
+
+  @doc false
+  def wake_blocked_in_tx(repo, agent_uid, binding_name, now) do
+    agent_uid = Ankole.PrincipalKey.canonicalize(agent_uid)
+
+    Intent
+    |> Ash.Query.filter(
+      agent_uid == ^agent_uid and binding_name == ^binding_name and
+        delivery_class == :durable_ai_reply and status == :failed and recovery_status == :blocked
+    )
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!()
+    |> Enum.reduce_while({:ok, []}, fn intent, {:ok, acc} ->
+      with {:ok, attrs} <- explicit_requeue_attrs(intent, now),
+           {:ok, intent} <- Ankole.Ash.update(intent, :requeue, attrs),
+           :ok <- notify_intent_deadline(repo, intent) do
+        {:cont, {:ok, [intent | acc]}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
 
   defp explicit_requeue_attrs(
          %Intent{

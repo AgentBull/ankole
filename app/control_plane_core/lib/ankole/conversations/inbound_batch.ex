@@ -10,7 +10,7 @@ defmodule Ankole.Conversations.InboundBatch do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Conversations.Domain,
+    domain: Ankole.Conversations,
     extensions: [AshStateMachine]
 
   postgres do
@@ -111,8 +111,6 @@ defmodule Ankole.Conversations.InboundBatch do
     defaults([:read])
 
     create :open do
-      transaction?(false)
-
       accept([
         :agent_uid,
         :binding_name,
@@ -128,12 +126,12 @@ defmodule Ankole.Conversations.InboundBatch do
       ])
     end
 
-    in_tx_update :replace_prefix do
+    update :replace_prefix do
       accept([:entries])
       validate(attribute_equals(:batch_state, :open))
     end
 
-    in_tx_update :revise do
+    update :revise do
       accept([
         :entries,
         :mode,
@@ -147,16 +145,31 @@ defmodule Ankole.Conversations.InboundBatch do
       change(atomic_update(:batch_revision, expr(batch_revision + 1)))
     end
 
-    in_tx_update :finalize do
+    update :finalize do
       accept([])
       change(transition_state(:finalized))
       change(atomic_update(:batch_revision, expr(batch_revision + 1)))
     end
 
-    in_tx_update :cancel do
+    update :cancel do
       accept([:entries])
       change(transition_state(:canceled))
       change(atomic_update(:batch_revision, expr(batch_revision + 1)))
+    end
+
+    action :finalize_due, :term do
+      argument(:batch_id, :term)
+      argument(:now, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.InboundBatches.finalize_due_in_tx(
+            Ankole.Repo,
+            args.batch_id,
+            args.now
+          )
+        )
+      end)
     end
   end
 end

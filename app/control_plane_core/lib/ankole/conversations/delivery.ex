@@ -11,12 +11,11 @@ defmodule Ankole.Conversations.Delivery do
   See `docs/design-docs/Signals.md` for the delivery and recovery contracts.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Signals.Signal
   alias Ankole.AIGateway.Schemas.Message
-  alias Ankole.Repo
   alias Ankole.Conversations.Delivery.Text
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Delivery.Attachment
@@ -320,7 +319,7 @@ defmodule Ankole.Conversations.Delivery do
   """
   @spec operation_for_signal(Signal.t(), module()) ::
           {:ok, atom()} | {:error, term()}
-  def operation_for_signal(%Signal{} = signal, repo \\ Repo) do
+  def operation_for_signal(%Signal{} = signal, repo \\ nil) do
     with {:ok, conversation} <- intent_route_channel(repo, signal),
          {:ok, _binding} <- intent_route_binding(repo, signal) do
       choose_intent_operation(conversation, signal)
@@ -651,18 +650,19 @@ defmodule Ankole.Conversations.Delivery do
   defp intent_route_channel(_repo, %Signal{conversation_id: nil}),
     do: {:error, :conversation_id_missing}
 
-  defp intent_route_channel(repo, %Signal{conversation_id: conversation_id}) do
-    case repo.get_by(Conversation, id: conversation_id) do
+  defp intent_route_channel(_repo, %Signal{conversation_id: conversation_id}) do
+    case Conversation |> Ash.Query.filter(id == ^conversation_id) |> Ankole.Ash.read_one!() do
       %Conversation{} = conversation -> {:ok, conversation}
       nil -> {:error, {:signal_channel_not_found, conversation_id}}
     end
   end
 
-  defp intent_route_binding(repo, %Signal{} = signal) do
-    case repo.get_by(Binding,
-           agent_uid: signal.agent_uid,
-           name: signal.reply_binding_name
-         ) do
+  defp intent_route_binding(_repo, %Signal{reply_binding_name: name} = signal) do
+    binding =
+      if is_binary(name) and name != "",
+        do: Ankole.Signals.Domain.get_binding!(signal.agent_uid, name)
+
+    case binding do
       %Binding{} = binding ->
         {:ok, binding}
 

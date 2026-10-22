@@ -586,14 +586,17 @@ defmodule Ankole.ConversationsTest do
               message_id: request.message_id,
               text: "hello"
             })
-          end,
-          fn ->
-            Ankole.Conversations.Events.publish_message(request.conversation_id)
           end
         ] do
-      assert_raise ArgumentError, ~r/publish after commit/, fn ->
+      assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
         Repo.transact(fn _ -> operation.() end)
       end
+    end
+
+    assert_raise ArgumentError, ~r/publish after commit/, fn ->
+      Repo.transact(fn _ ->
+        Ankole.Conversations.Events.publish_message(request.conversation_id)
+      end)
     end
 
     assert Repo.aggregate(Message, :count) == 0

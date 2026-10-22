@@ -524,13 +524,11 @@ defmodule Ankole.SessionsCase do
   end
 
   def emit_entry(agent_uid, binding_name, input, opts) do
-    # Domain tests admit the input explicitly. Committed-ingress integration
-    # tests exercise driver notification outside this fixture transaction.
-    Repo.transact(fn _repo ->
-      with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts) do
-        {:ok, maybe_finalize_test_inbound_batch(result)}
-      end
-    end)
+    # Observation and batch finalization are top-level actions; each owns its
+    # transaction. Domain tests admit the input explicitly.
+    with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts) do
+      {:ok, maybe_finalize_test_inbound_batch(result)}
+    end
   end
 
   def group_entry(overrides) do

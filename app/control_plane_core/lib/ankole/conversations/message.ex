@@ -3,7 +3,7 @@ defmodule Ankole.Conversations.Message do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     tenant_in_primary_key: true,
-    domain: Ankole.Conversations.Domain
+    domain: Ankole.Conversations
 
   @type t :: %__MODULE__{}
 
@@ -109,12 +109,35 @@ defmodule Ankole.Conversations.Message do
     )
   end
 
+  relationships do
+    # The provider reference of an external Message.
+    has_one :external_ref, Ankole.Conversations.ExternalMessageRef do
+      source_attribute(:id)
+      destination_attribute(:message_id)
+      public?(false)
+    end
+
+    # The native inputs that admitted this Message to a turn.
+    has_many :inputs, Ankole.Signals.Signal do
+      source_attribute(:id)
+      destination_attribute(:message_id)
+      public?(false)
+    end
+  end
+
+  calculations do
+    # A removed native input withdraws its Message from the public facts.
+    calculate(
+      :withdrawn,
+      :boolean,
+      expr(exists(inputs, fragment("? @> '{\"removed\": true}'::jsonb", data)))
+    )
+  end
+
   actions do
     defaults([:read])
 
     create :record do
-      transaction?(false)
-
       accept([
         :id,
         :conversation_id,
@@ -136,8 +159,6 @@ defmodule Ankole.Conversations.Message do
     end
 
     create_if_absent :record_once do
-      transaction?(false)
-
       accept([
         :id,
         :conversation_id,
@@ -158,12 +179,12 @@ defmodule Ankole.Conversations.Message do
       ])
     end
 
-    in_tx_update :edit do
+    update :edit do
       accept([:text, :links])
       validate(attribute_equals(:origin, :native))
     end
 
-    in_tx_update :observe do
+    update :observe do
       accept([
         :author_type,
         :author_uid,
@@ -181,12 +202,11 @@ defmodule Ankole.Conversations.Message do
       validate(attribute_equals(:origin, :external))
     end
 
-    in_tx_update :resolve_attachments do
+    update :resolve_attachments do
       accept([:attachments])
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
     end
   end

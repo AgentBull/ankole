@@ -1,11 +1,8 @@
 defmodule Ankole.Conversations.IMGroupProjection do
   @moduledoc false
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.{Logging, Repo}
-  alias Ankole.AuthZ.ExternalBinding
-  alias Ankole.AuthZ.Group
+  alias Ankole.Logging
+  alias Ankole.AuthZ.Domain, as: AuthZ
 
   alias Ankole.Conversations.AdapterContext
   alias Ankole.Signals.BindingMembership
@@ -14,48 +11,58 @@ defmodule Ankole.Conversations.IMGroupProjection do
   alias Ankole.Conversations.IMGroupMembers
 
   def ensure_group(namespace, external_id, attrs, %AdapterContext{} = context, opts) do
-    Repo.transact(fn repo ->
-      lock_group(repo, namespace, external_id)
-
-      result =
-        case group(repo, namespace, external_id, true) do
-          {:ok, existing} ->
-            changes = %{metadata: BindingMembership.project(existing.metadata, context, :joined)}
-
-            changes =
-              if is_binary(attrs["name"]),
-                do: Map.put(changes, :display_name, attrs["name"]),
-                else: changes
-
-            Ankole.Ash.update(existing, :profile_in_tx, changes)
-
-          {:error, :not_found} ->
-            Ankole.Ash.create(Group, :create_in_tx, %{
-              name: "#{namespace}:im_group:#{String.downcase(external_id)}",
-              display_name: attrs["name"] || Keyword.fetch!(opts, :default_display_name),
-              domain: :im_group,
-              kind: :static,
-              metadata: BindingMembership.project(%{}, context, :joined)
-            })
-        end
-
-      with {:ok, group} <- result,
-           {:ok, _binding} <-
-             upsert_binding(
-               repo,
-               namespace,
-               external_id,
-               group.id,
-               Keyword.fetch!(opts, :binding_metadata)
-             ),
-           {:ok, _channel} <-
-             observe_room(repo, namespace, group.id, Keyword.fetch!(opts, :channel), context) do
-        {:ok, group}
-      end
-    end)
+    %{namespace: namespace, external_id: external_id}
+    |> Ankole.Conversations.ensure_im_group(attrs, context, opts)
+    |> Ankole.Errors.reason()
   end
 
-  def get_group(namespace, external_id), do: group(Repo, namespace, external_id, false)
+  @doc false
+  def ensure_group_in_tx(
+        repo,
+        %{namespace: namespace, external_id: external_id},
+        attrs,
+        context,
+        opts
+      ) do
+    lock_group(repo, namespace, external_id)
+
+    result =
+      case group(namespace, external_id, true) do
+        {:ok, existing} ->
+          changes = %{metadata: BindingMembership.project(existing.metadata, context, :joined)}
+
+          changes =
+            if is_binary(attrs["name"]),
+              do: Map.put(changes, :display_name, attrs["name"]),
+              else: changes
+
+          AuthZ.profile_group(existing, changes)
+
+        {:error, :not_found} ->
+          AuthZ.create_group(%{
+            name: "#{namespace}:im_group:#{String.downcase(external_id)}",
+            display_name: attrs["name"] || Keyword.fetch!(opts, :default_display_name),
+            domain: :im_group,
+            kind: :static,
+            metadata: BindingMembership.project(%{}, context, :joined)
+          })
+      end
+
+    with {:ok, group} <- result,
+         {:ok, _binding} <-
+           upsert_binding(
+             namespace,
+             external_id,
+             group.id,
+             Keyword.fetch!(opts, :binding_metadata)
+           ),
+         {:ok, _channel} <-
+           observe_room(repo, namespace, group.id, Keyword.fetch!(opts, :channel), context) do
+      {:ok, group}
+    end
+  end
+
+  def get_group(namespace, external_id), do: group(namespace, external_id, false)
 
   def mark_left(namespace, external_id, %AdapterContext{} = context) do
     update_membership(namespace, external_id, &BindingMembership.project(&1, context, :left))
@@ -68,15 +75,26 @@ defmodule Ankole.Conversations.IMGroupProjection do
   def mark_missing_left(namespace, observed_ids, %AdapterContext{} = context) do
     observed = MapSet.new(observed_ids)
 
-    from(binding in ExternalBinding,
-      join: group in Group,
-      on: group.id == binding.group_id,
-      where:
-        binding.provider == ^namespace and binding.external_kind == :im_group and
-          group.domain == :im_group,
-      select: {binding.external_id, group.metadata}
-    )
-    |> Repo.all()
+    bindings =
+      AuthZ.list_external_bindings!(
+        query: [
+          filter: [provider: namespace, external_kind: :im_group],
+          select: [:external_id, :group_id]
+        ]
+      )
+
+    groups =
+      AuthZ.list_groups!(
+        query: [
+          filter: [id: [in: Enum.map(bindings, & &1.group_id)], domain: :im_group],
+          select: [:id, :metadata]
+        ]
+      )
+      |> Map.new(&{&1.id, &1.metadata})
+
+    bindings
+    |> Enum.filter(&Map.has_key?(groups, &1.group_id))
+    |> Enum.map(&{&1.external_id, Map.fetch!(groups, &1.group_id)})
     |> Enum.reject(fn {external_id, _metadata} -> MapSet.member?(observed, external_id) end)
     |> Enum.filter(fn {_external_id, metadata} ->
       BindingMembership.joined?(metadata, context)
@@ -90,35 +108,39 @@ defmodule Ankole.Conversations.IMGroupProjection do
   end
 
   defp update_membership(namespace, external_id, update) do
-    Repo.transact(fn repo ->
-      lock_group(repo, namespace, external_id)
-
-      with {:ok, group} <- group(repo, namespace, external_id, true),
-           {:ok, group} <-
-             Ankole.Ash.update(group, :profile_in_tx, %{metadata: update.(group.metadata)}),
-           {:ok, result} <- clear_left_members(group) do
-        {:ok, Map.put(result, :group_id, group.id)}
-      else
-        {:error, :not_found} -> {:ok, %{status: :ignored_missing_group}}
-        {:error, _reason} = error -> error
-      end
-    end)
+    %{namespace: namespace, external_id: external_id}
+    |> Ankole.Conversations.update_im_group_membership(update)
+    |> Ankole.Errors.reason()
   end
 
-  defp clear_left_members(group) do
+  @doc false
+  def update_membership_in_tx(repo, %{namespace: namespace, external_id: external_id}, update) do
+    lock_group(repo, namespace, external_id)
+
+    with {:ok, group} <- group(namespace, external_id, true),
+         {:ok, group} <- AuthZ.profile_group(group, %{metadata: update.(group.metadata)}),
+         {:ok, result} <- clear_left_members(repo, group) do
+      {:ok, Map.put(result, :group_id, group.id)}
+    else
+      {:error, :not_found} -> {:ok, %{status: :ignored_missing_group}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp clear_left_members(repo, group) do
     if BindingMembership.all_left?(group.metadata) do
-      with {:ok, result} <- IMGroupMembers.replace_members(group.id, []) do
+      with {:ok, result} <- IMGroupMembers.replace_members_in_tx(repo, group.id, []) do
         {:ok, Map.put(result, :status, :all_left_members_cleared)}
       end
     else
-      with {:ok, delta} <- IMGroupMembers.reconcile_agent_members(group.id) do
+      with {:ok, delta} <- IMGroupMembers.reconcile_agent_members_in_tx(repo, group.id) do
         {:ok, %{status: :participant_marked_left, removed_memberships: delta.removed_memberships}}
       end
     end
   end
 
-  defp upsert_binding(_repo, namespace, external_id, group_id, metadata) do
-    Ankole.Ash.create(ExternalBinding, :bind_in_tx, %{
+  defp upsert_binding(namespace, external_id, group_id, metadata) do
+    AuthZ.bind_external_binding(%{
       provider: namespace,
       external_kind: :im_group,
       external_id: external_id,
@@ -135,11 +157,14 @@ defmodule Ankole.Conversations.IMGroupProjection do
         {:keep_existing, %Conversation{principal_group_id: existing_id}}
         when is_binary(existing_id) and existing_id != group_id ->
           existing_namespace =
-            repo.one(
-              from binding in ExternalBinding,
-                where: binding.group_id == ^existing_id and binding.external_kind == :im_group,
-                select: binding.provider
+            AuthZ.list_external_bindings!(
+              query: [
+                filter: [group_id: existing_id, external_kind: :im_group],
+                select: [:provider]
+              ]
             )
+            |> Enum.map(& &1.provider)
+            |> List.first()
 
           Logging.warning(
             "conversations.im_group.channel_namespace_conflict",
@@ -179,21 +204,22 @@ defmodule Ankole.Conversations.IMGroupProjection do
     )
   end
 
-  defp group(repo, namespace, external_id, lock?) do
-    query =
-      from binding in ExternalBinding,
-        join: group in Group,
-        on: group.id == binding.group_id,
-        where:
-          binding.provider == ^namespace and binding.external_kind == :im_group and
-            binding.external_id == ^external_id,
-        select: group
+  defp group(namespace, external_id, lock?) do
+    group_ids =
+      AuthZ.list_external_bindings!(
+        query: [
+          filter: [provider: namespace, external_kind: :im_group, external_id: external_id],
+          select: [:group_id]
+        ]
+      )
+      |> Enum.map(& &1.group_id)
 
-    query = if lock?, do: lock(query, "FOR UPDATE"), else: query
+    query = [filter: [id: [in: group_ids]]]
+    query = if lock?, do: Keyword.put(query, :lock, :for_update), else: query
 
-    case repo.one(query) do
-      %Group{} = group -> {:ok, group}
-      nil -> {:error, :not_found}
+    case AuthZ.list_groups!(query: query) do
+      [group] -> {:ok, group}
+      [] -> {:error, :not_found}
     end
   end
 

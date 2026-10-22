@@ -1,18 +1,211 @@
 defmodule Ankole.Conversations do
-  @moduledoc "Owns conversations, participation, and committed messages."
+  @moduledoc """
+  Owns conversations, participation, and committed messages.
+
+  The domain gives resource-level code interface functions and one generic
+  action for each transaction entry point. The `_in_tx` functions run inside
+  the transaction of a generic action of this domain or of another domain.
+  """
+  use Ankole.Ash.Domain
   require Ash.Query
-  import Ecto.Query
 
   alias Ankole.Conversations.Target, as: StatementTarget
   alias Ankole.AIGateway
-  alias Ankole.Conversations.Conversation
-  alias Ankole.Conversations.Message
-  alias Ankole.Conversations.ModelPreferences
-  alias Ankole.Conversations.Participant
-  alias Ankole.Principals.Principal
+  alias Ankole.Conversations.{Conversation, Locks, Message, ModelPreferences, Participant}
+  alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Principals.WorkAccess
   alias Ankole.Signals.Signal
-  alias Ankole.{Repo, Signals}
+  alias Ankole.{Errors, Repo, Signals}
+
+  resources do
+    resource Ankole.Conversations.Conversation do
+      define(:get_conversation, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_conversations, action: :read)
+      define(:ensure_native_conversation, action: :ensure_native)
+      define(:create_external_conversation, action: :create_external)
+      define(:observe_conversation, action: :observe)
+      define(:put_metadata_conversation, action: :put_metadata)
+      define(:touch_conversation, action: :touch)
+      define(:advance_sequence_conversation, action: :advance_sequence)
+      define(:set_standing_orders_conversation, action: :set_standing_orders)
+      define(:remove_conversation, action: :remove)
+      define(:start_native_conversation, action: :start_native, args: [:human_uid, :attrs])
+      define(:post_native_message, action: :post_native, args: [:human_uid, :id, :attrs])
+
+      define(:change_native_queue,
+        action: :change_native_queue,
+        args: [:human_uid, :id, :attrs]
+      )
+
+      define(:remove_native_conversation, action: :remove_native, args: [:human_uid, :id])
+      define(:native_conversation_detail, action: :native_detail, args: [:human_uid, :id, :opts])
+
+      define(:select_model_profile,
+        action: :select_model_profile,
+        args: [:human_uid, :id, :profile]
+      )
+
+      define(:update_external_metadata, action: :update_external_metadata, args: [:id, :update])
+      define(:observe_entry, action: :observe_entry, args: [:binding, :fact, :now])
+      define(:observe_reaction, action: :observe_reaction, args: [:binding, :fact, :now])
+      define(:observe_action, action: :observe_action, args: [:binding, :fact, :now])
+      define(:observe_lifecycle, action: :observe_lifecycle, args: [:binding, :fact, :now])
+      define(:notify_held_sender, action: :notify_held_sender, args: [:fact, :now])
+
+      define(:ensure_im_group,
+        action: :ensure_im_group,
+        args: [:group_key, :attrs, :context, :opts]
+      )
+
+      define(:update_im_group_membership,
+        action: :update_im_group_membership,
+        args: [:group_key, :update]
+      )
+
+      define(:replace_im_group_members,
+        action: :replace_im_group_members,
+        args: [:group_id, :human_uids]
+      )
+
+      define(:reconcile_im_group_agents, action: :reconcile_im_group_agents, args: [:group_id])
+
+      define(:read_context_snapshot,
+        action: :context_snapshot,
+        args: [:id, :key, :read_seq, :excluded_ids, :opts]
+      )
+    end
+
+    resource Ankole.Conversations.Participant do
+      define(:get_participant,
+        action: :read,
+        get_by: [:conversation_id, :principal_uid],
+        not_found_error?: false
+      )
+
+      define(:list_participants, action: :read)
+      define(:join_participant, action: :join)
+    end
+
+    resource Ankole.Conversations.Message do
+      define(:get_message, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_messages, action: :read)
+      define(:record_message, action: :record)
+      define(:record_once_message, action: :record_once)
+      define(:edit_message, action: :edit)
+      define(:observe_message, action: :observe)
+      define(:resolve_attachments_message, action: :resolve_attachments)
+      define(:remove_message, action: :remove)
+    end
+
+    resource Ankole.Conversations.ExternalMessageRef do
+      define(:get_external_message_ref,
+        action: :read,
+        get_by: [:message_id],
+        not_found_error?: false
+      )
+
+      define(:list_external_message_refs, action: :read)
+      define(:record_external_message_ref, action: :record)
+      define(:observe_external_message_ref, action: :observe)
+      define(:fold_reaction_external_message_ref, action: :fold_reaction)
+    end
+
+    resource Ankole.Conversations.InputTombstone do
+      define(:get_input_tombstone,
+        action: :read,
+        get_by: [:conversation_id, :provider_message_id],
+        not_found_error?: false
+      )
+
+      define(:list_input_tombstones, action: :read)
+      define(:record_input_tombstone, action: :record)
+      define(:expire_input_tombstone, action: :expire)
+    end
+
+    resource Ankole.Conversations.InboundBatch do
+      define(:get_inbound_batch, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_inbound_batches, action: :read)
+      define(:open_inbound_batch, action: :open)
+      define(:replace_prefix_inbound_batch, action: :replace_prefix)
+      define(:revise_inbound_batch, action: :revise)
+      define(:finalize_inbound_batch, action: :finalize_due, args: [:batch_id, :now])
+    end
+
+    resource Ankole.Conversations.Delivery.PreviewState do
+      define(:get_preview_state, action: :read, get_by: [:signal_id], not_found_error?: false)
+      define(:list_preview_states, action: :read)
+      define(:ensure_preview_state, action: :ensure)
+      define(:update_preview_preview_state, action: :update_preview)
+
+      define(:record_preview_provider_message,
+        action: :record_provider_message,
+        args: [:signal_id, :provider_message_id, :provider_thread_id]
+      )
+
+      define(:put_preview_checkpoint,
+        action: :put_checkpoint,
+        args: [:signal_id, :checkpoint, :source]
+      )
+
+      define(:update_preview_checkpoint, action: :update_checkpoint, args: [:signal_id, :update])
+
+      define(:prepare_preview_mutation,
+        action: :prepare_mutation,
+        args: [:signal_id, :purpose, :actions_digest, :uuid]
+      )
+
+      define(:wake_blocked_previews, action: :wake_blocked, args: [:agent_uid, :binding_name])
+
+      define(:claim_preview_owner,
+        action: :claim_owner,
+        args: [:signal_id, :subject_uid, :conversation_id, :stream_signal_id, :opts]
+      )
+
+      define(:authorize_preview_owner, action: :authorize_owner, args: [:opts])
+      define(:switch_preview_owner, action: :switch_owner, args: [:state, :new_owner, :handoff])
+
+      define(:checkpoint_preview_presentation,
+        action: :checkpoint_presentation,
+        args: [:state, :presentation]
+      )
+    end
+
+    resource Ankole.Conversations.Delivery.Intent do
+      define(:get_intent,
+        action: :read,
+        get_by: [:agent_uid, :binding_name, :outbound_key],
+        not_found_error?: false
+      )
+
+      define(:list_intents, action: :read)
+      define(:commit_intent, action: :commit)
+      define(:prepare_intent, action: :prepare)
+      define(:import_attachments_intent, action: :import_attachments)
+      define(:link_message_intent, action: :link_message)
+
+      define(:claim_intent_dispatch,
+        action: :claim_dispatch,
+        args: [:agent_uid, :binding_name, :outbound_key, :adapter, :now]
+      )
+
+      define(:finalize_intent_attempt,
+        action: :finalize_attempt,
+        args: [:intent, :phase, :result, :conversation, :now]
+      )
+
+      define(:requeue_intent,
+        action: :retry_stopped,
+        args: [:agent_uid, :binding_name, :outbound_key, :now]
+      )
+
+      define(:wake_blocked_intents,
+        action: :wake_blocked,
+        args: [:agent_uid, :binding_name, :now]
+      )
+    end
+  end
+
+  @addressed "conversation.message.addressed"
 
   @doc "Commits the effects of a visible Message change with its observation."
   def message_changed_in_tx(repo, before_message, after_message, now) do
@@ -48,7 +241,7 @@ defmodule Ankole.Conversations do
       when is_binary(id) and is_binary(conversation_id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          {:ok, conversation_id} <- Ecto.UUID.cast(conversation_id) do
-      Repo.get_by(Message, id: id, conversation_id: conversation_id)
+      conversation_message(conversation_id, id)
     else
       _ -> nil
     end
@@ -62,15 +255,12 @@ defmodule Ankole.Conversations do
 
   def reply_candidate_texts(signal_ids) when is_list(signal_ids) do
     messages =
-      Repo.all(
-        from(message in Message,
-          where: message.signal_id in ^signal_ids,
-          distinct: message.signal_id,
-          order_by: [asc: message.signal_id, desc: message.created_at],
-          select: {message.signal_id, message.text}
-        )
-      )
-      |> Map.new()
+      Message
+      |> Ash.Query.filter(signal_id in ^signal_ids)
+      |> Ash.Query.sort(created_at: :desc)
+      |> Ash.Query.select([:signal_id, :text])
+      |> Ankole.Ash.read!()
+      |> latest_by(:signal_id, :text)
 
     fallback_ids = Enum.filter(signal_ids, &is_nil(Map.get(messages, &1)))
 
@@ -78,34 +268,39 @@ defmodule Ankole.Conversations do
       if fallback_ids == [] do
         %{}
       else
-        Repo.all(
-          from(intent in Ankole.Conversations.Delivery.Intent,
-            where: intent.source_signal_id in ^fallback_ids,
-            where: not is_nil(intent.fallback_visible_text),
-            distinct: intent.source_signal_id,
-            order_by: [asc: intent.source_signal_id, desc: intent.inserted_at],
-            select: {intent.source_signal_id, intent.fallback_visible_text}
-          )
+        Intent
+        |> Ash.Query.filter(
+          source_signal_id in ^fallback_ids and not is_nil(fallback_visible_text)
         )
-        |> Map.new()
+        |> Ash.Query.sort(inserted_at: :desc)
+        |> Ash.Query.select([:source_signal_id, :fallback_visible_text])
+        |> Ankole.Ash.read!()
+        |> latest_by(:source_signal_id, :fallback_visible_text)
       end
 
     Map.new(signal_ids, &{&1, Map.get(messages, &1) || Map.get(fallback, &1)})
   end
 
+  # The rows are sorted newest first, so the first row of each key wins.
+  defp latest_by(rows, key, value) do
+    Enum.reduce(rows, %{}, fn row, acc ->
+      Map.put_new(acc, Map.fetch!(row, key), Map.fetch!(row, value))
+    end)
+  end
+
   def agents do
-    Repo.all(
-      from(p in Principal,
-        where: p.type == :agent and p.status == :active,
-        order_by: [asc: p.display_name, asc: p.uid]
-      )
+    Ankole.Principals.Domain.list_principals!(
+      query: [
+        filter: [type: :agent, status: :active],
+        sort: [display_name: :asc, uid: :asc]
+      ]
     )
   end
 
   def model_preferences(human_uid, id) do
     with {:ok, id} <- cast_id(id),
-         %Conversation{} = conversation <- Repo.one(visible_conversation(human_uid, id)),
-         %Principal{} = agent <- conversation_agent(Repo, id),
+         %Conversation{} = conversation <- visible_conversation(human_uid, id),
+         %{} = agent <- conversation_agent(id),
          :ok <- authorize_page(human_uid, conversation.page_id) do
       ModelPreferences.selection(Repo, conversation, agent.uid)
     else
@@ -114,90 +309,104 @@ defmodule Ankole.Conversations do
     end
   end
 
-  def set_model_profile(human_uid, id, profile) do
+  def set_model_profile(human_uid, id, profile),
+    do: human_uid |> select_model_profile(id, profile) |> Errors.reason()
+
+  @doc false
+  def set_model_profile_in_tx(repo, human_uid, id, profile) do
     with {:ok, id} <- cast_id(id),
-         %Conversation{} <- Repo.one(visible_conversation(human_uid, id)),
-         %Principal{} = selected_agent <- conversation_agent(Repo, id) do
-      Repo.transact(fn repo ->
-        with :ok <- lock_participants_in_tx(repo, human_uid, selected_agent.uid),
-             :ok <-
-               Signals.lock_target_in_tx(repo, %{
-                 agent_uid: selected_agent.uid,
-                 session_id: Ankole.Sessions.Key.conversation(id)
-               }),
-             :ok <- check_human_in_tx(repo, human_uid),
-             {:ok, agent} <- active_agent_in_tx(repo, selected_agent.uid),
-             %Conversation{} = conversation <-
-               repo.one(from(c in visible_conversation(human_uid, id), lock: "FOR UPDATE")),
-             :ok <- authorize_page(human_uid, conversation.page_id),
-             {:ok, profile} <- ModelPreferences.validate(agent.uid, profile),
-             {:ok, conversation} <- ModelPreferences.put(repo, conversation, profile) do
-          ModelPreferences.selection(repo, conversation, agent.uid)
-        else
-          {:error, _} = error -> error
-          _ -> {:error, :conversation_not_found}
-        end
-      end)
+         %Conversation{} <- visible_conversation(human_uid, id),
+         %{} = selected_agent <- conversation_agent(id) do
+      with :ok <- lock_participants_in_tx(repo, human_uid, selected_agent.uid),
+           :ok <-
+             Signals.lock_target_in_tx(repo, %{
+               agent_uid: selected_agent.uid,
+               session_id: Ankole.Sessions.Key.conversation(id)
+             }),
+           :ok <- check_human_in_tx(repo, human_uid),
+           {:ok, agent} <- active_agent_in_tx(repo, selected_agent.uid),
+           %Conversation{} = conversation <- visible_conversation(human_uid, id, lock: true),
+           :ok <- authorize_page(human_uid, conversation.page_id),
+           {:ok, profile} <- ModelPreferences.validate(agent.uid, profile),
+           {:ok, conversation} <- ModelPreferences.put(repo, conversation, profile) do
+        ModelPreferences.selection(repo, conversation, agent.uid)
+      else
+        {:error, _} = error -> error
+        _ -> {:error, :conversation_not_found}
+      end
     else
       {:error, _} = error -> error
       _ -> {:error, :conversation_not_found}
     end
   end
 
-  def list(human_uid) do
-    list_query(human_uid) |> Repo.all()
-  end
+  def list(human_uid), do: list_native(human_uid, nil)
 
   @doc "Lists the current Human's conversations attached to an accessible Page."
   def list_for_page(human_uid, page_id) do
     with {:ok, page_id} <- cast_id(page_id),
          :ok <- authorize_page(human_uid, page_id) do
-      {:ok, Repo.all(from(c in list_query(human_uid), where: c.page_id == ^page_id))}
+      {:ok, list_native(human_uid, page_id)}
     end
   end
 
-  defp list_query(human_uid) do
-    from(c in visible_conversations(human_uid),
-      join: member in Participant,
-      on: member.conversation_id == c.id and member.role == :agent,
-      join: agent in Principal,
-      on: agent.uid == member.principal_uid,
-      order_by: [desc: c.last_activity_at, desc: c.id],
-      limit: 100,
-      select: %{conversation: c, agent: agent}
-    )
+  defp list_native(human_uid, page_id) do
+    if active_human?(human_uid) do
+      query =
+        Ash.Query.filter(
+          Conversation,
+          kind == :native and exists(participants, principal_uid == ^human_uid) and
+            exists(participants, role == :agent)
+        )
+
+      query = if page_id, do: Ash.Query.filter(query, page_id == ^page_id), else: query
+
+      conversations =
+        query
+        |> Ash.Query.sort(last_activity_at: :desc, id: :desc)
+        |> Ash.Query.limit(100)
+        |> Ankole.Ash.read!()
+
+      agents = conversation_agents(Enum.map(conversations, & &1.id))
+
+      for conversation <- conversations,
+          agent = Map.get(agents, conversation.id),
+          do: %{conversation: conversation, agent: agent}
+    else
+      []
+    end
   end
 
-  def get(human_uid, id, opts \\ []) do
+  def get(human_uid, id, opts \\ []),
+    do: human_uid |> native_conversation_detail(id, opts) |> Errors.reason()
+
+  @doc false
+  def detail_in_tx(repo, human_uid, id, opts) do
     before = Keyword.get(opts, :before_seq)
     loaded_first = Keyword.get(opts, :loaded_first_seq)
 
     with true <- is_nil(before) or (is_integer(before) and before > 0),
          true <- is_nil(loaded_first) or (is_integer(loaded_first) and loaded_first > 0),
          {:ok, id} <- cast_id(id) do
-      Repo.transact(fn repo ->
-        with %Principal{} = agent <- conversation_agent(repo, id),
-             :ok <-
-               Signals.lock_target_in_tx(repo, %{
-                 agent_uid: agent.uid,
-                 session_id: Ankole.Sessions.Key.conversation(id)
-               }),
-             %Conversation{} = conversation <- repo.one(visible_conversation(human_uid, id)) do
-          {:ok, detail(conversation, agent, opts)}
-        else
-          _ -> {:error, :conversation_not_found}
-        end
-      end)
+      with %{} = agent <- conversation_agent(id),
+           :ok <-
+             Signals.lock_target_in_tx(repo, %{
+               agent_uid: agent.uid,
+               session_id: Ankole.Sessions.Key.conversation(id)
+             }),
+           %Conversation{} = conversation <- visible_conversation(human_uid, id) do
+        {:ok, detail(repo, conversation, agent, opts)}
+      else
+        _ -> {:error, :conversation_not_found}
+      end
     else
       false -> {:error, :invalid_request}
       {:error, _} = error -> error
     end
   end
 
-  def create(human_uid, attrs) do
-    Repo.assert_outside_transaction!()
-    Repo.transact(&create_in_tx(&1, human_uid, attrs)) |> committed(human_uid)
-  end
+  def create(human_uid, attrs),
+    do: human_uid |> start_native_conversation(attrs) |> Errors.reason() |> committed(human_uid)
 
   @doc "Creates a native conversation and returns publication facts to its transaction owner."
   def create_in_tx(repo, human_uid, attrs) when is_map(attrs) do
@@ -214,7 +423,7 @@ defmodule Ankole.Conversations do
            :ok <- check_human_in_tx(repo, human_uid),
            {:ok, agent} <- active_agent_in_tx(repo, agent_uid),
            :ok <- Signals.lock_target_in_tx(repo, %{agent_uid: agent_uid, session_id: session_id}),
-           {:ok, text, attachments} <- human_content(repo, human_uid, id, message_id, attrs),
+           {:ok, text, attachments} <- human_content(human_uid, id, message_id, attrs),
            :ok <- authorize_page(human_uid, page_id),
            {:ok, conversation} <-
              ensure_conversation_in_tx(
@@ -264,65 +473,61 @@ defmodule Ankole.Conversations do
 
   def create_in_tx(_repo, _human_uid, _attrs), do: {:error, :invalid_request}
 
-  def post(human_uid, id, attrs) do
-    Repo.assert_outside_transaction!()
-    Repo.transact(&post_in_tx(&1, human_uid, id, attrs)) |> committed(human_uid)
-  end
+  def post(human_uid, id, attrs),
+    do: human_uid |> post_native_message(id, attrs) |> Errors.reason() |> committed(human_uid)
 
   @doc "Changes only native follow-ups that have not been admitted to a turn."
-  def update_queue(human_uid, id, attrs) when is_map(attrs) do
-    Repo.assert_outside_transaction!()
-
-    Repo.transact(fn repo ->
-      with {:ok, id} <- cast_id(id),
-           %Conversation{} = visible <- Repo.one(visible_conversation(human_uid, id)),
-           %Principal{} = agent <- conversation_agent(repo, id),
-           session_id = Ankole.Sessions.Key.conversation(id),
-           :ok <- lock_participants_in_tx(repo, human_uid, agent.uid),
-           :ok <-
-             Signals.lock_target_in_tx(repo, %{
-               agent_uid: agent.uid,
-               session_id: session_id
-             }),
-           :ok <- check_human_in_tx(repo, human_uid),
-           :ok <- authorize_page(human_uid, visible.page_id),
-           %Conversation{} = conversation <-
-             repo.one(from(c in visible_conversation(human_uid, id), lock: "FOR UPDATE")),
-           inputs = repo.lock_all(pending_query(id) |> lock("FOR UPDATE"), "signals"),
-           true <- Enum.all?(inputs, &(&1.human_uid == human_uid)),
-           {:ok, accepted_retry} <- accepted_retry_in_tx(repo, conversation, agent, attrs),
-           :ok <-
-             if(accepted_retry, do: :ok, else: check_queue_version(conversation, inputs, attrs)),
-           {:ok, changed} <-
-             if(accepted_retry,
-               do: {:ok, [accepted_retry]},
-               else: change_queue_in_tx(repo, human_uid, conversation, agent, inputs, attrs)
-             ),
-           :ok <-
-             Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
-               repo,
-               %{agent_uid: agent.uid, session_id: session_id},
-               DateTime.utc_now(:microsecond)
-             ) do
-        removed_ids = for input <- changed, input.data["removed"] == true, do: input.message_id
-
-        {:ok,
-         %{
-           id: id,
-           session_key: %{agent_uid: agent.uid, session_id: session_id},
-           publications: publications(id, true),
-           removed_message_ids: removed_ids
-         }}
-      else
-        nil -> {:error, :conversation_not_found}
-        false -> {:error, :invalid_request}
-        error -> error
-      end
-    end)
-    |> committed(human_uid)
-  end
+  def update_queue(human_uid, id, attrs) when is_map(attrs),
+    do: human_uid |> change_native_queue(id, attrs) |> Errors.reason() |> committed(human_uid)
 
   def update_queue(_human_uid, _id, _attrs), do: {:error, :invalid_request}
+
+  @doc false
+  def update_queue_in_tx(repo, human_uid, id, attrs) do
+    with {:ok, id} <- cast_id(id),
+         %Conversation{} = visible <- visible_conversation(human_uid, id),
+         %{} = agent <- conversation_agent(id),
+         session_id = Ankole.Sessions.Key.conversation(id),
+         :ok <- lock_participants_in_tx(repo, human_uid, agent.uid),
+         :ok <-
+           Signals.lock_target_in_tx(repo, %{
+             agent_uid: agent.uid,
+             session_id: session_id
+           }),
+         :ok <- check_human_in_tx(repo, human_uid),
+         :ok <- authorize_page(human_uid, visible.page_id),
+         %Conversation{} = conversation <- visible_conversation(human_uid, id, lock: true),
+         inputs = Locks.signals(pending_query(id)),
+         true <- Enum.all?(inputs, &(&1.human_uid == human_uid)),
+         {:ok, accepted_retry} <- accepted_retry(conversation, agent, attrs),
+         :ok <-
+           if(accepted_retry, do: :ok, else: check_queue_version(conversation, inputs, attrs)),
+         {:ok, changed} <-
+           if(accepted_retry,
+             do: {:ok, [accepted_retry]},
+             else: change_queue_in_tx(repo, human_uid, conversation, agent, inputs, attrs)
+           ),
+         :ok <-
+           Ankole.Sessions.Jobs.EnsureDriver.enqueue_in_tx(
+             repo,
+             %{agent_uid: agent.uid, session_id: session_id},
+             DateTime.utc_now(:microsecond)
+           ) do
+      removed_ids = for input <- changed, input.data["removed"] == true, do: input.message_id
+
+      {:ok,
+       %{
+         id: id,
+         session_key: %{agent_uid: agent.uid, session_id: session_id},
+         publications: publications(id, true),
+         removed_message_ids: removed_ids
+       }}
+    else
+      nil -> {:error, :conversation_not_found}
+      false -> {:error, :invalid_request}
+      error -> error
+    end
+  end
 
   @doc "A derived version of the pending queue and its latest explicit pause."
   def queue_version(conversation, inputs) do
@@ -351,10 +556,10 @@ defmodule Ankole.Conversations do
         stop_queue_in_tx(repo, human_uid, conversation, agent, inputs, attrs)
 
       "resume" ->
-        with {:ok, _} <- put_queue_pause(repo, conversation, false), do: {:ok, []}
+        with {:ok, _} <- put_queue_pause(conversation, false), do: {:ok, []}
 
       "reorder" ->
-        reorder_inputs_in_tx(repo, inputs, Ankole.Attrs.get(attrs, :message_ids))
+        reorder_inputs(inputs, Ankole.Attrs.get(attrs, :message_ids))
 
       action when action in ["regenerate", "edit_last"] ->
         retry_last_in_tx(repo, human_uid, conversation, agent, action, attrs)
@@ -365,10 +570,7 @@ defmodule Ankole.Conversations do
                Enum.find(inputs, &(&1.message_id == id and &1.human_uid == human_uid)) do
           with {:ok, changed} <- change_input_in_tx(repo, input, action, attrs) do
             if action == "send_now",
-              do:
-                reorder_inputs_in_tx(repo, inputs, [
-                  id | Enum.map(inputs, & &1.message_id) -- [id]
-                ]),
+              do: reorder_inputs(inputs, [id | Enum.map(inputs, & &1.message_id) -- [id]]),
               else: {:ok, changed}
           end
         else
@@ -389,7 +591,7 @@ defmodule Ankole.Conversations do
     }
   end
 
-  defp accepted_retry_in_tx(repo, conversation, agent, attrs) do
+  defp accepted_retry(conversation, agent, attrs) do
     action = Ankole.Attrs.get(attrs, :action)
 
     if action in ["regenerate", "edit_last"] do
@@ -397,11 +599,7 @@ defmodule Ankole.Conversations do
            {:ok, message_id} <- cast_id(Ankole.Attrs.get(attrs, :message_id)) do
         data = retry_command_data(action, message_id, attrs)
 
-        case repo.get_by(Signal,
-               agent_uid: agent.uid,
-               source: "native-control:" <> conversation.id,
-               source_event_id: command_id
-             ) do
+        case control_signal(agent, conversation, command_id) do
           %Signal{type: "command.retry", status: :completed} = existing ->
             if Map.take(existing.data, Map.keys(data)) == data,
               do: {:ok, existing},
@@ -419,14 +617,26 @@ defmodule Ankole.Conversations do
     end
   end
 
+  defp control_signal(agent, conversation, command_id) do
+    Ankole.Signals.Domain.list_signals!(
+      query: [
+        filter: [
+          agent_uid: agent.uid,
+          source: "native-control:" <> conversation.id,
+          source_event_id: command_id
+        ]
+      ]
+    )
+    |> List.first()
+  end
+
   defp retry_last_in_tx(repo, human_uid, conversation, agent, action, attrs) do
     with {:ok, command_id} <- cast_id(Ankole.Attrs.get(attrs, :command_id)),
          {:ok, message_id} <- cast_id(Ankole.Attrs.get(attrs, :message_id)) do
       key = %{agent_uid: agent.uid, session_id: Ankole.Sessions.Key.conversation(conversation.id)}
       now = DateTime.utc_now(:microsecond)
 
-      with %Message{} = message <-
-             repo.get_by(Message, id: message_id, conversation_id: conversation.id),
+      with %Message{} = message <- conversation_message(conversation.id, message_id),
            %Signal{} = input <- retry_input(repo, human_uid, message, action),
            {:ok, command} <-
              Signals.accept_in_tx(repo, %{
@@ -445,11 +655,10 @@ defmodule Ankole.Conversations do
            {:ok, %Signal{}} <-
              Ankole.Sessions.Commands.retry_source_in_tx(repo, key, command, input.id),
            :ok <- ModelPreferences.authorize_input(repo, conversation, agent.uid, "queue", true),
-           :ok <- edit_last_in_tx(repo, input, message, action, attrs),
+           :ok <- edit_last_in_tx(repo, message, action, attrs),
            {:ok, retry} <- Ankole.Sessions.Commands.retry_in_tx(repo, key, command, now),
            {:ok, retry} <-
-             retry
-             |> Ankole.Ash.update(:update_metadata, %{
+             Ankole.Signals.Domain.update_metadata_signal(retry, %{
                data: Map.put(retry.data, "model_profile", ModelPreferences.logical(conversation))
              }),
            :ok <- remove_native_reply_in_tx(repo, conversation.id, input.id, now) do
@@ -465,14 +674,12 @@ defmodule Ankole.Conversations do
   defp remove_native_reply_in_tx(repo, conversation_id, signal_id, now) do
     # Native replies have no external Delivery intent. Replace their visible
     # statement while retaining independently created Pages and tool history.
-    repo.all(
-      from(m in Message,
-        where:
-          m.conversation_id == ^conversation_id and m.signal_id == ^signal_id and
-            m.author_type == :agent,
-        lock: "FOR UPDATE"
-      )
+    Message
+    |> Ash.Query.filter(
+      conversation_id == ^conversation_id and signal_id == ^signal_id and author_type == :agent
     )
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!()
     |> Enum.reduce_while(:ok, fn message, :ok ->
       with :ok <- message_changed_in_tx(repo, message, nil, now),
            {:ok, _} <- Ankole.Ash.destroy(message, :remove) do
@@ -484,22 +691,21 @@ defmodule Ankole.Conversations do
   end
 
   defp retry_input(
-         repo,
+         _repo,
          human_uid,
          %Message{author_type: :human, author_uid: human_uid} = message,
          "edit_last"
        ) do
-    Signal
-    |> where(
-      [signal],
-      signal.message_id == ^message.id and
-        signal.conversation_id == ^message.conversation_id and
-        signal.type == "conversation.message.addressed"
-    )
-    |> order_by([signal], desc: signal.queue_sequence)
-    |> limit(1)
-    |> lock("FOR UPDATE")
-    |> repo.lock_all("signals")
+    [
+      filter: [
+        message_id: message.id,
+        conversation_id: message.conversation_id,
+        type: @addressed
+      ],
+      sort: [queue_sequence: :desc],
+      limit: 1
+    ]
+    |> Locks.signals()
     |> List.first()
   end
 
@@ -510,7 +716,7 @@ defmodule Ankole.Conversations do
          "regenerate"
        )
        when not is_nil(signal_id) do
-    case Ankole.Signals.lock_signal_in_tx(repo, signal_id) do
+    case Signals.lock_signal_in_tx(repo, signal_id) do
       %Signal{} = input -> if retryable_reply?(message, input), do: input
       nil -> nil
     end
@@ -518,9 +724,9 @@ defmodule Ankole.Conversations do
 
   defp retry_input(_repo, _human_uid, _message, _action), do: nil
 
-  defp edit_last_in_tx(_repo, _input, _message, "regenerate", _attrs), do: :ok
+  defp edit_last_in_tx(_repo, _message, "regenerate", _attrs), do: :ok
 
-  defp edit_last_in_tx(repo, _input, message, "edit_last", attrs) do
+  defp edit_last_in_tx(repo, message, "edit_last", attrs) do
     if Ankole.Attrs.get(attrs, :expected_text) == (message.text || "") do
       with {:ok, text} <- native_text(Ankole.Attrs.get(attrs, :text), message.attachments),
            {:ok, updated} <-
@@ -532,7 +738,7 @@ defmodule Ankole.Conversations do
     end
   end
 
-  defp put_queue_pause(_repo, conversation, paused, command_id \\ nil) do
+  defp put_queue_pause(conversation, paused, command_id \\ nil) do
     metadata = Map.put(conversation.metadata, "queue_paused", paused)
 
     metadata =
@@ -543,19 +749,17 @@ defmodule Ankole.Conversations do
 
   defp stop_queue_in_tx(repo, human_uid, conversation, agent, inputs, attrs) do
     with {:ok, command_id} <- cast_id(Ankole.Attrs.get(attrs, :command_id)) do
-      source = "native-control:" <> conversation.id
-
-      case repo.get_by(Signal, agent_uid: agent.uid, source: source, source_event_id: command_id) do
+      case control_signal(agent, conversation, command_id) do
         %Signal{} = existing ->
           {:ok, [existing]}
 
         nil ->
-          with {:ok, paused} <- pause_inputs_in_tx(repo, inputs),
-               {:ok, _} <- put_queue_pause(repo, conversation, true, command_id),
+          with {:ok, paused} <- pause_inputs(inputs),
+               {:ok, _} <- put_queue_pause(conversation, true, command_id),
                {:ok, event} <-
                  Signals.accept_in_tx(repo, %{
                    producer: :kernel,
-                   source: source,
+                   source: "native-control:" <> conversation.id,
                    id: command_id,
                    type: "command.stop",
                    subject: conversation.id,
@@ -568,9 +772,9 @@ defmodule Ankole.Conversations do
     end
   end
 
-  defp pause_inputs_in_tx(_repo, inputs) do
+  defp pause_inputs(inputs) do
     Enum.reduce_while(inputs, {:ok, []}, fn input, {:ok, paused} ->
-      case Ankole.Ash.update(input, :update_metadata, %{
+      case Ankole.Signals.Domain.update_metadata_signal(input, %{
              data: Map.put(input.data, "delivery_mode", "queue")
            }) do
         {:ok, input} -> {:cont, {:ok, [input | paused]}}
@@ -580,26 +784,28 @@ defmodule Ankole.Conversations do
   end
 
   defp change_input_in_tx(repo, input, "edit", attrs) do
-    with %Message{} = message <- repo.get_by(Message, id: input.message_id),
+    with %Message{} = message <- message(input.message_id),
          {:ok, text} <- native_text(Ankole.Attrs.get(attrs, :text), message.attachments),
          {:ok, updated} <-
            Ankole.Ash.update(message, :edit, %{text: text, links: page_links(text)}),
          :ok <- message_changed_in_tx(repo, message, updated, DateTime.utc_now(:microsecond)),
          {:ok, input} <-
-           Ankole.Ash.update(input, :update_metadata, %{data: put_input_text(input.data, text)}),
+           Ankole.Signals.Domain.update_metadata_signal(input, %{
+             data: put_input_text(input.data, text)
+           }),
          do: {:ok, [input]}
   end
 
   defp change_input_in_tx(repo, input, "send_now", _attrs) do
     with :ok <-
-           Ankole.Conversations.ModelPreferences.ensure_can_steer(
+           ModelPreferences.ensure_can_steer(
              repo,
              input.agent_uid,
              input.conversation_id,
              input.data["model_profile"] || "primary"
            ),
          {:ok, input} <-
-           Ankole.Ash.update(input, :update_metadata, %{
+           Ankole.Signals.Domain.update_metadata_signal(input, %{
              data: Map.put(input.data, "delivery_mode", "steer")
            }),
          do: {:ok, [input]}
@@ -609,13 +815,13 @@ defmodule Ankole.Conversations do
     # Retain the accepted identity so a late POST retry cannot recreate removed input.
     now = DateTime.utc_now(:microsecond)
 
-    with %Message{} = message <- repo.get_by(Message, id: input.message_id),
+    with %Message{} = message <- message(input.message_id),
          :ok <- message_changed_in_tx(repo, message, nil, now),
          {:ok, input} <-
-           Ankole.Ash.update(input, :complete, %{
-             completed_at: now,
+           Ankole.Signals.Domain.update_metadata_signal(input, %{
              data: Map.put(input.data, "removed", true)
            }),
+         {:ok, input} <- Ankole.Sessions.Queue.mark_event_completed_in_tx(repo, input, now),
          do: {:ok, [input]}
   end
 
@@ -624,7 +830,7 @@ defmodule Ankole.Conversations do
     if is_map(data["entry"]), do: put_in(data, ["entry", "text"], text), else: data
   end
 
-  defp reorder_inputs_in_tx(repo, inputs, ids) when is_list(ids) do
+  defp reorder_inputs(inputs, ids) when is_list(ids) do
     current_ids = Enum.map(inputs, & &1.message_id)
 
     if length(ids) == length(current_ids) and MapSet.new(ids) == MapSet.new(current_ids) do
@@ -632,22 +838,14 @@ defmodule Ankole.Conversations do
       # Allocate above the high-water mark to preserve the unique sequence constraint.
       maximum =
         case inputs do
-          [input | _] ->
-            repo.one(
-              from(s in Signal,
-                where: s.agent_uid == ^input.agent_uid and s.session_id == ^input.session_id,
-                select: max(s.queue_sequence)
-              )
-            )
-
-          [] ->
-            0
+          [input | _] -> max_queue_sequence(input)
+          [] -> 0
         end
 
       ids
       |> Enum.with_index((maximum || 0) + 1)
       |> Enum.reduce_while({:ok, []}, fn {id, sequence}, {:ok, changed} ->
-        case Ankole.Ash.update(Map.fetch!(by_id, id), :update_metadata, %{
+        case Ankole.Signals.Domain.update_metadata_signal(Map.fetch!(by_id, id), %{
                queue_sequence: sequence
              }) do
           {:ok, input} -> {:cont, {:ok, [input | changed]}}
@@ -659,56 +857,64 @@ defmodule Ankole.Conversations do
     end
   end
 
-  defp reorder_inputs_in_tx(_repo, _inputs, _ids), do: {:error, :invalid_request}
+  defp reorder_inputs(_inputs, _ids), do: {:error, :invalid_request}
+
+  defp max_queue_sequence(input) do
+    case Ankole.Signals.Domain.list_signals!(
+           query: [
+             filter: [agent_uid: input.agent_uid, session_id: input.session_id],
+             sort: [queue_sequence: :desc],
+             limit: 1,
+             select: [:queue_sequence]
+           ]
+         ) do
+      [%Signal{queue_sequence: sequence}] -> sequence
+      [] -> nil
+    end
+  end
 
   @doc "Deletes an idle native conversation owned by the current Human. Pages remain independent."
-  def delete(human_uid, id) do
-    Repo.assert_outside_transaction!()
+  def delete(human_uid, id), do: human_uid |> remove_native_conversation(id) |> Errors.reason()
 
-    result =
-      Repo.transact(fn repo ->
-        with {:ok, id} <- cast_id(id),
-             {:ok, %{agent: agent}} <- get(human_uid, id),
-             :ok <-
-               Signals.lock_target_in_tx(repo, %{
-                 agent_uid: agent.uid,
-                 session_id: Ankole.Sessions.Key.conversation(id)
-               }),
-             %Conversation{kind: :native, created_by: ^human_uid} = conversation <-
-               repo.one(from(c in Conversation, where: c.id == ^id, lock: "FOR UPDATE")),
-             false <-
-               repo.exists?(
-                 from(signal in Ankole.Signals.Signal,
-                   where:
-                     (signal.conversation_id == ^id or
-                        signal.session_id == ^Ankole.Sessions.Key.conversation(id)) and
-                       signal.status in [:queued, :running]
-                 )
-               ),
-             {:ok, _} <-
-               AIGateway.end_active_conversation_in_tx(
-                 repo,
-                 agent.uid,
-                 Ankole.Sessions.Key.conversation(id),
-                 DateTime.utc_now(:microsecond)
-               ),
-             {:ok, _} <- Ankole.Ash.destroy(conversation, :remove) do
-          {:ok, id}
-        else
-          true -> {:error, :conversation_busy}
-          {:error, _} = error -> error
-          _ -> {:error, :conversation_not_found}
-        end
-      end)
-
-    case result do
-      {:ok, id} ->
-        Ankole.Conversations.Events.publish_status(id)
-        {:ok, id}
-
-      error ->
-        error
+  @doc false
+  def delete_in_tx(repo, human_uid, id) do
+    with {:ok, id} <- cast_id(id),
+         {:ok, %{agent: agent}} <- detail_in_tx(repo, human_uid, id, []),
+         :ok <-
+           Signals.lock_target_in_tx(repo, %{
+             agent_uid: agent.uid,
+             session_id: Ankole.Sessions.Key.conversation(id)
+           }),
+         %Conversation{kind: :native, created_by: ^human_uid} = conversation <-
+           lock_conversation(id),
+         false <- busy?(id),
+         {:ok, _} <-
+           AIGateway.end_active_conversation_in_tx(
+             repo,
+             agent.uid,
+             Ankole.Sessions.Key.conversation(id),
+             DateTime.utc_now(:microsecond)
+           ),
+         {:ok, _} <- Ankole.Ash.destroy(conversation, :remove) do
+      {:ok, id}
+    else
+      true -> {:error, :conversation_busy}
+      {:error, _} = error -> error
+      _ -> {:error, :conversation_not_found}
     end
+  end
+
+  defp busy?(id) do
+    Ankole.Signals.Domain.list_signals!(
+      query: [
+        filter: [
+          or: [[conversation_id: id], [session_id: Ankole.Sessions.Key.conversation(id)]],
+          status: [in: [:queued, :running]]
+        ],
+        limit: 1,
+        select: [:id]
+      ]
+    ) != []
   end
 
   @doc "Appends human input and returns publication facts to its transaction owner."
@@ -717,8 +923,8 @@ defmodule Ankole.Conversations do
          {:ok, id} <- cast_id(id),
          {:ok, message_id} <- cast_id(Ankole.Attrs.get(attrs, :message_id)),
          {:ok, mode} <- delivery_mode(Ankole.Attrs.get(attrs, :delivery_mode)),
-         %Conversation{} <- repo.one(visible_conversation(human_uid, id)),
-         %Principal{} = agent <- conversation_agent(repo, id) do
+         %Conversation{} <- visible_conversation(human_uid, id),
+         %{} = agent <- conversation_agent(id) do
       with :ok <- lock_participants_in_tx(repo, human_uid, agent.uid),
            :ok <- check_human_in_tx(repo, human_uid),
            :ok <-
@@ -726,10 +932,9 @@ defmodule Ankole.Conversations do
                agent_uid: agent.uid,
                session_id: Ankole.Sessions.Key.conversation(id)
              }),
-           {:ok, text, attachments} <- human_content(repo, human_uid, id, message_id, attrs),
+           {:ok, text, attachments} <- human_content(human_uid, id, message_id, attrs),
            {:ok, agent} <- active_agent_in_tx(repo, agent.uid),
-           %Conversation{} = conversation <-
-             repo.one(from(c in visible_conversation(human_uid, id), lock: "FOR UPDATE")),
+           %Conversation{} = conversation <- visible_conversation(human_uid, id, lock: true),
            :ok <- authorize_page(human_uid, conversation.page_id),
            {:ok, message, inserted?} <-
              append_human_message_in_tx(
@@ -805,11 +1010,12 @@ defmodule Ankole.Conversations do
   defp post_native_in_tx(repo, id, event, text, kind, attachments) do
     with {:ok, id} <- cast_id(id),
          {:ok, text} <- native_text(text, attachments),
-         %Conversation{kind: :native} = conversation <-
-           repo.one(from(c in Conversation, where: c.id == ^id, lock: "FOR UPDATE")),
-         %Principal{uid: uid} <- conversation_agent(repo, id),
+         %Conversation{kind: :native} = conversation <- lock_conversation(id),
+         %{uid: uid} <- conversation_agent(id),
          true <- uid == event.agent_uid do
-      case repo.get_by(Message, conversation_id: id, signal_id: event.id) do
+      case Message
+           |> Ash.Query.filter(conversation_id == ^id and signal_id == ^event.id)
+           |> Ankole.Ash.read_one!() do
         %Message{text: ^text, kind: ^kind, attachments: ^attachments} = message ->
           {:ok, message}
 
@@ -849,7 +1055,7 @@ defmodule Ankole.Conversations do
             }
 
             with {:ok, message} <- Ankole.Ash.create(Message, :record, attrs),
-                 {:ok, _} <- touch_in_tx(repo, conversation, message.created_at) do
+                 {:ok, _} <- touch(conversation, message.created_at) do
               {:ok, message}
             end
           end
@@ -860,11 +1066,26 @@ defmodule Ankole.Conversations do
     end
   end
 
-  @doc "Returns the native host IDs for model-history lifecycle queries."
-  def native_ids_query, do: from(c in Conversation, where: c.kind == :native, select: c.id)
+  @doc """
+  Returns the native host IDs for model-history lifecycle queries.
 
-  @doc "The retained Message identities withdrawn from public conversation facts."
+  This Ecto query stays for the Sessions callers that compose it into their
+  own Ecto queries. New callers filter `list_conversations/1` by `kind`.
+  """
+  def native_ids_query do
+    import Ecto.Query, only: [from: 2]
+    from(c in Conversation, where: c.kind == :native, select: c.id)
+  end
+
+  @doc """
+  The retained Message identities withdrawn from public conversation facts.
+
+  This Ecto query stays for the Brain callers that compose it into their own
+  Ecto queries. New callers filter Messages by the `withdrawn` calculation.
+  """
   def removed_message_ids_query(conversation_id \\ nil) do
+    import Ecto.Query, only: [from: 2]
+
     query =
       from(input in Signal,
         where: input.data["removed"] == true and not is_nil(input.message_id),
@@ -877,90 +1098,82 @@ defmodule Ankole.Conversations do
   end
 
   @doc "Reads a bounded snapshot of statements not yet included by the caller."
-  def context_snapshot(
+  def context_snapshot(id, key, read_seq, excluded_ids, opts \\ []),
+    do: id |> read_context_snapshot(key, read_seq, excluded_ids, opts) |> Errors.reason()
+
+  @doc false
+  def context_snapshot_in_tx(
+        _repo,
         id,
         %{agent_uid: agent_uid, session_id: session_id},
         read_seq,
         excluded_ids,
-        opts \\ []
+        opts
       ) do
     limit = min(max(Keyword.get(opts, :limit, 50), 1), 500)
 
-    Repo.transact(fn repo ->
-      with {:ok, id} <- cast_id(id),
-           %Conversation{} = conversation <-
-             repo.one(from(c in Conversation, where: c.id == ^id, lock: "FOR SHARE")) do
-        max_seq = conversation.sequence_high_water
+    with {:ok, id} <- cast_id(id),
+         %Conversation{} = conversation <-
+           Conversation
+           |> Ash.Query.filter(id == ^id)
+           |> Ash.Query.lock("FOR SHARE")
+           |> Ankole.Ash.read_one!() do
+      max_seq = conversation.sequence_high_water
 
-        withheld =
-          from(input in Signal,
-            where: input.conversation_id == ^id and not is_nil(input.message_id),
-            where:
-              input.producer == :kernel and input.type == "conversation.message.addressed" and
-                input.status in [:queued, :running] and is_nil(input.last_attempt_at),
-            select: input.message_id
-          )
-
-        messages =
-          repo.all(
-            from(m in Message,
-              where:
-                m.conversation_id == ^id and m.seq > ^read_seq and
-                  m.seq <= ^max_seq,
-              where:
-                is_nil(m.session_id) or m.session_id != ^session_id or is_nil(m.author_uid) or
-                  m.author_uid != ^agent_uid,
-              where: m.id not in ^excluded_ids,
-              where: m.id not in subquery(withheld),
-              where: m.id not in subquery(removed_message_ids_query(id)),
-              order_by: [desc: m.seq],
-              limit: ^limit
+      messages =
+        Message
+        |> Ash.Query.filter(
+          conversation_id == ^id and seq > ^read_seq and seq <= ^max_seq and
+            (is_nil(session_id) or session_id != ^session_id or is_nil(author_uid) or
+               author_uid != ^agent_uid) and id not in ^excluded_ids and not withdrawn and
+            not exists(
+              inputs,
+              conversation_id == ^id and producer == :kernel and type == ^@addressed and
+                status in [:queued, :running] and is_nil(last_attempt_at)
             )
-          )
-          |> Enum.reverse()
+        )
+        |> Ash.Query.sort(seq: :desc)
+        |> Ash.Query.limit(limit)
+        |> Ankole.Ash.read!()
+        |> Enum.reverse()
 
-        {:ok, %{messages: messages, max_seq: max_seq}}
-      else
-        {:error, _} = error -> error
-        _ -> {:error, :conversation_not_found}
-      end
-    end)
-  end
-
-  @doc false
-  def ids_for_agent_in_tx(repo, uid) do
-    repo.all(
-      from(c in Conversation,
-        join: p in Participant,
-        on: p.conversation_id == c.id,
-        where: c.kind == :native and p.principal_uid == ^uid and p.role == :agent,
-        select: c.id
-      )
-    )
-  end
-
-  @doc false
-  def delete_for_agent_in_tx(repo, uid) do
-    ids =
-      from(p in Participant,
-        where: p.principal_uid == ^uid and p.role == :agent,
-        select: p.conversation_id
-      )
-
-    conversation_ids = repo.all(ids)
-
-    case Conversation
-         |> Ash.Query.filter(kind == :native and id in ^conversation_ids)
-         |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true) do
-      %Ash.BulkResult{status: :success} -> :ok
-      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+      {:ok, %{messages: messages, max_seq: max_seq}}
+    else
+      {:error, _} = error -> error
+      _ -> {:error, :conversation_not_found}
     end
+  end
+
+  @doc false
+  def ids_for_agent_in_tx(_repo, uid) do
+    uid
+    |> native_conversations_of_agent()
+    |> Ash.Query.select([:id])
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.id)
+  end
+
+  @doc false
+  def delete_for_agent_in_tx(_repo, uid) do
+    case uid |> native_conversations_of_agent() |> Ankole.Ash.destroy_where(:remove) do
+      {:ok, _conversations} -> :ok
+      {:error, _} = error -> error
+    end
+  end
+
+  defp native_conversations_of_agent(uid) do
+    Ash.Query.filter(
+      Conversation,
+      kind == :native and exists(participants, principal_uid == ^uid and role == :agent)
+    )
   end
 
   defp publications(id, true), do: [{id, :message}]
   defp publications(_id, false), do: []
 
-  defp committed({:ok, %{id: id, publications: publications} = result}, human_uid) do
+  @doc false
+  # The generic actions of native conversations publish their committed changes.
+  def publish_native_change(%{publications: publications} = result) do
     Ankole.Conversations.Events.publish_committed(publications)
 
     if publications != [] do
@@ -968,8 +1181,11 @@ defmodule Ankole.Conversations do
       Ankole.Sessions.Events.publish_status(key.agent_uid, key.session_id)
     end
 
-    get(human_uid, id, removed_message_ids: Map.get(result, :removed_message_ids, []))
+    :ok
   end
+
+  defp committed({:ok, %{id: id} = result}, human_uid),
+    do: get(human_uid, id, removed_message_ids: Map.get(result, :removed_message_ids, []))
 
   defp committed({:error, _} = error, _human_uid), do: error
 
@@ -986,11 +1202,11 @@ defmodule Ankole.Conversations do
          {:ok, _} <-
            Ankole.Ash.create(Conversation, :ensure_native, attrs, touch_update_defaults?: false),
          %Conversation{created_by: ^human_uid, page_id: ^page_id} = conversation <-
-           repo.one(from(c in Conversation, where: c.id == ^id, lock: "FOR UPDATE")),
-         :ok <- check_existing_agent(repo, id, agent.uid),
-         {:ok, _} <- insert_participant(repo, id, human_uid, :owner),
-         {:ok, _} <- insert_participant(repo, id, agent.uid, :agent),
-         %Principal{uid: uid} <- conversation_agent(repo, id),
+           lock_conversation(id),
+         :ok <- check_existing_agent(id, agent.uid),
+         {:ok, _} <- insert_participant(id, human_uid, :owner),
+         {:ok, _} <- insert_participant(id, agent.uid, :agent),
+         %{uid: uid} <- conversation_agent(id),
          true <- uid == agent.uid,
          {:ok, _} <-
            AIGateway.ensure_conversation_in_tx(
@@ -1007,20 +1223,28 @@ defmodule Ankole.Conversations do
 
   defp available_native_id(repo, agent_uid, id) do
     session_id = Ankole.Sessions.Key.conversation(id)
-    exists? = repo.exists?(from(c in Conversation, where: c.id == ^id))
+
+    exists? =
+      Conversation
+      |> Ash.Query.filter(id == ^id)
+      |> Ash.Query.select([:id])
+      |> Ankole.Ash.read_one!()
+      |> is_struct()
 
     used? =
       AIGateway.conversation_exists_by_key?(repo, agent_uid, session_id) or
-        repo.exists?(
-          from(s in Ankole.Signals.Signal,
-            where: s.agent_uid == ^agent_uid and s.session_id == ^session_id
-          )
-        )
+        Ankole.Signals.Domain.list_signals!(
+          query: [
+            filter: [agent_uid: agent_uid, session_id: session_id],
+            limit: 1,
+            select: [:id]
+          ]
+        ) != []
 
     if exists? or not used?, do: :ok, else: {:error, :conversation_conflict}
   end
 
-  defp insert_participant(_repo, id, uid, role) do
+  defp insert_participant(id, uid, role) do
     Ankole.Ash.create(Participant, :join, %{conversation_id: id, principal_uid: uid, role: role})
   end
 
@@ -1036,17 +1260,21 @@ defmodule Ankole.Conversations do
     end
   end
 
-  defp check_existing_agent(repo, id, uid) do
-    case conversation_agent(repo, id) do
+  defp check_existing_agent(id, uid) do
+    case conversation_agent(id) do
       nil -> :ok
-      %Principal{uid: ^uid} -> :ok
+      %{uid: ^uid} -> :ok
       _ -> {:error, :conversation_conflict}
     end
   end
 
-  defp human_content(repo, uid, conversation_id, message_id, attrs) do
+  defp human_content(uid, conversation_id, message_id, attrs) do
     existing =
-      repo.get_by(Message, id: message_id, conversation_id: conversation_id, author_uid: uid)
+      Message
+      |> Ash.Query.filter(
+        id == ^message_id and conversation_id == ^conversation_id and author_uid == ^uid
+      )
+      |> Ankole.Ash.read_one!()
 
     with {:ok, attachments} <-
            Ankole.Conversations.Attachments.Native.resolve(
@@ -1063,7 +1291,7 @@ defmodule Ankole.Conversations do
     do: text || hd(attachments)["name"]
 
   defp append_human_message_in_tx(repo, conversation, human_uid, id, text, attachments) do
-    existing = repo.get_by(Message, id: id)
+    existing = message(id)
 
     attachments =
       Ankole.Conversations.Attachments.prepare_native_in_tx(
@@ -1119,9 +1347,9 @@ defmodule Ankole.Conversations do
                  attachments: ^attachments,
                  author_type: :human,
                  kind: :message
-               } = message <- repo.get_by(Message, id: id),
+               } = message <- message(id),
                true <- conversation_id == conversation.id,
-               {:ok, _} <- touch_in_tx(repo, conversation, message.created_at) do
+               {:ok, _} <- touch(conversation, message.created_at) do
             {:ok, message, true}
           else
             {:error, _} = error -> error
@@ -1153,7 +1381,7 @@ defmodule Ankole.Conversations do
       producer: :kernel,
       source: Ankole.Sessions.Key.conversation(conversation.id),
       id: message.id,
-      type: "conversation.message.addressed",
+      type: @addressed,
       subject: conversation.id,
       target: %{agent_uid: agent.uid, conversation_id: conversation.id},
       sender: message.author_uid,
@@ -1167,20 +1395,22 @@ defmodule Ankole.Conversations do
   defp delivery_mode(mode) when mode in ["steer", "queue"], do: {:ok, mode}
   defp delivery_mode(_mode), do: {:error, :invalid_request}
 
+  # The native inputs of a conversation that a turn has not admitted yet.
   defp pending_query(conversation_id) do
-    from(input in Signal,
-      where:
-        input.conversation_id == ^conversation_id and
-          input.type == "conversation.message.addressed" and
-          input.status in [:queued, :running] and
-          is_nil(input.last_attempt_at),
-      order_by: [asc: input.queue_sequence]
-    )
+    [
+      filter: [
+        conversation_id: conversation_id,
+        type: @addressed,
+        status: [in: [:queued, :running]],
+        last_attempt_at: [is_nil: true]
+      ],
+      sort: [queue_sequence: :asc]
+    ]
   end
 
   @doc "Allocates one committed statement sequence in the caller's transaction."
-  def next_sequence_in_tx(repo, %Conversation{id: id}) do
-    case repo.one(from(c in Conversation, where: c.id == ^id, lock: "FOR UPDATE")) do
+  def next_sequence_in_tx(_repo, %Conversation{id: id}) do
+    case lock_conversation(id) do
       %Conversation{} = conversation ->
         with {:ok, updated} <- Ankole.Ash.update(conversation, :advance_sequence, %{}),
              do: {:ok, updated.sequence_high_water}
@@ -1190,107 +1420,127 @@ defmodule Ankole.Conversations do
     end
   end
 
-  defp touch_in_tx(_repo, conversation, now) do
+  defp touch(conversation, now) do
     Ankole.Ash.update(conversation, :touch, %{last_activity_at: now})
   end
 
-  defp lock_participants_in_tx(repo, human_uid, agent_uid) do
-    repo.all(
-      from(principal in Principal,
-        where: principal.uid in ^[human_uid, agent_uid],
-        order_by: [asc: principal.uid],
-        lock: "FOR UPDATE"
-      ),
-      lock_identity: {"principals", [human_uid, agent_uid]}
-    )
+  defp lock_conversation(id) do
+    Conversation
+    |> Ash.Query.filter(id == ^id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
+  end
 
+  defp message(id), do: Message |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
+
+  defp conversation_message(conversation_id, id) do
+    Message
+    |> Ash.Query.filter(id == ^id and conversation_id == ^conversation_id)
+    |> Ankole.Ash.read_one!()
+  end
+
+  defp lock_participants_in_tx(_repo, human_uid, agent_uid) do
+    Locks.principals([human_uid, agent_uid])
     :ok
   end
 
   defp check_human_in_tx(repo, human_uid) do
-    case repo.get_by(Principal, uid: human_uid, type: :human, status: :active) do
-      %Principal{} -> WorkAccess.check_in_tx(repo, WorkAccess.from_sender(repo, human_uid))
-      _ -> {:error, :invalid_request}
-    end
+    if active_human?(human_uid),
+      do: WorkAccess.check_in_tx(repo, WorkAccess.from_sender(repo, human_uid)),
+      else: {:error, :invalid_request}
   end
 
-  defp active_agent_in_tx(repo, agent_uid) do
-    case repo.one(from(p in Principal, where: p.uid == ^agent_uid, lock: "FOR UPDATE"),
-           lock_identity: {"principals", agent_uid}
-         ) do
-      %Principal{type: :agent, status: :active} = agent -> {:ok, agent}
+  defp active_agent_in_tx(_repo, agent_uid) do
+    case Locks.principals([agent_uid]) do
+      [%{type: :agent, status: :active} = agent] -> {:ok, agent}
       _ -> {:error, :agent_unavailable}
     end
   end
 
-  defp visible_conversations(human_uid) do
-    from(c in Conversation,
-      join: member in Participant,
-      on: member.conversation_id == c.id and member.principal_uid == ^human_uid,
-      join: human in Principal,
-      on: human.uid == member.principal_uid,
-      where: c.kind == :native and human.type == :human and human.status == :active
-    )
+  defp active_human?(uid) when is_binary(uid) and uid != "",
+    do: match?(%{type: :human, status: :active}, Ankole.Principals.Domain.get_principal!(uid))
+
+  defp active_human?(_uid), do: false
+
+  # A native conversation that the Human takes part in, while the Human is active.
+  defp visible_conversation(human_uid, id, opts \\ []) do
+    if active_human?(human_uid) do
+      query =
+        Ash.Query.filter(
+          Conversation,
+          id == ^id and kind == :native and exists(participants, principal_uid == ^human_uid)
+        )
+
+      query = if opts[:lock], do: Ash.Query.lock(query, :for_update), else: query
+      Ankole.Ash.read_one!(query)
+    end
   end
 
-  defp visible_conversation(human_uid, id),
-    do: from(c in visible_conversations(human_uid), where: c.id == ^id)
+  defp conversation_agent(id), do: [id] |> conversation_agents() |> Map.get(id)
 
-  defp conversation_agent(repo, id) do
-    repo.one(
-      from(p in Participant,
-        join: agent in Principal,
-        on: agent.uid == p.principal_uid,
-        where: p.conversation_id == ^id and p.role == :agent,
-        select: agent
+  # The agent Principal of each conversation.
+  defp conversation_agents([]), do: %{}
+
+  defp conversation_agents(ids) do
+    participants =
+      Participant
+      |> Ash.Query.filter(conversation_id in ^ids and role == :agent)
+      |> Ankole.Ash.read!()
+
+    agents =
+      Ankole.Principals.Domain.list_principals!(
+        query: [filter: [uid: [in: Enum.map(participants, & &1.principal_uid)]]]
       )
-    )
+      |> Map.new(&{&1.uid, &1})
+
+    for participant <- participants,
+        agent = Map.get(agents, participant.principal_uid),
+        into: %{},
+        do: {participant.conversation_id, agent}
   end
 
-  defp detail(conversation, agent, opts) do
-    removed = removed_message_ids_query(conversation.id)
-
+  defp detail(repo, conversation, agent, opts) do
     query =
-      from(m in Message,
-        where:
-          m.conversation_id == ^conversation.id and m.seq <= ^conversation.sequence_high_water and
-            m.id not in subquery(removed),
-        order_by: [desc: m.seq],
-        limit: 501
+      Message
+      |> Ash.Query.filter(
+        conversation_id == ^conversation.id and seq <= ^conversation.sequence_high_water and
+          not withdrawn
       )
+      |> Ash.Query.sort(seq: :desc)
+      |> Ash.Query.limit(501)
 
     query =
       case Keyword.get(opts, :before_seq) do
         nil -> query
-        sequence -> from(m in query, where: m.seq < ^sequence)
+        sequence -> Ash.Query.filter(query, seq < ^sequence)
       end
 
-    rows = Repo.all(query)
+    rows = Ankole.Ash.read!(query)
     messages = rows |> Enum.take(500) |> Enum.reverse()
     older_before = if length(rows) > 500, do: hd(messages).seq, else: nil
     loaded_first = min(opts[:loaded_first_seq] || older_before || 1, older_before || 1)
 
     removed_ids =
-      Repo.all(
-        from(m in Message,
-          where:
-            m.conversation_id == ^conversation.id and m.seq >= ^loaded_first and
-              m.seq <= ^conversation.sequence_high_water and m.id in subquery(removed),
-          select: m.id
-        )
+      Message
+      |> Ash.Query.filter(
+        conversation_id == ^conversation.id and seq >= ^loaded_first and
+          seq <= ^conversation.sequence_high_water and withdrawn
       )
+      |> Ash.Query.select([:id])
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.id)
       |> Enum.concat(opts[:removed_message_ids] || [])
       |> Enum.uniq()
 
     model =
-      AIGateway.list_active_conversations(Repo,
+      AIGateway.list_active_conversations(repo,
         subject_uid: agent.uid,
         conversation_key: Ankole.Sessions.Key.conversation(conversation.id),
         limit: 1
       )
       |> List.first()
 
-    pending_inputs = Repo.all(pending_query(conversation.id))
+    pending_inputs = Ankole.Signals.Domain.list_signals!(query: pending_query(conversation.id))
 
     %{
       conversation: conversation,
@@ -1307,7 +1557,7 @@ defmodule Ankole.Conversations do
       },
       pending_inputs: pending_inputs,
       removed_message_ids: removed_ids,
-      retryable_message_id: retryable_message_id(conversation, agent, messages, opts),
+      retryable_message_id: retryable_message_id(repo, conversation, agent, messages, opts),
       queue_version: queue_version(conversation, pending_inputs),
       session_id: Ankole.Sessions.Key.conversation(conversation.id),
       model_conversation_id: model && model.id,
@@ -1321,18 +1571,14 @@ defmodule Ankole.Conversations do
 
   # This is an advisory capability. The mutation repeats the same runtime
   # predicate under its session lock before it changes history.
-  defp retryable_message_id(conversation, agent, messages, opts) do
+  defp retryable_message_id(repo, conversation, agent, messages, opts) do
     message =
       if opts[:before_seq] do
-        Repo.one(
-          from(m in Message,
-            where:
-              m.conversation_id == ^conversation.id and
-                m.id not in subquery(removed_message_ids_query(conversation.id)),
-            order_by: [desc: m.seq],
-            limit: 1
-          )
-        )
+        Message
+        |> Ash.Query.filter(conversation_id == ^conversation.id and not withdrawn)
+        |> Ash.Query.sort(seq: :desc)
+        |> Ash.Query.limit(1)
+        |> Ankole.Ash.read_one!()
       else
         List.last(messages)
       end
@@ -1344,17 +1590,12 @@ defmodule Ankole.Conversations do
           session_id: Ankole.Sessions.Key.conversation(conversation.id)
         }
 
-        case Repo.transact(fn repo ->
-               with {:ok, %Signal{} = input} <-
-                      Ankole.Sessions.Commands.retry_source_in_tx(repo, key, nil, signal_id),
-                    true <- retryable_reply?(message, input) do
-                 {:ok, message.id}
-               else
-                 _ -> {:ok, nil}
-               end
-             end) do
-          {:ok, id} -> id
-          {:error, _} -> nil
+        with {:ok, %Signal{} = input} <-
+               Ankole.Sessions.Commands.retry_source_in_tx(repo, key, nil, signal_id),
+             true <- retryable_reply?(message, input) do
+          message.id
+        else
+          _ -> nil
         end
 
       _ ->

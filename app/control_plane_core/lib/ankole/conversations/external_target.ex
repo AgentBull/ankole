@@ -8,11 +8,9 @@ defmodule Ankole.Conversations.ExternalTarget do
   does not change this projection.
   """
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.AIGateway.Schemas.Conversation
-  alias Ankole.Principals.Principal
-  alias Ankole.Repo
   alias Ankole.Conversations.Conversation, as: PublicConversation
 
   @type t :: %{
@@ -73,8 +71,8 @@ defmodule Ankole.Conversations.ExternalTarget do
 
       channel_ids ->
         PublicConversation
-        |> where([channel], channel.id in ^channel_ids)
-        |> Repo.all()
+        |> Ash.Query.filter(id in ^channel_ids)
+        |> Ankole.Ash.read!()
         |> Map.new(&{&1.id, &1})
     end
   end
@@ -91,11 +89,10 @@ defmodule Ankole.Conversations.ExternalTarget do
         %{}
 
       peer_uids ->
-        Principal
-        |> where([principal], principal.uid in ^peer_uids)
-        |> select([principal], {principal.uid, principal.display_name})
-        |> Repo.all()
-        |> Map.new()
+        Ankole.Principals.Domain.list_principals!(
+          query: [filter: [uid: [in: peer_uids]], select: [:uid, :display_name]]
+        )
+        |> Map.new(&{&1.uid, &1.display_name})
     end
   end
 

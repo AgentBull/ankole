@@ -1,7 +1,8 @@
 defmodule Ankole.Conversations.ModelPreferences do
   @moduledoc "Conversation preferences and the logical model captured by each accepted input."
 
-  alias Ankole.{Repo, Principals}
+  require Ash.Query
+  alias Ankole.Principals
   alias Ankole.AIAgent.ModelProfiles
   alias Ankole.AIGateway.ProviderConfigs
   alias Ankole.Conversations.Conversation
@@ -101,7 +102,7 @@ defmodule Ankole.Conversations.ModelPreferences do
         profile
 
       _ ->
-        case Repo.get_by(Conversation, id: id) do
+        case conversation(id) do
           %Conversation{kind: :native} = conversation -> logical(conversation)
           _ -> nil
         end
@@ -115,7 +116,7 @@ defmodule Ankole.Conversations.ModelPreferences do
         profile
       )
       when is_binary(id) and is_map(data) and is_binary(profile) do
-    case Repo.get_by(Conversation, id: id) do
+    case conversation(id) do
       %Conversation{kind: :native} ->
         Map.put_new(data, "model_profile", profile)
 
@@ -130,4 +131,6 @@ defmodule Ankole.Conversations.ModelPreferences do
     do: profile == active_profile
 
   def compatible?(_event, _active_profile), do: true
+
+  defp conversation(id), do: Conversation |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
 end

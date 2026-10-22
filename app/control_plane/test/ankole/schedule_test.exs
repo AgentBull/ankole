@@ -1840,14 +1840,12 @@ defmodule Ankole.ScheduleTest do
                )
 
       assert {:ok, %{lifecycle_events: [lifecycle_event]}} =
-               Repo.transact(fn _repo ->
-                 Observe.emit_entry_removed(
-                   agent.uid,
-                   "bot",
-                   lifecycle_entry(%{source_event_id: "delete-source"}),
-                   now: DateTime.add(@base_time, 2, :second)
-                 )
-               end)
+               Observe.emit_entry_removed(
+                 agent.uid,
+                 "bot",
+                 lifecycle_entry(%{source_event_id: "delete-source"}),
+                 now: DateTime.add(@base_time, 2, :second)
+               )
 
       assert {:ok, %{status: :entry_lifecycle_ignored, cancelled_checkbacks: 1}} =
                Ankole.Sessions.MessageLifecycle.process(
@@ -2536,10 +2534,8 @@ defmodule Ankole.ScheduleTest do
   end
 
   defp emit_entry(agent_uid, binding_name, input, opts) do
-    Repo.transact(fn _repo ->
-      with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts),
-           do: {:ok, maybe_finalize_test_inbound_batch(result)}
-    end)
+    with {:ok, result} <- Observe.emit_entry(agent_uid, binding_name, input, opts),
+         do: {:ok, maybe_finalize_test_inbound_batch(result)}
   end
 
   defp maybe_finalize_test_inbound_batch(%{inbound_batch: %InboundBatch{} = batch} = result) do

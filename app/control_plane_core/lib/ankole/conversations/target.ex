@@ -1,16 +1,16 @@
 defmodule Ankole.Conversations.Target do
   @moduledoc "A validated destination for an Agent statement."
-  import Ecto.Query
-  alias Ankole.Conversations.{Conversation, Participant}
+  require Ash.Query
+  alias Ankole.Conversations.Conversation
   alias Ankole.Sessions.Key
 
   @enforce_keys [:kind]
   defstruct [:conversation_id, :kind, :binding_name, :provider_thread_id, primary: true]
 
-  def for_reply(repo, event) do
+  def for_reply(_repo, event) do
     id = event.conversation_id
 
-    case id && repo.get_by(Conversation, id: id) do
+    case id && Conversation |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!() do
       %Conversation{kind: :native} ->
         if Key.parse(event.session_id) == {:conversation, id},
           do: {:ok, %__MODULE__{kind: :native, conversation_id: id}},
@@ -51,15 +51,14 @@ defmodule Ankole.Conversations.Target do
   end
 
   @doc "Resolves a conversation for an Agent that is one of its declared participants."
-  def conversation_for_agent_in_tx(repo, agent_uid, id) do
+  def conversation_for_agent_in_tx(_repo, agent_uid, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
-         %Conversation{} = conversation <- repo.get_by(Conversation, id: id),
-         true <-
-           repo.exists?(
-             from p in Participant,
-               where:
-                 p.conversation_id == ^id and p.principal_uid == ^agent_uid and p.role == :agent
-           ),
+         %Conversation{} = conversation <-
+           Conversation
+           |> Ash.Query.filter(
+             id == ^id and exists(participants, principal_uid == ^agent_uid and role == :agent)
+           )
+           |> Ankole.Ash.read_one!(),
          do: {:ok, conversation},
          else: (_ -> {:error, :conversation_not_found})
   end

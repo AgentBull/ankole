@@ -10,13 +10,7 @@ defmodule Ankole.Conversations.IMGroupMembers do
   the joined binding Agents in the same transaction.
   """
 
-  import Ecto.Query, warn: false
-
-  alias Ankole.AuthZ.Group
-  alias Ankole.AuthZ.Membership
   alias Ankole.AuthZ.Store
-  alias Ankole.Principals.Principal
-  alias Ankole.Repo
   alias Ankole.Signals.BindingMembership
 
   @doc """
@@ -28,12 +22,17 @@ defmodule Ankole.Conversations.IMGroupMembers do
   """
   @spec replace_members(String.t(), [String.t()]) :: {:ok, map()} | {:error, term()}
   def replace_members(group_id, human_uids) when is_list(human_uids) do
-    Repo.transact(fn repo ->
-      with {:ok, group} <- lock_group(repo, group_id) do
-        uids = Enum.uniq(human_uids ++ joined_agent_uids(repo, group.metadata))
-        Store.replace_static_group_members(repo, group.id, :im_group, uids)
-      end
-    end)
+    group_id
+    |> Ankole.Conversations.replace_im_group_members(human_uids)
+    |> Ankole.Errors.reason()
+  end
+
+  @doc "Same as `replace_members/2` inside the caller's transaction on `repo`."
+  def replace_members_in_tx(repo, group_id, human_uids) do
+    with {:ok, group} <- lock_group(group_id) do
+      uids = Enum.uniq(human_uids ++ joined_agent_uids(group.metadata))
+      Store.replace_static_group_members(repo, group.id, :im_group, uids)
+    end
   end
 
   @doc """
@@ -45,54 +44,62 @@ defmodule Ankole.Conversations.IMGroupMembers do
   """
   @spec reconcile_agent_members(String.t()) :: {:ok, map()} | {:error, term()}
   def reconcile_agent_members(group_id) do
-    Repo.transact(fn repo ->
-      with {:ok, group} <- lock_group(repo, group_id) do
-        joined = joined_agent_uids(repo, group.metadata)
-
-        current =
-          Membership
-          |> join(:inner, [membership], principal in Principal,
-            on: principal.uid == membership.principal_uid
-          )
-          |> where([membership, _principal], membership.group_id == ^group.id)
-          |> where([_membership, principal], principal.type == :agent)
-          |> select([membership, _principal], membership.principal_uid)
-          |> repo.all()
-
-        Store.apply_static_group_member_delta(
-          repo,
-          group.id,
-          :im_group,
-          joined -- current,
-          current -- joined
-        )
-      end
-    end)
+    group_id
+    |> Ankole.Conversations.reconcile_im_group_agents()
+    |> Ankole.Errors.reason()
   end
 
-  defp lock_group(repo, group_id) do
-    Group
-    |> where([group], group.id == ^group_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
-    |> case do
-      %Group{} = group -> {:ok, group}
-      nil -> {:error, :group_not_found}
+  @doc "Same as `reconcile_agent_members/1` inside the caller's transaction on `repo`."
+  def reconcile_agent_members_in_tx(repo, group_id) do
+    with {:ok, group} <- lock_group(group_id) do
+      joined = joined_agent_uids(group.metadata)
+
+      members =
+        Ankole.AuthZ.Domain.list_memberships!(
+          query: [filter: [group_id: group.id], select: [:principal_uid]]
+        )
+        |> Enum.map(& &1.principal_uid)
+
+      current = agent_uids(members)
+
+      Store.apply_static_group_member_delta(
+        repo,
+        group.id,
+        :im_group,
+        joined -- current,
+        current -- joined
+      )
+    end
+  end
+
+  defp lock_group(group_id) do
+    case Ankole.AuthZ.Domain.list_groups!(query: [filter: [id: group_id], lock: :for_update]) do
+      [group] -> {:ok, group}
+      [] -> {:error, :group_not_found}
     end
   end
 
   # Only Agents whose Principal row still exists can hold a membership row;
   # a stale binding observation for a removed Principal is skipped.
-  defp joined_agent_uids(repo, metadata) do
+  defp joined_agent_uids(metadata) do
     case BindingMembership.joined_agent_uids(metadata) do
       [] ->
         []
 
       uids ->
-        Principal
-        |> where([principal], principal.uid in ^uids)
-        |> select([principal], principal.uid)
-        |> repo.all()
+        Ankole.Principals.Domain.list_principals!(
+          query: [filter: [uid: [in: uids]], select: [:uid]]
+        )
+        |> Enum.map(& &1.uid)
     end
+  end
+
+  defp agent_uids([]), do: []
+
+  defp agent_uids(uids) do
+    Ankole.Principals.Domain.list_principals!(
+      query: [filter: [uid: [in: uids], type: :agent], select: [:uid]]
+    )
+    |> Enum.map(& &1.uid)
   end
 end

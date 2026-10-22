@@ -2,7 +2,6 @@ defmodule Ankole.Conversations.Delivery.ActionToken do
   @moduledoc false
 
   alias Ankole.Conversations.Delivery.PreviewState
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Conversations.Delivery.PreviewAdapter
@@ -43,8 +42,7 @@ defmodule Ankole.Conversations.Delivery.ActionToken do
              (is_binary(provider_message_id) or is_nil(provider_message_id)) and is_list(opts) do
     with {:ok, prefix} <- prefix(opts),
          {:ok, signal_id, index, fingerprint} <- decode(token, prefix),
-         %Signal{} = event <-
-           PreviewState.load(Repo.get(Signal, signal_id), Repo),
+         %Signal{} = event <- PreviewState.load_signal(signal_id),
          true <- event.agent_uid == agent_uid || {:error, :callback_binding_mismatch},
          true <- event.reply_binding_name == binding_name || {:error, :callback_binding_mismatch},
          true <- source_entry?(event, provider_message_id) || {:error, :callback_message_mismatch},
@@ -90,7 +88,7 @@ defmodule Ankole.Conversations.Delivery.ActionToken do
   end
 
   # A callback token arrives from the network. Validate every segment before
-  # `Repo.get` because Ecto rejects an invalid UUID.
+  # the Signal read because the read rejects an invalid UUID.
   defp decode(token, prefix) do
     case String.split(token, ":", parts: 4) do
       [^prefix, signal_id, encoded_index, fingerprint]
