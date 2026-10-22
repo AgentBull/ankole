@@ -1,6 +1,6 @@
 defmodule Ankole.AuthZ.Membership do
   @moduledoc "Static Principal membership in an AuthZ group."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.AuthZ
 
   postgres do
     table("principal_group_memberships")
@@ -46,14 +46,30 @@ defmodule Ankole.AuthZ.Membership do
 
     create :add_in_tx do
       accept([:group_id, :principal_uid])
-      transaction?(false)
       upsert?(true)
       upsert_fields([:principal_uid])
     end
 
     destroy :remove_in_tx do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :sync_external_directory_memberships, :map do
+      argument(:provider, :term, allow_nil?: false)
+      argument(:principal_uid, :term, allow_nil?: false)
+      argument(:external_ids, {:array, :term}, allow_nil?: false)
+      argument(:opts, :term, default: [])
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.AuthZ.Store.sync_external_directory_group_memberships(
+          input.arguments.provider,
+          input.arguments.principal_uid,
+          input.arguments.external_ids,
+          input.arguments.opts
+        )
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 

@@ -294,8 +294,10 @@ defmodule Ankole.ConversationsTest do
     end
 
     assert {:error, :rollback} =
-             Repo.transact(fn _ ->
-               assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+             Repo.transact(fn repo ->
+               assert {:ok, {%{status: :disabled}, _ids}} =
+                        Ankole.Principals.delete_agent_in_tx(repo, agent.uid)
+
                {:error, :rollback}
              end)
 
@@ -311,16 +313,20 @@ defmodule Ankole.ConversationsTest do
     assert_receive {:conversation_event, ^second_id, :status}
 
     assert {:error, :rollback} =
-             Repo.transact(fn _ ->
-               assert {:ok, %{status: :active}} = Ankole.Principals.enable_agent(agent.uid)
+             Repo.transact(fn repo ->
+               assert {:ok, {%{status: :active}, _ids}} =
+                        Ankole.Principals.enable_agent_in_tx(repo, agent.uid)
+
                {:error, :rollback}
              end)
 
     refute_receive {:conversation_event, _, :status}
 
     assert {:error, :rollback} =
-             Repo.transact(fn _ ->
-               assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+             Repo.transact(fn repo ->
+               assert {:ok, {%{status: :disabled}, _ids}} =
+                        Ankole.Principals.delete_agent_in_tx(repo, agent.uid)
+
                {:error, :rollback}
              end)
 

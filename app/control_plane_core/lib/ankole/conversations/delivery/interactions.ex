@@ -231,7 +231,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   defp authorize_operator(""), do: {:error, :reply_interaction_operator_unknown}
 
   defp authorize_operator(principal_uid) when is_binary(principal_uid) do
-    case Ankole.Principals.Domain.get_principal!(principal_uid) do
+    case Ankole.Principals.get_principal_record!(principal_uid) do
       %{type: :human, status: :active} -> :ok
       %{} -> {:error, :reply_interaction_operator_unauthorized}
       nil -> {:error, :reply_interaction_operator_unknown}

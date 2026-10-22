@@ -1,6 +1,6 @@
 defmodule Ankole.Tenants.Tenant do
   @moduledoc "One organization's durable data boundary within a site."
-  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.Tenants.Domain
+  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.Tenants
 
   postgres do
     table("tenants")
@@ -66,24 +66,23 @@ defmodule Ankole.Tenants.Tenant do
 
     create :create_in_tx do
       accept([:slug, :display_name])
-      transaction?(false)
     end
 
-    in_tx_update :profile_in_tx do
+    update :profile_in_tx do
       accept([:slug, :display_name])
     end
 
-    in_tx_update :suspend_in_tx do
+    update :suspend_in_tx do
       accept([])
       change(set_attribute(:suspended_at, &DateTime.utc_now/0))
     end
 
-    in_tx_update :resume_in_tx do
+    update :resume_in_tx do
       accept([])
       change(set_attribute(:suspended_at, nil))
     end
 
-    in_tx_update :begin_delete_in_tx do
+    update :begin_delete_in_tx do
       accept([])
 
       change(fn changeset, _context ->
@@ -96,10 +95,71 @@ defmodule Ankole.Tenants.Tenant do
     end
 
     destroy :delete_in_tx do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
       validate(present(:deleting_at))
+    end
+
+    action :ensure_scaffold do
+      argument(:tenant, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Tenants.ensure_scaffold_in_tx(Ankole.Repo, input.arguments.tenant)
+        )
+      end)
+    end
+
+    action :change_profile, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Tenants.change_profile_in_tx(input.arguments.id, input.arguments.attrs)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :suspend, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.Tenants.suspend_in_tx(Ankole.Repo, input.arguments.id))
+      end)
+    end
+
+    action :resume, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.Tenants.resume_in_tx(Ankole.Repo, input.arguments.id))
+      end)
+    end
+
+    action :begin_delete, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Errors.wrap(Ankole.Tenants.begin_delete_in_tx(Ankole.Repo, input.arguments.id))
+      end)
+    end
+
+    action :transfer_site_administration, :term do
+      argument(:id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
+      argument(:uid, :term)
+      after_commit({Ankole.Tenants, :publish_site_administration})
+
+      run(fn input, _context ->
+        Ankole.Repo
+        |> Ankole.Tenants.transfer_site_administration_in_tx(
+          input.arguments.id,
+          input.arguments.uid
+        )
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 

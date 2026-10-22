@@ -289,7 +289,7 @@ defmodule Ankole.Conversations do
   end
 
   def agents do
-    Ankole.Principals.Domain.list_principals!(
+    Ankole.Principals.list_principals!(
       query: [
         filter: [type: :agent, status: :active],
         sort: [display_name: :asc, uid: :asc]
@@ -1461,8 +1461,8 @@ defmodule Ankole.Conversations do
     |> Ankole.Ash.read_one!()
   end
 
-  defp lock_participants_in_tx(_repo, human_uid, agent_uid) do
-    Locks.principals([human_uid, agent_uid])
+  defp lock_participants_in_tx(repo, human_uid, agent_uid) do
+    {:ok, _principals} = Ankole.Principals.lock_principals_in_tx(repo, [human_uid, agent_uid])
     :ok
   end
 
@@ -1472,15 +1472,15 @@ defmodule Ankole.Conversations do
       else: {:error, :invalid_request}
   end
 
-  defp active_agent_in_tx(_repo, agent_uid) do
-    case Locks.principals([agent_uid]) do
-      [%{type: :agent, status: :active} = agent] -> {:ok, agent}
+  defp active_agent_in_tx(repo, agent_uid) do
+    case Ankole.Principals.lock_principals_in_tx(repo, [agent_uid]) do
+      {:ok, [%{type: :agent, status: :active} = agent]} -> {:ok, agent}
       _ -> {:error, :agent_unavailable}
     end
   end
 
   defp active_human?(uid) when is_binary(uid) and uid != "",
-    do: match?(%{type: :human, status: :active}, Ankole.Principals.Domain.get_principal!(uid))
+    do: match?(%{type: :human, status: :active}, Ankole.Principals.get_principal_record!(uid))
 
   defp active_human?(_uid), do: false
 
@@ -1511,7 +1511,7 @@ defmodule Ankole.Conversations do
       |> Ankole.Ash.read!()
 
     agents =
-      Ankole.Principals.Domain.list_principals!(
+      Ankole.Principals.list_principals!(
         query: [filter: [uid: [in: Enum.map(participants, & &1.principal_uid)]]]
       )
       |> Map.new(&{&1.uid, &1})

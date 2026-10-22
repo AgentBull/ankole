@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.Principal do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
 
   postgres do
     table("principals")
@@ -64,40 +64,222 @@ defmodule Ankole.Principals.Principal do
       source_attribute(:uid)
       destination_attribute(:principal_uid)
     end
+
+    has_one :local_credential, Ankole.Principals.LocalCredential do
+      source_attribute(:uid)
+      destination_attribute(:principal_uid)
+    end
+
+    has_many :access_events, Ankole.Principals.AccessEvent do
+      source_attribute(:uid)
+      destination_attribute(:principal_uid)
+    end
+  end
+
+  aggregates do
+    exists(:has_external_identity, :external_identities)
   end
 
   actions do
     defaults([:read])
 
-    create :create_in_tx do
-      accept([:uid, :type, :display_name, :avatar_url])
-      transaction?(false)
+    read :read_across_tenants do
+      multitenancy(:allow_global)
     end
 
-    in_tx_update :profile_in_tx do
+    create :create_in_tx do
+      accept([:uid, :type, :display_name, :avatar_url])
+    end
+
+    update :profile_in_tx do
       accept([:display_name, :avatar_url])
     end
 
-    in_tx_update :enable_in_tx do
+    update :enable_in_tx do
       accept([])
       change(set_attribute(:status, :active))
     end
 
-    in_tx_update :disable_in_tx do
+    update :disable_in_tx do
       accept([])
       change(set_attribute(:status, :disabled))
     end
 
-    in_tx_update :revoke_human_in_tx do
+    update :revoke_human_in_tx do
       accept([])
       validate(attribute_equals(:type, :human))
       change(Ankole.Principals.Changes.RevokeHuman)
     end
 
-    destroy :delete_in_tx do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    destroy(:delete_in_tx)
+
+    action :update_human, :map do
+      argument(:uid, :term, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.update_human_in_tx(
+          Ankole.Repo,
+          input.arguments.uid,
+          input.arguments.attrs
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :create_local_user, :map do
+      argument(:attrs, :map, allow_nil?: false)
+
+      argument(:password_hash, :term, allow_nil?: false, sensitive?: true)
+
+      argument(:must_change_password, :boolean, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.create_local_user_in_tx(
+          Ankole.Repo,
+          input.arguments.attrs,
+          input.arguments.password_hash,
+          input.arguments.must_change_password
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :update_agent, :map do
+      argument(:uid, :term, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.update_agent_in_tx(
+          Ankole.Repo,
+          input.arguments.uid,
+          input.arguments.attrs
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :recover_admin, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:uid, :term, allow_nil?: false)
+      argument(:operator, :term, allow_nil?: false)
+      argument(:reason, :term)
+
+      run(fn input, _context ->
+        Ankole.Principals.HumanAccess.recover_admin_in_tx(
+          Ankole.Repo,
+          input.arguments.uid,
+          input.arguments.operator,
+          input.arguments.reason
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :restrict, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:uid, :term, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.HumanAccess.restrict_in_tx(
+          Ankole.Repo,
+          input.arguments.uid,
+          input.arguments.attrs
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :verify_provider_recovery, :term do
+      argument(:uid, :term, allow_nil?: false)
+      argument(:provider_id, :term, allow_nil?: false)
+      argument(:operation_id, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.HumanAccess.verify_provider_recovery_in_tx(
+          Ankole.Repo,
+          input.arguments.uid,
+          input.arguments.provider_id,
+          input.arguments.operation_id
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :clear_restriction, :term do
+      argument(:uid, :term, allow_nil?: false)
+      argument(:restriction_id, :term, allow_nil?: false)
+      argument(:actor, :term)
+      argument(:reason, :term)
+      argument(:operation_id, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.HumanAccess.clear_restriction_in_tx(
+          Ankole.Repo,
+          input.arguments.uid,
+          input.arguments.restriction_id,
+          input.arguments.actor,
+          input.arguments.reason,
+          input.arguments.operation_id
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :restore, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:uid, :term, allow_nil?: false)
+      argument(:review_fingerprint, :term)
+      argument(:actor, :term)
+      argument(:reason, :term)
+      argument(:operation_id, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.HumanAccess.restore_in_tx(
+          Ankole.Repo,
+          input.arguments.uid,
+          input.arguments.review_fingerprint,
+          input.arguments.actor,
+          input.arguments.reason,
+          input.arguments.operation_id
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :classify_work, :map do
+      argument(:kind, :term, allow_nil?: false)
+      argument(:id, :term, allow_nil?: false)
+      argument(:human_uid, :term)
+      argument(:actor, :term, allow_nil?: false)
+      argument(:reason, :term, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.WorkAccess.classify_in_tx(
+          Ankole.Repo,
+          input.arguments.kind,
+          input.arguments.id,
+          input.arguments.human_uid,
+          input.arguments.actor,
+          input.arguments.reason
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :cleanup_work, :map do
+      argument(:uid, :term, allow_nil?: false)
+      argument(:version, :integer, allow_nil?: false)
+
+      run(fn input, _context ->
+        Ankole.Principals.WorkCleanup.cleanup_in_tx(
+          Ankole.Repo,
+          input.arguments.uid,
+          input.arguments.version
+        )
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 

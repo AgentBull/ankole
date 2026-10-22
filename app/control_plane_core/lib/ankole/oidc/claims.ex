@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.Claims do
   @moduledoc false
-  alias Ankole.Principals.Domain, as: Principals
+  alias Ankole.Principals
 
   # Principals owns these rows. FOR SHARE holds the active Human and its
   # profile until the tokens of the grant are minted.

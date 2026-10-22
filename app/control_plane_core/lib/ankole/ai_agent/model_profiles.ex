@@ -408,14 +408,11 @@ defmodule Ankole.AIAgent.ModelProfiles do
     end
   end
 
-  defp lock_agent(agent_uid) do
-    {:ok, agent} = Ankole.Principals.Domain.get_agent(agent_uid, query: [lock: :for_update])
-    agent
-  end
+  defp lock_agent(agent_uid), do: Principals.lock_agent_in_tx(Ankole.Repo, agent_uid)
 
   defp update_agent_options(agent, options) do
     agent
-    |> Ankole.Principals.Domain.options_agent(%{options: options})
+    |> Principals.options_agent(%{options: options})
     |> Ankole.Errors.reason()
   end
 

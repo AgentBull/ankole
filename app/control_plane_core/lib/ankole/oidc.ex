@@ -598,7 +598,7 @@ defmodule Ankole.OIDC do
 
   # AuthZ owns the groups.
   defp validate_group_ids(group_ids, _attrs) do
-    case AuthZ.Domain.list_groups(query: [filter: [id: [in: group_ids]], select: [:id]]) do
+    case AuthZ.list_groups(query: [filter: [id: [in: group_ids]], select: [:id]]) do
       {:ok, groups} ->
         found = MapSet.new(groups, & &1.id)
         if found == MapSet.new(group_ids), do: :ok, else: {:error, :unknown_group}

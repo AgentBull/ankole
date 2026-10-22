@@ -1,6 +1,6 @@
 defmodule Ankole.Principals.HumanUser do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Principals
 
   @email_format ~r/\A[^\s@]+@[^\s@]+\.[^\s@]+\z/
 
@@ -56,10 +56,9 @@ defmodule Ankole.Principals.HumanUser do
 
     create :create_in_tx do
       accept([:principal_uid, :email, :mobile, :job_title])
-      transaction?(false)
     end
 
-    in_tx_update :profile_in_tx do
+    update :profile_in_tx do
       accept([:email, :mobile, :job_title])
     end
   end

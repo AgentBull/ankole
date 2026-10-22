@@ -89,7 +89,7 @@ defmodule Ankole.Conversations.ExternalTarget do
         %{}
 
       peer_uids ->
-        Ankole.Principals.Domain.list_principals!(
+        Ankole.Principals.list_principals!(
           query: [filter: [uid: [in: peer_uids]], select: [:uid, :display_name]]
         )
         |> Map.new(&{&1.uid, &1.display_name})

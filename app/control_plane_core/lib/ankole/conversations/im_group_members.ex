@@ -55,7 +55,7 @@ defmodule Ankole.Conversations.IMGroupMembers do
       joined = joined_agent_uids(group.metadata)
 
       members =
-        Ankole.AuthZ.Domain.list_memberships!(
+        Ankole.AuthZ.list_memberships!(
           query: [filter: [group_id: group.id], select: [:principal_uid]]
         )
         |> Enum.map(& &1.principal_uid)
@@ -73,7 +73,7 @@ defmodule Ankole.Conversations.IMGroupMembers do
   end
 
   defp lock_group(group_id) do
-    case Ankole.AuthZ.Domain.list_groups!(query: [filter: [id: group_id], lock: :for_update]) do
+    case Ankole.AuthZ.list_groups!(query: [filter: [id: group_id], lock: :for_update]) do
       [group] -> {:ok, group}
       [] -> {:error, :group_not_found}
     end
@@ -87,9 +87,7 @@ defmodule Ankole.Conversations.IMGroupMembers do
         []
 
       uids ->
-        Ankole.Principals.Domain.list_principals!(
-          query: [filter: [uid: [in: uids]], select: [:uid]]
-        )
+        Ankole.Principals.list_principals!(query: [filter: [uid: [in: uids]], select: [:uid]])
         |> Enum.map(& &1.uid)
     end
   end
@@ -97,7 +95,7 @@ defmodule Ankole.Conversations.IMGroupMembers do
   defp agent_uids([]), do: []
 
   defp agent_uids(uids) do
-    Ankole.Principals.Domain.list_principals!(
+    Ankole.Principals.list_principals!(
       query: [filter: [uid: [in: uids], type: :agent], select: [:uid]]
     )
     |> Enum.map(& &1.uid)

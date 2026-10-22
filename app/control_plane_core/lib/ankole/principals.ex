@@ -1,14 +1,22 @@
 defmodule Ankole.Principals do
   @moduledoc """
   Principal identity boundary for humans, agents, and external subject bindings.
-  """
 
-  import Ecto.Query, warn: false
+  This module is the Principals domain. A write that locks a Principal or
+  touches several rows is a generic action of `Ankole.Principals.Principal`
+  that owns its transaction. The `_in_tx` functions give the same steps to
+  another domain's action.
+  """
+  use Ankole.Ash.Domain
+
+  require Ash.Query
 
   alias Ankole.IdentityProviders.LocalPassword
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
   alias Ankole.PrincipalKey
+  alias Ankole.Principals.AccessEvent
+  alias Ankole.Principals.AccessRestriction
   alias Ankole.Principals.Agent
   alias Ankole.Principals.ExternalIdentity
   alias Ankole.Principals.HumanUser
@@ -18,6 +26,55 @@ defmodule Ankole.Principals do
   alias Ankole.AIAgent.Library
   alias Ankole.Repo
   alias Ankole.AgentWorkers
+
+  resources do
+    resource Principal do
+      define(:get_principal_record, action: :read, get_by: [:uid], not_found_error?: false)
+      define(:list_principals, action: :read)
+
+      define(:get_principal_across_tenants,
+        action: :read_across_tenants,
+        get_by: [:uid],
+        not_found_error?: false
+      )
+    end
+
+    resource Agent do
+      define(:get_agent_record, action: :read, get_by: [:uid], not_found_error?: false)
+      define(:options_agent, action: :options_in_tx)
+    end
+
+    resource HumanUser do
+      define(:get_human_user, action: :read, get_by: [:principal_uid], not_found_error?: false)
+      define(:list_human_users, action: :read)
+    end
+
+    resource ExternalIdentity do
+      define(:get_external_identity, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_external_identities, action: :read)
+    end
+
+    resource LocalCredential do
+      define(:get_local_credential,
+        action: :read,
+        get_by: [:principal_uid],
+        not_found_error?: false
+      )
+    end
+
+    resource AccessRestriction do
+      define(:list_access_restrictions, action: :read)
+    end
+
+    resource AccessEvent do
+      define(:list_access_events, action: :read)
+    end
+
+    resource MappingRequest do
+      define(:get_mapping_request, action: :read, get_by: [:id], not_found_error?: false)
+      define(:list_mapping_requests, action: :read)
+    end
+  end
 
   @principal_profile_fields [:display_name, :avatar_url]
   @human_profile_fields [:email, :mobile, :job_title]
@@ -61,7 +118,7 @@ defmodule Ankole.Principals do
   @spec get_principal(String.t()) :: principal_result()
   def get_principal(uid) do
     with {:ok, normalized_uid} <- normalize_uid(uid) do
-      case Repo.get(Principal, normalized_uid) do
+      case Principal |> Ash.Query.filter(uid == ^normalized_uid) |> Ankole.Ash.read_one!() do
         %Principal{} = principal -> {:ok, principal}
         nil -> {:error, :not_found}
       end
@@ -72,16 +129,11 @@ defmodule Ankole.Principals do
   @spec resolve_tenant(String.t()) :: {:ok, String.t()} | {:error, term()}
   def resolve_tenant(uid) do
     with {:ok, uid} <- normalize_uid(uid) do
-      tenant_id =
-        Repo.across_tenants(fn ->
-          Repo.one(
-            from principal in Principal,
-              where: principal.uid == ^uid,
-              select: principal.tenant_id
-          )
-        end)
-
-      if tenant_id, do: {:ok, tenant_id}, else: {:error, :not_found}
+      case Repo.across_tenants(fn -> get_principal_across_tenants(uid) end) do
+        {:ok, %Principal{tenant_id: tenant_id}} -> {:ok, tenant_id}
+        {:ok, nil} -> {:error, :not_found}
+        {:error, _reason} = error -> error
+      end
     end
   end
 
@@ -91,9 +143,33 @@ defmodule Ankole.Principals do
   @spec list_active_principals() :: [Principal.t()]
   def list_active_principals do
     Principal
-    |> where([principal], principal.status == :active)
-    |> order_by([principal], asc: principal.uid)
-    |> Repo.all()
+    |> Ash.Query.filter(status == :active)
+    |> Ash.Query.sort(uid: :asc)
+    |> Ankole.Ash.read!()
+  end
+
+  @doc "Gives the system Principal of the selected tenant."
+  @spec system_principal() :: principal_result()
+  def system_principal do
+    case Principal |> Ash.Query.filter(type == :system) |> Ankole.Ash.read_one!() do
+      %Principal{} = principal -> {:ok, principal}
+      nil -> {:error, :system_principal_missing}
+    end
+  end
+
+  @doc false
+  def ensure_system_principal_in_tx(repo) do
+    case system_principal() do
+      {:ok, principal} ->
+        {:ok, principal}
+
+      {:error, :system_principal_missing} ->
+        insert_principal(repo, %{
+          uid: NativeKernel.gen_uuid_v7(),
+          type: :system,
+          display_name: "System"
+        })
+    end
   end
 
   @doc """
@@ -101,14 +177,19 @@ defmodule Ankole.Principals do
   """
   @spec create_human(map()) ::
           {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}} | {:error, term()}
-  def create_human(attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      with {:ok, principal} <- insert_principal(repo, human_principal_attrs(attrs)),
-           {:ok, human_user} <-
-             insert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)) do
-        {:ok, %{principal: principal, human_user: human_user}}
-      end
-    end)
+  # Staged: test fixtures and the SaaS Pod creation still call this function in
+  # their transaction. Change it to a generic action when they use
+  # `create_human_in_tx/2`.
+  def create_human(attrs) when is_map(attrs),
+    do: Repo.transact(fn repo -> create_human_in_tx(repo, attrs) end)
+
+  @doc false
+  def create_human_in_tx(repo, attrs) do
+    with {:ok, principal} <- insert_principal(repo, human_principal_attrs(attrs)),
+         {:ok, human_user} <-
+           insert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)) do
+      {:ok, %{principal: principal, human_user: human_user}}
+    end
   end
 
   @doc """
@@ -116,16 +197,18 @@ defmodule Ankole.Principals do
   """
   @spec update_human(String.t(), map()) ::
           {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}} | {:error, term()}
-  def update_human(uid, attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      with {:ok, principal} <- fetch_principal_for_update(repo, uid),
-           :ok <- ensure_principal_type(principal, :human),
-           {:ok, principal} <- update_principal_profile(repo, principal, attrs),
-           {:ok, human_user} <-
-             upsert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)) do
-        {:ok, %{principal: principal, human_user: human_user}}
-      end
-    end)
+  def update_human(uid, attrs) when is_map(attrs),
+    do: Ankole.Ash.run_action(Principal, :update_human, %{uid: uid, attrs: attrs})
+
+  @doc false
+  def update_human_in_tx(repo, uid, attrs) do
+    with {:ok, principal} <- lock_principal_in_tx(repo, uid),
+         :ok <- ensure_principal_type(principal, :human),
+         {:ok, principal} <- update_principal_profile(repo, principal, attrs),
+         {:ok, human_user} <-
+           upsert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)) do
+      {:ok, %{principal: principal, human_user: human_user}}
+    end
   end
 
   @doc """
@@ -138,26 +221,25 @@ defmodule Ankole.Principals do
     with {:ok, _handle} <- required_text(attrs, :handle) do
       attrs = attrs |> Map.delete("uid") |> Map.put(:uid, NativeKernel.gen_uuid_v7())
 
-      Repo.transact(fn repo ->
-        agent_attrs = take_attrs(attrs, @agent_fields)
+      # Staged: test fixtures still call this function in their transaction.
+      # Change it to a generic action when they use `create_agent_in_tx/2`.
+      Repo.transact(fn repo -> create_agent_in_tx(repo, attrs) end)
+    end
+  end
 
-        provider_id =
-          Ankole.Attrs.get(attrs, :worker_provider_id)
+  @doc false
+  def create_agent_in_tx(repo, attrs) do
+    agent_attrs = take_attrs(attrs, @agent_fields)
+    provider_id = Ankole.Attrs.get(attrs, :worker_provider_id)
 
-        with {:ok, provider_id} <-
-               Ankole.AgentWorkers.Providers.select_in_tx(
-                 repo,
-                 provider_id
-               ),
-             :ok <- validate_agent_owner(repo, agent_attrs),
-             :ok <- reject_token_quota_at_creation(agent_attrs),
-             {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
-             {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
-             :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
-             :ok <- AgentWorkers.insert_in_tx(repo, principal.uid, provider_id) do
-          {:ok, %{principal: principal, agent: agent}}
-        end
-      end)
+    with {:ok, provider_id} <- Ankole.AgentWorkers.Providers.select_in_tx(repo, provider_id),
+         :ok <- validate_agent_owner(agent_attrs),
+         :ok <- reject_token_quota_at_creation(agent_attrs),
+         {:ok, principal} <- insert_principal(repo, agent_principal_attrs(attrs)),
+         {:ok, agent} <- insert_agent(repo, principal.uid, agent_attrs),
+         :ok <- Library.seed_agent_library_in_tx(repo, principal.uid),
+         :ok <- AgentWorkers.insert_in_tx(repo, principal.uid, provider_id) do
+      {:ok, %{principal: principal, agent: agent}}
     end
   end
 
@@ -168,11 +250,14 @@ defmodule Ankole.Principals do
           {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
   def get_agent(uid) do
     with {:ok, normalized_uid} <- normalize_uid(uid) do
-      case Repo.one(agent_with_principal_query(normalized_uid)) do
+      case Agent
+           |> Ash.Query.filter(uid == ^normalized_uid)
+           |> Ash.Query.load(:principal)
+           |> Ankole.Ash.read_one!() do
         %Agent{principal: %Principal{} = principal} = agent ->
           {:ok, %{principal: principal, agent: agent}}
 
-        nil ->
+        _missing ->
           {:error, :not_found}
       end
     end
@@ -193,19 +278,18 @@ defmodule Ankole.Principals do
   @spec list_agents(keyword()) :: [%{principal: Principal.t(), agent: Agent.t()}]
   def list_agents(opts \\ []) do
     Agent
-    |> join(:inner, [agent], principal in assoc(agent, :principal))
-    |> where([_agent, principal], principal.type == :agent)
+    |> Ash.Query.filter(principal.type == :agent)
     |> filter_agent_status(Keyword.get(opts, :status))
-    |> order_by([agent, _principal], asc: agent.inserted_at)
-    |> preload([_agent, principal], principal: principal)
-    |> Repo.all()
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.load(:principal)
+    |> Ankole.Ash.read!()
     |> Enum.map(fn %Agent{principal: principal} = agent ->
       %{principal: principal, agent: agent}
     end)
   end
 
   defp filter_agent_status(query, :active),
-    do: where(query, [_agent, principal], principal.status == :active)
+    do: Ash.Query.filter(query, principal.status == :active)
 
   defp filter_agent_status(query, nil), do: query
 
@@ -214,18 +298,20 @@ defmodule Ankole.Principals do
   """
   @spec update_agent(String.t(), map()) ::
           {:ok, %{principal: Principal.t(), agent: Agent.t()}} | {:error, term()}
-  def update_agent(uid, attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      agent_attrs = take_attrs(attrs, @agent_fields)
+  def update_agent(uid, attrs) when is_map(attrs),
+    do: Ankole.Ash.run_action(Principal, :update_agent, %{uid: uid, attrs: attrs})
 
-      with {:ok, principal} <- fetch_principal_for_update(repo, uid),
-           :ok <- ensure_principal_type(principal, :agent),
-           :ok <- validate_agent_owner(repo, agent_attrs),
-           {:ok, principal} <- update_principal_profile(repo, principal, attrs),
-           {:ok, agent} <- update_agent_row(repo, principal.uid, agent_attrs) do
-        {:ok, %{principal: principal, agent: agent}}
-      end
-    end)
+  @doc false
+  def update_agent_in_tx(repo, uid, attrs) do
+    agent_attrs = take_attrs(attrs, @agent_fields)
+
+    with {:ok, principal} <- lock_principal_in_tx(repo, uid),
+         :ok <- ensure_principal_type(principal, :agent),
+         :ok <- validate_agent_owner(agent_attrs),
+         {:ok, principal} <- update_principal_profile(repo, principal, attrs),
+         {:ok, agent} <- update_agent_row(principal.uid, agent_attrs) do
+      {:ok, %{principal: principal, agent: agent}}
+    end
   end
 
   # The AuthZ check takes the admin group lock, and the installation-wide lock
@@ -237,16 +323,26 @@ defmodule Ankole.Principals do
   """
   @spec enable_agent(String.t()) :: principal_result()
   def enable_agent(uid) do
-    Repo.transact(fn repo ->
-      with {:ok, principal} <- fetch_principal_for_update(repo, uid),
-           :ok <- ensure_principal_type(principal, :agent),
-           conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
-           {:ok, principal} <-
-             Ankole.Ash.update(principal, :enable_in_tx, %{}) do
-        {:ok, {principal, conversation_ids}}
-      end
-    end)
-    |> publish_agent_changes()
+    # Staged: a Conversations test still calls this function in its transaction.
+    # Change it to a generic action when that caller uses `enable_agent_in_tx/2`.
+    case Repo.transact(fn repo -> enable_agent_in_tx(repo, uid) end) do
+      {:ok, {%Principal{} = principal, _conversation_ids} = change} ->
+        unless Repo.in_transaction?(), do: publish_agent_changes(change)
+        {:ok, principal}
+
+      error ->
+        error
+    end
+  end
+
+  @doc false
+  def enable_agent_in_tx(repo, uid) do
+    with {:ok, principal} <- lock_principal_in_tx(repo, uid),
+         :ok <- ensure_principal_type(principal, :agent),
+         conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
+         {:ok, principal} <- Ankole.Ash.update(principal, :enable_in_tx, %{}) do
+      {:ok, {principal, conversation_ids}}
+    end
   end
 
   @doc """
@@ -257,17 +353,28 @@ defmodule Ankole.Principals do
   """
   @spec delete_agent(String.t()) :: principal_result()
   def delete_agent(uid) do
-    Repo.transact(fn repo ->
-      with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid, repo),
-           {:ok, principal} <- fetch_principal_for_update(repo, uid),
-           :ok <- ensure_principal_type(principal, :agent),
-           conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
-           {:ok, principal} <- change_agent_status_in_tx(repo, principal) do
-        {:ok, {principal, conversation_ids}}
-      end
-    end)
-    |> publish_agent_changes()
-    |> reconcile_agent_worker()
+    # Staged: a Conversations test still calls this function in its transaction.
+    # Change it to a generic action when that caller uses `delete_agent_in_tx/2`.
+    case Repo.transact(fn repo -> delete_agent_in_tx(repo, uid) end) do
+      {:ok, {%Principal{} = principal, _conversation_ids} = change} ->
+        unless Repo.in_transaction?(), do: publish_agent_changes(change)
+        :ok = AgentWorkers.reconcile(principal.uid)
+        {:ok, principal}
+
+      error ->
+        error
+    end
+  end
+
+  @doc false
+  def delete_agent_in_tx(repo, uid) do
+    with :ok <- Ankole.AuthZ.ensure_can_disable_principal(uid, repo),
+         {:ok, principal} <- lock_principal_in_tx(repo, uid),
+         :ok <- ensure_principal_type(principal, :agent),
+         conversation_ids <- Ankole.Conversations.ids_for_agent_in_tx(repo, principal.uid),
+         {:ok, principal} <- change_agent_status_in_tx(repo, principal) do
+      {:ok, {principal, conversation_ids}}
+    end
   end
 
   defp change_agent_status_in_tx(repo, principal) do
@@ -293,28 +400,11 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp publish_agent_changes({:ok, {%Principal{} = principal, conversation_ids}}) do
-    unless Repo.in_transaction?() do
-      Repo.with_tenant(principal.tenant_id, fn ->
-        Enum.each(conversation_ids, fn id ->
-          Ankole.Conversations.Events.publish_status(id)
-        end)
-      end)
-    end
-
-    {:ok, principal}
+  defp publish_agent_changes({%Principal{} = principal, conversation_ids}) do
+    Repo.with_tenant(principal.tenant_id, fn ->
+      Enum.each(conversation_ids, &Ankole.Conversations.Events.publish_status/1)
+    end)
   end
-
-  defp publish_agent_changes(result), do: result
-
-  # A disabled Agent's Worker stops when it is idle, and a deleted Agent's
-  # Worker objects are deleted; the Worker owner does both after the commit.
-  defp reconcile_agent_worker({:ok, %Principal{uid: uid}} = result) do
-    :ok = AgentWorkers.reconcile(uid)
-    result
-  end
-
-  defp reconcile_agent_worker(result), do: result
 
   @doc """
   Creates a human Principal with a generated local initial password.
@@ -327,24 +417,129 @@ defmodule Ankole.Principals do
           | {:error, term()}
   def create_local_user(attrs, must_change_password)
       when is_map(attrs) and is_boolean(must_change_password) do
-    with {:ok, _email} <- required_text(attrs, :email) do
-      initial_password = LocalCredential.generate_initial_password()
+    initial_password = LocalCredential.generate_initial_password()
 
-      Repo.transact(fn repo ->
-        with {:ok, principal} <- insert_principal(repo, human_principal_attrs(attrs)),
-             {:ok, human_user} <-
-               insert_human_user(repo, principal.uid, take_attrs(attrs, @human_profile_fields)),
-             {:ok, _credential} <-
-               LocalPassword.put_in_tx(
-                 repo,
-                 principal.uid,
-                 initial_password,
-                 must_change_password
-               ) do
-          {:ok,
-           %{principal: principal, human_user: human_user, initial_password: initial_password}}
+    with {:ok, _email} <- required_text(attrs, :email),
+         {:ok, password_hash} <- LocalPassword.hash_password(initial_password),
+         {:ok, created} <-
+           Ankole.Ash.run_action(Principal, :create_local_user, %{
+             attrs: attrs,
+             password_hash: password_hash,
+             must_change_password: must_change_password
+           }) do
+      {:ok, Map.put(created, :initial_password, initial_password)}
+    end
+  end
+
+  @doc false
+  def create_local_user_in_tx(repo, attrs, password_hash, must_change_password) do
+    with {:ok, %{principal: principal} = created} <- create_human_in_tx(repo, attrs),
+         {:ok, _credential} <-
+           put_local_credential_in_tx(repo, principal.uid, password_hash, must_change_password) do
+      {:ok, created}
+    end
+  end
+
+  @doc """
+  Loads the Principal, human profile, and local credential for one normalized
+  email address.
+  """
+  @spec fetch_local_login(String.t()) :: {:ok, map()} | {:error, :not_found}
+  def fetch_local_login(email) do
+    case HumanUser
+         |> Ash.Query.filter(email == ^email)
+         |> Ash.Query.load(principal: [:local_credential])
+         |> Ankole.Ash.read_one!() do
+      %HumanUser{principal: %Principal{} = principal} = human_user ->
+        {:ok,
+         %{principal: principal, human_user: human_user, credential: principal.local_credential}}
+
+      _missing ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Stores a local password hash for a Human that has an email address.
+
+  `Ankole.IdentityProviders.LocalPassword` hashes the password before this call.
+  """
+  @spec put_local_credential(String.t(), String.t(), boolean()) ::
+          {:ok, LocalCredential.t()} | {:error, term()}
+  def put_local_credential(uid, password_hash, must_change_password) do
+    Ankole.Ash.run_action(LocalCredential, :put_password, %{
+      uid: uid,
+      password_hash: password_hash,
+      must_change_password: must_change_password
+    })
+  end
+
+  @doc false
+  def put_local_password_in_tx(repo, uid, password_hash, must_change_password) do
+    with :ok <- ensure_local_login_human(uid),
+         do: put_local_credential_in_tx(repo, uid, password_hash, must_change_password)
+  end
+
+  @doc false
+  def put_local_credential_in_tx(_repo, uid, password_hash, must_change_password) do
+    attrs = %{password_hash: password_hash, must_change_password: must_change_password}
+
+    case LocalCredential |> Ash.Query.filter(principal_uid == ^uid) |> Ankole.Ash.read_one!() do
+      %LocalCredential{} = credential ->
+        Ankole.Ash.update(credential, :set_password_in_tx, attrs)
+
+      nil ->
+        Ankole.Ash.create(LocalCredential, :create_in_tx, Map.put(attrs, :principal_uid, uid))
+    end
+  end
+
+  @doc """
+  Replaces a password that the Human must change.
+
+  The write locks the credential and requires the verified credential version
+  and the must-change flag to still match.
+  """
+  @spec complete_forced_password_change(String.t(), String.t(), non_neg_integer()) ::
+          {:ok, LocalCredential.t()} | {:error, term()}
+  def complete_forced_password_change(uid, password_hash, credential_version) do
+    # Staged: the browser login completes this change in its own transaction.
+    # Change it to a generic action when that caller uses
+    # `complete_forced_password_change_in_tx/4`.
+    Repo.transact(fn repo ->
+      complete_forced_password_change_in_tx(repo, uid, password_hash, credential_version)
+    end)
+  end
+
+  @doc false
+  def complete_forced_password_change_in_tx(_repo, uid, password_hash, credential_version) do
+    with %LocalCredential{must_change_password: true} = credential <-
+           LocalCredential
+           |> Ash.Query.filter(principal_uid == ^uid)
+           |> Ash.Query.lock(:for_update)
+           |> Ankole.Ash.read_one!(),
+         true <- LocalCredential.version(credential) == credential_version do
+      Ankole.Ash.update(credential, :set_password_in_tx, %{
+        password_hash: password_hash,
+        must_change_password: false
+      })
+    else
+      _no_matching_change -> {:error, :password_change_not_required}
+    end
+  end
+
+  defp ensure_local_login_human(uid) do
+    case HumanUser |> Ash.Query.filter(principal_uid == ^uid) |> Ankole.Ash.read_one!() do
+      %HumanUser{email: email} when is_binary(email) ->
+        :ok
+
+      %HumanUser{} ->
+        {:error, :email_missing}
+
+      nil ->
+        case get_principal(uid) do
+          {:ok, %Principal{}} -> {:error, :not_human}
+          {:error, _missing} -> {:error, :not_found}
         end
-      end)
     end
   end
 
@@ -353,12 +548,14 @@ defmodule Ankole.Principals do
   """
   @spec list_principal_accounts(keyword()) :: [map()]
   def list_principal_accounts(opts \\ []) do
-    include_disabled = Keyword.get(opts, :include_disabled, false)
+    query =
+      if Keyword.get(opts, :include_disabled, false),
+        do: principal_account_query(),
+        else: Ash.Query.filter(principal_account_query(), status == :active)
 
-    principal_account_query()
-    |> where([principal: principal], ^include_disabled or principal.status == :active)
-    |> Repo.all()
-    |> Enum.map(&finish_principal_account/1)
+    query
+    |> Ankole.Ash.read!()
+    |> Enum.map(&principal_account/1)
   end
 
   @doc """
@@ -368,11 +565,11 @@ defmodule Ankole.Principals do
   def get_principal_account(uid) do
     with {:ok, normalized_uid} <- normalize_uid(uid) do
       principal_account_query()
-      |> where([principal: principal], principal.uid == ^normalized_uid)
-      |> Repo.one()
+      |> Ash.Query.filter(uid == ^normalized_uid)
+      |> Ankole.Ash.read_one!()
       |> case do
         nil -> {:error, :not_found}
-        account -> {:ok, finish_principal_account(account)}
+        principal -> {:ok, principal_account(principal)}
       end
     end
   end
@@ -380,14 +577,11 @@ defmodule Ankole.Principals do
   @doc false
   @spec bind_external_identity(module(), map()) ::
           {:ok, ExternalIdentity.t()} | {:error, term()}
-  def bind_external_identity(repo, attrs) when is_map(attrs) do
+  def bind_external_identity(_repo, attrs) when is_map(attrs) do
     changeset = Ankole.Ash.for_create(ExternalIdentity, :bind_in_tx, attrs)
 
     with {:ok, normalized} <- Ash.Changeset.apply_attributes(changeset) do
-      case repo.get_by(ExternalIdentity,
-             provider: normalized.provider,
-             external_id: normalized.external_id
-           ) do
+      case fetch_platform_subject(normalized.provider, normalized.external_id) do
         %ExternalIdentity{principal_uid: principal_uid} = identity
         when principal_uid == normalized.principal_uid ->
           {:ok, identity}
@@ -423,52 +617,43 @@ defmodule Ankole.Principals do
           {:ok,
            %{principal: Principal.t(), human_user: HumanUser.t(), identity: ExternalIdentity.t()}}
           | {:error, term()}
-  def upsert_platform_subject_human(attrs) when is_map(attrs) do
-    Repo.transact(fn repo ->
-      email = normalized_email_attr(attrs)
-      mobile = normalized_mobile_attr(attrs)
+  # Staged: Conversations identity admission still calls this function in its
+  # transaction. Change it to a generic action when that caller uses
+  # `upsert_platform_subject_human_in_tx/2`.
+  def upsert_platform_subject_human(attrs) when is_map(attrs),
+    do: Repo.transact(fn repo -> upsert_platform_subject_human_in_tx(repo, attrs) end)
 
-      with {:ok, provider} <- required_provider(attrs, :provider),
-           {:ok, external_id} <- required_text(attrs, :external_id),
-           {:ok, external_ids} <- candidate_external_ids(attrs),
-           {:ok, metadata} <- metadata_attrs(attrs),
-           :ok <- lock_platform_subjects(repo, provider, external_ids),
-           :ok <-
-             Ankole.IdentityProviders.DirectoryAccess.guard_subject(repo, provider, external_ids),
-           :ok <- maybe_lock_human_contact(repo, "principal_human_email", email),
-           :ok <- maybe_lock_human_contact(repo, "principal_human_mobile", mobile),
-           existing_identity <- fetch_platform_subject_by_ids(repo, provider, external_ids),
-           {:ok, selection} <-
-             platform_subject_principal_uid(
-               repo,
-               existing_identity,
-               attrs,
-               external_id,
-               email,
-               mobile
-             ),
-           {:ok, principal} <- upsert_human_principal(repo, selection, attrs),
-           profile_attrs <-
-             drop_conflicting_contacts(
-               repo,
-               provider,
-               principal.uid,
-               take_attrs(attrs, @human_profile_fields)
-             ),
-           {:ok, human_user} <- upsert_human_user(repo, principal.uid, profile_attrs),
-           {:ok, identities} <-
-             upsert_platform_subject_identities(
-               repo,
-               principal,
-               provider,
-               external_ids,
-               metadata
-             ),
-           :ok <- delete_pending_mapping_requests(repo, provider, external_ids) do
-        identity = hd(identities)
-        {:ok, %{principal: principal, human_user: human_user, identity: identity}}
-      end
-    end)
+  @doc false
+  def upsert_platform_subject_human_in_tx(repo, attrs) do
+    email = normalized_email_attr(attrs)
+    mobile = normalized_mobile_attr(attrs)
+
+    with {:ok, provider} <- required_provider(attrs, :provider),
+         {:ok, external_id} <- required_text(attrs, :external_id),
+         {:ok, external_ids} <- candidate_external_ids(attrs),
+         {:ok, metadata} <- metadata_attrs(attrs),
+         :ok <- lock_platform_subjects(repo, provider, external_ids),
+         :ok <-
+           Ankole.IdentityProviders.DirectoryAccess.guard_subject(repo, provider, external_ids),
+         :ok <- maybe_lock_human_contact(repo, "principal_human_email", email),
+         :ok <- maybe_lock_human_contact(repo, "principal_human_mobile", mobile),
+         existing_identity <- fetch_platform_subject_by_ids(provider, external_ids),
+         {:ok, selection} <-
+           platform_subject_principal_uid(existing_identity, attrs, external_id, email, mobile),
+         {:ok, principal} <- upsert_human_principal(repo, selection, attrs),
+         profile_attrs <-
+           drop_conflicting_contacts(
+             provider,
+             principal.uid,
+             take_attrs(attrs, @human_profile_fields)
+           ),
+         {:ok, human_user} <- upsert_human_user(repo, principal.uid, profile_attrs),
+         {:ok, identities} <-
+           upsert_platform_subject_identities(principal, provider, external_ids, metadata),
+         :ok <- delete_pending_mapping_requests(provider, external_ids) do
+      identity = hd(identities)
+      {:ok, %{principal: principal, human_user: human_user, identity: identity}}
+    end
   end
 
   @doc """
@@ -521,7 +706,7 @@ defmodule Ankole.Principals do
   def resolve_platform_subject_uid(provider, external_id) do
     with {:ok, provider} <- normalize_provider(provider),
          {:ok, external_id} <- normalize_required_text(external_id) do
-      case fetch_platform_subject(Repo, provider, external_id) do
+      case fetch_platform_subject(provider, external_id) do
         %ExternalIdentity{principal_uid: principal_uid} -> {:ok, principal_uid}
         nil -> {:error, :not_found}
       end
@@ -567,13 +752,13 @@ defmodule Ankole.Principals do
   # system Principal as owner would extend private-scope reachability in a
   # way no contract describes, so the owner must be a human. Blank values
   # fall through to the resource's required validation.
-  defp validate_agent_owner(repo, attrs) do
+  defp validate_agent_owner(attrs) do
     case Map.get(attrs, :owner_principal_uid) do
       owner_uid when is_binary(owner_uid) and owner_uid != "" ->
-        case repo.one(from p in Principal, where: p.uid == ^owner_uid, select: p.type) do
-          :human -> :ok
-          nil -> {:error, :agent_owner_not_found}
-          _other_type -> {:error, :agent_owner_must_be_human}
+        case get_principal(owner_uid) do
+          {:ok, %Principal{type: :human}} -> :ok
+          {:ok, %Principal{}} -> {:error, :agent_owner_must_be_human}
+          {:error, _missing} -> {:error, :agent_owner_not_found}
         end
 
       _absent_or_blank ->
@@ -585,8 +770,8 @@ defmodule Ankole.Principals do
   # written while this update waits is merged in, not overwritten. The
   # Principal row lock above comes first; the owned-option services take only
   # the Agent row lock, so the two orders cannot deadlock.
-  defp update_agent_row(repo, uid, attrs) do
-    case repo.one(from(agent in Agent, where: agent.uid == ^uid, lock: "FOR UPDATE")) do
+  defp update_agent_row(uid, attrs) do
+    case lock_agent_in_tx(Repo, uid) do
       %Agent{} = agent ->
         with {:ok, attrs} <- keep_owned_agent_options(agent, attrs) do
           Ankole.Ash.update(agent, :profile_in_tx, attrs)
@@ -614,7 +799,7 @@ defmodule Ankole.Principals do
   end
 
   defp upsert_human_principal(repo, {:selected, uid}, attrs) do
-    case fetch_principal_for_update(repo, uid) do
+    case lock_principal_in_tx(repo, uid) do
       {:ok, %Principal{type: :human} = principal} ->
         update_principal_profile(repo, principal, observed_profile_attrs(principal, attrs))
 
@@ -646,7 +831,9 @@ defmodule Ankole.Principals do
   end
 
   defp upsert_human_user(repo, principal_uid, attrs) do
-    case repo.get(HumanUser, principal_uid) do
+    case HumanUser
+         |> Ash.Query.filter(principal_uid == ^principal_uid)
+         |> Ankole.Ash.read_one!() do
       %HumanUser{} = human_user ->
         Ankole.Ash.update(human_user, :profile_in_tx, attrs)
 
@@ -656,48 +843,33 @@ defmodule Ankole.Principals do
   end
 
   defp principal_account_query do
-    from principal in Principal,
-      as: :principal,
-      left_join: human_user in assoc(principal, :human_user),
-      left_join: agent in assoc(principal, :agent),
-      left_join: credential in LocalCredential,
-      on: credential.principal_uid == principal.uid,
-      order_by: [asc: principal.uid],
-      select: %{
-        principal: principal,
-        email: human_user.email,
-        handle: agent.handle,
-        has_external_identity:
-          exists(
-            from identity in ExternalIdentity,
-              where: identity.principal_uid == parent_as(:principal).uid,
-              select: 1
-          ),
-        local_credential_must_change: credential.must_change_password
-      }
+    Principal
+    |> Ash.Query.load([:human_user, :agent, :local_credential, :has_external_identity])
+    |> Ash.Query.sort(uid: :asc)
   end
 
-  defp finish_principal_account(account) do
-    {must_change, account} = Map.pop(account, :local_credential_must_change)
-
+  defp principal_account(%Principal{} = principal) do
     local_credential_status =
-      case must_change do
+      case principal.local_credential do
         nil -> nil
-        true -> :must_change
-        false -> :active
+        %LocalCredential{must_change_password: true} -> :must_change
+        %LocalCredential{must_change_password: false} -> :active
       end
 
-    Map.put(account, :local_credential_status, local_credential_status)
+    %{
+      principal: principal,
+      email: principal.human_user && principal.human_user.email,
+      handle: principal.agent && principal.agent.handle,
+      has_external_identity: principal.has_external_identity,
+      local_credential_status: local_credential_status
+    }
   end
 
-  defp upsert_external_identity(repo, attrs) do
+  defp upsert_external_identity(attrs) do
     changeset = Ankole.Ash.for_create(ExternalIdentity, :bind_in_tx, attrs)
 
     with {:ok, normalized} <- Ash.Changeset.apply_attributes(changeset) do
-      case repo.get_by(ExternalIdentity,
-             provider: normalized.provider,
-             external_id: normalized.external_id
-           ) do
+      case fetch_platform_subject(normalized.provider, normalized.external_id) do
         %ExternalIdentity{principal_uid: principal_uid} = identity
         when principal_uid == normalized.principal_uid ->
           Ankole.Ash.update(identity, :observe_in_tx, %{metadata: normalized.metadata})
@@ -711,19 +883,103 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp fetch_principal_for_update(repo, uid) do
+  @doc """
+  Locks one Principal row in the caller's transaction.
+
+  The mode is `:update` (the default), `:share`, or `:key_share`. The Principal
+  lock has the first rank of the work lock order.
+  """
+  @spec lock_principal_in_tx(module(), term(), :update | :share | :key_share) ::
+          principal_result()
+  def lock_principal_in_tx(_repo, uid, mode \\ :update) do
     with {:ok, normalized_uid} <- normalize_uid(uid) do
-      case repo.one(
-             from(principal in Principal,
-               where: principal.uid == ^normalized_uid,
-               lock: "FOR UPDATE"
-             ),
-             lock_identity: {"principals", normalized_uid}
-           ) do
+      case Principal
+           |> Ash.Query.filter(uid == ^normalized_uid)
+           |> Ash.Query.lock(row_lock(mode))
+           |> Ankole.Ash.read_one!(lock_identity: {"principals", normalized_uid}) do
         %Principal{} = principal -> {:ok, principal}
         nil -> {:error, :not_found}
       end
     end
+  end
+
+  @doc """
+  Locks an active Human and its profile row for share in the caller's
+  transaction.
+
+  The lock keeps the status and the access version stable until the commit.
+  """
+  @spec lock_active_human_in_tx(module(), term()) ::
+          {:ok, %{principal: Principal.t(), human_user: HumanUser.t()}} | {:error, term()}
+  def lock_active_human_in_tx(repo, uid) do
+    with {:ok, %Principal{type: :human, status: :active} = principal} <-
+           lock_principal_in_tx(repo, uid, :share),
+         %HumanUser{} = human_user <-
+           HumanUser
+           |> Ash.Query.filter(principal_uid == ^principal.uid)
+           |> Ash.Query.lock("FOR SHARE")
+           |> Ankole.Ash.read_one!() do
+      {:ok, %{principal: principal, human_user: human_user}}
+    else
+      {:ok, %Principal{}} -> {:error, :human_access_revoked}
+      nil -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp row_lock(:update), do: :for_update
+  defp row_lock(:share), do: "FOR SHARE"
+  defp row_lock(:key_share), do: "FOR KEY SHARE"
+
+  @doc """
+  Lists the bindings of one provider subject in every tenant, in Principal UID
+  order.
+
+  A site sign-in uses this read to find the tenants where the subject has a
+  Principal.
+  """
+  @spec list_platform_subject_bindings(String.t(), String.t()) :: [ExternalIdentity.t()]
+  def list_platform_subject_bindings(provider, external_id) do
+    Repo.across_tenants(fn ->
+      ExternalIdentity
+      |> Ash.Query.for_read(:read_across_tenants)
+      |> Ash.Query.filter(provider == ^provider and external_id == ^external_id)
+      |> Ash.Query.sort(principal_uid: :asc)
+      |> Ash.read!(Ankole.Ash.default_options())
+    end)
+  end
+
+  @doc """
+  Locks one Agent row for update in the caller's transaction, or gives `nil`.
+
+  The owned-option services (model profiles and token quota) take only this
+  lock. A Principal lock, when present, comes first.
+  """
+  @spec lock_agent_in_tx(module(), String.t()) :: Agent.t() | nil
+  def lock_agent_in_tx(_repo, uid) do
+    Agent
+    |> Ash.Query.filter(uid == ^uid)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
+  end
+
+  @doc """
+  Locks Principal rows in UID order in the caller's transaction.
+
+  The result contains the rows that exist, in UID order.
+  """
+  @spec lock_principals_in_tx(module(), [String.t()]) :: {:ok, [Principal.t()]}
+  def lock_principals_in_tx(_repo, uids) when is_list(uids) do
+    uids = uids |> Enum.uniq() |> Enum.sort()
+
+    principals =
+      Principal
+      |> Ash.Query.filter(uid in ^uids)
+      |> Ash.Query.sort(uid: :asc)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read!(lock_identity: {"principals", uids})
+
+    {:ok, principals}
   end
 
   defp ensure_principal_type(%Principal{type: type}, type), do: :ok
@@ -742,22 +998,14 @@ defmodule Ankole.Principals do
     |> Map.merge(%{type: :agent})
   end
 
-  defp agent_with_principal_query(uid) do
-    Agent
-    |> where([agent], agent.uid == ^uid)
-    |> join(:inner, [agent], principal in assoc(agent, :principal))
-    |> preload([_agent, principal], principal: principal)
+  defp fetch_platform_subject(provider, external_id) do
+    ExternalIdentity
+    |> Ash.Query.filter(provider == ^provider and external_id == ^external_id)
+    |> Ankole.Ash.read_one!()
   end
 
-  defp fetch_platform_subject(repo, provider, external_id) do
-    repo.one(
-      from identity in ExternalIdentity,
-        where: identity.provider == ^provider and identity.external_id == ^external_id
-    )
-  end
-
-  defp fetch_platform_subject_by_ids(repo, provider, external_ids) do
-    Enum.find_value(external_ids, &fetch_platform_subject(repo, provider, &1))
+  defp fetch_platform_subject_by_ids(provider, external_ids) do
+    Enum.find_value(external_ids, &fetch_platform_subject(provider, &1))
   end
 
   @doc false
@@ -783,24 +1031,19 @@ defmodule Ankole.Principals do
 
   @doc false
   @spec delete_pending_mapping_request(module(), String.t(), String.t()) :: :ok
-  def delete_pending_mapping_request(repo, provider, external_id)
+  def delete_pending_mapping_request(_repo, provider, external_id)
       when is_binary(provider) and is_binary(external_id) do
-    delete_pending_mapping_requests(repo, provider, [external_id])
+    delete_pending_mapping_requests(provider, [external_id])
   end
 
-  defp delete_pending_mapping_requests(repo, provider, external_ids) do
-    requests =
-      repo.all(
-        from request in MappingRequest,
-          where: request.provider == ^provider and request.external_id in ^external_ids
-      )
-
-    Enum.reduce_while(requests, :ok, fn request, :ok ->
-      case Ankole.Ash.destroy(request, :delete_in_tx) do
-        {:ok, _} -> {:cont, :ok}
-        {:error, _} = error -> {:halt, error}
-      end
-    end)
+  defp delete_pending_mapping_requests(provider, external_ids) do
+    MappingRequest
+    |> Ash.Query.filter(provider == ^provider and external_id in ^external_ids)
+    |> Ankole.Ash.destroy_where(:delete_in_tx)
+    |> case do
+      {:ok, _requests} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   defp maybe_lock_human_contact(_repo, _prefix, nil), do: :ok
@@ -819,7 +1062,6 @@ defmodule Ankole.Principals do
   # Provider bindings, contact matches, and explicit reviewer selections only
   # select existing humans. A new external subject gets an opaque UUID.
   defp platform_subject_principal_uid(
-         _repo,
          %ExternalIdentity{principal_uid: principal_uid},
          _attrs,
          _external_id,
@@ -829,9 +1071,8 @@ defmodule Ankole.Principals do
     {:ok, {:selected, principal_uid}}
   end
 
-  defp platform_subject_principal_uid(repo, nil, attrs, external_id, email, mobile) do
-    case human_contact_owner_uid(repo, :email, email) ||
-           human_contact_owner_uid(repo, :mobile, mobile) do
+  defp platform_subject_principal_uid(nil, attrs, external_id, email, mobile) do
+    case contact_owner_uid(:email, email) || contact_owner_uid(:mobile, mobile) do
       nil ->
         case fetch_attr(attrs, :uid) do
           {:ok, uid} ->
@@ -850,12 +1091,6 @@ defmodule Ankole.Principals do
 
         {:ok, {:selected, owner_uid}}
     end
-  end
-
-  defp human_contact_owner_uid(_repo, _field, nil), do: nil
-
-  defp human_contact_owner_uid(repo, field, value) do
-    contact_owner_uid(repo, field, value)
   end
 
   defp normalized_email_attr(attrs) do
@@ -910,40 +1145,28 @@ defmodule Ankole.Principals do
   defp contact_owner_principal(_field, nil), do: nil
 
   defp contact_owner_principal(field, value) do
-    Repo.one(
-      from human_user in HumanUser,
-        join: principal in Principal,
-        on: principal.uid == human_user.principal_uid,
-        where: field(human_user, ^field) == ^value,
-        select: %{principal: principal}
-    )
+    case HumanUser
+         |> Ash.Query.do_filter([{field, value}])
+         |> Ash.Query.load(:principal)
+         |> Ankole.Ash.read_one!() do
+      %HumanUser{principal: principal} -> %{principal: principal}
+      nil -> nil
+    end
   end
 
   # Unique-owned contact fields are dropped rather than failed on: a unique
   # violation would abort the whole transaction, and the conflicting field is
   # the other provider's problem to reconcile, not this subject's.
-  defp drop_conflicting_contacts(repo, provider, principal_uid, profile_attrs) do
+  defp drop_conflicting_contacts(provider, principal_uid, profile_attrs) do
     profile_attrs
-    |> drop_conflicting_contact(
-      repo,
-      provider,
-      principal_uid,
-      :email,
-      &normalize_email/1
-    )
-    |> drop_conflicting_contact(
-      repo,
-      provider,
-      principal_uid,
-      :mobile,
-      &normalized_contact_mobile/1
-    )
+    |> drop_conflicting_contact(provider, principal_uid, :email, &normalize_email/1)
+    |> drop_conflicting_contact(provider, principal_uid, :mobile, &normalized_contact_mobile/1)
   end
 
-  defp drop_conflicting_contact(profile_attrs, repo, provider, principal_uid, field, normalize) do
+  defp drop_conflicting_contact(profile_attrs, provider, principal_uid, field, normalize) do
     with {:ok, value} <- Map.fetch(profile_attrs, field),
          normalized when is_binary(normalized) <- normalize.(value),
-         owner_uid when is_binary(owner_uid) <- contact_owner_uid(repo, field, normalized) do
+         owner_uid when is_binary(owner_uid) <- contact_owner_uid(field, normalized) do
       if owner_uid == principal_uid do
         profile_attrs
       else
@@ -965,12 +1188,13 @@ defmodule Ankole.Principals do
     end
   end
 
-  defp contact_owner_uid(repo, field, value) do
-    repo.one(
-      from human_user in HumanUser,
-        where: field(human_user, ^field) == ^value,
-        select: human_user.principal_uid
-    )
+  defp contact_owner_uid(_field, nil), do: nil
+
+  defp contact_owner_uid(field, value) do
+    case HumanUser |> Ash.Query.do_filter([{field, value}]) |> Ankole.Ash.read_one!() do
+      %HumanUser{principal_uid: principal_uid} -> principal_uid
+      nil -> nil
+    end
   end
 
   # Uses the HumanUser phone codec; a value the kernel cannot
@@ -1009,7 +1233,7 @@ defmodule Ankole.Principals do
     }
   end
 
-  defp upsert_platform_subject_identities(repo, principal, provider, external_ids, metadata) do
+  defp upsert_platform_subject_identities(principal, provider, external_ids, metadata) do
     external_ids
     |> Enum.reduce_while({:ok, []}, fn external_id, {:ok, identities} ->
       attrs =
@@ -1018,10 +1242,10 @@ defmodule Ankole.Principals do
           provider,
           external_id,
           metadata,
-          fetch_platform_subject(repo, provider, external_id)
+          fetch_platform_subject(provider, external_id)
         )
 
-      case upsert_external_identity(repo, attrs) do
+      case upsert_external_identity(attrs) do
         {:ok, identity} -> {:cont, {:ok, [identity | identities]}}
         {:error, _reason} = error -> {:halt, error}
       end
@@ -1033,12 +1257,16 @@ defmodule Ankole.Principals do
   end
 
   defp provider_subject_principal(provider, external_id) do
-    Repo.one(
-      from identity in ExternalIdentity,
-        join: principal in assoc(identity, :principal),
-        where: identity.provider == ^provider and identity.external_id == ^external_id,
-        select: %{identity: identity, principal: principal}
-    )
+    case ExternalIdentity
+         |> Ash.Query.filter(provider == ^provider and external_id == ^external_id)
+         |> Ash.Query.load(:principal)
+         |> Ankole.Ash.read_one!() do
+      %ExternalIdentity{principal: principal} = identity ->
+        %{identity: identity, principal: principal}
+
+      nil ->
+        nil
+    end
   end
 
   defp active_human_result(nil), do: {:error, :not_found}

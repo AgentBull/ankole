@@ -321,7 +321,7 @@ defmodule Ankole.Conversations.External do
   defp author_identity(author) do
     uid = Map.get(author, "principal_uid") || Map.get(author, "agent_uid")
 
-    case is_binary(uid) and uid != "" and Ankole.Principals.Domain.get_principal!(uid) do
+    case is_binary(uid) and uid != "" and Ankole.Principals.get_principal_record!(uid) do
       %{uid: uid, type: :human} -> {:human, uid}
       %{uid: uid, type: :agent} -> {:agent, uid}
       _ -> {:unknown, nil}

@@ -229,14 +229,11 @@ defmodule Ankole.AIAgent.TokenQuota do
     end
   end
 
-  defp lock_agent(agent_uid) do
-    {:ok, agent} = Ankole.Principals.Domain.get_agent(agent_uid, query: [lock: :for_update])
-    agent
-  end
+  defp lock_agent(agent_uid), do: Principals.lock_agent_in_tx(Ankole.Repo, agent_uid)
 
   defp write_quota(%Agent{} = agent, quota) do
     agent
-    |> Ankole.Principals.Domain.options_agent(%{
+    |> Principals.options_agent(%{
       options: put_quota_options(agent.options || %{}, quota)
     })
     |> Ankole.Errors.reason()

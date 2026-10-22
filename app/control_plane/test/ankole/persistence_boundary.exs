@@ -82,18 +82,10 @@
     "ecto_lock:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 2,
     "ecto_resource:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 2,
     "repo_transact:../control_plane_core/lib/ankole/agent_workers/worker_route_auth.ex" => 1,
-    # ankole_web
-    "ecto_resource:../control_plane_core/lib/ankole_web/plugs/put_data_context.ex" => 1,
-    # app_configure
-    "repo_transact:../control_plane_core/lib/ankole/app_configure.ex" => 4,
-    # authz
-    "ecto_resource:../control_plane_core/lib/ankole/authz.ex" => 12,
-    "repo_transact:../control_plane_core/lib/ankole/authz.ex" => 14,
-    "ecto_lock:../control_plane_core/lib/ankole/authz/root.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/authz/root.ex" => 4,
-    "bulk_result:../control_plane_core/lib/ankole/authz/store.ex" => 2,
-    "ecto_lock:../control_plane_core/lib/ankole/authz/store.ex" => 8,
-    "ecto_resource:../control_plane_core/lib/ankole/authz/store.ex" => 10,
+    # authz: staged facades. Callers in other tasks' files still call them in
+    # their own transaction; each becomes a generic action when its callers use
+    # the `_in_tx` form (hey/T9.md).
+    "repo_transact:../control_plane_core/lib/ankole/authz.ex" => 2,
     # brain
     "ecto_resource:../control_plane_core/lib/ankole/brain/access.ex" => 1,
     "ecto_lock:../control_plane_core/lib/ankole/brain/calibration.ex" => 1,
@@ -136,20 +128,6 @@
     "ecto_resource:lib/ankole/release.ex" => 1,
     # conversations
     "ecto_resource:../control_plane_core/lib/ankole/conversations.ex" => 2,
-    # identity_providers
-    "repo_transact:../control_plane_core/lib/ankole/identity_providers/config.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/identity_providers/directory.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/identity_providers/directory_access.ex" => 2,
-    "ecto_lock:../control_plane_core/lib/ankole/identity_providers/directory_access.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/identity_providers/directory_access.ex" => 8,
-    "error_class:../control_plane_core/lib/ankole/identity_providers/directory_access.ex" => 2,
-    "repo_transact:../control_plane_core/lib/ankole/identity_providers/directory_access.ex" => 8,
-    "cross_domain_ash:../control_plane_core/lib/ankole/identity_providers/local_password.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/identity_providers/local_password.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/identity_providers/local_password.ex" => 6,
-    "repo_transact:../control_plane_core/lib/ankole/identity_providers/local_password.ex" => 3,
-    # observability
-    "ecto_resource:../control_plane_core/lib/ankole/observability/trace.ex" => 1,
     # oidc: locks of tenant and Human rows stay until Tenants and Principals give
     # these reads.
     "ecto_lock:../control_plane_core/lib/ankole/oidc/claims.ex" => 2,
@@ -190,20 +168,12 @@
       1,
     "ecto_resource:../../plugins/whatsapp_adapter/lib/ankole/plugins/whatsapp_adapter/inbound.ex" =>
       1,
-    # principals
-    "ecto_lock:../control_plane_core/lib/ankole/principals.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/principals.ex" => 17,
-    "repo_transact:../control_plane_core/lib/ankole/principals.ex" => 8,
-    "ecto_resource:../control_plane_core/lib/ankole/principals/human_access.ex" => 9,
-    "repo_transact:../control_plane_core/lib/ankole/principals/human_access.ex" => 5,
-    "ecto_resource:../control_plane_core/lib/ankole/principals/mapping_requests.ex" => 4,
-    "repo_transact:../control_plane_core/lib/ankole/principals/mapping_requests.ex" => 4,
-    "ecto_lock:../control_plane_core/lib/ankole/principals/work_access.ex" => 3,
-    "ecto_resource:../control_plane_core/lib/ankole/principals/work_access.ex" => 6,
-    "repo_transact:../control_plane_core/lib/ankole/principals/work_access.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/principals/work_cleanup.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/principals/work_cleanup.ex" => 7,
-    "repo_transact:../control_plane_core/lib/ankole/principals/work_cleanup.ex" => 1,
+    # principals: staged facades, as for authz. WorkCleanup counts admitted
+    # Signal and automation attempts of all tenants until Signals and
+    # AutomationJobs give that count.
+    "repo_transact:../control_plane_core/lib/ankole/principals.ex" => 6,
+    "repo_transact:../control_plane_core/lib/ankole/principals/mapping_requests.ex" => 1,
+    "ecto_resource:../control_plane_core/lib/ankole/principals/work_cleanup.ex" => 4,
     # sessions
     "ecto_resource:../control_plane_core/lib/ankole/sessions.ex" => 1,
     "ecto_resource:../control_plane_core/lib/ankole/sessions/activity.ex" => 5,
@@ -287,14 +257,7 @@
     "ecto_lock:../control_plane_core/lib/ankole/signals/webhooks.ex" => 2,
     "ecto_resource:../control_plane_core/lib/ankole/signals/webhooks.ex" => 1,
     "repo_transact:../control_plane_core/lib/ankole/signals/webhooks.ex" => 4,
-    # tenants
-    "cross_domain_ash:../control_plane_core/lib/ankole/tenants.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/tenants.ex" => 3,
-    "ecto_resource:../control_plane_core/lib/ankole/tenants.ex" => 13,
-    "ecto_write:../control_plane_core/lib/ankole/tenants.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/tenants.ex" => 7,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/tenants/jobs/delete.ex" => 1,
-    # work
-    "ecto_lock:../control_plane_core/lib/ankole/work/owner.ex" => 1
+    # tenants: staged facade, as for authz.
+    "repo_transact:../control_plane_core/lib/ankole/tenants.ex" => 1
   }
 }

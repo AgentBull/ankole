@@ -142,7 +142,9 @@ review. Provider configuration changes and received events advance the revision.
 A sync uses the exact saved configuration and cannot commit removal evidence
 if that configuration or revision changed during collection.
 
-Both directory records use Ash resources and named transaction actions. The
+Both directory records use Ash resources. Event admission, event processing,
+review, sync start, snapshot commit, and approval are generic actions of
+`DirectoryState` or `DirectoryEvent` that own their transactions. The
 provider state row remains the serialization point for event admission,
 review, and snapshot commits. Only the owning actions advance its revision or
 change sync health. Configuration invalidation and a failed-ticket update use
@@ -315,8 +317,11 @@ provides the explicit legacy classification operation. It does not schedule
 work or select an Agent. PostgreSQL checks the three-field shape.
 
 `Ankole.Work.Provenance` declares these fields and each owner's review states
-and revoke callback. `Ankole.Work.Owner` uses that metadata for the review
-registry and revocation dispatch. Execution owners call WorkAccess directly;
+and revoke callback. It also declares the `allow_global` read action
+`:work_across_tenants`, because one Human's work can be in any tenant.
+`Ankole.Work.Owner` uses that metadata for the review registry and revocation
+dispatch, and reads and locks work rows through Ash. Execution owners call
+WorkAccess directly;
 Sessions owns wakeup delivery. WorkCleanup locks all
 candidate parent rows before a callback can lock child rows or Signals. Each
 callback runs in its row's tenant context in the same cleanup transaction.

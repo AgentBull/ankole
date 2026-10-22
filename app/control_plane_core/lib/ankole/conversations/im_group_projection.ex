@@ -2,7 +2,7 @@ defmodule Ankole.Conversations.IMGroupProjection do
   @moduledoc false
 
   alias Ankole.Logging
-  alias Ankole.AuthZ.Domain, as: AuthZ
+  alias Ankole.AuthZ
 
   alias Ankole.Conversations.AdapterContext
   alias Ankole.Signals.BindingMembership

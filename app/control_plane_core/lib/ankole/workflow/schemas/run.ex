@@ -155,10 +155,6 @@ defmodule Ankole.Workflow.Schemas.Run do
   actions do
     defaults([:read])
 
-    read :lookup_across_tenants do
-      multitenancy(:allow_global)
-    end
-
     action :create_with_dispatch, :term do
       argument(:attrs, :term, allow_nil?: false)
 

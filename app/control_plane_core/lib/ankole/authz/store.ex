@@ -1,7 +1,12 @@
 defmodule Ankole.AuthZ.Store do
-  @moduledoc false
+  @moduledoc """
+  AuthZ steps that run in the caller's transaction.
 
-  import Ecto.Query, warn: false
+  A generic action of the AuthZ domain, or another domain's action, calls these
+  functions in its transaction. Admin writes lock the group before the
+  Principal, in the one installation-wide order.
+  """
+
   require Ash.Query
 
   alias Ankole.AuthZ.ExternalBinding
@@ -20,7 +25,7 @@ defmodule Ankole.AuthZ.Store do
     with {:ok, group} <- fetch_group_for_update(repo, id_or_name),
          :ok <- ensure_operator_group(group),
          :ok <- ensure_operator_domain(group),
-         :ok <- ensure_group_has_no_grants(repo, group.id) do
+         :ok <- ensure_group_has_no_grants(group.id) do
       Ankole.Ash.destroy(group, :delete_in_tx)
     end
   end
@@ -60,7 +65,7 @@ defmodule Ankole.AuthZ.Store do
          :ok <- ensure_static_group(group),
          :ok <- ensure_group_domain(group, expected_domain),
          {:ok, principal_uid} <- Principals.normalize_uid(principal_uid) do
-      delete_membership(repo, principal_uid, group.id)
+      delete_membership(principal_uid, group.id)
     end
   end
 
@@ -70,21 +75,20 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
-  def external_group_ids(repo, provider, external_kind, external_id) do
+  def external_group_ids(_repo, provider, external_kind, external_id) do
     with {:ok, provider} <- Input.normalize_provider(provider),
          {:ok, external_kind} <- normalize_external_kind(external_kind),
          expected_domain <- external_kind_domain(external_kind),
          {:ok, external_id} <- Input.normalize_required_text(external_id) do
       ExternalBinding
-      |> join(:inner, [binding], group in Group, on: group.id == binding.group_id)
-      |> where(
-        [binding, group],
-        binding.provider == ^provider and binding.external_kind == ^external_kind and
-          binding.external_id == ^external_id and group.domain == ^expected_domain and
+      |> Ash.Query.filter(
+        provider == ^provider and external_kind == ^external_kind and
+          external_id == ^external_id and group.domain == ^expected_domain and
           group.kind == :static
       )
-      |> select([binding, _group], binding.group_id)
-      |> repo.all()
+      |> Ash.Query.select([:group_id])
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.group_id)
     else
       {:error, _reason} -> []
     end
@@ -98,15 +102,15 @@ defmodule Ankole.AuthZ.Store do
          {:ok, principal_uids} <- normalize_principal_uids(principal_uids) do
       existing_uids =
         Membership
-        |> where([membership], membership.group_id == ^group.id)
-        |> select([membership], membership.principal_uid)
-        |> repo.all()
+        |> Ash.Query.filter(group_id == ^group.id)
+        |> Ash.Query.select([:principal_uid])
+        |> Ankole.Ash.read!()
+        |> Enum.map(& &1.principal_uid)
 
       stale_uids = existing_uids -- principal_uids
 
-      with :ok <- insert_group_memberships(repo, group.id, principal_uids) do
-        removed_memberships = delete_group_memberships(repo, group.id, stale_uids)
-
+      with :ok <- insert_group_memberships(repo, group.id, principal_uids),
+           {:ok, removed_memberships} <- delete_group_memberships(group.id, stale_uids) do
         {:ok,
          %{
            synced_principal_uids: principal_uids,
@@ -131,9 +135,8 @@ defmodule Ankole.AuthZ.Store do
          {:ok, added_uids} <- normalize_principal_uids(added_uids),
          {:ok, removed_uids} <- normalize_principal_uids(removed_uids),
          :ok <- lock_principals(repo, added_uids),
-         :ok <- insert_group_memberships(repo, group.id, added_uids) do
-      removed_memberships = delete_group_memberships(repo, group.id, removed_uids)
-
+         :ok <- insert_group_memberships(repo, group.id, added_uids),
+         {:ok, removed_memberships} <- delete_group_memberships(group.id, removed_uids) do
       {:ok,
        %{
          added_principal_uids: added_uids,
@@ -143,9 +146,9 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
-  def external_directory_group_index(repo, provider) do
+  def external_directory_group_index(_repo, provider) do
     with {:ok, provider} <- Input.normalize_provider(provider) do
-      {:ok, build_external_directory_group_index(repo, provider, "department")}
+      {:ok, build_external_directory_group_index(provider, "department")}
     end
   end
 
@@ -160,7 +163,7 @@ defmodule Ankole.AuthZ.Store do
     with {:ok, provider} <- Input.normalize_provider(provider),
          {:ok, external_ids} <- normalize_external_ids(external_ids),
          {:ok, principal} <- fetch_principal_for_update(repo, principal_uid),
-         {:ok, directory_index} <- directory_group_index(repo, provider, "department", opts) do
+         {:ok, directory_index} <- directory_group_index(provider, "department", opts) do
       managed_group_ids = directory_index.managed_group_ids
 
       desired_group_ids =
@@ -168,9 +171,8 @@ defmodule Ankole.AuthZ.Store do
 
       stale_group_ids = managed_group_ids -- desired_group_ids
 
-      with :ok <- insert_principal_memberships(repo, desired_group_ids, principal.uid) do
-        removed_memberships = delete_memberships(repo, principal.uid, stale_group_ids)
-
+      with :ok <- insert_principal_memberships(repo, desired_group_ids, principal.uid),
+           {:ok, removed_memberships} <- delete_memberships(principal.uid, stale_group_ids) do
         {:ok,
          %{
            synced_group_ids: desired_group_ids,
@@ -209,34 +211,15 @@ defmodule Ankole.AuthZ.Store do
     Ankole.Ash.create(Group, :ensure_in_tx, attrs)
   end
 
-  def fetch_principal(repo, principal_uid) do
-    case repo.get(Principal, principal_uid) do
-      %Principal{} = principal -> {:ok, principal}
-      nil -> {:error, :not_found}
-    end
-  end
-
-  def fetch_principal_for_update(repo, principal_uid) do
-    with {:ok, normalized_uid} <- Principals.normalize_uid(principal_uid) do
-      case repo.one(
-             from(principal in Principal,
-               where: principal.uid == ^normalized_uid,
-               lock: "FOR UPDATE"
-             ),
-             lock_identity: {"principals", normalized_uid}
-           ) do
-        %Principal{} = principal -> {:ok, principal}
-        nil -> {:error, :not_found}
-      end
-    end
-  end
+  def fetch_principal_for_update(repo, principal_uid),
+    do: Principals.lock_principal_in_tx(repo, principal_uid)
 
   def ensure_active_human(%Principal{type: :human, status: :active}), do: :ok
   def ensure_active_human(%Principal{type: :agent}), do: {:error, :not_human}
   def ensure_active_human(%Principal{status: :disabled}), do: {:error, :principal_disabled}
 
-  def fetch_group(repo, id_or_name) when is_binary(id_or_name) do
-    case fetch_group_by_id_or_name(repo, id_or_name) do
+  def fetch_group(_repo, id_or_name) when is_binary(id_or_name) do
+    case id_or_name |> group_by_id_or_name_query() |> Ankole.Ash.read_one!() do
       %Group{} = group -> {:ok, group}
       nil -> {:error, :not_found}
     end
@@ -244,8 +227,11 @@ defmodule Ankole.AuthZ.Store do
 
   def fetch_group(_repo, _id_or_name), do: {:error, :not_found}
 
-  defp fetch_group_for_update(repo, id_or_name) when is_binary(id_or_name) do
-    case repo.one(group_by_id_or_name_query(id_or_name, lock: "FOR UPDATE")) do
+  defp fetch_group_for_update(_repo, id_or_name) when is_binary(id_or_name) do
+    case id_or_name
+         |> group_by_id_or_name_query()
+         |> Ash.Query.lock(:for_update)
+         |> Ankole.Ash.read_one!() do
       %Group{} = group -> {:ok, group}
       nil -> {:error, :not_found}
     end
@@ -253,24 +239,22 @@ defmodule Ankole.AuthZ.Store do
 
   defp fetch_group_for_update(_repo, _id_or_name), do: {:error, :not_found}
 
-  defp fetch_group_by_id_or_name(repo, id_or_name) do
-    repo.one(group_by_id_or_name_query(id_or_name))
+  def fetch_group_by_name(_repo, name) do
+    Group |> Ash.Query.filter(name == ^name) |> Ankole.Ash.read_one!()
   end
 
-  def fetch_group_by_name(repo, name) do
-    repo.one(from group in Group, where: group.name == ^name)
+  def lock_built_in_admin_group_for_update(_repo, admin_group_name) do
+    Group
+    |> Ash.Query.filter(name == ^admin_group_name and built_in == true)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
-  def lock_built_in_admin_group_for_update(repo, admin_group_name) do
-    repo.one(
-      from group in Group,
-        where: group.name == ^admin_group_name and group.built_in == true,
-        lock: "FOR UPDATE"
-    )
-  end
-
-  def lock_group(repo, group_id) do
-    case repo.one(from group in Group, where: group.id == ^group_id, lock: "FOR UPDATE") do
+  def lock_group(_repo, group_id) do
+    case Group
+         |> Ash.Query.filter(id == ^group_id)
+         |> Ash.Query.lock(:for_update)
+         |> Ankole.Ash.read_one!() do
       %Group{} = group -> {:ok, group}
       nil -> {:error, :not_found}
     end
@@ -296,8 +280,8 @@ defmodule Ankole.AuthZ.Store do
   defp ensure_operator_domain(%Group{domain: :operator}), do: :ok
   defp ensure_operator_domain(%Group{}), do: {:error, :group_domain_mismatch}
 
-  defp ensure_group_has_no_grants(repo, group_id) do
-    case repo.exists?(from grant in Grant, where: grant.group_id == ^group_id) do
+  defp ensure_group_has_no_grants(group_id) do
+    case Grant |> Ash.Query.filter(group_id == ^group_id) |> exists?() do
       true -> {:error, :group_has_grants}
       false -> :ok
     end
@@ -379,17 +363,17 @@ defmodule Ankole.AuthZ.Store do
     end
   end
 
-  defp directory_group_index(repo, provider, kind, opts) do
+  defp directory_group_index(provider, kind, opts) do
     case Keyword.get(opts, :directory_group_index) do
       %{provider: ^provider, kind: ^kind} = index -> {:ok, index}
-      nil -> {:ok, build_external_directory_group_index(repo, provider, kind)}
+      nil -> {:ok, build_external_directory_group_index(provider, kind)}
       _index -> {:error, :invalid_directory_group_index}
     end
   end
 
-  defp build_external_directory_group_index(repo, provider, kind) do
+  defp build_external_directory_group_index(provider, kind) do
     bindings_by_external_id =
-      directory_group_bindings(repo, provider, kind)
+      directory_group_bindings(provider, kind)
       |> Map.new(fn binding -> {binding.external_id, binding} end)
 
     %{
@@ -405,17 +389,15 @@ defmodule Ankole.AuthZ.Store do
     }
   end
 
-  defp directory_group_bindings(repo, provider, kind) do
+  defp directory_group_bindings(provider, "department") do
     ExternalBinding
-    |> join(:inner, [binding], group in Group, on: group.id == binding.group_id)
-    |> external_directory_group_scope(provider, kind)
-    |> select([binding, group], %{
-      external_id: binding.external_id,
-      group_id: group.id,
-      metadata: binding.metadata
-    })
-    |> order_by([binding, _group], asc: binding.external_id)
-    |> repo.all()
+    |> Ash.Query.filter(
+      provider == ^provider and external_kind == :directory_department and
+        group.domain == :directory and group.kind == :static and group.built_in == false
+    )
+    |> Ash.Query.sort(external_id: :asc)
+    |> Ankole.Ash.read!()
+    |> Enum.map(&Map.take(&1, [:external_id, :group_id, :metadata]))
   end
 
   defp desired_external_directory_group_ids([], _directory_index), do: []
@@ -434,15 +416,6 @@ defmodule Ankole.AuthZ.Store do
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
     |> Enum.sort()
-  end
-
-  defp external_directory_group_scope(queryable, provider, "department") do
-    queryable
-    |> where(
-      [binding, group],
-      binding.provider == ^provider and binding.external_kind == :directory_department and
-        group.domain == :directory and group.kind == :static and group.built_in == false
-    )
   end
 
   defp insert_group_memberships(repo, group_id, principal_uids) when is_binary(group_id) do
@@ -486,13 +459,12 @@ defmodule Ankole.AuthZ.Store do
     end)
   end
 
-  defp delete_group_memberships(_repo, _group_id, []), do: 0
+  defp delete_group_memberships(_group_id, []), do: {:ok, 0}
 
-  defp delete_group_memberships(repo, group_id, principal_uids) do
-    delete_memberships_matching(
-      repo,
-      Ash.Query.filter(Membership, group_id == ^group_id and principal_uid in ^principal_uids)
-    )
+  defp delete_group_memberships(group_id, principal_uids) do
+    Membership
+    |> Ash.Query.filter(group_id == ^group_id and principal_uid in ^principal_uids)
+    |> delete_memberships_matching()
   end
 
   defp expand_external_directory_ids(external_id, bindings_by_external_id) do
@@ -541,13 +513,12 @@ defmodule Ankole.AuthZ.Store do
 
   defp parent_external_id(_binding), do: nil
 
-  defp delete_memberships(_repo, _principal_uid, []), do: 0
+  defp delete_memberships(_principal_uid, []), do: {:ok, 0}
 
-  defp delete_memberships(repo, principal_uid, group_ids) do
-    delete_memberships_matching(
-      repo,
-      Ash.Query.filter(Membership, principal_uid == ^principal_uid and group_id in ^group_ids)
-    )
+  defp delete_memberships(principal_uid, group_ids) do
+    Membership
+    |> Ash.Query.filter(principal_uid == ^principal_uid and group_id in ^group_ids)
+    |> delete_memberships_matching()
   end
 
   defp remove_membership(
@@ -559,35 +530,35 @@ defmodule Ankole.AuthZ.Store do
        when group_name == admin_group_name do
     with {:ok, locked_group} <- lock_group(repo, group.id),
          {:ok, principal} <- fetch_principal_for_update(repo, principal_uid),
-         :ok <- ensure_membership_exists_for_update(repo, principal.uid, locked_group.id),
-         :ok <- ensure_not_last_admin_member(repo, locked_group.id, principal.uid),
+         :ok <- ensure_membership_exists_for_update(principal.uid, locked_group.id),
+         :ok <- ensure_not_last_admin_member(locked_group.id, principal.uid),
          :ok <- ensure_removing_keeps_active_human_admin(repo, locked_group.id, principal) do
-      delete_membership(repo, principal.uid, locked_group.id)
+      delete_membership(principal.uid, locked_group.id)
     end
   end
 
-  defp remove_membership(repo, principal_uid, %Group{} = group, _admin_group_name) do
-    delete_membership(repo, principal_uid, group.id)
+  defp remove_membership(_repo, principal_uid, %Group{} = group, _admin_group_name) do
+    delete_membership(principal_uid, group.id)
   end
 
   defp ensure_disabling_keeps_active_human_admin(repo, principal_uid, %Group{} = admin_group) do
-    case lock_membership_for_update(repo, principal_uid, admin_group.id) do
+    case lock_membership_for_update(principal_uid, admin_group.id) do
       %Membership{} -> ensure_not_last_active_human_admin(repo, admin_group.id, principal_uid)
       nil -> :ok
     end
   end
 
-  defp ensure_membership_exists_for_update(repo, principal_uid, group_id) do
-    case lock_membership_for_update(repo, principal_uid, group_id) do
+  defp ensure_membership_exists_for_update(principal_uid, group_id) do
+    case lock_membership_for_update(principal_uid, group_id) do
       %Membership{} -> :ok
       nil -> {:error, :not_found}
     end
   end
 
-  defp ensure_not_last_admin_member(repo, group_id, principal_uid) do
-    case locked_admin_member_count_excluding(repo, group_id, principal_uid) do
-      0 -> {:error, :last_admin_member}
-      _count -> :ok
+  defp ensure_not_last_admin_member(group_id, principal_uid) do
+    case locked_other_member_uids(group_id, principal_uid) do
+      [] -> {:error, :last_admin_member}
+      _members -> :ok
     end
   end
 
@@ -608,79 +579,55 @@ defmodule Ankole.AuthZ.Store do
 
   defp ensure_removing_keeps_active_human_admin(_repo, _group_id, %Principal{}), do: :ok
 
+  # Locks the other memberships and then their Principals, so neither a
+  # membership removal nor a Principal change can race with the count.
   defp active_human_admin_count_excluding(repo, group_id, principal_uid) do
+    {:ok, principals} =
+      Principals.lock_principals_in_tx(repo, locked_other_member_uids(group_id, principal_uid))
+
+    Enum.count(principals, &match?(%Principal{type: :human, status: :active}, &1))
+  end
+
+  defp locked_other_member_uids(group_id, principal_uid) do
     Membership
-    |> join(:inner, [membership], principal in Principal,
-      on: principal.uid == membership.principal_uid
-    )
-    |> where(
-      [membership, principal],
-      membership.group_id == ^group_id and membership.principal_uid != ^principal_uid and
-        principal.type == :human and principal.status == :active
-    )
-    |> lock("FOR UPDATE")
-    |> select([_membership, principal], principal.uid)
-    |> repo.all()
-    |> length()
+    |> Ash.Query.filter(group_id == ^group_id and principal_uid != ^principal_uid)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!()
+    |> Enum.map(& &1.principal_uid)
   end
 
-  defp locked_admin_member_count_excluding(repo, group_id, principal_uid) do
+  defp lock_membership_for_update(principal_uid, group_id) do
     Membership
-    |> where(
-      [membership],
-      membership.group_id == ^group_id and membership.principal_uid != ^principal_uid
-    )
-    |> lock("FOR UPDATE")
-    |> select([membership], membership.principal_uid)
-    |> repo.all()
-    |> length()
+    |> Ash.Query.filter(principal_uid == ^principal_uid and group_id == ^group_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
-  defp lock_membership_for_update(repo, principal_uid, group_id) do
-    repo.one(
-      from membership in Membership,
-        where: membership.principal_uid == ^principal_uid and membership.group_id == ^group_id,
-        lock: "FOR UPDATE"
-    )
-  end
-
-  defp delete_membership(repo, principal_uid, group_id) do
-    count =
-      delete_memberships_matching(
-        repo,
-        Ash.Query.filter(Membership, group_id == ^group_id and principal_uid == ^principal_uid)
-      )
-
-    case count do
-      0 -> {:error, :not_found}
-      _count -> {:ok, :deleted}
+  defp delete_membership(principal_uid, group_id) do
+    Membership
+    |> Ash.Query.filter(group_id == ^group_id and principal_uid == ^principal_uid)
+    |> delete_memberships_matching()
+    |> case do
+      {:ok, 0} -> {:error, :not_found}
+      {:ok, _count} -> {:ok, :deleted}
+      {:error, _reason} = error -> error
     end
   end
 
-  defp delete_memberships_matching(repo, query) do
-    case Ankole.Ash.bulk_destroy(query, :remove_in_tx, %{},
-           strategy: [:atomic],
-           return_records?: true,
-           return_errors?: true
-         ) do
-      %Ash.BulkResult{status: :success, records: records} -> length(records)
-      %Ash.BulkResult{errors: errors} -> repo.rollback(errors)
-    end
+  defp delete_memberships_matching(query) do
+    with {:ok, records} <- Ankole.Ash.destroy_where(query, :remove_in_tx),
+         do: {:ok, length(records)}
   end
 
-  defp group_by_id_or_name_query(id_or_name, opts \\ []) do
-    lock_clause = Keyword.get(opts, :lock)
+  defp group_by_id_or_name_query(id_or_name) do
     name = id_or_name |> String.trim() |> String.downcase()
 
-    query =
-      case Ecto.UUID.cast(id_or_name) do
-        {:ok, uuid} -> where(Group, [group], group.id == ^uuid or group.name == ^name)
-        :error -> where(Group, [group], group.name == ^name)
-      end
-
-    maybe_lock(query, lock_clause)
+    case Ecto.UUID.cast(id_or_name) do
+      {:ok, uuid} -> Ash.Query.filter(Group, id == ^uuid or name == ^name)
+      :error -> Ash.Query.filter(Group, name == ^name)
+    end
   end
 
-  defp maybe_lock(query, nil), do: query
-  defp maybe_lock(query, "FOR UPDATE"), do: lock(query, "FOR UPDATE")
+  defp exists?(query),
+    do: query |> Ash.Query.limit(1) |> Ankole.Ash.read!() |> Enum.any?()
 end
