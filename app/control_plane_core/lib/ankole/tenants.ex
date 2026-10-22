@@ -193,7 +193,10 @@ defmodule Ankole.Tenants do
         with :ok <- ensure_scaffold_in_tx(repo, tenant),
              :ok <- Ankole.Pod.Access.initialize_space(repo),
              {:ok, _} <-
-               Ankole.Brain.SchemaPacks.install_packs(Map.get(attrs, :brain_packs, [])) do
+               Ankole.Brain.SchemaPacks.install_packs_in_tx(
+                 repo,
+                 Map.get(attrs, :brain_packs, [])
+               ) do
           {:ok, tenant}
         end
       end)

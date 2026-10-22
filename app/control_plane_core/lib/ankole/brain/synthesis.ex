@@ -11,7 +11,7 @@ defmodule Ankole.Brain.Synthesis do
   bitemporality and timelines, with no model call.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Access
   alias Ankole.Brain.Config
@@ -25,7 +25,6 @@ defmodule Ankole.Brain.Synthesis do
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Kernel, as: NativeKernel
-  alias Ankole.Repo
 
   @type disclosure :: Ankole.Brain.Access.disclosure()
 
@@ -151,36 +150,36 @@ defmodule Ankole.Brain.Synthesis do
          {:ok, slugs} <- delta_slugs(params[:entity], visibility) do
       base =
         Claim
+        |> Ash.Query.new()
         |> Access.filter_claims(access)
         |> LazySkillVisibility.filter_claims(visibility)
         |> maybe_slugs([:object_slug], slugs)
 
       new_claims =
         base
-        |> where([claim], claim.created_at >= ^since and claim.created_at <= ^until_at)
-        |> order_by([claim], desc: claim.created_at)
-        |> limit(50)
-        |> Repo.all()
+        |> Ash.Query.filter(created_at >= ^since and created_at <= ^until_at)
+        |> Ash.Query.sort(created_at: :desc)
+        |> Ash.Query.limit(50)
+        |> Ankole.Ash.read!()
 
       expired_claims =
         base
-        |> where(
-          [claim],
-          not is_nil(claim.expired_at) and claim.expired_at >= ^since and
-            claim.expired_at <= ^until_at
+        |> Ash.Query.filter(
+          not is_nil(expired_at) and expired_at >= ^since and expired_at <= ^until_at
         )
-        |> limit(50)
-        |> Repo.all()
+        |> Ash.Query.limit(50)
+        |> Ankole.Ash.read!()
 
       timelines =
         Timeline
+        |> Ash.Query.new()
         |> Access.filter_timelines(access)
         |> LazySkillVisibility.filter_timelines(visibility)
         |> maybe_slugs([:object_slug], slugs)
-        |> where([timeline], timeline.created_at >= ^since and timeline.created_at <= ^until_at)
-        |> order_by([timeline], desc: timeline.date)
-        |> limit(50)
-        |> Repo.all()
+        |> Ash.Query.filter(created_at >= ^since and created_at <= ^until_at)
+        |> Ash.Query.sort(date: :desc)
+        |> Ash.Query.limit(50)
+        |> Ankole.Ash.read!()
         |> Access.filter_disclosable(& &1.audience_scope, disclosure)
 
       {:ok,
@@ -282,7 +281,7 @@ defmodule Ankole.Brain.Synthesis do
   defp maybe_slugs(query, _fields, nil), do: query
 
   defp maybe_slugs(query, [:object_slug], slugs),
-    do: where(query, [row], row.object_slug in ^slugs)
+    do: Ash.Query.filter(query, object_slug in ^slugs)
 
   defp claim_summary(claim) do
     %{

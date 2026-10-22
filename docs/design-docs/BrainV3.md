@@ -570,6 +570,35 @@ The action locks its rows, runs its write steps, and commits them together:
 | Source | `archive_source`, `update_source_default_scope` |
 | SchemaSuggestion, MergeSuggestion, Contradiction | `approve_promotion`, `reject_promotion`, `approve_merge`, `reject_merge`, `decide_contradiction` |
 
+The background writes of the Brain modules are generic actions without a
+define. Each module function keeps its name and runs its action with
+`Ankole.Ash.run_action/4`:
+
+| Resource | Action | Module function |
+|---|---|---|
+| Claim | `commit_grade` | `Calibration.grade_takes/0` (one grade) |
+| Claim | `forget_claim` | `Forget.forget_claim/3` |
+| Timeline | `write_timeline` | `Timelines.write_timeline/3` |
+| Object | `write_patterns` | `Patterns.run/0` (the pages of one audience) |
+| Source | `commit_learning_run` | `SourceLearning.learn/1` (file and URL Sources) |
+| Source | `learn_oidc_conversation` | `OIDCClientLearning.learn/1` (one conversation) |
+| Source | `finalize_conversation_slice` | `ConversationsLearning.process_conversation/1` |
+| Source | `finish_library_projection` | `LibraryKnowledge.sync/1` (one set) |
+| SchemaPack | `install_packs` | `SchemaPacks.install_packs/1` |
+
+Tenant creation and setup completion install the schema packs in their own
+transaction with `SchemaPacks.install_packs_in_tx/2`.
+
+A conversation slice writes its memory items in one transaction and keeps the
+transaction after an item fails validation. So an item write gives an error
+only before its first write. A Fact write locks its semantic dedup target and
+reads it again before it inserts the new Fact. When a concurrent write
+superseded or expired the target, the dedup query runs again and finds the
+replacement, so a slice never commits two current Facts. When the old Fact
+cannot be marked after the insert, the Fact write rolls back the transaction of
+its caller. A timeline write rolls back the same way when the chunk projection
+of its host fails after the insert.
+
 A generic action is always the top-level call. A failed operation gives an
 `Ash.Error.Invalid` error; `Ankole.Errors.reason/1` gives back the domain
 reason. Callers outside the Brain directory use only the defines. Brain modules
@@ -581,12 +610,28 @@ transaction. The embedding of a new claim text comes from the network in the
 `before_transaction` hook of `write_fact` and `supersede_claim`, so no
 transaction waits for the network.
 
+The knowledge boundary (`Access`) and the lazy Skill projection
+(`LazySkillVisibility`) filter Ash queries. Their filters use the Claim
+calculations `current?`, `live_parent?`, and `current_external_fact?`, and the
+`object` relationships of Chunk and Timeline. Conversations, Messages,
+Participants, Signals, Principals, Agents, Jobs, and Agent Skills are read
+through the defines and functions of their own domains.
+
 Some reads are not reads of one resource. They stay Ecto or SQL queries, give
 values and not resource rows, and are registered in the persistence boundary
-(`app/control_plane/test/ankole/persistence_boundary.exs`): the Dreaming bucket
-and term-usage counts and the duplicate-page scan are read models (M4), the
-semantic Fact dedup query and its live-parent filters are retrieval (M9), and
-the merge repoint statements are set maintenance (M8).
+(`app/control_plane/test/ankole/persistence_boundary.exs`):
+
+- Read models (M4): the Dreaming bucket and term-usage counts, the
+  duplicate-page scan, and the known pages of a learning transcript
+  (`ConversationsLearning.known_pages/1`, Objects and their ranked aliases).
+- Retrieval (M9): the candidate, boost, and neighborhood queries of `Recall`,
+  and the semantic Fact dedup query of `Claims`. They select identifiers and
+  values; the ranked Claims, Chunks, and dedup targets load through Ash. The
+  Ecto forms of `Claims.filter_live_parents/1`, `Claims.current_external_facts/1`,
+  and of the Claim, Chunk, and Link filters of `Access` and
+  `LazySkillVisibility` serve only these queries.
+- Set maintenance (M8): the merge repoint statements and the index DDL of
+  `SearchIndexes` (site scope: the indexes cover the tables of all tenants).
 
 Brain aggregates, Ash actions, row locks, and native queries use `Ankole.Repo`
 in the same process transaction. The process tenant and dynamic repository apply

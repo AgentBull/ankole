@@ -9,7 +9,7 @@ defmodule Ankole.Brain.Calibration do
   score formula; the expert directory reads it for its per-expert card.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.AIGateway.PrepareContext
   alias Ankole.AIGateway.ProviderConfigs
@@ -59,14 +59,10 @@ defmodule Ankole.Brain.Calibration do
     stale_before = DateTime.add(DateTime.utc_now(), -@grade_stale_months * 30 * 86_400, :second)
     today = Date.utc_today()
 
-    Claim
-    |> Claims.filter_live_parents()
-    |> where([claim], claim.claim_type == :take and claim.active == true)
-    |> where([claim], is_nil(claim.resolved_at))
-    |> where(
-      [claim],
-      (not is_nil(claim.until_date) and claim.until_date < ^today) or
-        claim.created_at < ^stale_before
+    Ash.Query.filter(
+      Claim,
+      live_parent? and claim_type == :take and active == true and is_nil(resolved_at) and
+        ((not is_nil(until_date) and until_date < ^today) or created_at < ^stale_before)
     )
   end
 
@@ -79,9 +75,9 @@ defmodule Ankole.Brain.Calibration do
     batch =
       candidates()
       |> after_claim(after_id)
-      |> order_by([claim], asc: claim.id)
-      |> limit(@grade_batch_limit)
-      |> Repo.all()
+      |> Ash.Query.sort(id: :asc)
+      |> Ash.Query.limit(@grade_batch_limit)
+      |> Ankole.Ash.read!()
 
     report =
       Enum.reduce_while(batch, report, fn take, report ->
@@ -105,7 +101,7 @@ defmodule Ankole.Brain.Calibration do
   end
 
   defp after_claim(query, nil), do: query
-  defp after_claim(query, id), do: where(query, [claim], claim.id > ^id)
+  defp after_claim(query, id), do: Ash.Query.filter(query, id > ^id)
 
   defp grading_context(nil), do: {:error, :dreaming_model_not_configured}
 
@@ -163,7 +159,12 @@ defmodule Ankole.Brain.Calibration do
            quality when quality in ["correct", "incorrect", "partial", "unresolvable"] <-
              output["quality"],
            confidence when is_number(confidence) <- output["confidence"],
-           {:ok, result} <- commit_grade(take.id, input.hash, output) do
+           {:ok, result} <-
+             Ankole.Ash.run_action(Claim, :commit_grade, %{
+               take_id: take.id,
+               input_hash: input.hash,
+               output: output
+             }) do
         result
       else
         _invalid -> :skip
@@ -179,11 +180,10 @@ defmodule Ankole.Brain.Calibration do
 
         slug ->
           Claim
-          |> Claims.current_external_facts()
-          |> where([claim], claim.object_slug == ^slug)
-          |> order_by([claim], desc: claim.valid_from, desc: claim.id)
-          |> limit(10)
-          |> Repo.all()
+          |> Ash.Query.filter(current_external_fact? and object_slug == ^slug)
+          |> Ash.Query.sort(valid_from: :desc, id: :desc)
+          |> Ash.Query.limit(10)
+          |> Ankole.Ash.read!()
       end
 
     evidence_text =
@@ -225,15 +225,26 @@ defmodule Ankole.Brain.Calibration do
     %{prompt: prompt, domains: domains, hash: hash}
   end
 
-  defp commit_grade(take_id, input_hash, output) do
-    Repo.transact(fn repo ->
-      take = repo.one(from(claim in Claim, where: claim.id == ^take_id, lock: "FOR UPDATE"))
-      commit_current_grade(repo, take, input_hash, output)
-    end)
+  @doc false
+  # Records one grade in the transaction of the `:commit_grade` action. The
+  # locked Take must still be a grading candidate, and the grading input must
+  # still give the hash that the model graded.
+  def commit_grade_in_tx(take_id, input_hash, output) do
+    take =
+      Claim
+      |> Ash.Query.filter(id == ^take_id)
+      |> Ash.Query.lock(:for_update)
+      |> Ankole.Ash.read_one!()
+
+    commit_current_grade(take, input_hash, output)
   end
 
-  defp commit_current_grade(repo, %Claim{active: true, resolved_at: nil} = take, hash, output) do
-    with true <- repo.exists?(where(candidates(), [claim], claim.id == ^take.id)),
+  defp commit_current_grade(%Claim{active: true, resolved_at: nil} = take, hash, output) do
+    with [_candidate] <-
+           candidates()
+           |> Ash.Query.filter(id == ^take.id)
+           |> Ash.Query.select([:id])
+           |> Ankole.Ash.read!(),
          {:ok, model} <- grading_context(Config.dreaming_model()),
          %{hash: ^hash, domains: domains} <- grading_input(model, take) do
       if take.graded_input_hash == hash do
@@ -258,7 +269,7 @@ defmodule Ankole.Brain.Calibration do
     end
   end
 
-  defp commit_current_grade(_repo, _take, _hash, _output), do: {:ok, :skip}
+  defp commit_current_grade(_take, _hash, _output), do: {:ok, :skip}
 
   # A verdict on an expired Take is its resolution: the period is over and no
   # later evidence changes the outcome, so the Take leaves the grading queue
@@ -312,10 +323,10 @@ defmodule Ankole.Brain.Calibration do
   def calibration_profile do
     scored =
       Claim
-      |> Claims.filter_live_parents()
-      |> where([claim], claim.claim_type == :take)
-      |> where([claim], claim.resolved_quality in ["correct", "incorrect"])
-      |> Repo.all()
+      |> Ash.Query.filter(
+        live_parent? and claim_type == :take and resolved_quality in ["correct", "incorrect"]
+      )
+      |> Ankole.Ash.read!()
 
     domain_assignments =
       TakeDomainAssignment

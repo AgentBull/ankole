@@ -5,9 +5,11 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   import Ankole.E2E.WaitHelpers, only: [deadline: 1, wait_until: 2]
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias Ankole.Brain.Claims
   alias Ankole.Brain.LibraryKnowledge
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
+  alias Ankole.Brain.Schemas.Claim
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.ObjectVersion
   alias Ankole.Brain.Schemas.Source
@@ -418,6 +420,84 @@ defmodule Ankole.ConcurrencyIntegrationTest do
                from(version in ObjectVersion, where: version.object_id == ^object.id),
                :count
              ) == 0
+    end
+  end
+
+  describe "Brain Fact dedup during a concurrent supersede" do
+    setup do
+      {:ok, _packs} = SchemaPacks.install_packs([])
+      slug = "companies/race-#{System.unique_integer([:positive])}"
+
+      {:ok, _object} =
+        Ankole.Brain.create_object(%{slug: slug, type: "company", title: "Race"}, :system)
+
+      embedding = {Pgvector.new([1.0 | List.duplicate(0.0, 4095)]), "race-model"}
+      attrs = &race_fact_attrs(slug, &1)
+
+      {:ok, %{claim: original, status: :inserted}} =
+        Ankole.Brain.write_fact(attrs.("Acme opened its Singapore office"), :system, %{
+          options: [embedding: embedding]
+        })
+
+      %{slug: slug, embedding: embedding, attrs: attrs, original: original}
+    end
+
+    # A learning slice writes its items in one transaction and keeps the
+    # transaction after a rejected item. The second write reads the original
+    # Fact as current, then waits for the row that the first write supersedes.
+    test "a waiting Fact write supersedes the committed replacement, not the replaced row",
+         ctx do
+      first =
+        pause_after_query(
+          fn ->
+            Ankole.Brain.write_fact(
+              ctx.attrs.("Acme opened a Singapore office in May"),
+              :system,
+              %{
+                options: [embedding: ctx.embedding]
+              }
+            )
+          end,
+          fn metadata ->
+            metadata.source == "brain_claims" and String.starts_with?(metadata.query, "UPDATE")
+          end
+        )
+
+      second =
+        start_unboxed(fn ->
+          Repo.transact(fn _repo ->
+            result =
+              Claims.write_fact_in_tx(
+                ctx.attrs.("Acme opened a Singapore office in June"),
+                :system,
+                embedding: ctx.embedding
+              )
+
+            {:ok, result}
+          end)
+        end)
+
+      assert_blocked_by(second, first)
+      send(first.task.pid, :continue_query)
+
+      assert {:ok, %{claim: replacement, status: :superseded}} = finish(first)
+
+      assert {:ok, {:ok, %{claim: latest, status: :superseded, superseded_claim_id: replaced}}} =
+               finish(second)
+
+      assert replaced == replacement.id
+
+      current =
+        Repo.all(
+          from(claim in Claim,
+            where:
+              claim.object_slug == ^ctx.slug and is_nil(claim.expired_at) and
+                is_nil(claim.superseded_by),
+            select: claim.id
+          )
+        )
+
+      assert current == [latest.id]
     end
   end
 
@@ -904,6 +984,20 @@ defmodule Ankole.ConcurrencyIntegrationTest do
         select: chunk.chunk_text
       )
     )
+  end
+
+  defp race_fact_attrs(slug, text) do
+    %{
+      object_slug: slug,
+      claim: text,
+      kind: "event",
+      holder: "world",
+      audience_scope: "world",
+      notability: "medium",
+      confidence: 0.75,
+      valid_from: DateTime.utc_now(:microsecond),
+      provenance: "concurrency test"
+    }
   end
 
   defp quota_attrs(limit_tokens) do

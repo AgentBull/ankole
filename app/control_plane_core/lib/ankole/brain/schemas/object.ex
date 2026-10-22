@@ -320,6 +320,19 @@ defmodule Ankole.Brain.Schemas.Object do
         Ankole.Errors.wrap(Ankole.Brain.Links.reconcile_object_links_in_tx(args.slug))
       end)
     end
+
+    # The pattern pages of one audience and their evidence links commit
+    # together; Ankole.Brain.Patterns gives the steps.
+    action :write_patterns, :integer do
+      argument(:patterns, {:array, :map}, allow_nil?: false)
+      argument(:existing, :map, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        args.patterns
+        |> Ankole.Brain.Patterns.write_patterns_in_tx(args.existing)
+        |> Ankole.Errors.wrap()
+      end)
+    end
   end
 
   relationships do

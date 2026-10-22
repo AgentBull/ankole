@@ -2,7 +2,8 @@ defmodule Ankole.Brain.Timelines do
   @moduledoc """
   Timeline event writes. Each row owns its audience scope; the host object's
   chunk projection compiles visible rows, so a write reconciles the host's
-  chunks in the same transaction.
+  chunks in the same transaction. The `:write_timeline` action of the
+  Timeline resource owns that transaction.
   """
 
   alias Ankole.Brain.Chunks
@@ -18,40 +19,59 @@ defmodule Ankole.Brain.Timelines do
   and provenance keep one row.
   """
   @spec write_timeline(map(), writer(), keyword()) :: {:ok, Timeline.t()} | {:error, term()}
-  def write_timeline(attrs, writer, opts \\ []) when is_map(attrs) do
-    with {:ok, object} <- Objects.get_by_slug(attrs[:object_slug]),
+  def write_timeline(attrs, writer, opts \\ []) when is_map(attrs),
+    do:
+      Ankole.Ash.run_action(Timeline, :write_timeline, %{
+        attrs: attrs,
+        writer: writer,
+        options: opts
+      })
+
+  @doc """
+  Writes one timeline event in the caller's transaction.
+
+  A validation failure gives an error before any write. A failure after the
+  insert rolls back the caller's transaction, so the row and the chunk
+  projection of its host change together or not at all.
+  """
+  @spec write_timeline_in_tx(map(), writer(), keyword()) ::
+          {:ok, Timeline.t()} | {:error, term()}
+  def write_timeline_in_tx(attrs, writer, opts \\ []) when is_map(attrs) do
+    with :ok <- Repo.require_transaction(Repo),
+         {:ok, object} <- Objects.get_by_slug(attrs[:object_slug]),
          :ok <- validate_scope(attrs[:audience_scope], writer),
          :ok <- validate_text(attrs[:summary], :summary),
          :ok <- validate_text(attrs[:provenance], :provenance),
-         :ok <- validate_date(attrs[:date]) do
-      Repo.transact(fn repo ->
-        with {:ok, object} <- Objects.lock_object_in_tx(repo, object.slug) do
-          row = %{
-            object_slug: object.slug,
-            author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
-            date: attrs[:date],
-            provenance: attrs[:provenance],
-            summary: attrs[:summary],
-            detail: attrs[:detail] || "",
-            event_object_slug: attrs[:event_object_slug],
-            audience_scope: attrs[:audience_scope],
-            created_at: DateTime.utc_now(:microsecond)
-          }
+         :ok <- validate_date(attrs[:date]),
+         {:ok, object} <- Objects.lock_object_in_tx(Repo, object.slug) do
+      row = %{
+        object_slug: object.slug,
+        author: Ankole.ActorRef.from_writer(writer, Repo.tenant_id!(), opts),
+        date: attrs[:date],
+        provenance: attrs[:provenance],
+        summary: attrs[:summary],
+        detail: attrs[:detail] || "",
+        event_object_slug: attrs[:event_object_slug],
+        audience_scope: attrs[:audience_scope],
+        created_at: DateTime.utc_now(:microsecond)
+      }
 
-          insert_timeline(object, row)
-        end
-      end)
+      insert_timeline(object, row)
     end
   end
 
   defp insert_timeline(object, row) do
     with {:ok, timeline} <- Ankole.Ash.create(Timeline, :record, row) do
-      if Map.get(timeline.__metadata__, :upsert_skipped, false) do
-        {:ok, timeline}
-      else
-        with {:ok, _object} <- Chunks.reconcile_in_tx(object),
-             do: {:ok, timeline}
-      end
+      if Map.get(timeline.__metadata__, :upsert_skipped, false),
+        do: {:ok, timeline},
+        else: reconcile_host(object, timeline)
+    end
+  end
+
+  defp reconcile_host(object, timeline) do
+    case Chunks.reconcile_in_tx(object) do
+      {:ok, _object} -> {:ok, timeline}
+      {:error, error} -> Repo.rollback(error)
     end
   end
 

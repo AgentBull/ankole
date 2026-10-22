@@ -86,40 +86,9 @@
     # their own transaction; each becomes a generic action when its callers use
     # the `_in_tx` form (hey/T9.md).
     "repo_transact:../control_plane_core/lib/ankole/authz.ex" => 2,
-    # brain
-    "ecto_resource:../control_plane_core/lib/ankole/brain/access.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/brain/calibration.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/calibration.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/brain/calibration.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/config.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/context_pack.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/conversation_triggers.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/brain/conversations_learning.ex" => 2,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/conversations_learning.ex" => 11,
-    "repo_transact:../control_plane_core/lib/ankole/brain/conversations_learning.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/experts.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/forget.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/brain/forget.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/lazy_skill_visibility.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/brain/library_knowledge.ex" => 1,
-    "ecto_lock:../control_plane_core/lib/ankole/brain/oidc_client_learning.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/brain/oidc_client_learning.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/brain/patterns.ex" => 2,
-    "error_class:../control_plane_core/lib/ankole/brain/patterns.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/brain/patterns.ex" => 1,
-    "bulk_result:../control_plane_core/lib/ankole/brain/recall.ex" => 2,
-    "error_class:../control_plane_core/lib/ankole/brain/recall.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/request_context.ex" => 7,
-    "bulk_result:../control_plane_core/lib/ankole/brain/schema_packs.ex" => 2,
-    "ecto_lock:../control_plane_core/lib/ankole/brain/schema_packs.ex" => 1,
-    "error_class:../control_plane_core/lib/ankole/brain/schema_packs.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/brain/schema_packs.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/scope.ex" => 1,
-    "raw_sql_tenant:../control_plane_core/lib/ankole/brain/search_indexes.ex" => 8,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/skill_lessons.ex" => 1,
-    "ecto_resource:../control_plane_core/lib/ankole/brain/source_learning.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/brain/source_learning.ex" => 1,
-    "repo_transact:../control_plane_core/lib/ankole/brain/timelines.ex" => 1,
+    # brain: a share lock of a Conversation row stays until Conversations gives
+    # a lock function.
+    "ecto_lock:../control_plane_core/lib/ankole/brain/conversations_learning.ex" => 1,
     # browser_sessions: a lock of a Human row and a read of bindings across tenants
     # stay until Principals gives these reads.
     "ecto_lock:../control_plane_core/lib/ankole/browser_sessions.ex" => 1,

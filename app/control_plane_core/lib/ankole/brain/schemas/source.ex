@@ -143,6 +143,53 @@ defmodule Ankole.Brain.Schemas.Source do
         |> Ankole.Errors.wrap()
       end)
     end
+
+    # One learning run commits its page, its Claims, and the Source revision
+    # together; Ankole.Brain.SourceLearning gives the steps.
+    action :commit_learning_run, :map do
+      argument(:run, :map, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.SourceLearning.commit_run_in_tx(args.run))
+      end)
+    end
+
+    # One OIDC Client conversation replaces its page and its Claims together;
+    # Ankole.Brain.OIDCClientLearning gives the steps.
+    action :learn_oidc_conversation, :map do
+      argument(:run, :map, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.OIDCClientLearning.learn_conversation_in_tx(args.run))
+      end)
+    end
+
+    # One conversation slice commits its memory writes and the extraction
+    # watermark together; Ankole.Brain.ConversationsLearning gives the steps.
+    action :finalize_conversation_slice, :map do
+      argument(:slice, :map, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.ConversationsLearning.finalize_in_tx(args.slice))
+      end)
+    end
+
+    # The end of one Library projection withdraws the pages that left the set
+    # and records the set revision; Ankole.Brain.LibraryKnowledge gives the steps.
+    action :finish_library_projection, :integer do
+      argument(:source, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:live_slugs, {:array, :string}, allow_nil?: false)
+      argument(:fingerprint, :string, allow_nil?: false, constraints: [trim?: false])
+
+      run(fn %{arguments: args}, _context ->
+        args.source
+        |> Ankole.Brain.LibraryKnowledge.finish_projection_in_tx(
+          args.live_slugs,
+          args.fingerprint
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
   end
 
   @type t :: %__MODULE__{}

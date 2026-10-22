@@ -46,6 +46,15 @@ defmodule Ankole.Brain.Schemas.SchemaPack do
       change(set_attribute(:manifest, %{"name" => "promoted", "promoted" => true}))
       upsert_identity(:name)
     end
+
+    # The operation owns its transaction; Ankole.Brain.SchemaPacks gives the steps.
+    action :install_packs, :map do
+      argument(:names, {:array, :string}, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.SchemaPacks.install_packs_in_tx(Ankole.Repo, args.names))
+      end)
+    end
   end
 
   @type t :: %__MODULE__{}

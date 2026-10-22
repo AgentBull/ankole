@@ -30,7 +30,6 @@ defmodule Ankole.Brain.LibraryKnowledge do
   claim extraction runs over them.
   """
 
-  import Ecto.Query, warn: false
   require Ash.Query
 
   alias Ankole.AIAgent.Library.AgentPlugins
@@ -44,7 +43,6 @@ defmodule Ankole.Brain.LibraryKnowledge do
   alias Ankole.Brain.Sources
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
-  alias Ankole.Repo
 
   @source_kind "library"
   @builtin_set_id "library"
@@ -207,16 +205,11 @@ defmodule Ankole.Brain.LibraryKnowledge do
 
   defp finish_projection(set, source, pages, rejected, fingerprint, counts) do
     result =
-      Repo.transact(fn repo ->
-        with {:ok, current} <- Sources.lock_active(repo, source) do
-          withdrawn =
-            Objects.withdraw_library_projection(current, Enum.map(pages, & &1.slug))
-
-          with {:ok, _source} <- Sources.record_revision(repo, current, fingerprint) do
-            {:ok, withdrawn}
-          end
-        end
-      end)
+      Ankole.Ash.run_action(Source, :finish_library_projection, %{
+        source: source,
+        live_slugs: Enum.map(pages, & &1.slug),
+        fingerprint: fingerprint
+      })
 
     if rejected != [] do
       Logging.warning("brain.library_knowledge.pages_rejected", %{
@@ -240,6 +233,19 @@ defmodule Ankole.Brain.LibraryKnowledge do
 
       {:error, reason} ->
         %{set: set.set_id, status: :error, reason: inspect(reason)}
+    end
+  end
+
+  @doc false
+  # Withdraws the pages that left the set and records the set revision in the
+  # transaction of the `:finish_library_projection` action.
+  def finish_projection_in_tx(source, live_slugs, fingerprint) do
+    with {:ok, current} <- Sources.lock_active(Ankole.Repo, source) do
+      withdrawn = Objects.withdraw_library_projection(current, live_slugs)
+
+      with {:ok, _source} <- Sources.record_revision(Ankole.Repo, current, fingerprint) do
+        {:ok, withdrawn}
+      end
     end
   end
 
@@ -458,10 +464,10 @@ defmodule Ankole.Brain.LibraryKnowledge do
 
   defp withdraw_missing_sets(active_set_ids) do
     Source
-    |> where([source], source.kind == @source_kind)
-    |> where([source], is_nil(source.archived_at))
-    |> where([source], source.upstream_id not in ^active_set_ids)
-    |> Repo.all()
+    |> Ash.Query.filter(
+      kind == @source_kind and is_nil(archived_at) and upstream_id not in ^active_set_ids
+    )
+    |> Ankole.Ash.read!()
     |> Enum.map(fn source ->
       %{set: source.upstream_id, withdrawn: Objects.withdraw_library_projection(source, [])}
     end)

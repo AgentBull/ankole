@@ -9,10 +9,9 @@ defmodule Ankole.Brain.GetPage do
   existence) stays instance-visible.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Access
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Markdoc
   alias Ankole.Brain.LazySkillVisibility
   alias Ankole.Brain.Objects
@@ -23,7 +22,6 @@ defmodule Ankole.Brain.GetPage do
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Brain.Config
-  alias Ankole.Repo
 
   @type disclosure :: Ankole.Brain.Access.disclosure()
 
@@ -98,10 +96,9 @@ defmodule Ankole.Brain.GetPage do
 
   defp admin_facts(object) do
     Claim
-    |> where([claim], claim.object_slug == ^object.slug)
-    |> where([claim], claim.claim_type == :fact)
-    |> order_by([claim], desc: claim.valid_from)
-    |> Repo.all()
+    |> Ash.Query.filter(object_slug == ^object.slug and claim_type == :fact)
+    |> Ash.Query.sort(valid_from: :desc)
+    |> Ankole.Ash.read!()
     |> Enum.map(fn claim ->
       %{
         id: claim.id,
@@ -123,10 +120,9 @@ defmodule Ankole.Brain.GetPage do
 
   defp admin_takes(object) do
     Claim
-    |> where([claim], claim.object_slug == ^object.slug)
-    |> where([claim], claim.claim_type == :take)
-    |> order_by([claim], desc: claim.created_at)
-    |> Repo.all()
+    |> Ash.Query.filter(object_slug == ^object.slug and claim_type == :take)
+    |> Ash.Query.sort(created_at: :desc)
+    |> Ankole.Ash.read!()
     |> Enum.map(fn claim ->
       %{
         id: claim.id,
@@ -153,9 +149,9 @@ defmodule Ankole.Brain.GetPage do
 
   defp admin_timelines(object) do
     Timeline
-    |> where([timeline], timeline.object_slug == ^object.slug)
-    |> order_by([timeline], desc: timeline.date)
-    |> Repo.all()
+    |> Ash.Query.filter(object_slug == ^object.slug)
+    |> Ash.Query.sort(date: :desc)
+    |> Ankole.Ash.read!()
     |> Enum.map(fn timeline ->
       %{
         id: timeline.id,
@@ -223,72 +219,45 @@ defmodule Ankole.Brain.GetPage do
 
   # Open contradiction findings annotate the page's own claims, so a reader
   # sees that a recalled fact is contested instead of trusting it blindly.
-  # The counterpart claim passes the caller's keep check: the filtered page
-  # applies the two-layer filter so a contradiction row cannot leak a claim
-  # the querier cannot reach, and the admin page keeps everything.
+  # The counterpart claim must be visible (live parent, lazy Skill
+  # visibility) and pass the caller's keep check: the filtered page applies
+  # the two-layer filter so a contradiction row cannot leak a claim the
+  # querier cannot reach, and the admin page keeps everything.
   defp page_contradictions(claim_ids, keep_counterpart?, visibility) do
     if claim_ids == [] do
       []
     else
-      visible_claim_ids =
-        Claim
-        |> LazySkillVisibility.filter_claims(visibility)
-        |> Claims.filter_live_parents()
-        |> select([claim], claim.id)
-
-      contradictions =
+      open =
         Contradiction
-        |> where([contradiction], contradiction.status == :open)
-        |> where(
-          [contradiction],
-          (contradiction.a_claim_id in ^claim_ids and
-             contradiction.b_claim_id in subquery(visible_claim_ids)) or
-            (contradiction.b_claim_id in ^claim_ids and
-               contradiction.a_claim_id in subquery(visible_claim_ids))
+        |> Ash.Query.filter(
+          status == :open and (a_claim_id in ^claim_ids or b_claim_id in ^claim_ids)
         )
-        |> order_by([contradiction], desc: contradiction.created_at)
-        |> limit(20)
-        |> Repo.all()
+        |> Ash.Query.sort(created_at: :desc)
+        |> Ankole.Ash.read!()
 
-      counterpart_ids =
-        Enum.map(contradictions, fn contradiction ->
-          if contradiction.a_claim_id in claim_ids,
-            do: contradiction.b_claim_id,
-            else: contradiction.a_claim_id
-        end)
-        |> Enum.uniq()
+      counterpart_ids = open |> Enum.map(&counterpart_id(&1, claim_ids)) |> Enum.uniq()
 
       counterparts =
-        if counterpart_ids == [] do
-          %{}
-        else
-          Claim
-          |> where([claim], claim.id in ^counterpart_ids)
-          |> Repo.all()
-          |> Map.new(&{&1.id, &1})
-        end
+        Claim
+        |> Ash.Query.filter(id in ^counterpart_ids and live_parent?)
+        |> LazySkillVisibility.filter_claims(visibility)
+        |> Ankole.Ash.read!()
+        |> Map.new(&{&1.id, &1})
 
-      contradictions
+      open
+      |> Enum.filter(&Map.has_key?(counterparts, counterpart_id(&1, claim_ids)))
+      |> Enum.take(20)
       |> Enum.flat_map(fn contradiction ->
-        own_id =
-          if contradiction.a_claim_id in claim_ids,
-            do: contradiction.a_claim_id,
-            else: contradiction.b_claim_id
+        counterpart = Map.fetch!(counterparts, counterpart_id(contradiction, claim_ids))
 
-        counterpart_id =
-          if own_id == contradiction.a_claim_id,
-            do: contradiction.b_claim_id,
-            else: contradiction.a_claim_id
-
-        with %Claim{} = counterpart <- Map.get(counterparts, counterpart_id),
-             true <- keep_counterpart?.(counterpart) do
+        if keep_counterpart?.(counterpart) do
           [
             %{
               id: contradiction.id,
               verdict: contradiction.verdict,
               axis: contradiction.axis,
               severity: Atom.to_string(contradiction.severity),
-              claim_id: own_id,
+              claim_id: own_id(contradiction, claim_ids),
               counterpart: %{
                 id: counterpart.id,
                 claim: counterpart.claim,
@@ -297,10 +266,22 @@ defmodule Ankole.Brain.GetPage do
             }
           ]
         else
-          _unreachable -> []
+          []
         end
       end)
     end
+  end
+
+  defp own_id(contradiction, claim_ids) do
+    if contradiction.a_claim_id in claim_ids,
+      do: contradiction.a_claim_id,
+      else: contradiction.b_claim_id
+  end
+
+  defp counterpart_id(contradiction, claim_ids) do
+    if own_id(contradiction, claim_ids) == contradiction.a_claim_id,
+      do: contradiction.b_claim_id,
+      else: contradiction.a_claim_id
   end
 
   # The full document is a template projection of the database current
@@ -321,11 +302,12 @@ defmodule Ankole.Brain.GetPage do
     now = DateTime.utc_now()
 
     Claim
-    |> where([claim], claim.object_slug == ^object.slug)
-    |> where([claim], claim.claim_type == :fact and is_nil(claim.expired_at))
+    |> Ash.Query.filter(
+      object_slug == ^object.slug and claim_type == :fact and is_nil(expired_at)
+    )
     |> Access.filter_claims(access)
-    |> order_by([claim], desc: claim.valid_from)
-    |> Repo.all()
+    |> Ash.Query.sort(valid_from: :desc)
+    |> Ankole.Ash.read!()
     |> Access.filter_disclosable(& &1.audience_scope, disclosure)
     |> Enum.map(fn claim ->
       %{
@@ -346,11 +328,10 @@ defmodule Ankole.Brain.GetPage do
 
   defp page_takes(object, access, disclosure) do
     Claim
-    |> where([claim], claim.object_slug == ^object.slug)
-    |> where([claim], claim.claim_type == :take and claim.active == true)
+    |> Ash.Query.filter(object_slug == ^object.slug and claim_type == :take and active == true)
     |> Access.filter_claims(access)
-    |> order_by([claim], desc: claim.weight)
-    |> Repo.all()
+    |> Ash.Query.sort(weight: :desc)
+    |> Ankole.Ash.read!()
     |> Access.filter_disclosable(& &1.audience_scope, disclosure)
     |> Enum.map(fn claim ->
       %{
@@ -369,10 +350,10 @@ defmodule Ankole.Brain.GetPage do
 
   defp page_timelines(object, access, disclosure) do
     Timeline
-    |> where([timeline], timeline.object_slug == ^object.slug)
+    |> Ash.Query.filter(object_slug == ^object.slug)
     |> Access.filter_timelines(access)
-    |> order_by([timeline], desc: timeline.date)
-    |> Repo.all()
+    |> Ash.Query.sort(date: :desc)
+    |> Ankole.Ash.read!()
     |> Access.filter_disclosable(& &1.audience_scope, disclosure)
     |> Enum.map(fn timeline ->
       %{
@@ -390,15 +371,15 @@ defmodule Ankole.Brain.GetPage do
   defp page_links(object, visibility) do
     outgoing =
       Link
-      |> where([link], link.from_object_slug == ^object.slug)
+      |> Ash.Query.filter(from_object_slug == ^object.slug)
       |> LazySkillVisibility.filter_links(visibility)
-      |> Repo.all()
+      |> Ankole.Ash.read!()
 
     incoming =
       Link
-      |> where([link], link.to_object_slug == ^object.slug)
+      |> Ash.Query.filter(to_object_slug == ^object.slug)
       |> LazySkillVisibility.filter_links(visibility)
-      |> Repo.all()
+      |> Ankole.Ash.read!()
 
     %{
       outgoing:

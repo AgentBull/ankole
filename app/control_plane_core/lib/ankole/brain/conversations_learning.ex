@@ -9,9 +9,14 @@ defmodule Ankole.Brain.ConversationsLearning do
   Slice identity is a stable version token. Memory writes and the Source's
   extraction watermark commit together under the Source row lock. A failed
   slice leaves the watermark unchanged and can run again.
+
+  Messages, their external references, and Participants are read through
+  the Conversations domain. `known_pages/1` is a read model over Objects and
+  their aliases (M4) that selects only values.
   """
 
   import Ecto.Query, warn: false
+  require Ash.Expr
 
   alias Ankole.Brain.Claims
   alias Ankole.Brain.Config
@@ -27,10 +32,8 @@ defmodule Ankole.Brain.ConversationsLearning do
   alias Ankole.Brain.Timelines
   alias Ankole.Kernel, as: NativeKernel
   alias Ankole.Logging
-  alias Ankole.Principals.Principal
   alias Ankole.Repo
   alias Ankole.Conversations.Conversation
-  alias Ankole.Conversations.{Message, ExternalMessageRef}
 
   @max_slice_entries 200
   @known_page_limit 20
@@ -75,24 +78,49 @@ defmodule Ankole.Brain.ConversationsLearning do
     )
   end
 
-  defp observations_query(conversation_id) do
-    from message in Message,
-      left_join: ref in ExternalMessageRef,
-      on: ref.message_id == message.id and ref.tenant_id == message.tenant_id,
-      where: message.conversation_id == ^conversation_id,
-      where:
-        message.id not in subquery(
-          Ankole.Conversations.removed_message_ids_query(conversation_id)
-        ),
-      select: %{message: message, external_ref: ref}
+  # The public Messages of one conversation in sequence order, each with its
+  # external reference. A withdrawn Message is not a public conversation fact.
+  defp observations(conversation_id, query) do
+    messages =
+      Ankole.Conversations.Domain.list_messages!(
+        query:
+          [
+            filter: [conversation_id: conversation_id],
+            filter: not_withdrawn(),
+            sort: [seq: :asc]
+          ] ++ query
+      )
+
+    refs =
+      case messages do
+        [] ->
+          %{}
+
+        messages ->
+          [query: [filter: [message_id: [in: Enum.map(messages, & &1.id)]]]]
+          |> Ankole.Conversations.Domain.list_external_message_refs!()
+          |> Map.new(&{&1.message_id, &1})
+      end
+
+    Enum.map(messages, &%{message: &1, external_ref: Map.get(refs, &1.id)})
+  end
+
+  # Transitional: the Message calculation `withdrawn` of the Conversations
+  # domain replaces this expression.
+  defp not_withdrawn do
+    Ash.Expr.expr(
+      not exists(
+        Ankole.Signals.Signal,
+        message_id == parent(id) and fragment("? @> '{\"removed\": true}'::jsonb", data)
+      )
+    )
   end
 
   defp slice_after(conversation_id, watermark, limit) do
-    observations_query(conversation_id)
-    |> where([message], message.seq > ^(watermark || 0))
-    |> order_by([message], asc: message.seq)
-    |> limit(^limit)
-    |> Repo.all()
+    observations(conversation_id,
+      filter: [seq: [greater_than: watermark || 0]],
+      limit: limit
+    )
   end
 
   @doc """
@@ -125,50 +153,63 @@ defmodule Ankole.Brain.ConversationsLearning do
     NativeKernel.xxh3_128_hex(Ankole.JSON.encode!([conversation_id, canonical]))
   end
 
-  @doc "Finds idle conversations with Messages beyond their Source watermark."
+  @doc """
+  Finds idle conversations with Messages beyond their Source watermark and
+  gives the creation time of the first pending Message of each.
+  """
   def idle_pending_slices do
     threshold =
       DateTime.add(DateTime.utc_now(), -Config.signal_channel_batch_idle_time(), :second)
 
-    watermark =
-      from source in Source,
-        where:
-          source.kind == "conversation" and
-            source.upstream_id == fragment("?::text", parent_as(:conversation).id),
-        select: %{seq: source.extracted_through_seq}
+    # A Message is pending when no conversation Source of its conversation has
+    # a watermark at or after its sequence.
+    [
+      query: [
+        filter:
+          Ash.Expr.expr(
+            (kind == :native or external_kind in [:im_dm, :im_group]) and
+              last_activity_at < ^threshold and
+              exists(
+                Ankole.Conversations.Message,
+                conversation_id == parent(id) and ^not_withdrawn() and
+                  not exists(
+                    Source,
+                    kind == "conversation" and
+                      upstream_id == fragment("?::text", parent(conversation_id)) and
+                      extracted_through_seq >= parent(seq)
+                  )
+              )
+          ),
+        select: [:id]
+      ]
+    ]
+    |> Ankole.Conversations.Domain.list_conversations!()
+    |> Enum.flat_map(fn conversation ->
+      case pending_slice(conversation.id, 1) do
+        [%{message: first}] ->
+          [%{conversation_id: conversation.id, first_seen_at: first.created_at}]
 
-    first_message =
-      from message in Message,
-        where:
-          message.conversation_id == parent_as(:conversation).id and
-            message.seq > fragment("COALESCE(?, 0)", parent_as(:watermark).seq),
-        where: message.id not in subquery(Ankole.Conversations.removed_message_ids_query()),
-        order_by: message.seq,
-        limit: 1,
-        select: %{created_at: message.created_at}
-
-    Conversation
-    |> from(as: :conversation)
-    |> where(
-      [conversation],
-      conversation.kind == :native or conversation.external_kind in [:im_dm, :im_group]
-    )
-    |> where([conversation], conversation.last_activity_at < ^threshold)
-    |> join(:left_lateral, [], watermark in subquery(watermark), as: :watermark, on: true)
-    |> join(:inner_lateral, [], message in subquery(first_message), on: true)
-    |> select([conversation, _watermark, message], %{
-      conversation_id: conversation.id,
-      first_seen_at: message.created_at
-    })
-    |> Repo.all()
+        [] ->
+          []
+      end
+    end)
   end
 
   defp process_slice(channel, source, start, learning_context, entries, token, model) do
     transcript = build_transcript(entries)
     boundary = slice_boundary(entries)
 
+    slice = %{
+      source: source,
+      start: start,
+      conversation_id: channel.id,
+      token: token,
+      learning_context: learning_context,
+      boundary: boundary
+    }
+
     if String.trim(transcript.text) == "" do
-      finalize(source, start, channel.id, token, :not_applicable, [], learning_context, boundary)
+      finalize(slice, :not_applicable, [])
     else
       prompt = extraction_prompt(transcript, learning_context, known_pages(transcript.text))
 
@@ -181,7 +222,7 @@ defmodule Ankole.Brain.ConversationsLearning do
           # continuously active channel could never commit any slice.
           if slice_still_current?(channel.id, entries, token) do
             outcome = if items == [], do: :not_applicable, else: :complete
-            finalize(source, start, channel.id, token, outcome, items, learning_context, boundary)
+            finalize(slice, outcome, items)
           else
             {:ok, %{status: :slice_changed, token: token}}
           end
@@ -206,9 +247,8 @@ defmodule Ankole.Brain.ConversationsLearning do
     ids = Enum.map(observations, & &1.message.id)
 
     current =
-      observations_query(conversation_id)
-      |> where([message], message.id in ^ids)
-      |> Repo.all()
+      conversation_id
+      |> observations(filter: [id: [in: ids]])
       |> Map.new(&{&1.message.id, &1})
 
     refetched = Enum.map(observations, &Map.get(current, &1.message.id))
@@ -217,37 +257,20 @@ defmodule Ankole.Brain.ConversationsLearning do
       slice_version_token(conversation_id, refetched) == token
   end
 
-  # Real memory writes and the Source watermark commit in one final short
-  # transaction. Embeddings prepare in one batched call before it, so the
-  # transaction holds no network I/O while write-time semantic dedup keeps
-  # its vectors. The locked Source re-read is the archive fence: a channel
-  # archived during the model call must not gain new memory. Mixed
-  # item-level validation rejects stay visible in the report and the log.
-  # If every non-empty model item is rejected, the transaction rolls back
-  # without advancing the watermark, so Oban can retry the slice.
-  # Infrastructure failures follow the same rollback contract.
-  defp finalize(source, start, conversation_id, token, outcome, items, learning_context, boundary) do
-    prepared = prepare_embeddings(items)
-
+  # Real memory writes and the Source watermark commit in the final short
+  # transaction of the `:finalize_conversation_slice` action. Embeddings
+  # prepare in one batched call before it, so the transaction holds no network
+  # I/O while write-time semantic dedup keeps its vectors. Mixed item-level
+  # validation rejects stay visible in the report and the log. If every
+  # non-empty model item is rejected, the transaction rolls back without
+  # advancing the watermark, so Oban can retry the slice. Infrastructure
+  # failures follow the same rollback contract.
+  defp finalize(%{conversation_id: conversation_id, token: token} = slice, outcome, items) do
     result =
-      Repo.transact(fn repo ->
-        with %Conversation{} <-
-               repo.one(
-                 from c in Conversation, where: c.id == ^conversation_id, lock: "FOR SHARE"
-               ),
-             {:ok, current} <- lock_active_source(repo, source),
-             :ok <- ensure_source_revision(current, source),
-             :ok <- ensure_same_watermark(Sources.extraction_watermark(current), start),
-             :ok <- ensure_slice_version_in_tx(repo, conversation_id, start, boundary, token),
-             written = write_items(conversation_id, items, learning_context, prepared),
-             :ok <- ensure_extraction_written(items, written),
-             :ok <- Sources.record_extraction_watermark(repo, current, boundary) do
-          {:ok, %{status: outcome, token: token, written: written}}
-        else
-          nil -> {:error, :source_archived}
-          {:error, _reason} = error -> error
-        end
-      end)
+      Ankole.Ash.run_action(Source, :finalize_conversation_slice, %{
+        slice:
+          Map.merge(slice, %{outcome: outcome, items: items, prepared: prepare_embeddings(items)})
+      })
 
     case result do
       {:ok, %{written: written} = report} ->
@@ -277,6 +300,35 @@ defmodule Ankole.Brain.ConversationsLearning do
     end
   end
 
+  @doc false
+  # Writes the memory items of one slice and advances the Source watermark in
+  # the transaction of the `:finalize_conversation_slice` action. The locked
+  # Source re-read is the archive fence: a channel archived during the model
+  # call must not gain new memory.
+  #
+  # An item write gives an error only before its first write (a Fact write
+  # that fails after its insert rolls back this transaction), so a rejected
+  # item leaves no partial memory and the other items still commit.
+  def finalize_in_tx(%{source: source, conversation_id: conversation_id} = slice) do
+    with {:ok, %Conversation{}} <- lock_conversation(conversation_id),
+         {:ok, current} <- lock_active_source(source),
+         :ok <- ensure_source_revision(current, source),
+         :ok <- ensure_same_watermark(Sources.extraction_watermark(current), slice.start),
+         :ok <- ensure_slice_version_in_tx(slice),
+         written =
+           write_items(conversation_id, slice.items, slice.learning_context, slice.prepared),
+         :ok <- ensure_extraction_written(slice.items, written),
+         :ok <- Sources.record_extraction_watermark(Repo, current, slice.boundary) do
+      {:ok, %{status: slice.outcome, token: slice.token, written: written}}
+    else
+      {:ok, nil} -> {:error, :source_archived}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp lock_conversation(conversation_id),
+    do: Ankole.Conversations.Domain.get_conversation(conversation_id, query: [lock: "FOR SHARE"])
+
   defp ensure_source_revision(%Source{upstream_revision: revision}, %Source{
          upstream_revision: revision
        }),
@@ -284,22 +336,17 @@ defmodule Ankole.Brain.ConversationsLearning do
 
   defp ensure_source_revision(_, _), do: {:error, :slice_changed}
 
-  defp ensure_slice_version_in_tx(repo, conversation_id, start, {_at, seq}, token) do
-    case repo.one(from c in Conversation, where: c.id == ^conversation_id, lock: "FOR SHARE") do
-      nil ->
-        {:error, :slice_changed}
+  defp ensure_slice_version_in_tx(
+         %{conversation_id: conversation_id, boundary: {_at, seq}} = slice
+       ) do
+    current =
+      observations(conversation_id,
+        filter: [seq: [greater_than: slice.start || 0, less_than_or_equal: seq]]
+      )
 
-      _ ->
-        current =
-          observations_query(conversation_id)
-          |> where([message], message.seq > ^(start || 0) and message.seq <= ^seq)
-          |> order_by([message], asc: message.seq)
-          |> repo.all()
-
-        if slice_version_token(conversation_id, current) == token,
-          do: :ok,
-          else: {:error, :slice_changed}
-    end
+    if slice_version_token(conversation_id, current) == slice.token,
+      do: :ok,
+      else: {:error, :slice_changed}
   end
 
   # One batched call embeds every fact and take text of the slice; a failure
@@ -458,7 +505,7 @@ defmodule Ankole.Brain.ConversationsLearning do
       audience_scope: scope
     }
 
-    case Timelines.write_timeline(attrs, :system, author: learning_context.author) do
+    case Timelines.write_timeline_in_tx(attrs, :system, author: learning_context.author) do
       {:ok, _timeline} -> {:ok, :timelines}
       {:error, reason} -> {:rejected, reason}
     end
@@ -541,13 +588,15 @@ defmodule Ankole.Brain.ConversationsLearning do
 
   defp learning_context(%Conversation{kind: :native} = conversation) do
     author =
-      Repo.one(
-        from p in Ankole.Conversations.Participant,
-          join: principal in Principal,
-          on: principal.uid == p.principal_uid,
-          where: p.conversation_id == ^conversation.id and p.role == :agent,
-          select: principal.uid
-      )
+      [
+        query: [
+          filter: [conversation_id: conversation.id, role: :agent],
+          select: [:principal_uid]
+        ]
+      ]
+      |> Ankole.Conversations.Domain.list_participants!()
+      |> Enum.map(& &1.principal_uid)
+      |> Enum.find(&match?({:ok, _principal}, Ankole.Principals.get_principal(&1)))
 
     if is_binary(conversation.created_by) and is_binary(author) do
       {:ok,
@@ -579,19 +628,18 @@ defmodule Ankole.Brain.ConversationsLearning do
   end
 
   defp speaker_uids(conversation_id) do
-    Repo.all(
-      from message in Message,
-        where: message.conversation_id == ^conversation_id and not is_nil(message.author_uid),
-        select: message.author_uid,
-        distinct: true
-    )
+    [
+      query: [
+        filter: [conversation_id: conversation_id, author_uid: [is_nil: false]],
+        distinct: [:author_uid],
+        select: [:author_uid]
+      ]
+    ]
+    |> Ankole.Conversations.Domain.list_messages!()
+    |> Enum.map(& &1.author_uid)
   end
 
-  defp human_uid?(uid) do
-    Principal
-    |> where([principal], principal.uid == ^uid and principal.type == :human)
-    |> Repo.exists?()
-  end
+  defp human_uid?(uid), do: match?({:ok, %{type: :human}}, Ankole.Principals.get_principal(uid))
 
   defp build_transcript(entries) do
     lines =
@@ -632,9 +680,13 @@ defmodule Ankole.Brain.ConversationsLearning do
   defp known_pages(text) do
     slugs = text |> Links.match_aliases_in_text() |> Enum.take(@known_page_limit)
 
-    objects =
-      Repo.all(from o in Object, where: o.slug in ^slugs and is_nil(o.deleted_at))
-      |> Map.new(&{&1.slug, &1})
+    titles =
+      Repo.all(
+        from o in Object,
+          where: o.slug in ^slugs and is_nil(o.deleted_at),
+          select: {o.slug, o.title}
+      )
+      |> Map.new()
 
     ranked_aliases =
       from a in ObjectAlias,
@@ -654,8 +706,8 @@ defmodule Ankole.Brain.ConversationsLearning do
       )
       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
 
-    for slug <- slugs, object = objects[slug], not is_nil(object) do
-      %{slug: slug, title: object.title, aliases: Map.get(aliases, slug, [])}
+    for slug <- slugs, title = titles[slug], not is_nil(title) do
+      %{slug: slug, title: title, aliases: Map.get(aliases, slug, [])}
     end
   end
 
@@ -770,9 +822,9 @@ defmodule Ankole.Brain.ConversationsLearning do
   end
 
   defp fetch_conversation(conversation_id) do
-    case Repo.get_by(Conversation, id: conversation_id) do
-      %Conversation{} = channel -> {:ok, channel}
-      nil -> {:error, :channel_not_found}
+    case Ankole.Conversations.Domain.get_conversation(conversation_id) do
+      {:ok, %Conversation{} = channel} -> {:ok, channel}
+      _missing -> {:error, :channel_not_found}
     end
   end
 
@@ -800,8 +852,8 @@ defmodule Ankole.Brain.ConversationsLearning do
   # The final-commit half of the archive fence: the run start already
   # checked, this locked re-read catches an archive that landed during the
   # model call, following the SourceLearning.commit_run pattern.
-  defp lock_active_source(repo, source) do
-    case Sources.lock_active(repo, source) do
+  defp lock_active_source(source) do
+    case Sources.lock_active(Repo, source) do
       {:ok, current} -> {:ok, current}
       {:error, reason} when reason in [:not_found, :source_archived] -> {:error, :source_archived}
     end

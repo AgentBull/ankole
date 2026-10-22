@@ -528,11 +528,15 @@ defmodule Ankole.Brain.CalibrationTest do
     assert Enum.count(queries, &String.contains?(&1, ~s(FROM "brain_schema_calibration_domains"))) ==
              1
 
-    candidate_queries = Enum.filter(queries, &String.contains?(&1, "LIMIT 50"))
-    evidence_queries = Enum.filter(queries, &String.contains?(&1, "LIMIT 10"))
+    # Ash binds LIMIT as a parameter, so the order clause names each query.
+    claim_queries = Enum.filter(queries, &String.contains?(&1, ~s(FROM "brain_claims")))
+    candidate_queries = Enum.filter(claim_queries, &(&1 =~ ~r/ORDER BY b0\."id" LIMIT/))
+
+    evidence_queries =
+      Enum.filter(claim_queries, &(&1 =~ ~r/ORDER BY b0\."valid_from" DESC, b0\."id" DESC LIMIT/))
+
     assert length(evidence_queries) == 51
     assert length(candidate_queries) == 2
-    assert Enum.all?(candidate_queries, &String.contains?(&1, "LIMIT 50"))
     refute_receive {:calibration_prompt, _prompt}, 0
 
     IO.puts(

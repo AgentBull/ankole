@@ -8,7 +8,7 @@ defmodule Ankole.Brain.SelfHealing do
   enqueues extraction for idle channels and stored OIDC Client conversations.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Chunks
   alias Ankole.Brain.Chunker
@@ -23,7 +23,6 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.ConversationsLearning
   alias Ankole.Logging
-  alias Ankole.Repo
 
   @embed_batch_limit 500
   @embed_call_size 64
@@ -61,13 +60,11 @@ defmodule Ankole.Brain.SelfHealing do
   @doc "Reconciles stale body links independently of model configuration."
   def reconcile_body_links do
     Object
-    |> where([object], is_nil(object.deleted_at))
-    |> where(
-      [object],
-      is_nil(object.links_extracted_at) or object.links_extracted_at < object.updated_at
+    |> Ash.Query.filter(
+      is_nil(deleted_at) and (is_nil(links_extracted_at) or links_extracted_at < updated_at)
     )
-    |> limit(@rechunk_batch_limit)
-    |> Repo.all()
+    |> Ash.Query.limit(@rechunk_batch_limit)
+    |> Ankole.Ash.read!()
     |> Enum.count(fn object ->
       match?(
         {:ok, _},
@@ -84,13 +81,11 @@ defmodule Ankole.Brain.SelfHealing do
     signature = Chunker.signature(chunking)
 
     Object
-    |> where([object], is_nil(object.deleted_at))
-    |> where(
-      [object],
-      is_nil(object.chunking_signature) or object.chunking_signature != ^signature
+    |> Ash.Query.filter(
+      is_nil(deleted_at) and (is_nil(chunking_signature) or chunking_signature != ^signature)
     )
-    |> limit(@rechunk_batch_limit)
-    |> Repo.all()
+    |> Ash.Query.limit(@rechunk_batch_limit)
+    |> Ankole.Ash.read!()
     |> Enum.count(fn object ->
       match?(
         {:ok, _object},
@@ -120,15 +115,12 @@ defmodule Ankole.Brain.SelfHealing do
 
   defp embed_pending_chunks(signature) do
     Chunk
-    |> where(
-      [chunk],
-      is_nil(chunk.embedded_at) or chunk.embedding_signature != ^signature
-    )
+    |> Ash.Query.filter(is_nil(embedded_at) or embedding_signature != ^signature)
     # Never-tried rows go first, so a set of permanently failing rows cannot
     # starve fresh content out of the per-sweep batch.
-    |> order_by([chunk], asc: fragment("? IS NOT NULL", chunk.embedding_error))
-    |> limit(@embed_batch_limit)
-    |> Repo.all()
+    |> Ash.Query.sort(embedding_failed?: :asc)
+    |> Ash.Query.limit(@embed_batch_limit)
+    |> Ankole.Ash.read!()
     |> Enum.chunk_every(@embed_call_size)
     |> Enum.reduce(0, fn batch, count ->
       count + embed_batch(batch, signature, & &1.chunk_text)
@@ -137,19 +129,13 @@ defmodule Ankole.Brain.SelfHealing do
 
   defp embed_pending_claims(signature) do
     Claim
-    |> Claims.filter_live_parents()
-    |> where(
-      [claim],
-      is_nil(claim.embedded_at) or claim.embedding_signature != ^signature
+    |> Ash.Query.filter(
+      live_parent? and current? and
+        (is_nil(embedded_at) or embedding_signature != ^signature)
     )
-    |> where(
-      [claim],
-      (claim.claim_type == :fact and is_nil(claim.expired_at)) or
-        (claim.claim_type == :take and claim.active == true)
-    )
-    |> order_by([claim], asc: fragment("? IS NOT NULL", claim.embedding_error))
-    |> limit(@embed_batch_limit)
-    |> Repo.all()
+    |> Ash.Query.sort(embedding_failed?: :asc)
+    |> Ash.Query.limit(@embed_batch_limit)
+    |> Ankole.Ash.read!()
     |> Enum.chunk_every(@embed_call_size)
     |> Enum.reduce(0, fn batch, count ->
       count + embed_batch(batch, signature, & &1.claim)

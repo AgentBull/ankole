@@ -110,5 +110,17 @@ defmodule Ankole.Brain.Schemas.Chunk do
     end
   end
 
+  relationships do
+    belongs_to :object, Ankole.Brain.Schemas.Object do
+      define_attribute?(false)
+      attribute_type(Ankole.Ash.Types.UUIDv7)
+    end
+  end
+
+  calculations do
+    # Self-healing embeds never-tried rows before rows that failed before.
+    calculate(:embedding_failed?, :boolean, expr(not is_nil(embedding_error)))
+  end
+
   @type t :: %__MODULE__{}
 end

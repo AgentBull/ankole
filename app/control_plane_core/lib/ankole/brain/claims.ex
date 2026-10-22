@@ -32,6 +32,8 @@ defmodule Ankole.Brain.Claims do
   # GBrain semantic dedup: top cosine at or above this merges.
   @dedup_threshold 0.95
   @dedup_candidate_limit 5
+  # Each retry follows one concurrent replacement of the dedup target.
+  @dedup_attempts 5
 
   # Server-side content gates: prompt contracts do the semantics, these stop
   # mechanical garbage.
@@ -176,23 +178,36 @@ defmodule Ankole.Brain.Claims do
   @doc false
   # Runs the semantic dedup and the insert of a validated Fact in the caller's
   # transaction.
+  #
+  # The function gives an error only before its first write. When the old row
+  # cannot be marked after the insert, it rolls back the caller's transaction,
+  # so a caller that continues after a rejected item never commits a second
+  # current Fact.
   def record_fact_in_tx(attrs, writer, {embedding, signature}, opts) do
     dedup? = Keyword.get(opts, :dedup, true)
 
-    case find_dedup_action(Repo, attrs, if(dedup?, do: {embedding, signature})) do
+    case current_dedup_action(attrs, if(dedup?, do: {embedding, signature})) do
       {:duplicate, existing} ->
         {:ok, %{claim: existing, status: :duplicate}}
 
       {:supersede, existing} ->
-        with {:ok, claim} <- insert_fact(attrs, embedding, signature, writer, opts),
-             {:ok, _old} <- mark_superseded(existing, claim.id) do
-          {:ok, %{claim: claim, status: :superseded, superseded_claim_id: existing.id}}
+        with {:ok, claim} <- insert_fact(attrs, embedding, signature, writer, opts) do
+          case mark_superseded(existing, claim.id) do
+            {:ok, _old} ->
+              {:ok, %{claim: claim, status: :superseded, superseded_claim_id: existing.id}}
+
+            {:error, error} ->
+              Repo.rollback(error)
+          end
         end
 
       :insert ->
         with {:ok, claim} <- insert_fact(attrs, embedding, signature, writer, opts) do
           {:ok, %{claim: claim, status: :inserted}}
         end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -558,11 +573,36 @@ defmodule Ankole.Brain.Claims do
     end
   end
 
-  defp find_dedup_action(_repo, _attrs, nil), do: :insert
-  defp find_dedup_action(_repo, _attrs, {nil, _signature}), do: :insert
-  defp find_dedup_action(_repo, _attrs, {_embedding, nil}), do: :insert
+  # The dedup target is locked and read again before the write decision. A
+  # concurrent write can supersede or expire the target after the candidate
+  # query; the locked read waits for that write to commit, and the candidate
+  # query then runs again and finds the replacement row. A Fact therefore
+  # never supersedes a row that already left the current state.
+  defp current_dedup_action(attrs, embedding, attempts \\ @dedup_attempts)
 
-  defp find_dedup_action(repo, attrs, {embedding, signature}) do
+  defp current_dedup_action(_attrs, _embedding, 0), do: {:error, :dedup_target_contended}
+
+  defp current_dedup_action(attrs, embedding, attempts) do
+    case find_dedup_action(attrs, embedding) do
+      :insert ->
+        :insert
+
+      {action, candidate_id} ->
+        case lock_claim(candidate_id) do
+          {:ok, %Claim{claim_type: :fact, expired_at: nil, superseded_by: nil} = target} ->
+            {action, target}
+
+          _replaced_or_removed ->
+            current_dedup_action(attrs, embedding, attempts - 1)
+        end
+    end
+  end
+
+  defp find_dedup_action(_attrs, nil), do: :insert
+  defp find_dedup_action(_attrs, {nil, _signature}), do: :insert
+  defp find_dedup_action(_attrs, {_embedding, nil}), do: :insert
+
+  defp find_dedup_action(attrs, {embedding, signature}) do
     candidates =
       Claim
       |> current_external_facts()
@@ -573,15 +613,20 @@ defmodule Ankole.Brain.Claims do
       |> parent_filter(attrs)
       |> order_by([claim], fragment("? <=> ?", claim.embedding, ^embedding))
       |> limit(@dedup_candidate_limit)
-      |> select([claim], {claim, fragment("1 - (? <=> ?)", claim.embedding, ^embedding)})
-      |> repo.all()
+      |> select([claim], %{
+        id: claim.id,
+        claim: claim.claim,
+        kind: claim.kind,
+        similarity: fragment("1 - (? <=> ?)", claim.embedding, ^embedding)
+      })
+      |> Repo.all()
 
     case candidates do
-      [{top, similarity} | _rest] when similarity >= @dedup_threshold ->
+      [%{similarity: similarity} = top | _rest] when similarity >= @dedup_threshold ->
         cond do
-          normalized_text(top.claim) == normalized_text(attrs[:claim]) -> {:duplicate, top}
-          top.kind == attrs[:kind] -> {:supersede, top}
-          true -> {:duplicate, top}
+          normalized_text(top.claim) == normalized_text(attrs[:claim]) -> {:duplicate, top.id}
+          top.kind == attrs[:kind] -> {:supersede, top.id}
+          true -> {:duplicate, top.id}
         end
 
       _no_hit ->
@@ -612,9 +657,12 @@ defmodule Ankole.Brain.Claims do
       audience_scope: claim.audience_scope
     }
 
-    case find_dedup_action(Repo, attrs, {embedding, signature}) do
+    case current_dedup_action(attrs, {embedding, signature}) do
       :insert ->
         put_embedding(claim, embedding, signature, now, :embedded)
+
+      {:error, _reason} = error ->
+        error
 
       {:duplicate, existing} ->
         with {:ok, _claim} <-

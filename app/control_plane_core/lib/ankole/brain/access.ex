@@ -7,14 +7,17 @@ defmodule Ankole.Brain.Access do
   an owner reads its Agents' `principal:<agent_uid>` scope and the rows its
   Agents wrote or hold, but never the Agents' group-shared knowledge.
   Disclosure filtering is a second, post-hit stage owned by the caller.
+
+  Each filter takes an Ash query. The Ecto form of the Claim and Chunk filters
+  serves only the candidate queries of `Ankole.Brain.Recall` (M9 retrieval),
+  so that the boundary rule has one owner.
   """
 
   import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Brain.Claims
-  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Scope
-  alias Ankole.Principals.Agent
   alias Ankole.Repo
 
   defstruct querier_uid: nil,
@@ -40,10 +43,9 @@ defmodule Ankole.Brain.Access do
   def for_querier(querier_uid) when is_binary(querier_uid) do
     with {:ok, scopes} <- Scope.accessible_scopes(querier_uid) do
       owned_agent_uids =
-        Agent
-        |> where([agent], agent.owner_principal_uid == ^querier_uid)
-        |> select([agent], agent.uid)
-        |> Repo.all()
+        for %{agent: agent} <- Ankole.Principals.list_agents(),
+            agent.owner_principal_uid == querier_uid,
+            do: agent.uid
 
       {:ok,
        %__MODULE__{
@@ -110,7 +112,17 @@ defmodule Ankole.Brain.Access do
   claims query. Claims on soft-deleted Objects stay out of every read path;
   signal-channel claims remain reachable.
   """
-  @spec filter_claims(Ecto.Query.t(), t()) :: Ecto.Query.t()
+  @spec filter_claims(query, t()) :: query when query: Ash.Query.t() | Ecto.Query.t()
+  def filter_claims(%Ash.Query{} = query, %__MODULE__{} = access) do
+    Ash.Query.filter(
+      query,
+      live_parent? and
+        (audience_scope in ^access.scopes or author == ^access.querier_ref or
+           ((author in ^access.owned_agent_refs or holder in ^access.owned_holder_slugs) and
+              not string_starts_with(audience_scope, "group:")))
+    )
+  end
+
   def filter_claims(query, %__MODULE__{} = access) do
     query
     |> Claims.filter_live_parents()
@@ -126,9 +138,11 @@ defmodule Ankole.Brain.Access do
 
   @doc """
   Restricts a claims query to the current state: unexpired facts and active
-  takes.
+  takes (the `current?` calculation of the Claim).
   """
-  @spec filter_current_claims(Ecto.Query.t()) :: Ecto.Query.t()
+  @spec filter_current_claims(query) :: query when query: Ash.Query.t() | Ecto.Query.t()
+  def filter_current_claims(%Ash.Query{} = query), do: Ash.Query.filter(query, current? == true)
+
   def filter_current_claims(query) do
     where(
       query,
@@ -140,9 +154,12 @@ defmodule Ankole.Brain.Access do
 
   @doc """
   Applies the chunk knowledge boundary. Chunks carry no author, so scope is
-  the only reachability rule; the join keeps soft-deleted hosts out.
+  the only reachability rule; the caller keeps soft-deleted hosts out.
   """
-  @spec filter_chunks(Ecto.Query.t(), t()) :: Ecto.Query.t()
+  @spec filter_chunks(query, t()) :: query when query: Ash.Query.t() | Ecto.Query.t()
+  def filter_chunks(%Ash.Query{} = query, %__MODULE__{} = access),
+    do: Ash.Query.filter(query, audience_scope in ^access.scopes)
+
   def filter_chunks(query, %__MODULE__{} = access) do
     where(query, [chunk, ...], chunk.audience_scope in ^access.scopes)
   end
@@ -153,20 +170,14 @@ defmodule Ankole.Brain.Access do
   Timelines carry no holder; reachability is scope, author, or the narrowed
   owner exemption over the author.
   """
-  @spec filter_timelines(Ecto.Query.t(), t()) :: Ecto.Query.t()
-  def filter_timelines(query, %__MODULE__{} = access) do
-    query
-    |> join(:inner, [timeline], object in Object,
-      on:
-        object.tenant_id == timeline.tenant_id and object.slug == timeline.object_slug and
-          is_nil(object.deleted_at)
-    )
-    |> where(
-      [timeline],
-      timeline.audience_scope in ^access.scopes or
-        timeline.author == ^access.querier_ref or
-        (timeline.author in ^access.owned_agent_refs and
-           not like(timeline.audience_scope, "group:%"))
+  @spec filter_timelines(Ash.Query.t(), t()) :: Ash.Query.t()
+  def filter_timelines(%Ash.Query{} = query, %__MODULE__{} = access) do
+    Ash.Query.filter(
+      query,
+      exists(object, is_nil(deleted_at)) and
+        (audience_scope in ^access.scopes or author == ^access.querier_ref or
+           (author in ^access.owned_agent_refs and
+              not string_starts_with(audience_scope, "group:")))
     )
   end
 

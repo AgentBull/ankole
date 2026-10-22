@@ -14,6 +14,11 @@ defmodule Ankole.Brain.SearchIndexes do
   alias Ankole.Brain.Config
   alias Ankole.Repo
 
+  # Index DDL and catalog reads act on the whole table of every tenant (M8
+  # set maintenance), not on the rows of one tenant.
+  Module.register_attribute(__MODULE__, :raw_sql_scope, persist: true)
+  @raw_sql_scope :site
+
   @bm25_indexes [
     {"brain_chunks_bm25_idx", "brain_chunks", "chunk_text"},
     {"brain_claims_bm25_idx", "brain_claims", "claim"}

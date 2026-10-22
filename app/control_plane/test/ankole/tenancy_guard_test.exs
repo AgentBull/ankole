@@ -38,8 +38,6 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers/seed.ex:import_file" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex:rows" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/brain/config.ex:model_provider_references" =>
-      1,
     "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:site_principals" => 1,
     "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:save_pod_authentications" =>
       1,

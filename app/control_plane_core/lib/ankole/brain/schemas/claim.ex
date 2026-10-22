@@ -350,6 +350,36 @@ defmodule Ankole.Brain.Schemas.Claim do
       end)
     end
 
+    action :commit_grade, :atom do
+      argument(:take_id, :uuid, allow_nil?: false)
+      argument(:input_hash, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:output, :map, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        args.take_id
+        |> Ankole.Brain.Calibration.commit_grade_in_tx(args.input_hash, args.output)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :forget_claim, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:claim_id, :uuid, allow_nil?: false)
+
+      argument(:reason, :string,
+        allow_nil?: false,
+        constraints: [trim?: false, allow_empty?: true]
+      )
+
+      argument(:caller, :term, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        args.claim_id
+        |> Ankole.Brain.Forget.forget_claim_in_tx(args.reason, args.caller)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
     action :consolidate_facts, :struct do
       constraints(instance_of: __MODULE__)
       argument(:take, :map, allow_nil?: false)
@@ -389,6 +419,9 @@ defmodule Ankole.Brain.Schemas.Claim do
       :boolean,
       expr(is_nil(object_slug) or exists(object, is_nil(deleted_at)))
     )
+
+    # Self-healing embeds never-tried rows before rows that failed before.
+    calculate(:embedding_failed?, :boolean, expr(not is_nil(embedding_error)))
 
     calculate(
       :current_external_fact?,
