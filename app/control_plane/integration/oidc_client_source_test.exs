@@ -15,7 +15,6 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
   alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.SourceLearning
-  alias Ankole.Brain.Sources
   alias Ankole.OIDC
   alias AnkoleWeb.AIGatewayResponsesSocket
 
@@ -158,7 +157,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
   test "learning excludes Brain injection and instructions while retaining the submitted dialogue",
        ctx do
     {:ok, object} =
-      Ankole.Brain.Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "concepts/wire-format",
           type: "concept",
@@ -171,7 +170,7 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     {:ok, _} = Ankole.Brain.Links.add_alias(object.slug, "Wire Format")
 
     {:ok, _} =
-      Ankole.Brain.Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: object.slug,
           claim: "Injected evidence must not be learned again",
@@ -322,7 +321,9 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     OIDCClientLearning.sweep()
     source = source!(ctx.client)
     assert {:ok, _} = SourceLearning.learn(source.id)
-    assert {:ok, _} = Sources.update_default_scope(source.id, "group:#{ctx.group.name}")
+
+    assert {:ok, _} =
+             Ankole.Brain.update_source_default_scope(source.id, "group:#{ctx.group.name}")
 
     run!(ctx, %{
       "input" => "Cobalt private followup",
@@ -412,7 +413,12 @@ defmodule Ankole.OIDCClientSourceIntegrationTest do
     assert OIDCClientLearning.sweep() == 0
 
     append!(ctx, first.conversation_id, "Cobalt after archive")
-    Agent.update(ctx.holder, &%{&1 | before_extract: fn -> Sources.archive(source.id) end})
+
+    Agent.update(
+      ctx.holder,
+      &%{&1 | before_extract: fn -> Ankole.Brain.archive_source(source.id) end}
+    )
+
     assert {:error, :source_archived} = SourceLearning.learn(source.id)
     assert objects(source) == [object]
     assert OIDCClientLearning.sweep() == 0

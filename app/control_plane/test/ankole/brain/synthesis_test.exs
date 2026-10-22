@@ -4,7 +4,6 @@ defmodule Ankole.Brain.SynthesisTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.Brain.Links
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Timeline
   alias Ankole.Brain.Synthesis
@@ -18,7 +17,7 @@ defmodule Ankole.Brain.SynthesisTest do
     %{principal: other} = human_fixture()
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "projects/delta-window", type: "project", title: "Delta Window"},
         querier.uid
       )
@@ -112,13 +111,13 @@ defmodule Ankole.Brain.SynthesisTest do
 
     test "an ambiguous entity name returns candidates", context do
       {:ok, _one} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "companies/acme-east", type: "company", title: "Acme East"},
           context.querier.uid
         )
 
       {:ok, _two} =
-        Objects.create_object(
+        Ankole.Brain.create_object(
           %{slug: "companies/acme-west", type: "company", title: "Acme West"},
           context.querier.uid
         )

@@ -17,7 +17,6 @@ defmodule Ankole.Brain.SelfHealing do
   alias Ankole.Brain.Embeddings
   alias Ankole.Brain.Jobs.ProcessConversationSlice
   alias Ankole.Brain.LibraryKnowledge
-  alias Ankole.Brain.Links
   alias Ankole.Brain.OIDCClientLearning
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Claim
@@ -69,7 +68,12 @@ defmodule Ankole.Brain.SelfHealing do
     )
     |> limit(@rechunk_batch_limit)
     |> Repo.all()
-    |> Enum.count(fn object -> match?({:ok, _}, Links.reconcile_object_links(object.slug)) end)
+    |> Enum.count(fn object ->
+      match?(
+        {:ok, _},
+        Ankole.Ash.run_action(Object, :reconcile_object_links, %{slug: object.slug})
+      )
+    end)
   end
 
   # Rechunks objects whose chunking signature differs from the current one.
@@ -88,7 +92,10 @@ defmodule Ankole.Brain.SelfHealing do
     |> limit(@rechunk_batch_limit)
     |> Repo.all()
     |> Enum.count(fn object ->
-      match?({:ok, _object}, Chunks.reconcile(object, chunking: chunking))
+      match?(
+        {:ok, _object},
+        Ankole.Ash.run_action(Object, :reconcile_chunks, %{object: object, chunking: chunking})
+      )
     end)
   end
 
@@ -159,7 +166,14 @@ defmodule Ankole.Brain.SelfHealing do
         |> Enum.zip(vectors)
         |> Enum.count(fn
           {%Claim{} = claim, vector} ->
-            {:ok, status} = Claims.attach_embedding(claim, vector, signature, now: now)
+            {:ok, status} =
+              Ankole.Ash.run_action(Claim, :attach_claim_embedding, %{
+                claim: claim,
+                embedding: vector,
+                signature: signature,
+                now: now
+              })
+
             status != :stale
 
           {%Chunk{} = chunk, vector} ->

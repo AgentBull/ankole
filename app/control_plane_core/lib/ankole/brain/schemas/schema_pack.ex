@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.SchemaPack do
   @moduledoc "An installed schema pack and its immutable manifest."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_schema_packs")
@@ -35,12 +35,10 @@ defmodule Ankole.Brain.Schemas.SchemaPack do
     defaults([:read])
 
     create :install do
-      transaction?(false)
       accept([:id, :name, :version, :content_hash, :manifest, :installed_at])
     end
 
     create_if_absent :ensure_promoted do
-      transaction?(false)
       accept([])
       change(set_attribute(:name, "promoted"))
       change(set_attribute(:version, "0"))

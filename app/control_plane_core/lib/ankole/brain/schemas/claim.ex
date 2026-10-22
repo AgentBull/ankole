@@ -4,7 +4,7 @@ defmodule Ankole.Brain.Schemas.Claim do
   calibration and resolution fields. Native checks keep the field families
   disjoint; actions own each change to the assertion and its history.
   """
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_claims")
@@ -90,8 +90,6 @@ defmodule Ankole.Brain.Schemas.Claim do
     defaults([:read])
 
     create :record_fact do
-      transaction?(false)
-
       accept([
         :id,
         :author,
@@ -118,8 +116,6 @@ defmodule Ankole.Brain.Schemas.Claim do
     end
 
     create :record_take do
-      transaction?(false)
-
       accept([
         :id,
         :author,
@@ -144,7 +140,8 @@ defmodule Ankole.Brain.Schemas.Claim do
       change(set_attribute(:active, true))
     end
 
-    atomic_in_tx_update :expire_fact do
+    update :expire_fact do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
       change(filter(expr(claim_type == :fact)))
@@ -152,7 +149,8 @@ defmodule Ankole.Brain.Schemas.Claim do
       change(set_attribute(:updated_at, arg(:at)))
     end
 
-    atomic_in_tx_update :deactivate_take do
+    update :deactivate_take do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false, default: &DateTime.utc_now/0)
       change(filter(expr(claim_type == :take)))
@@ -160,7 +158,9 @@ defmodule Ankole.Brain.Schemas.Claim do
       change(set_attribute(:updated_at, arg(:at)))
     end
 
-    atomic_in_tx_update :resolve_take do
+    update :resolve_take do
+      require_atomic?(true)
+
       accept([
         :resolved_quality,
         :resolved_outcome,
@@ -176,7 +176,8 @@ defmodule Ankole.Brain.Schemas.Claim do
       change(set_attribute(:active, false))
     end
 
-    atomic_in_tx_update :supersede do
+    update :supersede do
+      require_atomic?(true)
       accept([:superseded_by])
       require_attributes([:superseded_by])
       change(filter(expr(is_nil(superseded_by))))
@@ -188,7 +189,8 @@ defmodule Ankole.Brain.Schemas.Claim do
       change(atomic_update(:active, expr(if claim_type == :take, do: false, else: active)))
     end
 
-    atomic_in_tx_update :deduplicate do
+    update :deduplicate do
+      require_atomic?(true)
       accept([:superseded_by])
       require_attributes([:superseded_by])
       change(filter(expr(claim_type == :fact and is_nil(superseded_by))))
@@ -199,13 +201,15 @@ defmodule Ankole.Brain.Schemas.Claim do
       change(set_attribute(:embedded_at, nil))
     end
 
-    atomic_in_tx_update :record_grade do
+    update :record_grade do
+      require_atomic?(true)
       accept([:graded_quality, :graded_confidence, :graded_at, :graded_input_hash])
       require_attributes([:graded_quality, :graded_confidence, :graded_at])
       change(filter(expr(claim_type == :take and active == true and is_nil(resolved_at))))
     end
 
-    atomic_in_tx_update :consolidate do
+    update :consolidate do
+      require_atomic?(true)
       accept([:consolidated_at, :consolidated_into])
       require_attributes([:consolidated_at, :consolidated_into])
       change(filter(expr(claim_type == :fact)))
@@ -227,20 +231,170 @@ defmodule Ankole.Brain.Schemas.Claim do
       )
     end
 
-    atomic_in_tx_update :append_forgetting_reason do
+    update :append_forgetting_reason do
+      require_atomic?(true)
       accept([])
       argument(:reason, :string, allow_nil?: false, constraints: [trim?: false])
       change(atomic_update(:provenance, expr(provenance <> ^arg(:reason))))
     end
 
-    atomic_in_tx_update :reparent do
+    update :reparent do
+      require_atomic?(true)
       accept([:object_slug])
       require_attributes([:object_slug])
     end
 
-    atomic_in_tx_update :reassign_holder do
+    update :reassign_holder do
+      require_atomic?(true)
       accept([:holder])
     end
+
+    # Each operation owns its transaction; Ankole.Brain.Claims gives the steps.
+    # A claim text gets its embedding from the network before the transaction.
+    action :write_fact, :map do
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:writer, :term, allow_nil?: false)
+      argument(:options, :term, default: [])
+      argument(:embedding, :term, public?: false)
+
+      prepare(fn input, _context ->
+        Ash.ActionInput.before_transaction(input, &Ankole.Brain.Claims.prepare_fact_input/1)
+      end)
+
+      run(fn %{arguments: args}, _context ->
+        args.attrs
+        |> Ankole.Brain.Claims.record_fact_in_tx(args.writer, args.embedding, args.options)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :supersede_claim, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:claim_id, :uuid, allow_nil?: false)
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:writer, :term, allow_nil?: false)
+      argument(:author, Ankole.Ash.Types.ActorRef)
+      argument(:embedding, :term, public?: false)
+
+      prepare(fn input, _context ->
+        Ash.ActionInput.before_transaction(
+          input,
+          &Ankole.Brain.Claims.prepare_replacement_input/1
+        )
+      end)
+
+      run(fn %{arguments: args}, _context ->
+        args.claim_id
+        |> Ankole.Brain.Claims.supersede_claim_in_tx(args.attrs, args.writer,
+          author: args[:author],
+          embedding: args.embedding
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :expire_fact_by_id, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:claim_id, :uuid, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.Claims.expire_fact_in_tx(args.claim_id))
+      end)
+    end
+
+    action :deactivate_take_by_id, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:claim_id, :uuid, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.Claims.deactivate_take_in_tx(args.claim_id))
+      end)
+    end
+
+    action :resolve_take_by_id, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:claim_id, :uuid, allow_nil?: false)
+      argument(:resolution, :map, allow_nil?: false)
+
+      argument(:resolved_by, :string,
+        allow_nil?: false,
+        constraints: [trim?: false, allow_empty?: true]
+      )
+
+      run(fn %{arguments: args}, _context ->
+        args.claim_id
+        |> Ankole.Brain.Claims.resolve_take_in_tx(args.resolution, args.resolved_by)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :attach_claim_embedding, :atom do
+      argument(:claim, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:embedding, :term, allow_nil?: false)
+
+      argument(:signature, :string,
+        allow_nil?: false,
+        constraints: [trim?: false, allow_empty?: true]
+      )
+
+      argument(:now, :utc_datetime_usec)
+
+      run(fn %{arguments: args}, _context ->
+        args.claim
+        |> Ankole.Brain.Claims.attach_embedding_in_tx(
+          args.embedding,
+          args.signature,
+          args[:now] || DateTime.utc_now(:microsecond)
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :consolidate_facts, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:take, :map, allow_nil?: false)
+      argument(:fact_ids, {:array, :uuid}, allow_nil?: false)
+      argument(:embedding, :term)
+
+      run(fn %{arguments: args}, _context ->
+        args.take
+        |> Ankole.Brain.Claims.consolidate_facts_in_tx(args.fact_ids, args[:embedding])
+        |> Ankole.Errors.wrap()
+      end)
+    end
+  end
+
+  relationships do
+    belongs_to :object, Ankole.Brain.Schemas.Object do
+      source_attribute(:object_slug)
+      destination_attribute(:slug)
+      define_attribute?(false)
+      attribute_type(:string)
+    end
+  end
+
+  calculations do
+    calculate(
+      :current?,
+      :boolean,
+      expr(
+        (claim_type == :fact and is_nil(expired_at)) or (claim_type == :take and active == true)
+      )
+    )
+
+    # A claim on a soft-deleted or missing Object is not available. A signal
+    # channel claim has no Object slug and stays available.
+    calculate(
+      :live_parent?,
+      :boolean,
+      expr(is_nil(object_slug) or exists(object, is_nil(deleted_at)))
+    )
+
+    calculate(
+      :current_external_fact?,
+      :boolean,
+      expr(claim_type == :fact and is_nil(expired_at) and is_nil(superseded_by) and live_parent?)
+    )
   end
 
   @type t :: %__MODULE__{}

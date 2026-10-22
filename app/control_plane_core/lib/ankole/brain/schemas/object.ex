@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.Object do
   @moduledoc "A current knowledge page with explicit content, ownership, and projection writes."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_objects")
@@ -82,23 +82,21 @@ defmodule Ankole.Brain.Schemas.Object do
     defaults([:read])
 
     create :create do
-      transaction?(false)
       accept(@initial)
     end
 
     create :create_projection do
-      transaction?(false)
       accept([:managed_by_source_id | @initial])
       require_attributes([:managed_by_source_id])
     end
 
     create_if_absent :ensure_canonical do
-      transaction?(false)
       accept(@initial)
       upsert_identity(:slug)
     end
 
-    atomic_in_tx_update :edit do
+    update :edit do
+      require_atomic?(true)
       accept(@content)
       argument(:expected_content_hash, :string, allow_nil?: false, constraints: [trim?: false])
 
@@ -112,52 +110,61 @@ defmodule Ankole.Brain.Schemas.Object do
       )
     end
 
-    atomic_in_tx_update :project do
+    update :project do
+      require_atomic?(true)
       accept([:type, :deleted_at | @content])
       argument(:source_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       change(filter(expr(managed_by_source_id == ^arg(:source_id))))
     end
 
-    atomic_in_tx_update :forget do
+    update :forget do
+      require_atomic?(true)
       accept([:meta, :content_hash])
       change(filter(expr(is_nil(managed_by_source_id))))
       change(set_attribute(:deleted_at, &DateTime.utc_now/0))
     end
 
-    atomic_in_tx_update :restore do
+    update :restore do
+      require_atomic?(true)
       accept([:meta, :content_hash])
       change(filter(expr(is_nil(managed_by_source_id))))
       change(set_attribute(:deleted_at, nil))
     end
 
-    atomic_in_tx_update :withdraw_projection do
+    update :withdraw_projection do
+      require_atomic?(true)
       accept([])
       argument(:source_id, Ankole.Ash.Types.UUIDv7, allow_nil?: false)
       change(filter(expr(managed_by_source_id == ^arg(:source_id) and is_nil(deleted_at))))
       change(set_attribute(:deleted_at, &DateTime.utc_now/0))
     end
 
-    atomic_in_tx_update :fork do
+    update :fork do
+      require_atomic?(true)
       accept([])
       change(filter(expr(not is_nil(managed_by_source_id) and type != "agent-skills")))
       change(set_attribute(:managed_by_source_id, nil))
     end
 
-    atomic_in_tx_update :retype do
+    update :retype do
+      require_atomic?(true)
       accept([:slug, :type])
       change(filter(expr(is_nil(managed_by_source_id) and is_nil(deleted_at))))
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
     end
 
-    atomic_in_tx_update :refresh_hash do
+    update :refresh_hash do
+      require_atomic?(true)
       accept([:content_hash])
     end
 
-    atomic_in_tx_update :stamp_chunking do
+    update :stamp_chunking do
+      require_atomic?(true)
       accept([:chunking_signature])
     end
 
-    atomic_in_tx_update :stamp_links do
+    update :stamp_links do
+      require_atomic?(true)
       accept([])
       change(atomic_update(:links_extracted_at, expr(updated_at)))
     end
@@ -177,15 +184,148 @@ defmodule Ankole.Brain.Schemas.Object do
     end
 
     destroy :purge do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(not is_nil(deleted_at) and is_nil(managed_by_source_id))))
     end
 
     destroy :merge_duplicate do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(is_nil(managed_by_source_id))))
+    end
+
+    # Each operation owns its transaction. The Objects, Chunks, and Links
+    # modules give the steps.
+    action :create_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:writer, :term, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.Objects.create_object_in_tx(args.attrs, args.writer))
+      end)
+    end
+
+    action :update_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:attrs, :map, allow_nil?: false)
+      argument(:writer, :term, allow_nil?: false)
+      argument(:author, Ankole.Ash.Types.ActorRef)
+
+      run(fn %{arguments: args}, _context ->
+        args.slug
+        |> Ankole.Brain.Objects.update_object_in_tx(args.attrs, args.writer,
+          author: args[:author]
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :upsert_source_projection, :struct do
+      constraints(instance_of: __MODULE__)
+
+      argument(:source, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: Ankole.Brain.Schemas.Source]
+      )
+
+      argument(:attrs, :map, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        args.source
+        |> Ankole.Brain.Objects.upsert_source_projection_in_tx(args.attrs)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :upsert_library_projection, :atom do
+      argument(:source, :struct,
+        allow_nil?: false,
+        constraints: [instance_of: Ankole.Brain.Schemas.Source]
+      )
+
+      argument(:page, :map, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        args.source
+        |> Ankole.Brain.Objects.upsert_library_projection_in_tx(args.page)
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :soft_delete_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:reason, :string, constraints: [trim?: false, allow_empty?: true])
+      argument(:by, :term)
+
+      run(fn %{arguments: args}, _context ->
+        args.slug
+        |> Ankole.Brain.Objects.soft_delete_in_tx(reason: args[:reason], by: args[:by])
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :rollback_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+      argument(:version_id, :uuid, allow_nil?: false)
+      argument(:writer, :term, allow_nil?: false)
+      argument(:author, Ankole.Ash.Types.ActorRef)
+
+      run(fn %{arguments: args}, _context ->
+        args.slug
+        |> Ankole.Brain.Objects.rollback_in_tx(args.version_id, args.writer,
+          author: args[:author]
+        )
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :fork_library_page, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.Objects.fork_library_page_in_tx(args.slug))
+      end)
+    end
+
+    action :restore_object, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.Objects.restore_in_tx(args.slug))
+      end)
+    end
+
+    action :reconcile_chunks, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:object, :struct, allow_nil?: false, constraints: [instance_of: __MODULE__])
+      argument(:chunking, :map)
+
+      run(fn %{arguments: args}, _context ->
+        args.object
+        |> Ankole.Brain.Chunks.reconcile_in_tx(chunking: args[:chunking])
+        |> Ankole.Errors.wrap()
+      end)
+    end
+
+    action :reconcile_object_links, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:slug, :string, allow_nil?: false, constraints: [trim?: false, allow_empty?: true])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.Links.reconcile_object_links_in_tx(args.slug))
+      end)
+    end
+  end
+
+  relationships do
+    has_many :tags, Ankole.Brain.Schemas.Tag do
+      source_attribute(:slug)
+      destination_attribute(:object_slug)
     end
   end
 

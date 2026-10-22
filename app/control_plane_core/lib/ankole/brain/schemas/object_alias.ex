@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.ObjectAlias do
   @moduledoc "One normalized name candidate; different objects can share a name."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_object_aliases")
@@ -39,7 +39,6 @@ defmodule Ankole.Brain.Schemas.ObjectAlias do
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
     end
   end

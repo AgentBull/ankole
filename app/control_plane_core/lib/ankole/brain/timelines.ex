@@ -49,7 +49,7 @@ defmodule Ankole.Brain.Timelines do
       if Map.get(timeline.__metadata__, :upsert_skipped, false) do
         {:ok, timeline}
       else
-        with {:ok, _object} <- Chunks.reconcile(object),
+        with {:ok, _object} <- Chunks.reconcile_in_tx(object),
              do: {:ok, timeline}
       end
     end

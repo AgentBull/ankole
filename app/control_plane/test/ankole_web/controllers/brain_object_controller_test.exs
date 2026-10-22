@@ -7,7 +7,6 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
   alias Ankole.AppConfigure.Cache
   alias Ankole.AppConfigure.Registry
   alias Ankole.Brain.GetPage
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Object
@@ -316,7 +315,9 @@ defmodule AnkoleWeb.BrainObjectControllerTest do
     assert object.effective_date == ~D[2026-08-02]
     assert object.body == form["body"]
     [version] = Repo.all(from(v in ObjectVersion, where: v.object_id == ^object.id))
-    {:ok, deleted} = Objects.soft_delete(object.slug, reason: "Obsolete", by: writer)
+
+    {:ok, deleted} =
+      Ankole.Brain.soft_delete_object(object.slug, %{reason: "Obsolete", by: writer})
 
     assert %{"error" => %{"code" => "object_deleted"}} =
              conn

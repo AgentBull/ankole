@@ -55,7 +55,7 @@ defmodule Ankole.Brain.CalibrationTest do
     %{principal: member} = human_fixture()
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "concepts/deleted-calibration",
           type: "concept",
@@ -87,7 +87,7 @@ defmodule Ankole.Brain.CalibrationTest do
         channel_text
       )
 
-    assert {:ok, _object} = Objects.soft_delete(context.object.slug)
+    assert {:ok, _object} = Ankole.Brain.soft_delete_object(context.object.slug)
     plan_verdict!(context, "correct")
     assert %{status: :ok, candidates: 1, graded: 1} = Calibration.grade_takes()
 
@@ -124,10 +124,12 @@ defmodule Ankole.Brain.CalibrationTest do
     assert holder.body =~ "Resolved takes: 1; Brier score: 0.36."
 
     assert {:error, :already_resolved} =
-             Claims.resolve_take(
-               take.id,
-               %{resolved_quality: "correct", resolved_outcome: true},
-               context.member.uid
+             Ankole.Errors.reason(
+               Ankole.Brain.resolve_take(
+                 take.id,
+                 %{resolved_quality: "correct", resolved_outcome: true},
+                 context.member.uid
+               )
              )
   end
 
@@ -263,14 +265,18 @@ defmodule Ankole.Brain.CalibrationTest do
     refute Repo.get!(Claim, take.id).graded_input_hash == initial_hash
 
     assert {:ok, corrected} =
-             Claims.supersede_claim(fact.id, %{claim: "Delivery is delayed"}, context.member.uid)
+             Ankole.Brain.supersede_claim(
+               fact.id,
+               %{claim: "Delivery is delayed"},
+               context.member.uid
+             )
 
     assert %{attempted: 1, graded: 1} = Calibration.grade_takes()
     assert_receive {:calibration_prompt, corrected_prompt}, 1_000
     assert corrected_prompt =~ corrected.claim
     refute corrected_prompt =~ fact.claim
 
-    assert {:ok, _expired} = Claims.expire_fact(corrected.id)
+    assert {:ok, _expired} = Ankole.Brain.expire_fact(corrected.id)
     assert %{attempted: 1, graded: 1} = Calibration.grade_takes()
     assert_receive {:calibration_prompt, expired_prompt}, 1_000
     refute expired_prompt =~ corrected.claim
@@ -453,14 +459,14 @@ defmodule Ankole.Brain.CalibrationTest do
             case @change do
               :resolve ->
                 assert {:ok, _take} =
-                         Claims.resolve_take(
+                         Ankole.Brain.resolve_take(
                            take.id,
                            %{resolved_quality: "incorrect", resolved_outcome: false},
                            context.member.uid
                          )
 
               :deactivate ->
-                assert {:ok, _take} = Claims.deactivate_take(take.id)
+                assert {:ok, _take} = Ankole.Brain.deactivate_take(take.id)
 
               :delete ->
                 Repo.delete!(take)
@@ -573,20 +579,20 @@ defmodule Ankole.Brain.CalibrationTest do
       )
 
     assert {:ok, _resolved} =
-             Claims.resolve_take(
+             Ankole.Brain.resolve_take(
                object_take.id,
                %{resolved_quality: "correct", resolved_outcome: true},
                context.member.uid
              )
 
     assert {:ok, _resolved} =
-             Claims.resolve_take(
+             Ankole.Brain.resolve_take(
                channel_take.id,
                %{resolved_quality: "correct", resolved_outcome: true},
                context.member.uid
              )
 
-    assert {:ok, _object} = Objects.soft_delete(context.object.slug)
+    assert {:ok, _object} = Ankole.Brain.soft_delete_object(context.object.slug)
     assert %{status: :ok, holders: 1, updated: 1} = Calibration.calibration_profile()
 
     assert {:ok, holder} = Objects.get_by_slug("people/#{context.member.uid}")
@@ -649,7 +655,7 @@ defmodule Ankole.Brain.CalibrationTest do
       |> Map.merge(Map.new(overrides))
 
     {:ok, %{claim: fact}} =
-      Claims.write_fact(attrs, context.member.uid, embed: false, dedup: false)
+      Ankole.Brain.write_fact(attrs, context.member.uid, %{options: [embed: false, dedup: false]})
 
     fact
   end

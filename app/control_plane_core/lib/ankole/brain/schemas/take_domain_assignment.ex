@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.TakeDomainAssignment do
   @moduledoc "The first accepted analysis-domain assignment for a Take."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_take_domain_assignments")
@@ -43,8 +43,6 @@ defmodule Ankole.Brain.Schemas.TakeDomainAssignment do
     defaults([:read])
 
     create_if_absent :assign_once do
-      transaction?(false)
-
       accept([
         :id,
         :take_claim_id,

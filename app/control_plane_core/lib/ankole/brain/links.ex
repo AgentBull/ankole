@@ -37,51 +37,47 @@ defmodule Ankole.Brain.Links do
 
   @doc false
   def replace_tags_in_tx(repo, slug, tags) do
-    with :ok <- Repo.require_transaction(repo) do
-      removed =
-        Tag
-        |> Ash.Query.filter(object_slug == ^slug and tag not in ^tags)
-        |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true)
-
-      with %Ash.BulkResult{status: :success} <- removed,
-           %Ash.BulkResult{status: :success} <-
-             Ankole.Ash.bulk_create(
-               Enum.map(tags, &%{object_slug: slug, tag: &1}),
-               Tag,
-               :add,
-               return_errors?: true
-             ) do
-        :ok
-      else
-        %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
-      end
+    with :ok <- Repo.require_transaction(repo),
+         {:ok, _removed} <-
+           Tag
+           |> Ash.Query.filter(object_slug == ^slug and tag not in ^tags)
+           |> Ankole.Ash.destroy_where(:remove) do
+      Enum.reduce_while(tags, :ok, fn tag, :ok ->
+        case Ankole.Ash.create(Tag, :add, %{object_slug: slug, tag: tag}) do
+          {:ok, _tag} -> {:cont, :ok}
+          {:error, _error} = error -> {:halt, error}
+        end
+      end)
     end
   end
 
-  @doc "Reconciles body-owned Markdown and alias edges without a model."
-  def reconcile_object_links(slug) do
-    Repo.transact(fn repo ->
-      with {:ok, object} <- Objects.lock_object_in_tx(repo, slug),
-           true <- is_nil(object.deleted_at) do
-        wikilinks =
-          Enum.map(Markdoc.wikilinks(object.body), &{&1, "", "markdown", nil, "qualified"})
+  @doc """
+  Reconciles body-owned Markdown and alias edges without a model, in the
+  caller's transaction. The `:reconcile_object_links` action of
+  `Ankole.Brain.Schemas.Object` owns the transaction of a single reconcile.
+  """
+  def reconcile_object_links_in_tx(slug) do
+    with :ok <- Repo.require_transaction(Repo),
+         {:ok, object} <- Objects.lock_object_in_tx(Repo, slug),
+         true <- is_nil(object.deleted_at) do
+      wikilinks =
+        Enum.map(Markdoc.wikilinks(object.body), &{&1, "", "markdown", nil, "qualified"})
 
-        mentions =
-          object.body
-          |> match_aliases_in_text()
-          |> Enum.reject(&(&1 == slug))
-          |> Enum.map(&{&1, "mentions", "mentions", "plain", "unqualified"})
+      mentions =
+        object.body
+        |> match_aliases_in_text()
+        |> Enum.reject(&(&1 == slug))
+        |> Enum.map(&{&1, "mentions", "mentions", "plain", "unqualified"})
 
-        with {:ok, keys} <- insert_body_links(slug, wikilinks ++ mentions),
-             :ok <- remove_stale_body_links(slug, keys),
-             {:ok, _} <- Ankole.Ash.update(object, :stamp_links, %{}) do
-          {:ok, object}
-        end
-      else
-        false -> {:error, :object_deleted}
-        error -> error
+      with {:ok, keys} <- insert_body_links(slug, wikilinks ++ mentions),
+           :ok <- remove_stale_body_links(slug, keys),
+           {:ok, _} <- Ankole.Ash.update(object, :stamp_links, %{}) do
+        {:ok, object}
       end
-    end)
+    else
+      false -> {:error, :object_deleted}
+      error -> error
+    end
   end
 
   defp insert_body_links(slug, links) do
@@ -123,9 +119,9 @@ defmodule Ankole.Brain.Links do
 
     case Link
          |> Ash.Query.filter(id in ^stale_ids)
-         |> Ankole.Ash.bulk_destroy(:remove, %{}, strategy: [:atomic], return_errors?: true) do
-      %Ash.BulkResult{status: :success} -> :ok
-      %Ash.BulkResult{errors: errors} -> {:error, Ash.Error.to_error_class(errors)}
+         |> Ankole.Ash.destroy_where(:remove) do
+      {:ok, _removed} -> :ok
+      {:error, _error} = error -> error
     end
   end
 
@@ -175,14 +171,10 @@ defmodule Ankole.Brain.Links do
   end
 
   defp insert_distinct(schema, attrs) do
-    case Ankole.Ash.create(schema, :add, attrs) do
-      {:ok, inserted} ->
-        if Map.get(inserted.__metadata__, :upsert_skipped, false),
-          do: {:ok, :duplicate},
-          else: {:ok, inserted}
-
-      error ->
-        error
+    case Ankole.Ash.insert_if_absent(schema, :add, attrs) do
+      {:ok, inserted, :created} -> {:ok, inserted}
+      {:ok, _existing, :existing} -> {:ok, :duplicate}
+      {:error, _error} = error -> error
     end
   end
 

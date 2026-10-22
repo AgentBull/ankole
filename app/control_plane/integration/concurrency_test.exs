@@ -15,7 +15,6 @@ defmodule Ankole.ConcurrencyIntegrationTest do
   alias Ankole.Brain.Schemas.SchemaLinkType
   alias Ankole.Brain.Schemas.SchemaPack
   alias Ankole.Brain.Schemas.SchemaType
-  alias Ankole.Brain.Sources
   alias Ankole.BackgroundAgentJobs
   alias Ankole.BackgroundAgentJobs.Schemas.Job
   alias Ankole.RuntimeFabric.V1, as: FabricProto
@@ -376,7 +375,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
           end
         )
 
-      archived = Sandbox.unboxed_run(Repo, fn -> Sources.archive(ctx.source.id) end)
+      archived = Sandbox.unboxed_run(Repo, fn -> Ankole.Brain.archive_source(ctx.source.id) end)
       assert {:ok, %Source{archived_at: %DateTime{}}} = archived
       send(sync.task.pid, :continue_query)
 
@@ -391,7 +390,7 @@ defmodule Ankole.ConcurrencyIntegrationTest do
     test "archive waits for an in-flight projection and withdraws the committed page", ctx do
       set = library_skill_set(ctx.name, "New shipped body.")
       sync = hold_transaction(fn -> LibraryKnowledge.sync(sets: [set]) end)
-      archive = start_unboxed(fn -> Sources.archive(ctx.source.id) end)
+      archive = start_unboxed(fn -> Ankole.Brain.archive_source(ctx.source.id) end)
       assert_blocked_by(archive, sync)
       release(sync)
 

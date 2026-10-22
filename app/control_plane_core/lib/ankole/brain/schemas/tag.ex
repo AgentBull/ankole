@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.Tag do
   @moduledoc "One immutable tag membership on an object."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_tags")
@@ -34,13 +34,11 @@ defmodule Ankole.Brain.Schemas.Tag do
     defaults([:read])
 
     create_if_absent :add do
-      transaction?(false)
       accept([:id, :object_slug, :tag, :created_at])
       upsert_identity(:object_tag)
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
     end
   end
