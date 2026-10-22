@@ -64,7 +64,7 @@ defmodule Ankole.AgentWorkers.Config do
          runtime_fabric_endpoint: endpoint,
          installation: installation,
          protocol_version: RuntimeFabric.protocol_version(),
-         observing_since: Keyword.get_lazy(opts, :observing_since, &database_now/0),
+         observing_since: Keyword.get_lazy(opts, :observing_since, &Ankole.Repo.now!/0),
          source_root: Keyword.get(opts, :source_root),
          internal_skills_root: Keyword.get(opts, :internal_skills_root)
        }}
@@ -84,10 +84,5 @@ defmodule Ankole.AgentWorkers.Config do
       value when is_binary(value) and value != "" -> {:ok, value}
       _missing -> {:error, {:missing, key}}
     end
-  end
-
-  defp database_now do
-    %Postgrex.Result{rows: [[now]]} = Ankole.Repo.query!("SELECT now()")
-    now
   end
 end

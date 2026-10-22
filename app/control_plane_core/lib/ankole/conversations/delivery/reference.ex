@@ -1,7 +1,7 @@
 defmodule Ankole.Conversations.Delivery.Reference do
   @moduledoc false
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Conversations.External
   alias Ankole.Conversations.ExternalMessageRef
@@ -158,7 +158,7 @@ defmodule Ankole.Conversations.Delivery.Reference do
 
   defp maybe_mark_agent_thread_explicit(%{explicit?: true} = fact, _repo), do: fact
 
-  defp maybe_mark_agent_thread_explicit(fact, repo) do
+  defp maybe_mark_agent_thread_explicit(fact, _repo) do
     with :im_group <- Map.get(fact, :channel_kind),
          provider_thread_id when is_binary(provider_thread_id) <-
            Ankole.Attrs.optional_text(Map.get(fact, :provider_thread_id)),
@@ -168,22 +168,23 @@ defmodule Ankole.Conversations.Delivery.Reference do
            Ankole.Attrs.optional_text(Map.get(fact, :agent_uid)),
          false <- own_agent_author?(Map.get(fact, :author), agent_uid),
          true <-
-           agent_participated_in_thread?(repo, conversation_id, provider_thread_id, agent_uid) do
+           agent_participated_in_thread?(conversation_id, provider_thread_id, agent_uid) do
       Map.put(fact, :explicit?, true)
     else
       _not_an_agent_thread_reply -> fact
     end
   end
 
-  defp agent_participated_in_thread?(repo, conversation_id, provider_thread_id, agent_uid) do
+  defp agent_participated_in_thread?(conversation_id, provider_thread_id, agent_uid) do
+    agent_uid = String.downcase(agent_uid)
+
     ExternalMessageRef
-    |> where([entry], entry.conversation_id == ^conversation_id)
-    |> where([entry], entry.provider_thread_id == ^provider_thread_id)
-    |> where(
-      [entry],
-      fragment("lower(?->>'agent_uid') = ?", entry.author, ^String.downcase(agent_uid))
+    |> Ash.Query.filter(
+      conversation_id == ^conversation_id and provider_thread_id == ^provider_thread_id and
+        fragment("lower(?->>'agent_uid') = ?", author, ^agent_uid)
     )
-    |> repo.exists?()
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read!() != []
   end
 
   defp author_role(author) do

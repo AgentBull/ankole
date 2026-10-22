@@ -24,7 +24,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
 
   use GenServer, restart: :temporary
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.AIGateway.Events
@@ -42,7 +42,6 @@ defmodule Ankole.Conversations.Delivery.Preview do
   alias Ankole.Signals.Sanitizer
   alias Ankole.Conversations.Delivery.PreviewAdapter
   alias Ankole.Conversations.Delivery.PreviewAdapter.Request
-  alias Ankole.Repo
 
   # Throttle plain-text edits to avoid provider rate limits.
   @edit_flush_interval_ms 1_000
@@ -160,7 +159,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
     do: {:global, {__MODULE__, event.agent_uid, event.session_id}}
 
   def via_tuple(signal_id),
-    do: via_tuple(PreviewState.load(Repo.get!(Signal, signal_id), Repo))
+    do: via_tuple(PreviewState.load_signal(signal_id))
 
   @doc """
   Stops the preview owned by an explicit Actor lifecycle transition.
@@ -179,7 +178,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
       [{pid, _value}] ->
         GenServer.call(
           pid,
-          {:continue_on, PreviewState.load(new_owner, Repo)},
+          {:continue_on, PreviewState.load(new_owner)},
           60_000
         )
 
@@ -192,7 +191,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp continue_without_live_owner(stream_signal_id, %Signal{} = new_owner) do
-    new_owner = PreviewState.load(new_owner, Repo)
+    new_owner = PreviewState.load(new_owner)
     old_owner = current_presentation_owner(stream_signal_id, new_owner)
 
     conversation_id =
@@ -225,7 +224,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
            lookup(stream_signal_id) do
       GenServer.call(
         pid,
-        {:continue_on, PreviewState.load(new_owner, Repo)},
+        {:continue_on, PreviewState.load(new_owner)},
         60_000
       )
     else
@@ -236,37 +235,22 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp current_presentation_owner(stream_signal_id, %Signal{} = new_owner) do
-    Signal
-    |> join(:inner, [event], preview in PreviewState, on: preview.signal_id == event.id)
-    |> where([event, preview], event.agent_uid == ^new_owner.agent_uid)
-    |> where([event, preview], event.session_id == ^new_owner.session_id)
-    |> where(
-      [event, preview],
-      fragment(
-        "?->>'stream_signal_id' = ?",
-        preview.checkpoint,
-        ^stream_signal_id
-      )
+    PreviewState
+    |> Ash.Query.filter(
+      fragment("?->>'stream_signal_id' = ?", checkpoint, ^stream_signal_id) and
+        fragment("COALESCE((?->>'presentation_owner')::boolean, false)", checkpoint) and
+        exists(
+          Signal,
+          id == parent(signal_id) and agent_uid == ^new_owner.agent_uid and
+            session_id == ^new_owner.session_id
+        )
     )
-    |> where(
-      [event, preview],
-      fragment(
-        "COALESCE((?->>'presentation_owner')::boolean, false)",
-        preview.checkpoint
-      )
-    )
-    |> order_by(
-      [event, preview],
-      desc: fragment("COALESCE((?->>'owner_generation')::integer, 0)", preview.checkpoint)
-    )
-    |> limit(1)
-    |> Repo.one()
+    |> Ash.Query.sort(owner_generation: :desc)
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read_one!()
     |> case do
-      %Signal{} = event ->
-        PreviewState.load(event, Repo)
-
-      nil ->
-        PreviewState.load(Repo.get(Signal, stream_signal_id), Repo)
+      %PreviewState{signal_id: signal_id} -> PreviewState.load_signal(signal_id)
+      nil -> PreviewState.load_signal(stream_signal_id)
     end
   end
 
@@ -292,7 +276,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp recover_without_owner(signal_id) do
-    case PreviewState.load(Repo.get(Signal, signal_id), Repo) do
+    case PreviewState.load_signal(signal_id) do
       %Signal{
         preview: %PreviewState{
           checkpoint: %{
@@ -391,7 +375,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   defp start_recovered_preview(result), do: result
 
   defp recovered_preview_target(signal_id) do
-    case PreviewState.load(Repo.get(Signal, signal_id), Repo) do
+    case PreviewState.load_signal(signal_id) do
       %Signal{
         preview: %PreviewState{
           checkpoint: %{"presentation_owner" => false}
@@ -459,10 +443,9 @@ defmodule Ankole.Conversations.Delivery.Preview do
   defp durable_terminal_presentation(signal_id) do
     presentation =
       Intent
-      |> where([entry], entry.source_signal_id == ^signal_id)
-      |> where([entry], entry.delivery_class == :durable_ai_reply)
-      |> order_by([entry], desc: entry.updated_at)
-      |> Repo.all()
+      |> Ash.Query.filter(source_signal_id == ^signal_id and delivery_class == :durable_ai_reply)
+      |> Ash.Query.sort(updated_at: :desc)
+      |> Ankole.Ash.read!()
       |> Enum.find_value(fn
         %Intent{payload: %{"reply_presentation" => presentation}}
         when is_map(presentation) ->
@@ -524,7 +507,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   def cleanup_due(signal_id) when is_binary(signal_id) do
     now = DateTime.utc_now(:microsecond)
 
-    case PreviewState.load(Repo.get(Signal, signal_id), Repo) do
+    case PreviewState.load_signal(signal_id) do
       %Signal{} = event ->
         case PreviewState.cleanup_at(event) do
           %DateTime{} = due_at ->
@@ -722,7 +705,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp init_owner(event, subject_uid, conversation_id, stream_signal_id, opts) do
-    event = PreviewState.load(event, Repo)
+    event = PreviewState.load(event)
 
     case Events.subscribe(subject_uid, conversation_id) do
       :ok -> :ok
@@ -740,11 +723,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
     stream_event =
       if event.id == stream_signal_id,
         do: event,
-        else:
-          PreviewState.load(
-            Repo.get!(Signal, stream_signal_id),
-            Repo
-          )
+        else: PreviewState.load_signal(stream_signal_id)
 
     presentation =
       checkpoint
@@ -813,7 +792,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   @doc false
   def lookup(id, timeout_ms \\ 5_000) do
     with %Signal{} = event <-
-           PreviewState.load(Repo.get(Signal, id), Repo),
+           PreviewState.load_signal(id),
          pid when is_pid(pid) <- preview_pid(event),
          true <- GenServer.call(pid, {:owns_event, id}, timeout_ms) do
       [{pid, nil}]
@@ -831,11 +810,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp cast_for_event(id, message) when is_binary(id),
-    do:
-      cast_for_event(
-        PreviewState.load(Repo.get(Signal, id), Repo),
-        message
-      )
+    do: cast_for_event(PreviewState.load_signal(id), message)
 
   defp cast_for_event(%Signal{} = event, message) do
     case preview_pid(event) do
@@ -852,35 +827,36 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp claim_owner(event, subject_uid, conversation_id, stream_id, opts) do
-    Repo.transact(fn repo ->
-      authorization = authorize_owner_in_tx(repo, opts)
-
-      with :ok <- authorization,
-           %Signal{} = current <-
-             PreviewState.load(
-               Ankole.Signals.lock_signal_in_tx(repo, event.id),
-               repo
-             ) do
-        checkpoint = PreviewState.get(current).checkpoint || %{}
-
-        checkpoint =
-          checkpoint
-          |> Map.put("subject_uid", subject_uid)
-          |> Map.put("conversation_id", conversation_id)
-          |> Map.put("stream_signal_id", stream_id)
-          |> Map.put("presentation_owner", true)
-          |> Map.put("owner_generation", non_negative_integer(checkpoint["owner_generation"]) + 1)
-          |> Map.delete("continued_to_signal_id")
-
-        PreviewState.put_checkpoint_in_tx(repo, current, checkpoint)
-      else
-        nil -> {:error, :signal_not_found}
-        error -> error
-      end
-    end)
+    event.id
+    |> Ankole.Conversations.claim_preview_owner(subject_uid, conversation_id, stream_id, opts)
+    |> Ankole.Errors.reason()
   end
 
-  defp authorize_owner_in_tx(repo, opts) do
+  @doc false
+  def claim_owner_in_tx(repo, signal_id, subject_uid, conversation_id, stream_id, opts) do
+    with :ok <- authorize_owner_in_tx(repo, opts),
+         %Signal{} = current <-
+           PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, signal_id)) do
+      checkpoint = PreviewState.get(current).checkpoint || %{}
+
+      checkpoint =
+        checkpoint
+        |> Map.put("subject_uid", subject_uid)
+        |> Map.put("conversation_id", conversation_id)
+        |> Map.put("stream_signal_id", stream_id)
+        |> Map.put("presentation_owner", true)
+        |> Map.put("owner_generation", non_negative_integer(checkpoint["owner_generation"]) + 1)
+        |> Map.delete("continued_to_signal_id")
+
+      PreviewState.put_checkpoint_in_tx(repo, current, checkpoint)
+    else
+      nil -> {:error, :signal_not_found}
+      error -> error
+    end
+  end
+
+  @doc false
+  def authorize_owner_in_tx(repo, opts) do
     case Keyword.get(opts, :run) do
       nil -> :ok
       run -> Ankole.Sessions.Fence.check_in_tx(repo, run, :share)
@@ -894,9 +870,7 @@ defmodule Ankole.Conversations.Delivery.Preview do
   def handle_call({:adopt_driver, stream_id, opts}, _from, state)
       when stream_id != state.stream_signal_id do
     if Keyword.get(opts, :driver) do
-      case Repo.transact(fn repo ->
-             with :ok <- authorize_owner_in_tx(repo, opts), do: {:ok, :authorized}
-           end) do
+      case opts |> Ankole.Conversations.authorize_preview_owner() |> Ankole.Errors.reason() do
         {:ok, :authorized} ->
           if state.rich_task do
             {:reply, :retiring, %{state | stopping: true}}
@@ -1368,65 +1342,16 @@ defmodule Ankole.Conversations.Delivery.Preview do
     old_visible? = old_preview_visible?(state)
     refresh_old? = old_visible? and match?({:error, _reason}, handoff_result)
 
-    Repo.transact(fn repo ->
-      with :ok <-
-             Queue.lock_session_in_tx(
-               repo,
-               state.signal.agent_uid,
-               state.signal.session_id
-             ),
-           %Signal{} = old_event <-
-             PreviewState.load(
-               Ankole.Signals.lock_signal_in_tx(repo, state.signal.id),
-               repo
-             ),
-           %Signal{} = new_event <-
-             PreviewState.load(
-               Ankole.Signals.lock_signal_in_tx(repo, new_owner.id),
-               repo
-             ),
-           true <- valid_handoff_owner?(old_event, new_event),
-           true <-
-             non_negative_integer(
-               (PreviewState.get(old_event).checkpoint || %{})[
-                 "owner_generation"
-               ]
-             ) ==
-               state.owner_generation,
-           next_generation =
-             max(
-               state.owner_generation,
-               non_negative_integer(
-                 (PreviewState.get(new_event).checkpoint || %{})[
-                   "owner_generation"
-                 ]
-               )
-             ) + 1,
-           {:ok, old_event} <-
-             persist_previous_owner_in_tx(
-               repo,
-               old_event,
-               new_event.id,
-               state.owner_generation,
-               continued,
-               old_visible?,
-               refresh_old?
-             ),
-           {:ok, new_event} <-
-             persist_new_owner_in_tx(
-               repo,
-               new_event,
-               state,
-               next_generation,
-               new_presentation
-             ) do
-        {:ok, %{old_owner: old_event, new_owner: new_event}}
-      else
-        false -> {:error, :invalid_reply_preview_owner}
-        nil -> {:error, :signal_not_found}
-        {:error, _reason} = error -> error
-      end
-    end)
+    handoff = %{
+      continued: continued,
+      new_presentation: new_presentation,
+      old_visible?: old_visible?,
+      refresh_old?: refresh_old?
+    }
+
+    state
+    |> Ankole.Conversations.switch_preview_owner(new_owner, handoff)
+    |> Ankole.Errors.reason()
     |> case do
       {:ok, %{new_owner: new_owner}} ->
         checkpoint = PreviewState.get(new_owner).checkpoint || %{}
@@ -1463,6 +1388,61 @@ defmodule Ankole.Conversations.Delivery.Preview do
 
       {:error, _reason} = error ->
         error
+    end
+  end
+
+  @doc false
+  def switch_owner_in_tx(repo, state, %Signal{} = new_owner, handoff) do
+    with :ok <-
+           Queue.lock_session_in_tx(
+             repo,
+             state.signal.agent_uid,
+             state.signal.session_id
+           ),
+         %Signal{} = old_event <-
+           PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, state.signal.id)),
+         %Signal{} = new_event <-
+           PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, new_owner.id)),
+         true <- valid_handoff_owner?(old_event, new_event),
+         true <-
+           non_negative_integer(
+             (PreviewState.get(old_event).checkpoint || %{})[
+               "owner_generation"
+             ]
+           ) ==
+             state.owner_generation,
+         next_generation =
+           max(
+             state.owner_generation,
+             non_negative_integer(
+               (PreviewState.get(new_event).checkpoint || %{})[
+                 "owner_generation"
+               ]
+             )
+           ) + 1,
+         {:ok, old_event} <-
+           persist_previous_owner_in_tx(
+             repo,
+             old_event,
+             new_event.id,
+             state.owner_generation,
+             handoff.continued,
+             handoff.old_visible?,
+             handoff.refresh_old?
+           ),
+         {:ok, new_event} <-
+           persist_new_owner_in_tx(
+             repo,
+             new_event,
+             state,
+             next_generation,
+             handoff.new_presentation
+           ) do
+      {:ok, %{old_owner: old_event, new_owner: new_event}}
+    else
+      false -> {:error, :invalid_reply_preview_owner}
+      nil -> {:error, :signal_not_found}
+      {:error, _reason} = error -> error
     end
   end
 
@@ -1756,47 +1736,9 @@ defmodule Ankole.Conversations.Delivery.Preview do
        ) do
     latest_presentation = ReplyPresentation.checkpoint(state.presentation)
 
-    Repo.transact(fn repo ->
-      case PreviewState.load(
-             Ankole.Signals.lock_signal_in_tx(repo, state.signal.id),
-             repo
-           ) do
-        %Signal{} = event ->
-          checkpoint = PreviewState.get(event).checkpoint || %{}
-          stored_checkpoint = checkpoint["presentation"]
-          stored_presentation = ReplyPresentation.normalize(stored_checkpoint)
-          stored_generation = non_negative_integer(checkpoint["owner_generation"])
-
-          cond do
-            stored_generation != state.owner_generation ->
-              {:ok, event}
-
-            is_map(stored_checkpoint) and
-                presentation_revision(latest_presentation) <=
-                  presentation_revision(stored_presentation) ->
-              {:ok, event}
-
-            true ->
-              checkpoint =
-                checkpoint
-                |> Map.put_new("subject_uid", state.subject_uid)
-                |> Map.put_new("conversation_id", state.conversation_id)
-                |> Map.put_new("stream_signal_id", state.stream_signal_id)
-                |> Map.put_new("presentation_owner", true)
-                |> Map.put_new("owner_generation", state.owner_generation)
-                |> Map.put("presentation", latest_presentation)
-
-              PreviewState.put_checkpoint_in_tx(
-                repo,
-                event,
-                checkpoint
-              )
-          end
-
-        nil ->
-          {:error, :signal_not_found}
-      end
-    end)
+    state
+    |> Ankole.Conversations.checkpoint_preview_presentation(latest_presentation)
+    |> Ankole.Errors.reason()
     |> case do
       {:ok, _event} ->
         :ok
@@ -1817,6 +1759,42 @@ defmodule Ankole.Conversations.Delivery.Preview do
   end
 
   defp checkpoint_latest_rich_presentation(_state), do: :ok
+
+  @doc false
+  def checkpoint_presentation_in_tx(repo, state, latest_presentation) do
+    case PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, state.signal.id)) do
+      %Signal{} = event ->
+        checkpoint = PreviewState.get(event).checkpoint || %{}
+        stored_checkpoint = checkpoint["presentation"]
+        stored_presentation = ReplyPresentation.normalize(stored_checkpoint)
+        stored_generation = non_negative_integer(checkpoint["owner_generation"])
+
+        cond do
+          stored_generation != state.owner_generation ->
+            {:ok, event}
+
+          is_map(stored_checkpoint) and
+              presentation_revision(latest_presentation) <=
+                presentation_revision(stored_presentation) ->
+            {:ok, event}
+
+          true ->
+            checkpoint =
+              checkpoint
+              |> Map.put_new("subject_uid", state.subject_uid)
+              |> Map.put_new("conversation_id", state.conversation_id)
+              |> Map.put_new("stream_signal_id", state.stream_signal_id)
+              |> Map.put_new("presentation_owner", true)
+              |> Map.put_new("owner_generation", state.owner_generation)
+              |> Map.put("presentation", latest_presentation)
+
+            PreviewState.put_checkpoint_in_tx(repo, event, checkpoint)
+        end
+
+      nil ->
+        {:error, :signal_not_found}
+    end
+  end
 
   defp finish_rich_stop(state) do
     checkpoint_latest_rich_presentation(state)

@@ -3,7 +3,7 @@ defmodule Ankole.AgentWorkers.WorkerEnv.EnvVar do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.AgentWorkers.WorkerEnv.Domain,
+    domain: Ankole.AgentWorkers,
     tenant_in_primary_key: true
 
   postgres do
@@ -56,7 +56,6 @@ defmodule Ankole.AgentWorkers.WorkerEnv.EnvVar do
     create :put do
       accept([:scope, :name])
       argument(:input, :map, allow_nil?: false)
-      transaction?(false)
       upsert?(true)
       upsert_identity(:scope_name)
       upsert_fields([:secret, :value, :description, :updated_at])
@@ -65,7 +64,6 @@ defmodule Ankole.AgentWorkers.WorkerEnv.EnvVar do
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
     end
   end

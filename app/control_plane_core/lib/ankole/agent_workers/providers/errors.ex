@@ -21,8 +21,10 @@ defmodule Ankole.AgentWorkers.Providers.Errors do
   def describe({:invalid_worker_provider_config, errors}),
     do: invalid("Worker provider YAML is invalid", errors)
 
-  def describe(%module{} = error) when module in [Ash.Changeset, Ash.Error.Invalid],
-    do: invalid("Worker provider is invalid", Ankole.Ash.validation_details(error))
+  def describe(error)
+      when is_struct(error, Ash.Changeset) or
+             (is_exception(error) and :erlang.map_get(:class, error) == :invalid),
+      do: invalid("Worker provider is invalid", Ankole.Ash.validation_details(error))
 
   def describe({:invalid_worker_provider_credential, name}),
     do:

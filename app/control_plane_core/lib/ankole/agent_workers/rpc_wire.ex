@@ -98,15 +98,20 @@ defmodule Ankole.AgentWorkers.RPCWire do
     }
   end
 
+  # Only the class of an Ash error decides its RPC reply. Principal/AuthZ owns
+  # authorization, so Ash gives no forbidden class.
+  defguardp invalid?(error)
+            when is_struct(error, Ash.Changeset) or
+                   (is_exception(error) and :erlang.map_get(:class, error) == :invalid)
+
+  defguardp unexpected?(error)
+            when is_exception(error) and :erlang.map_get(:class, error) in [:framework, :unknown]
+
   def error_code(reason, fallback_code, opts \\ [])
   def error_code(reason, _fallback_code, _opts) when is_atom(reason), do: Atom.to_string(reason)
 
-  def error_code(%module{}, fallback_code, opts)
-      when module in [Ash.Changeset, Ash.Error.Invalid] do
-    Keyword.get(opts, :validation_code, fallback_code)
-  end
-
-  def error_code(%Ash.Error.Forbidden{}, _fallback_code, _opts), do: "forbidden"
+  def error_code(error, fallback_code, opts) when invalid?(error),
+    do: Keyword.get(opts, :validation_code, fallback_code)
 
   def error_code({reason, _details}, _fallback_code, _opts) when is_atom(reason),
     do: Atom.to_string(reason)
@@ -119,13 +124,10 @@ defmodule Ankole.AgentWorkers.RPCWire do
   def error_message(reason, style \\ :default)
   def error_message(reason, _style) when is_binary(reason), do: reason
 
-  def error_message(%module{} = error, _style) when module in [Ash.Changeset, Ash.Error.Invalid],
+  def error_message(error, _style) when invalid?(error),
     do: error |> Ankole.Ash.validation_details() |> Ankole.JSON.encode!()
 
-  def error_message(%Ash.Error.Forbidden{}, _style), do: "access denied"
-
-  def error_message(%module{} = error, _style)
-      when module in [Ash.Error.Framework, Ash.Error.Unknown] do
+  def error_message(error, _style) when unexpected?(error) do
     Ankole.Logging.warning(
       "runtime_fabric.rpc_action_error",
       "Runtime fabric RPC action failed",

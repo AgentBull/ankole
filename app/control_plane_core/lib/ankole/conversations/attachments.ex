@@ -1,9 +1,9 @@
 defmodule Ankole.Conversations.Attachments do
   @moduledoc "Owns attachment bytes, stable identities, and conversation-scoped drive references."
-  import Ecto.Query
+  require Ash.Query
   alias Ecto.Adapters.SQL
   alias Ankole.{Files, Repo}
-  alias Ankole.Conversations.{Conversation, External, ExternalMessageRef, Message}
+  alias Ankole.Conversations.{External, ExternalMessageRef, Message}
   @attachment_id_sequence "conversation_attachment_id_seq"
   @attachment_id_min 10_000
   @attachment_id_max 9_007_199_254_740_991
@@ -50,8 +50,7 @@ defmodule Ankole.Conversations.Attachments do
     do: {input, DateTime.utc_now(:microsecond)}
 
   def reuse_stored_attachments(input, provider_fact_states) do
-    conversation =
-      Repo.get_by(Conversation, provider_conversation_id: input.provider_conversation_id)
+    conversation = External.get_conversation(Repo, input.provider_conversation_id)
 
     existing =
       if conversation, do: External.get_message(Repo, conversation.id, input.provider_message_id)
@@ -278,20 +277,37 @@ defmodule Ankole.Conversations.Attachments do
   def link_payload(agent_uid, payload, channel_id)
       when is_binary(agent_uid) and is_map(payload) do
     payload
+    |> unlinked_attachments(agent_uid, channel_id)
+    |> Enum.each(fn attachment ->
+      # The Files domain owns the transaction of each drive commit.
+      result =
+        Files.commit(agent_uid, [drive_upsert(%{conversation_id: channel_id}, attachment)], [])
+
+      linked_attachment(attachment, result)
+    end)
+  end
+
+  def link_payload(_agent_uid, _payload, _channel_id), do: :ok
+
+  @doc "Same as `link_payload/3` inside the caller's transaction on `repo`."
+  @spec link_payload_in_tx(module(), String.t(), map(), String.t() | nil) :: :ok
+  def link_payload_in_tx(repo, agent_uid, payload, channel_id)
+      when is_binary(agent_uid) and is_map(payload) do
+    payload
+    |> unlinked_attachments(agent_uid, channel_id)
+    |> Enum.each(&link_attachment(repo, agent_uid, %{conversation_id: channel_id}, &1))
+  end
+
+  def link_payload_in_tx(_repo, _agent_uid, _payload, _channel_id), do: :ok
+
+  defp unlinked_attachments(payload, agent_uid, channel_id) do
+    payload
     |> scope_payload(channel_id)
     |> payload_attachments()
     |> Enum.filter(&stored?/1)
     |> Enum.uniq_by(&{&1["path"], &1["blob_ref"]})
     |> Enum.reject(&match?({:ok, _file}, Files.fetch(agent_uid, &1["path"])))
-    |> Enum.each(fn attachment ->
-      {:ok, _attachment} =
-        Ankole.Repo.transact(fn repo ->
-          {:ok, link_attachment(repo, agent_uid, %{conversation_id: channel_id}, attachment)}
-        end)
-    end)
   end
-
-  def link_payload(_agent_uid, _payload, _channel_id), do: :ok
 
   @doc "Gives received files their channel paths, including old inbox references."
   def scope(attachments, channel_id) do
@@ -387,23 +403,32 @@ defmodule Ankole.Conversations.Attachments do
          %{"blob_ref" => sha256, "path" => path} = attachment
        )
        when is_binary(agent_uid) and is_binary(sha256) and is_binary(path) do
-    upsert = %{
-      path: path,
-      sha256: sha256,
+    linked_attachment(
+      attachment,
+      Files.commit(repo, agent_uid, [drive_upsert(provenance, attachment)], [])
+    )
+  end
+
+  defp link_attachment(_repo, _agent_uid, _fact, attachment), do: attachment
+
+  defp drive_upsert(provenance, attachment) do
+    %{
+      path: attachment["path"],
+      sha256: attachment["blob_ref"],
       source: "inbound",
       content_type: content_type(attachment),
       conversation_id: Map.get(provenance, :conversation_id),
       message_id: Map.get(provenance, :message_id)
     }
-
-    case Files.commit(repo, agent_uid, [upsert], []) do
-      {:ok, _result} -> attachment
-      {:error, {:blob_missing, _sha256}} -> Map.drop(attachment, ["blob_ref", "path"])
-      {:error, reason} -> raise ArgumentError, "invalid stored attachment: #{inspect(reason)}"
-    end
   end
 
-  defp link_attachment(_repo, _agent_uid, _fact, attachment), do: attachment
+  defp linked_attachment(attachment, {:ok, _result}), do: attachment
+
+  defp linked_attachment(attachment, {:error, {:blob_missing, _sha256}}),
+    do: Map.drop(attachment, ["blob_ref", "path"])
+
+  defp linked_attachment(_attachment, {:error, reason}),
+    do: raise(ArgumentError, "invalid stored attachment: #{inspect(reason)}")
 
   @doc "The declared content type of one attachment, if the provider gave one."
   @spec content_type(map()) :: String.t() | nil
@@ -475,25 +500,40 @@ defmodule Ankole.Conversations.Attachments do
   def recent(conversation_id, author_id, at, opts \\ []),
     do: recent(Repo, conversation_id, author_id, at, opts)
 
-  def recent(repo, conversation_id, author_id, %DateTime{} = at, opts) do
+  def recent(_repo, conversation_id, author_id, %DateTime{} = at, opts) do
     since = DateTime.add(at, -Keyword.get(opts, :window_seconds, 120), :second)
     limit = Keyword.get(opts, :limit, 3)
     rows = Keyword.get(opts, :message_limit, max(20, limit))
 
-    repo.all(
-      from message in Message,
-        join: ref in ExternalMessageRef,
-        on: ref.tenant_id == message.tenant_id and ref.message_id == message.id,
-        where:
-          message.conversation_id == ^conversation_id and
-            fragment("?->>'id' = ?", ref.author, ^author_id) and
-            ref.provider_time >= ^since and ref.provider_time <= ^at,
-        order_by: [desc: ref.provider_time, desc: message.seq],
-        limit: ^rows,
-        select: message.attachments
-    )
-    |> List.flatten()
+    # The window is short, so the newest rows are sorted after the read.
+    provider_times =
+      ExternalMessageRef
+      |> Ash.Query.filter(
+        conversation_id == ^conversation_id and
+          fragment("?->>'id' = ?", author, ^author_id) and provider_time >= ^since and
+          provider_time <= ^at
+      )
+      |> Ash.Query.select([:message_id, :provider_time])
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.message_id, &1.provider_time})
+
+    message_ids = Map.keys(provider_times)
+
+    Message
+    |> Ash.Query.filter(conversation_id == ^conversation_id and id in ^message_ids)
+    |> Ankole.Ash.read!()
+    |> Enum.sort_by(&{Map.fetch!(provider_times, &1.id), &1.seq}, &newer_or_equal?/2)
+    |> Enum.take(rows)
+    |> Enum.flat_map(& &1.attachments)
     |> Enum.take(limit)
+  end
+
+  defp newer_or_equal?({left_time, left_seq}, {right_time, right_seq}) do
+    case DateTime.compare(left_time, right_time) do
+      :gt -> true
+      :lt -> false
+      :eq -> left_seq >= right_seq
+    end
   end
 
   def rich_content(text, formatted_content) when is_map(formatted_content) do

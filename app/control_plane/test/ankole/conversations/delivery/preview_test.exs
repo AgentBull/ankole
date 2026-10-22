@@ -1706,22 +1706,19 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
     %{principal: subject} = agent_fixture()
     binding_fixture(subject.uid, "mock", :ignore, adapter: "mock-provider")
 
-    {:ok, %{signal: signal}} =
-      Repo.transact(fn _repo ->
-        {:ok,
-         emit_addressed_signal(
-           subject.uid,
-           "mock",
-           group_entry(%{
-             source_event_id: "preview-#{suffix}-event",
-             conversation_id: "mock:chat:preview-#{suffix}",
-             provider_message_id: "human-message-#{suffix}",
-             provider_thread_id: "mock-thread-#{suffix}",
-             explicit: true,
-             text: "ping"
-           })
-         )}
-      end)
+    %{signal: signal} =
+      emit_addressed_signal(
+        subject.uid,
+        "mock",
+        group_entry(%{
+          source_event_id: "preview-#{suffix}-event",
+          conversation_id: "mock:chat:preview-#{suffix}",
+          provider_message_id: "human-message-#{suffix}",
+          provider_thread_id: "mock-thread-#{suffix}",
+          explicit: true,
+          text: "ping"
+        })
+      )
 
     %{subject: subject, signal: signal}
   end
@@ -1753,21 +1750,19 @@ defmodule Ankole.Conversations.Delivery.PreviewTest do
 
   defp steer_signal(subject_uid, source_event, suffix) do
     assert {:ok, %{status: :accepted, signal: %Signal{} = steer_event}} =
-             Repo.transact(fn _repo ->
-               Ankole.Conversations.Observe.emit_entry(
-                 subject_uid,
-                 source_event.reply_binding_name,
-                 group_entry(%{
-                   source_event_id: "preview-#{suffix}-event",
-                   conversation_id: source_event.conversation_id,
-                   provider_message_id: "human-message-#{suffix}",
-                   provider_thread_id: source_event.provider_thread_id,
-                   explicit: true,
-                   text: "/steer 继续"
-                 }),
-                 now: DateTime.add(base_time(), 1, :second)
-               )
-             end)
+             Ankole.Conversations.Observe.emit_entry(
+               subject_uid,
+               source_event.reply_binding_name,
+               group_entry(%{
+                 source_event_id: "preview-#{suffix}-event",
+                 conversation_id: source_event.conversation_id,
+                 provider_message_id: "human-message-#{suffix}",
+                 provider_thread_id: source_event.provider_thread_id,
+                 explicit: true,
+                 text: "/steer 继续"
+               }),
+               now: DateTime.add(base_time(), 1, :second)
+             )
 
     steer_event
   end

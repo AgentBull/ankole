@@ -210,12 +210,18 @@ an incarnation. Lifecycle times come from PostgreSQL.
 The `AgentWorker` Ash resource owns lifecycle transitions and the write
 contracts for generation, admission, demand, capacity, and provider assignment.
 Its state machine admits only the declared transition from the stored state.
-Reconciliation and admission retain their existing row-lock transactions;
-platform requests remain outside them. Disconnect and settlement derive the
-next state from this same machine. State time uses the database clock and
-retains one continuous not-ready budget across `starting` and `stale`. Each action
-passes its target state to the clock change. The clock compares that target with
-the stored state; a self-transition retains its time.
+`Ankole.AgentWorkers` is the Ash domain of the Worker resources. Each
+operation that locks a row and writes more than one step is a generic action
+of its subject resource: admission, heartbeat renewal, drain, route release,
+connection expiry, provider assignment, each locked reconciliation step, and
+the provider registry changes. The generic action owns the transaction, and
+its publish function (for example `worker_changed`) runs only after the
+commit. Platform requests remain outside these transactions. Disconnect and
+settlement derive the next state from this same machine. State time uses the
+database clock and retains one continuous not-ready budget across `starting`
+and `stale`. Each action passes its target state to the clock change. The
+clock compares that target with the stored state; a self-transition retains
+its time.
 PostgreSQL constraints still enforce generation credentials, connected routes,
 ready incarnation, capacity, and paired acquisition errors.
 
@@ -294,12 +300,14 @@ Each generation has a random 32-byte base64url credential. The Worker sends
 its Agent UID as `worker_id` and the credential as the Phoenix auth token.
 `RuntimeFabricSocket` compares its digest in constant time and retains the
 authenticated generation. Only `starting`, `stale`, and `ready` can connect.
-A Channel join locks the row, checks generation and protocol, and records the
-route and incarnation. A different incarnation cannot replace a connected
-Worker whose last heartbeat is less than 60 seconds old. Admission checks this
-in the conditional admission update under the same row lock as heartbeats.
-The change does not run a second query. Disconnect or heartbeat silence permits
-a new incarnation. Join is the only transition into `ready`.
+A Channel join locks the row and checks its state, generation, and protocol
+on the locked row. Then one conditional update records the route and
+incarnation. A different incarnation cannot replace a connected Worker whose
+last heartbeat is less than 60 seconds old: the update has this condition, so
+it changes no row, and admission returns `worker_incarnation_active`. The
+condition uses database time and does not run a second query. Disconnect or
+heartbeat silence permits a new incarnation. Join is the only transition into
+`ready`.
 
 The sweep includes connected rows with an expired or missing heartbeat.
 Reconciliation expires the route under the Worker row lock before it makes
@@ -802,9 +810,10 @@ instance settings, and secrets are owned by PostgreSQL after import.
 `agent_computer.worker.ready_timeout` defaults to ten minutes; idle release
 belongs to provider YAML.
 
-Seed import runs only when no provider exists. It imports all providers and
-assigns legacy Agent rows in one transaction. Secret entries refer to an
-environment variable or mounted file. A failed import assigns no Agent.
+Seed import runs only when no provider exists. It is one generic action: it
+imports all providers and assigns legacy Agent rows in one transaction. Secret
+entries refer to an environment variable or mounted file. A failed import
+assigns no Agent.
 
 Compose upgrades run the one-time Home migration before the control plane,
 using `depends_on: service_completed_successfully`. It copies each old

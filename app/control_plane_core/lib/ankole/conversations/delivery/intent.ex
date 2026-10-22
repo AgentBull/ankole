@@ -9,7 +9,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
 
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.Conversations.Domain,
+    domain: Ankole.Conversations,
     extensions: [AshStateMachine]
 
   @type t :: %__MODULE__{}
@@ -156,9 +156,24 @@ defmodule Ankole.Conversations.Delivery.Intent do
   actions do
     defaults([:read])
 
-    create_if_absent :commit do
-      transaction?(false)
+    # Dispatch recovery finds due rows of every tenant.
+    read :due_across_tenants do
+      multitenancy(:allow_global)
+      argument(:now, :utc_datetime_usec, allow_nil?: false)
+      argument(:recovery_before, :utc_datetime_usec, allow_nil?: false)
 
+      filter(
+        expr(
+          (status == :pending and is_nil(platform_send_started_at)) or
+            (status == :failed and next_attempt_at <= ^arg(:now) and
+               attempt_count < max_attempts and is_nil(recovery_status) and
+               not possible_duplicate) or
+            (status == :pending and platform_send_started_at <= ^arg(:recovery_before))
+        )
+      )
+    end
+
+    create_if_absent :commit do
       accept([
         :agent_uid,
         :binding_name,
@@ -186,17 +201,17 @@ defmodule Ankole.Conversations.Delivery.Intent do
       ])
     end
 
-    in_tx_update :prepare do
+    update :prepare do
       accept([:payload, :operation, :reply_to_provider_message_id, :target_provider_message_id])
       validate(attribute_in(:status, [:pending, :failed]))
     end
 
-    in_tx_update :import_attachments do
+    update :import_attachments do
       accept([:payload])
       validate(attribute_does_not_equal(:status, :sent))
     end
 
-    in_tx_update :start_attempt do
+    update :start_attempt do
       accept([:platform_send_started_at])
       require_attributes([:platform_send_started_at])
 
@@ -218,7 +233,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
       change(set_attribute(:next_attempt_at, nil))
     end
 
-    in_tx_update :succeed do
+    update :succeed do
       accept([
         :created_provider_message_id,
         :provider_thread_id,
@@ -237,12 +252,12 @@ defmodule Ankole.Conversations.Delivery.Intent do
       change(set_attribute(:recovery_reason, nil))
     end
 
-    in_tx_update :link_message do
+    update :link_message do
       accept([:created_message_id])
       validate(attribute_equals(:status, :sent))
     end
 
-    in_tx_update :fail do
+    update :fail do
       accept([
         :last_error,
         :next_attempt_at,
@@ -255,7 +270,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
       change(transition_state(:failed))
     end
 
-    in_tx_update :mark_unknown do
+    update :mark_unknown do
       accept([
         :last_error,
         :recovery_status,
@@ -268,7 +283,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
       change(set_attribute(:next_attempt_at, nil))
     end
 
-    in_tx_update :expire do
+    update :expire do
       accept([])
       change(transition_state(:expired))
       change(set_attribute(:next_attempt_at, nil))
@@ -276,7 +291,7 @@ defmodule Ankole.Conversations.Delivery.Intent do
       change(set_attribute(:recovery_reason, nil))
     end
 
-    in_tx_update :requeue do
+    update :requeue do
       accept([
         :payload,
         :fallback_visible_text,
@@ -300,6 +315,84 @@ defmodule Ankole.Conversations.Delivery.Intent do
       change(set_attribute(:platform_send_started_at, nil))
       change(set_attribute(:recovery_status, nil))
       change(set_attribute(:recovery_reason, nil))
+    end
+
+    action :claim_dispatch, :term do
+      argument(:agent_uid, :term)
+      argument(:binding_name, :term)
+      argument(:outbound_key, :term)
+      argument(:adapter, :term)
+      argument(:now, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.Delivery.Dispatch.claim_in_tx(
+            Ankole.Repo,
+            args.agent_uid,
+            args.binding_name,
+            args.outbound_key,
+            args.adapter,
+            args.now
+          )
+        )
+      end)
+    end
+
+    action :finalize_attempt, :term do
+      argument(:intent, :term)
+      argument(:phase, :atom, constraints: [one_of: [:send, :reconcile]])
+      argument(:result, :term)
+      argument(:conversation, :term)
+      argument(:now, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.Delivery.Dispatch.finalize_in_tx(
+            Ankole.Repo,
+            args.intent,
+            args.phase,
+            args.result,
+            args.conversation,
+            args.now
+          )
+        )
+      end)
+    end
+
+    action :retry_stopped, :term do
+      argument(:agent_uid, :term)
+      argument(:binding_name, :term)
+      argument(:outbound_key, :term)
+      argument(:now, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.Delivery.Recovery.requeue_in_tx(
+            Ankole.Repo,
+            args.agent_uid,
+            args.binding_name,
+            args.outbound_key,
+            args.now
+          )
+        )
+      end)
+    end
+
+    action :wake_blocked, :term do
+      argument(:agent_uid, :term)
+      argument(:binding_name, :term)
+      argument(:now, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.Delivery.Recovery.wake_blocked_in_tx(
+            Ankole.Repo,
+            args.agent_uid,
+            args.binding_name,
+            args.now
+          )
+        )
+      end)
     end
   end
 

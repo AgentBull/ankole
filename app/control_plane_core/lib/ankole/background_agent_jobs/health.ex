@@ -107,7 +107,7 @@ defmodule Ankole.BackgroundAgentJobs.Health do
 
   defp dead_letter_notices_in_window(window_start) do
     signal_ids =
-      Ankole.Conversations.Domain.list_intents!(
+      Ankole.Conversations.list_intents!(
         query: [
           filter: [
             outbound_key: [string_starts_with: "ai-dead-letter:"],

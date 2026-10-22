@@ -1,8 +1,7 @@
 defmodule Ankole.Conversations.Delivery.Queries do
   @moduledoc false
-  import Ecto.Query, warn: false
+  require Ash.Query
 
-  alias Ankole.Repo
   alias Ankole.Conversations.Delivery.Intent
 
   # Give a transient provider failure a short recovery window before retry.
@@ -19,28 +18,26 @@ defmodule Ankole.Conversations.Delivery.Queries do
           String.t()
         ) :: {:ok, Ecto.UUID.t()} | {:error, :unresolved_reply_target}
   def resolve_durable_reply_signal_in_tx(
-        repo,
+        _repo,
         agent_uid,
         binding_name,
         conversation_id,
-        provider_provider_message_id
+        provider_message_id
       )
       when is_binary(agent_uid) and is_binary(binding_name) and
-             is_binary(conversation_id) and is_binary(provider_provider_message_id) do
+             is_binary(conversation_id) and is_binary(provider_message_id) do
     owners =
       agent_uid
       |> durable_reply_surface_query(binding_name, conversation_id)
-      |> where(
-        [entry],
-        (entry.operation in ^@durable_reply_create_operations and
-           entry.created_provider_message_id == ^provider_provider_message_id) or
-          (entry.operation == :edit and
-             entry.target_provider_message_id == ^provider_provider_message_id)
+      |> Ash.Query.filter(
+        (operation in ^@durable_reply_create_operations and
+           created_provider_message_id == ^provider_message_id) or
+          (operation == :edit and target_provider_message_id == ^provider_message_id)
       )
-      |> select([entry], entry.source_signal_id)
-      |> distinct(true)
-      |> limit(2)
-      |> repo.all()
+      |> Ash.Query.select([:source_signal_id])
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.source_signal_id)
+      |> Enum.uniq()
 
     case owners do
       [signal_id] -> {:ok, signal_id}
@@ -57,7 +54,7 @@ defmodule Ankole.Conversations.Delivery.Queries do
           Ecto.UUID.t()
         ) :: boolean()
   def durable_reply_surface_exists_in_tx?(
-        repo,
+        _repo,
         agent_uid,
         binding_name,
         conversation_id,
@@ -67,8 +64,9 @@ defmodule Ankole.Conversations.Delivery.Queries do
              is_binary(conversation_id) and is_binary(signal_id) do
     agent_uid
     |> durable_reply_surface_query(binding_name, conversation_id)
-    |> where([entry], entry.source_signal_id == ^signal_id)
-    |> repo.exists?()
+    |> Ash.Query.filter(source_signal_id == ^signal_id)
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read!() != []
   end
 
   @doc """
@@ -81,54 +79,46 @@ defmodule Ankole.Conversations.Delivery.Queries do
     deliveries =
       Intent
       |> maybe_where_agent(agent_uid)
-      |> where([entry], entry.delivery_class == :durable_ai_reply)
       # A failed or unknown reply stops when recovery requires explicit action.
-      |> where(
-        [entry],
-        entry.status == :expired or
-          (entry.status in [:failed, :unknown] and is_nil(entry.next_attempt_at) and
-             (not is_nil(entry.recovery_status) or entry.possible_duplicate))
+      |> Ash.Query.filter(
+        delivery_class == :durable_ai_reply and
+          (status == :expired or
+             (status in [:failed, :unknown] and is_nil(next_attempt_at) and
+                (not is_nil(recovery_status) or possible_duplicate == true)))
       )
-      |> order_by(
-        [entry],
-        desc: entry.updated_at,
-        desc: entry.binding_name,
-        desc: entry.outbound_key
-      )
-      |> limit(@stopped_delivery_limit)
-      |> Repo.all()
+      |> Ash.Query.sort(updated_at: :desc, binding_name: :desc, outbound_key: :desc)
+      |> Ash.Query.limit(@stopped_delivery_limit)
+      |> Ankole.Ash.read!()
 
     {:ok, deliveries}
   end
 
   defp maybe_where_agent(query, nil), do: query
 
-  defp maybe_where_agent(query, agent_uid),
-    do: where(query, [entry], entry.agent_uid == ^Ankole.PrincipalKey.canonicalize(agent_uid))
+  defp maybe_where_agent(query, agent_uid) do
+    agent_uid = Ankole.PrincipalKey.canonicalize(agent_uid)
+    Ash.Query.filter(query, agent_uid == ^agent_uid)
+  end
 
   defp durable_reply_surface_query(agent_uid, binding_name, conversation_id) do
-    Intent
-    |> where([entry], entry.agent_uid == ^Ankole.PrincipalKey.canonicalize(agent_uid))
-    |> where([entry], entry.binding_name == ^binding_name)
-    |> where([entry], entry.conversation_id == ^conversation_id)
-    |> where([entry], entry.status == :sent)
-    |> where([entry], entry.delivery_class == :durable_ai_reply)
-    |> where([entry], not is_nil(entry.source_signal_id))
-    |> where(
-      [entry],
-      (entry.operation in ^@durable_reply_create_operations and
-         not is_nil(entry.created_provider_message_id)) or
-        (entry.operation == :edit and not is_nil(entry.target_provider_message_id))
+    agent_uid = Ankole.PrincipalKey.canonicalize(agent_uid)
+
+    Ash.Query.filter(
+      Intent,
+      agent_uid == ^agent_uid and binding_name == ^binding_name and
+        conversation_id == ^conversation_id and status == :sent and
+        delivery_class == :durable_ai_reply and not is_nil(source_signal_id) and
+        ((operation in ^@durable_reply_create_operations and
+            not is_nil(created_provider_message_id)) or
+           (operation == :edit and not is_nil(target_provider_message_id)))
     )
   end
 
-  def fetch_delivery_for_update(repo, agent_uid, binding_name, outbound_key) do
-    Intent
-    |> where([entry], entry.agent_uid == ^Ankole.PrincipalKey.canonicalize(agent_uid))
-    |> where([entry], entry.binding_name == ^binding_name)
-    |> where([entry], entry.outbound_key == ^outbound_key)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+  def fetch_delivery_for_update(_repo, agent_uid, binding_name, outbound_key) do
+    agent_uid
+    |> delivery_query(binding_name, outbound_key)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
   def fetch_delivery_for_update(repo, %Intent{} = intent) do
@@ -136,10 +126,18 @@ defmodule Ankole.Conversations.Delivery.Queries do
   end
 
   def fetch_delivery(agent_uid, binding_name, outbound_key) do
-    Intent
-    |> where([entry], entry.agent_uid == ^Ankole.PrincipalKey.canonicalize(agent_uid))
-    |> where([entry], entry.binding_name == ^binding_name)
-    |> where([entry], entry.outbound_key == ^outbound_key)
-    |> Repo.one()
+    agent_uid
+    |> delivery_query(binding_name, outbound_key)
+    |> Ankole.Ash.read_one!()
+  end
+
+  defp delivery_query(agent_uid, binding_name, outbound_key) do
+    agent_uid = Ankole.PrincipalKey.canonicalize(agent_uid)
+
+    Ash.Query.filter(
+      Intent,
+      agent_uid == ^agent_uid and binding_name == ^binding_name and
+        outbound_key == ^outbound_key
+    )
   end
 end

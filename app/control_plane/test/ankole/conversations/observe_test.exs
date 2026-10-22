@@ -2328,85 +2328,78 @@ defmodule Ankole.Conversations.ObserveTest do
 
     test "materialization after the batch hard cap refreshes the open signal" do
       {:ok, stored} = Attachments.store_attachment(%{"name" => "slow-image.png"}, "slow png")
-      # The owning transaction keeps input delivery pending while its content is revised.
-      assert {:ok, _} =
-               Repo.transact(fn _repo ->
-                 %{principal: agent} = agent_fixture()
-                 binding_fixture(agent.uid, "bot", :ignore)
+      %{principal: agent} = agent_fixture()
+      binding_fixture(agent.uid, "bot", :ignore)
 
-                 observed_at = DateTime.to_iso8601(@base_time)
+      observed_at = DateTime.to_iso8601(@base_time)
 
-                 pending =
-                   group_entry(%{
-                     explicit: true,
-                     source_event_id: "evt-slow-image",
-                     provider_message_id: "msg-slow-image",
-                     text: "inspect this image",
-                     attachments: [
-                       %{
-                         provider_ref: "lark:image:slow-image",
-                         source_message_id: "msg-slow-image",
-                         resource_type: "image"
-                       }
-                     ],
-                     metadata: %{
-                       "attachment_materialization" => %{
-                         "state" => "pending",
-                         "observed_at" => observed_at
-                       }
-                     }
-                   })
+      pending =
+        group_entry(%{
+          explicit: true,
+          source_event_id: "evt-slow-image",
+          provider_message_id: "msg-slow-image",
+          text: "inspect this image",
+          attachments: [
+            %{
+              provider_ref: "lark:image:slow-image",
+              source_message_id: "msg-slow-image",
+              resource_type: "image"
+            }
+          ],
+          metadata: %{
+            "attachment_materialization" => %{
+              "state" => "pending",
+              "observed_at" => observed_at
+            }
+          }
+        })
 
-                 assert {:ok, %{inbound_batch: pending_batch}} =
-                          Observe.emit_entry(agent.uid, "bot", pending, now: @base_time)
+      assert {:ok, %{inbound_batch: pending_batch}} =
+               Observe.emit_entry(agent.uid, "bot", pending, now: @base_time)
 
-                 assert {:ok, [%{signal: pending_event}]} =
-                          Repo.transact(fn _repo ->
-                            finalize_due_inbound_batch_events(now: pending_batch.available_at)
-                          end)
+      assert {:ok, [%{signal: pending_event}]} =
+               finalize_due_inbound_batch_events(now: pending_batch.available_at)
 
-                 materialized_at = DateTime.add(pending_batch.available_at, 1, :second)
+      materialized_at = DateTime.add(pending_batch.available_at, 1, :second)
 
-                 materialized_path = stored["path"]
+      materialized_path = stored["path"]
 
-                 materialized =
-                   pending
-                   |> put_in([:metadata, "attachment_materialization", "state"], "complete")
-                   |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
-                   |> put_in([:attachments, Access.at(0), :path], materialized_path)
+      materialized =
+        pending
+        |> put_in([:metadata, "attachment_materialization", "state"], "complete")
+        |> put_in([:attachments, Access.at(0), :blob_ref], stored["blob_ref"])
+        |> put_in([:attachments, Access.at(0), :path], materialized_path)
 
-                 assert {:ok,
-                         %{
-                           status: :input_superseded,
-                           signal: refreshed_event
-                         }} =
-                          Observe.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
+      assert {:ok,
+              %{
+                status: :input_superseded,
+                signal: refreshed_event
+              }} =
+               Observe.emit_entry(agent.uid, "bot", materialized, now: materialized_at)
 
-                 assert refreshed_event.id == pending_event.id
-                 assert refreshed_event.available_at == materialized_at
-                 assert Repo.aggregate(Signal, :count) == 1
-                 assert Repo.aggregate(InboundBatch, :count) == 1
+      assert refreshed_event.id == pending_event.id
+      assert refreshed_event.available_at == materialized_at
+      assert Repo.aggregate(Signal, :count) == 1
+      assert Repo.aggregate(InboundBatch, :count) == 1
 
-                 drive_path =
-                   Ankole.Files.chat_path(refreshed_event.conversation_id, materialized_path)
+      drive_path =
+        Ankole.Files.chat_path(refreshed_event.conversation_id, materialized_path)
 
-                 assert [
-                          %{
-                            "path" => ^drive_path,
-                            "provider_ref" => "lark:image:slow-image"
-                          }
-                        ] =
-                          get_in(refreshed_event.data, ["entry", "attachments"])
-                          |> Enum.map(&Map.take(&1, ["path", "provider_ref"]))
+      assert [
+               %{
+                 "path" => ^drive_path,
+                 "provider_ref" => "lark:image:slow-image"
+               }
+             ] =
+               get_in(refreshed_event.data, ["entry", "attachments"])
+               |> Enum.map(&Map.take(&1, ["path", "provider_ref"]))
 
-                 redelivered_at = DateTime.add(materialized_at, 1, :second)
+      redelivered_at = DateTime.add(materialized_at, 1, :second)
 
-                 assert {:ok, %{status: :duplicate}} =
-                          Observe.emit_entry(agent.uid, "bot", materialized, now: redelivered_at)
+      assert {:ok, %{status: :duplicate}} =
+               Observe.emit_entry(agent.uid, "bot", materialized, now: redelivered_at)
 
-                 assert Repo.get!(Signal, refreshed_event.id).available_at == materialized_at
-                 {:ok, :verified}
-               end)
+      assert Repo.get!(Signal, refreshed_event.id).available_at == materialized_at
     end
 
     test "single addressed message over the normal text budget is not split" do

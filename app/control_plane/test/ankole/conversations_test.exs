@@ -294,8 +294,10 @@ defmodule Ankole.ConversationsTest do
     end
 
     assert {:error, :rollback} =
-             Repo.transact(fn _ ->
-               assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+             Repo.transact(fn repo ->
+               assert {:ok, {%{status: :disabled}, _ids}} =
+                        Ankole.Principals.delete_agent_in_tx(repo, agent.uid)
+
                {:error, :rollback}
              end)
 
@@ -311,16 +313,20 @@ defmodule Ankole.ConversationsTest do
     assert_receive {:conversation_event, ^second_id, :status}
 
     assert {:error, :rollback} =
-             Repo.transact(fn _ ->
-               assert {:ok, %{status: :active}} = Ankole.Principals.enable_agent(agent.uid)
+             Repo.transact(fn repo ->
+               assert {:ok, {%{status: :active}, _ids}} =
+                        Ankole.Principals.enable_agent_in_tx(repo, agent.uid)
+
                {:error, :rollback}
              end)
 
     refute_receive {:conversation_event, _, :status}
 
     assert {:error, :rollback} =
-             Repo.transact(fn _ ->
-               assert {:ok, %{status: :disabled}} = Ankole.Principals.delete_agent(agent.uid)
+             Repo.transact(fn repo ->
+               assert {:ok, {%{status: :disabled}, _ids}} =
+                        Ankole.Principals.delete_agent_in_tx(repo, agent.uid)
+
                {:error, :rollback}
              end)
 
@@ -586,14 +592,17 @@ defmodule Ankole.ConversationsTest do
               message_id: request.message_id,
               text: "hello"
             })
-          end,
-          fn ->
-            Ankole.Conversations.Events.publish_message(request.conversation_id)
           end
         ] do
-      assert_raise ArgumentError, ~r/publish after commit/, fn ->
+      assert_raise Ash.Error.Framework, ~r/must run at the top level/, fn ->
         Repo.transact(fn _ -> operation.() end)
       end
+    end
+
+    assert_raise ArgumentError, ~r/publish after commit/, fn ->
+      Repo.transact(fn _ ->
+        Ankole.Conversations.Events.publish_message(request.conversation_id)
+      end)
     end
 
     assert Repo.aggregate(Message, :count) == 0

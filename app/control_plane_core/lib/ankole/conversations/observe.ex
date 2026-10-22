@@ -40,6 +40,7 @@ defmodule Ankole.Conversations.Observe do
   alias Ankole.Conversations.Delivery.Reference
   alias Ankole.Conversations.Delivery.Interactions
   alias Ankole.Signals.Binding
+  require Ash.Query
 
   @type ingress_result :: {:ok, map()} | {:error, term()}
 
@@ -65,8 +66,8 @@ defmodule Ankole.Conversations.Observe do
       case admit_entry(binding, fact, now) do
         {:ok, fact} ->
           binding
-          |> accept_entry(fact, now)
-          |> deliver_inputs()
+          |> Ankole.Conversations.observe_entry(fact, now)
+          |> Ankole.Errors.reason()
 
         {:held, fact, status, notice?} ->
           if notice?, do: notify_held_sender(fact, now)
@@ -119,26 +120,30 @@ defmodule Ankole.Conversations.Observe do
          {:ok, attrs} <- FactNormalizer.reaction(binding, input, now),
          {:ok, fact} <- Observation.reaction(attrs),
          :match <- BindingFilters.match?(binding.filters, fact) do
-      Repo.transact(fn repo ->
-        # Advisory lock on the entry key serializes concurrent reaction folds for
-        # the same message so two simultaneous add/removes can't clobber the
-        # reactions map.
-        with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
-             {:ok, ref} <-
-               External.fold_reaction_in_tx(
-                 repo,
-                 fact.conversation_id,
-                 fact.provider_message_id,
-                 fact,
-                 now
-               ) do
-          {:ok,
-           %{status: if(ref, do: :recorded, else: :ignored_unknown_entry), external_ref: ref}}
-        end
-      end)
+      binding
+      |> Ankole.Conversations.observe_reaction(fact, now)
+      |> Ankole.Errors.reason()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  def accept_reaction_in_tx(repo, binding, fact, now) do
+    # Advisory lock on the entry key serializes concurrent reaction folds for
+    # the same message so two simultaneous add/removes can't clobber the
+    # reactions map.
+    with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
+         {:ok, ref} <-
+           External.fold_reaction_in_tx(
+             repo,
+             fact.conversation_id,
+             fact.provider_message_id,
+             fact,
+             now
+           ) do
+      {:ok, %{status: if(ref, do: :recorded, else: :ignored_unknown_entry), external_ref: ref}}
     end
   end
 
@@ -154,38 +159,42 @@ defmodule Ankole.Conversations.Observe do
          {:ok, attrs} <- FactNormalizer.action(binding, input, now),
          {:ok, fact} <- Observation.action(attrs),
          :match <- BindingFilters.match?(binding.filters, fact) do
-      Repo.transact(fn repo ->
-        # Keep the same channel -> Session -> Signal lock order as
-        # ordinary message ingress. Managed callbacks take the session lock so
-        # an answer and a newer turn have one deterministic winner.
-        with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
-             {:ok, channel} <- conversation_in_tx(repo, fact),
-             {:ok, acceptance} <- Interactions.accept_in_tx(repo, binding, fact, now) do
-          case acceptance do
-            :duplicate ->
-              {:ok, %{status: :duplicate_action}}
-
-            :stale ->
-              {:ok, %{status: :stale_action}}
-
-            {:accepted, resolution} ->
-              fact = %{
-                fact
-                | action: accepted_reply_action(fact.action, resolution),
-                  sender_key: Map.get(fact.action, "operator_principal_uid")
-              }
-
-              append_action_event(repo, binding, fact, channel, now)
-
-            :unmanaged ->
-              append_action_event(repo, binding, fact, channel, now)
-          end
-        end
-      end)
-      |> deliver_inputs()
+      binding
+      |> Ankole.Conversations.observe_action(fact, now)
+      |> Ankole.Errors.reason()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
+    end
+  end
+
+  @doc false
+  def accept_action_in_tx(repo, binding, fact, now) do
+    # Keep the same channel -> Session -> Signal lock order as
+    # ordinary message ingress. Managed callbacks take the session lock so
+    # an answer and a newer turn have one deterministic winner.
+    with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
+         {:ok, channel} <- conversation_in_tx(fact),
+         {:ok, acceptance} <- Interactions.accept_in_tx(repo, binding, fact, now) do
+      case acceptance do
+        :duplicate ->
+          {:ok, %{status: :duplicate_action}}
+
+        :stale ->
+          {:ok, %{status: :stale_action}}
+
+        {:accepted, resolution} ->
+          fact = %{
+            fact
+            | action: accepted_reply_action(fact.action, resolution),
+              sender_key: Map.get(fact.action, "operator_principal_uid")
+          }
+
+          append_action_event(repo, binding, fact, channel, now)
+
+        :unmanaged ->
+          append_action_event(repo, binding, fact, channel, now)
+      end
     end
   end
 
@@ -283,27 +292,26 @@ defmodule Ankole.Conversations.Observe do
          {:ok, fact} <- Observation.lifecycle(attrs),
          :match <- BindingFilters.match?(binding.filters, fact) do
       binding
-      |> accept_lifecycle(fact, now)
-      |> deliver_inputs()
+      |> Ankole.Conversations.observe_lifecycle(fact, now)
+      |> Ankole.Errors.reason()
     else
       :no_match -> {:ok, %{status: :filtered}}
       {:error, _reason} = error -> error
     end
   end
 
-  # The durable decision is committed. The worker control and the preview
-  # effects are best-effort follow-ups, in that order.
-  defp deliver_inputs({:ok, result}) when is_map(result) do
-    # A preview whose input is gone would keep editing cards the intent deletes.
+  @doc false
+  # The durable decision is committed. The preview effects are best-effort
+  # follow-ups: a preview whose input is gone would keep editing cards that the
+  # intent deletes.
+  def stop_retracted_previews(result) when is_map(result) do
     result
     |> Map.get(:runtime_retractions, %{})
     |> Map.get(:canceled_signal_ids, [])
     |> Enum.each(&Preview.stop/1)
-
-    {:ok, result}
   end
 
-  defp deliver_inputs(other), do: other
+  def stop_retracted_previews(_result), do: :ok
 
   defp admit_entry(binding, fact, now) do
     if fact.channel_kind == :im_group and entry_policy(binding, fact) == {:ok, :ignore} do
@@ -318,24 +326,23 @@ defmodule Ankole.Conversations.Observe do
   # tombstone-check → mirror → Signal sequence is atomic. The tombstone
   # check comes first: if the human already removed this entry, drop the
   # late receive before writing anything.
-  defp accept_entry(binding, fact, now) do
-    Repo.transact(fn repo ->
-      with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
-           :ok <- lock_entry(repo, fact) do
-        case active_tombstone?(repo, fact, now) do
-          true ->
-            {:ok, %{status: :dropped_tombstoned}}
+  @doc false
+  def accept_entry_in_tx(repo, binding, fact, now) do
+    with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
+         :ok <- lock_entry(repo, fact) do
+      case active_tombstone?(repo, fact, now) do
+        true ->
+          {:ok, %{status: :dropped_tombstoned}}
 
-          false ->
-            with :ok <- InboundBatches.promote_reference_in_tx(repo, binding, fact, now),
-                 fact = Reference.enrich(repo, fact),
-                 {:ok, policy} <- entry_policy(binding, fact),
-                 {:ok, result} <- apply_entry_policy(repo, binding, fact, policy, now) do
-              {:ok, result}
-            end
-        end
+        false ->
+          with :ok <- InboundBatches.promote_reference_in_tx(repo, binding, fact, now),
+               fact = Reference.enrich(repo, fact),
+               {:ok, policy} <- entry_policy(binding, fact),
+               {:ok, result} <- apply_entry_policy(repo, binding, fact, policy, now) do
+            {:ok, result}
+          end
       end
-    end)
+    end
   end
 
   defp lifecycle_constructor(provider_lifecycle_kind) do
@@ -352,41 +359,40 @@ defmodule Ankole.Conversations.Observe do
   # AgentWorkers consumes as a no-op while cancelling related checkbacks. Steps
   # 2-4 cover committed and uncommitted internal work; step 5 records the
   # provider lifecycle edge without deriving a retraction note.
-  defp accept_lifecycle(binding, fact, now) do
-    Repo.transact(fn repo ->
-      # Match ordinary IM ingress: entry, then batch, then channel row.
-      with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
-           :ok <- lock_entry(repo, fact),
-           :ok <- InboundBatches.lock_in_tx(repo, fact),
-           {:ok, channel} <- conversation_in_tx(repo, fact),
-           {:ok, tombstone} <- upsert_tombstone(repo, fact, now),
-           {:ok, updated_batches} <- InboundBatches.remove_pending_inbound_entry(repo, fact, now),
-           {deleted_count, _rows} <- remove_message_in_tx(repo, fact),
-           completed_events <-
-             Ankole.Signals.signals_for_entry_in_tx(
-               repo,
-               fact.agent_uid,
-               fact.binding_name,
-               fact.conversation_id,
-               fact.provider_message_id
-             ),
-           {:ok, runtime_retractions} <-
-             InputRevisions.retract_source_entry_in_tx(repo, fact, :removed, now),
-           {:ok, lifecycle_events} <-
-             append_lifecycle_events(repo, binding, fact, completed_events, channel, now) do
-        {:ok,
-         %{
-           status: :accepted,
-           tombstone: tombstone,
-           updated_inbound_batches: length(updated_batches),
-           deleted_mirror_entries: deleted_count,
-           canceled_signals: runtime_retractions.canceled_signals,
-           retried_signals: runtime_retractions.retried_signals,
-           runtime_retractions: runtime_retractions,
-           lifecycle_events: lifecycle_events
-         }}
-      end
-    end)
+  @doc false
+  def accept_lifecycle_in_tx(repo, binding, fact, now) do
+    # Match ordinary IM ingress: entry, then batch, then channel row.
+    with {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
+         :ok <- lock_entry(repo, fact),
+         :ok <- InboundBatches.lock_in_tx(repo, fact),
+         {:ok, channel} <- conversation_in_tx(fact),
+         {:ok, tombstone} <- upsert_tombstone(repo, fact, now),
+         {:ok, updated_batches} <- InboundBatches.remove_pending_inbound_entry(repo, fact, now),
+         {deleted_count, _rows} <- remove_message_in_tx(repo, fact),
+         completed_events <-
+           Ankole.Signals.signals_for_entry_in_tx(
+             repo,
+             fact.agent_uid,
+             fact.binding_name,
+             fact.conversation_id,
+             fact.provider_message_id
+           ),
+         {:ok, runtime_retractions} <-
+           InputRevisions.retract_source_entry_in_tx(repo, fact, :removed, now),
+         {:ok, lifecycle_events} <-
+           append_lifecycle_events(repo, binding, fact, completed_events, channel, now) do
+      {:ok,
+       %{
+         status: :accepted,
+         tombstone: tombstone,
+         updated_inbound_batches: length(updated_batches),
+         deleted_mirror_entries: deleted_count,
+         canceled_signals: runtime_retractions.canceled_signals,
+         retried_signals: runtime_retractions.retried_signals,
+         runtime_retractions: runtime_retractions,
+         lifecycle_events: lifecycle_events
+       }}
+    end
   end
 
   defp entry_policy(%Binding{} = binding, fact) do
@@ -455,7 +461,7 @@ defmodule Ankole.Conversations.Observe do
   end
 
   defp apply_entry_policy(repo, _binding, fact, :record_only, now) do
-    with {:ok, channel} <- conversation_in_tx(repo, fact),
+    with {:ok, channel} <- conversation_in_tx(fact),
          {:ok, entry} <- External.observe_entry_in_tx(repo, fact, now) do
       {:ok, %{status: :recorded, conversation: channel, message_observation: entry}}
     end
@@ -498,7 +504,7 @@ defmodule Ankole.Conversations.Observe do
 
     fact = Map.put(fact, :command_payload, command_payload)
 
-    with {:ok, channel} <- conversation_in_tx(repo, fact),
+    with {:ok, channel} <- conversation_in_tx(fact),
          {:ok, entry} <- External.observe_entry_in_tx(repo, fact, now),
          {:ok, append_result} <-
            Envelope.accept(repo, binding, fact, type, channel, entry, now) do
@@ -583,8 +589,8 @@ defmodule Ankole.Conversations.Observe do
     end
   end
 
-  defp resolved_retry_target(repo, fact, command, signal_id) do
-    case repo.get(Signal, signal_id) do
+  defp resolved_retry_target(_repo, fact, command, signal_id) do
+    case Ankole.Signals.Domain.get_signal!(signal_id) do
       %Signal{session_id: session_id} ->
         fact = Map.put(fact, :session_id, session_id)
         command = Map.put(command, "targetSignalId", signal_id)
@@ -686,10 +692,10 @@ defmodule Ankole.Conversations.Observe do
     end
   end
 
-  defp conversation_in_tx(_repo, %{conversation_id: nil}), do: {:ok, nil}
+  defp conversation_in_tx(%{conversation_id: nil}), do: {:ok, nil}
 
-  defp conversation_in_tx(repo, fact),
-    do: {:ok, repo.get_by(Conversation, id: fact.conversation_id)}
+  defp conversation_in_tx(%{conversation_id: id}),
+    do: {:ok, Conversation |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()}
 
   defp remove_message_in_tx(repo, fact) do
     case External.remove_in_tx(repo, fact.conversation_id, fact.provider_message_id) do
@@ -709,11 +715,13 @@ defmodule Ankole.Conversations.Observe do
     Ankole.Ash.create(InputTombstone, :record, attrs)
   end
 
-  def active_tombstone?(repo, fact, now) do
-    case repo.get_by(InputTombstone,
-           conversation_id: fact.conversation_id,
-           provider_message_id: fact.provider_message_id
-         ) do
+  def active_tombstone?(_repo, fact, now) do
+    case InputTombstone
+         |> Ash.Query.filter(
+           conversation_id == ^fact.conversation_id and
+             provider_message_id == ^fact.provider_message_id
+         )
+         |> Ankole.Ash.read_one!() do
       %InputTombstone{tombstoned_until: tombstoned_until} ->
         case DateTime.compare(tombstoned_until, now) do
           :gt -> true
@@ -746,16 +754,7 @@ defmodule Ankole.Conversations.Observe do
   # The notice needs a channel mirror row to route the reply; the held entry
   # itself is never mirrored.
   defp notify_held_sender(fact, now) do
-    result =
-      Repo.transact(fn repo ->
-        with {:ok, binding} <- Bindings.get_binding(fact.agent_uid, fact.binding_name),
-             {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now),
-             {:ok, intent} <- Delivery.commit_in_tx(repo, held_notice_attrs(fact)) do
-          {:ok, intent}
-        end
-      end)
-
-    case result do
+    case fact |> Ankole.Conversations.notify_held_sender(now) |> Ankole.Errors.reason() do
       {:ok, _intent} ->
         :ok
 
@@ -767,6 +766,14 @@ defmodule Ankole.Conversations.Observe do
         )
 
         :ok
+    end
+  end
+
+  @doc false
+  def notify_held_sender_in_tx(repo, fact, now) do
+    with {:ok, binding} <- Bindings.get_binding(fact.agent_uid, fact.binding_name),
+         {:ok, fact} <- bind_conversation_in_tx(repo, binding, fact, now) do
+      Delivery.commit_in_tx(repo, held_notice_attrs(fact))
     end
   end
 

@@ -176,16 +176,9 @@ defmodule Ankole.SignalsFixtures do
     )
   end
 
+  # Observation and batch finalization are top-level actions; each owns its
+  # transaction.
   def emit_addressed_signal(agent_uid, binding_name, entry, now \\ @base_time) do
-    {:ok, result} =
-      Ankole.Repo.transact(fn _repo ->
-        {:ok, emit_addressed_signal_in_tx(agent_uid, binding_name, entry, now)}
-      end)
-
-    result
-  end
-
-  defp emit_addressed_signal_in_tx(agent_uid, binding_name, entry, now) do
     assert {:ok, %{status: :accepted, inbound_batch: batch} = observed} =
              Observe.emit_entry(agent_uid, binding_name, entry, now: now)
 

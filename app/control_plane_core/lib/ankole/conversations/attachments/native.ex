@@ -1,6 +1,7 @@
 defmodule Ankole.Conversations.Attachments.Native do
   @moduledoc "Owns verified Human uploads before their Message commits."
 
+  require Ash.Query
   alias Ankole.Conversations.{Attachments, Message}
   alias Ankole.{Files, Principals, Repo, WorkerFiles}
 
@@ -94,9 +95,11 @@ defmodule Ankole.Conversations.Attachments.Native do
   @doc "Reads frozen bytes through the current Human's Conversation membership."
   def read_to_file(uid, conversation_id, message_id, path, local_path) do
     with {:ok, message_id} <- Ecto.UUID.cast(message_id),
-         {:ok, _} <- Ankole.Conversations.get(uid, conversation_id),
+         {:ok, _} <- Ankole.Conversations.visible_native_conversation(uid, conversation_id),
          %Message{attachments: attachments} <-
-           Repo.get_by(Message, id: message_id, conversation_id: conversation_id),
+           Message
+           |> Ash.Query.filter(id == ^message_id and conversation_id == ^conversation_id)
+           |> Ankole.Ash.read_one!(),
          %{"blob_ref" => digest} = attachment <- Enum.find(attachments, &(&1["path"] == path)),
          :ok <- Files.read_content_to_file(digest, local_path) do
       {:ok, attachment}

@@ -3,7 +3,7 @@ defmodule Ankole.Conversations.Conversation do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     tenant_in_primary_key: true,
-    domain: Ankole.Conversations.Domain
+    domain: Ankole.Conversations
 
   @type t :: %__MODULE__{}
 
@@ -120,14 +120,11 @@ defmodule Ankole.Conversations.Conversation do
     defaults([:read])
 
     create_if_absent :ensure_native do
-      transaction?(false)
       accept([:id, :title, :created_by, :page_id, :last_activity_at])
       change(set_attribute(:kind, :native))
     end
 
     create :create_external do
-      transaction?(false)
-
       accept([
         :id,
         :title,
@@ -146,7 +143,7 @@ defmodule Ankole.Conversations.Conversation do
       change(set_attribute(:kind, :external))
     end
 
-    in_tx_update :observe do
+    update :observe do
       accept([
         :title,
         :external_kind,
@@ -161,21 +158,20 @@ defmodule Ankole.Conversations.Conversation do
       validate(attribute_equals(:kind, :external))
     end
 
-    in_tx_update :put_metadata do
+    update :put_metadata do
       accept([:metadata])
     end
 
-    in_tx_update :touch do
+    update :touch do
       accept([:last_activity_at, :last_seen_at])
     end
 
-    in_tx_update :advance_sequence do
+    update :advance_sequence do
       accept([])
       change(atomic_update(:sequence_high_water, expr(sequence_high_water + 1)))
     end
 
     update :set_standing_orders do
-      transaction?(false)
       require_atomic?(true)
 
       accept([
@@ -186,8 +182,267 @@ defmodule Ankole.Conversations.Conversation do
     end
 
     destroy :remove do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :start_native, :term do
+      argument(:human_uid, :term)
+      argument(:attrs, :term)
+      after_commit({Ankole.Conversations, :publish_native_change})
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.create_in_tx(Ankole.Repo, args.human_uid, args.attrs)
+        )
+      end)
+    end
+
+    action :post_native, :term do
+      argument(:human_uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+      after_commit({Ankole.Conversations, :publish_native_change})
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.post_in_tx(Ankole.Repo, args.human_uid, args.id, args.attrs)
+        )
+      end)
+    end
+
+    action :change_native_queue, :term do
+      argument(:human_uid, :term)
+      argument(:id, :term)
+      argument(:attrs, :term)
+      after_commit({Ankole.Conversations, :publish_native_change})
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.update_queue_in_tx(
+            Ankole.Repo,
+            args.human_uid,
+            args.id,
+            args.attrs
+          )
+        )
+      end)
+    end
+
+    action :remove_native, :term do
+      argument(:human_uid, :term)
+      argument(:id, :term)
+      after_commit({Ankole.Conversations.Events, :publish_status})
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.delete_in_tx(Ankole.Repo, args.human_uid, args.id)
+        )
+      end)
+    end
+
+    action :observe_entry, :term do
+      argument(:binding, :term)
+      argument(:fact, :term)
+      argument(:now, :term)
+      after_commit({Ankole.Conversations.Observe, :stop_retracted_previews})
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.Observe.accept_entry_in_tx(
+            Ankole.Repo,
+            args.binding,
+            args.fact,
+            args.now
+          )
+        )
+      end)
+    end
+
+    action :observe_reaction, :term do
+      argument(:binding, :term)
+      argument(:fact, :term)
+      argument(:now, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.Observe.accept_reaction_in_tx(
+            Ankole.Repo,
+            args.binding,
+            args.fact,
+            args.now
+          )
+        )
+      end)
+    end
+
+    action :observe_action, :term do
+      argument(:binding, :term)
+      argument(:fact, :term)
+      argument(:now, :term)
+      after_commit({Ankole.Conversations.Observe, :stop_retracted_previews})
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.Observe.accept_action_in_tx(
+            Ankole.Repo,
+            args.binding,
+            args.fact,
+            args.now
+          )
+        )
+      end)
+    end
+
+    action :observe_lifecycle, :term do
+      argument(:binding, :term)
+      argument(:fact, :term)
+      argument(:now, :term)
+      after_commit({Ankole.Conversations.Observe, :stop_retracted_previews})
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.Observe.accept_lifecycle_in_tx(
+            Ankole.Repo,
+            args.binding,
+            args.fact,
+            args.now
+          )
+        )
+      end)
+    end
+
+    action :notify_held_sender, :term do
+      argument(:fact, :term)
+      argument(:now, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.Observe.notify_held_sender_in_tx(Ankole.Repo, args.fact, args.now)
+        )
+      end)
+    end
+
+    action :ensure_im_group, :term do
+      argument(:group_key, :term)
+      argument(:attrs, :term)
+      argument(:context, :term)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.IMGroupProjection.ensure_group_in_tx(
+            Ankole.Repo,
+            args.group_key,
+            args.attrs,
+            args.context,
+            args.opts
+          )
+        )
+      end)
+    end
+
+    action :update_im_group_membership, :term do
+      argument(:group_key, :term)
+      argument(:update, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.IMGroupProjection.update_membership_in_tx(
+            Ankole.Repo,
+            args.group_key,
+            args.update
+          )
+        )
+      end)
+    end
+
+    action :replace_im_group_members, :term do
+      argument(:group_id, :term)
+      argument(:human_uids, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.IMGroupMembers.replace_members_in_tx(
+            Ankole.Repo,
+            args.group_id,
+            args.human_uids
+          )
+        )
+      end)
+    end
+
+    action :reconcile_im_group_agents, :term do
+      argument(:group_id, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.IMGroupMembers.reconcile_agent_members_in_tx(
+            Ankole.Repo,
+            args.group_id
+          )
+        )
+      end)
+    end
+
+    action :update_external_metadata, :term do
+      argument(:id, :term)
+      argument(:update, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.External.update_metadata_in_tx(Ankole.Repo, args.id, args.update)
+        )
+      end)
+    end
+
+    action :native_detail, :term do
+      argument(:human_uid, :term)
+      argument(:id, :term)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.detail_in_tx(Ankole.Repo, args.human_uid, args.id, args.opts)
+        )
+      end)
+    end
+
+    action :select_model_profile, :term do
+      argument(:human_uid, :term)
+      argument(:id, :term)
+      argument(:profile, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.set_model_profile_in_tx(
+            Ankole.Repo,
+            args.human_uid,
+            args.id,
+            args.profile
+          )
+        )
+      end)
+    end
+
+    action :context_snapshot, :term do
+      argument(:id, :term)
+      argument(:key, :term)
+      argument(:read_seq, :term)
+      argument(:excluded_ids, :term)
+      argument(:opts, :term, default: [])
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.Conversations.context_snapshot_in_tx(
+            Ankole.Repo,
+            args.id,
+            args.key,
+            args.read_seq,
+            args.excluded_ids,
+            args.opts
+          )
+        )
+      end)
     end
   end
 end

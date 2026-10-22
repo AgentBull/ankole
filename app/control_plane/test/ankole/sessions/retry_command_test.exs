@@ -308,18 +308,16 @@ defmodule Ankole.Sessions.RetryCommandTest do
     assert {:ok, _} = Run.finalize(run, :dead_letter, "provider_failed")
 
     assert {:ok, _} =
-             Repo.transact(fn _repo ->
-               Observe.emit_entry_removed(
-                 agent.uid,
-                 "bot",
-                 lifecycle_entry(%{
-                   source_event_id: "removed",
-                   provider_message_id: source.provider_message_id,
-                   conversation_id: source.conversation_id
-                 }),
-                 now: DateTime.add(@base_time, 3)
-               )
-             end)
+             Observe.emit_entry_removed(
+               agent.uid,
+               "bot",
+               lifecycle_entry(%{
+                 source_event_id: "removed",
+                 provider_message_id: source.provider_message_id,
+                 conversation_id: source.conversation_id
+               }),
+               now: DateTime.add(@base_time, 3)
+             )
 
     refute Ankole.Conversations.External.get_message(
              Repo,

@@ -20,7 +20,7 @@ defmodule Ankole.Conversations.InputTombstone do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     tenant_in_primary_key: true,
-    domain: Ankole.Conversations.Domain
+    domain: Ankole.Conversations
 
   postgres do
     table("conversation_input_tombstones")
@@ -49,14 +49,12 @@ defmodule Ankole.Conversations.InputTombstone do
     defaults([:read])
 
     create :record do
-      transaction?(false)
       accept([:conversation_id, :provider_message_id, :tombstoned_until])
       upsert?(true)
       upsert_fields([:tombstoned_until])
     end
 
     destroy :expire do
-      transaction?(false)
       require_atomic?(true)
       argument(:now, :utc_datetime_usec, allow_nil?: false)
       change(filter(expr(tombstoned_until <= ^arg(:now))))

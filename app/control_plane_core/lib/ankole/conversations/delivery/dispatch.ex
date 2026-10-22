@@ -1,6 +1,7 @@
 defmodule Ankole.Conversations.Delivery.Dispatch do
   @moduledoc false
-  import Ecto.Query, warn: false
+  import Ecto.Query, only: [from: 2]
+  require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Logging
@@ -39,36 +40,28 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
         :second
       )
 
-    active_jobs =
-      from(job in Oban.Job,
-        where: job.worker == ^Oban.Worker.to_string(Dispatch),
-        where: job.state in ["available", "scheduled", "retryable", "executing"],
-        where:
-          fragment(
-            "? @> jsonb_build_object('agent_uid', ?, 'binding_name', ?, 'outbound_key', ?)",
-            job.args,
-            parent_as(:intent).agent_uid,
-            parent_as(:intent).binding_name,
-            parent_as(:intent).outbound_key
-          ),
-        select: 1
+    # Oban owns the job rows; the key of each live dispatch job is in its args.
+    active_keys =
+      Repo.all(
+        from(job in Oban.Job,
+          where: job.worker == ^Oban.Worker.to_string(Dispatch),
+          where: job.state in ["available", "scheduled", "retryable", "executing"],
+          select: job.args
+        )
       )
+      |> MapSet.new(&{&1["agent_uid"], &1["binding_name"], &1["outbound_key"]})
 
     keys =
       Repo.across_tenants(fn ->
-        from(entry in Intent,
-          as: :intent,
-          where:
-            (entry.status == :pending and is_nil(entry.platform_send_started_at)) or
-              (entry.status == :failed and entry.next_attempt_at <= ^now and
-                 entry.attempt_count < entry.max_attempts and
-                 is_nil(entry.recovery_status) and not entry.possible_duplicate) or
-              (entry.status == :pending and entry.platform_send_started_at <= ^recovery_before),
-          where: not exists(subquery(active_jobs)),
-          select: map(entry, [:agent_uid, :binding_name, :outbound_key, :tenant_id])
-        )
-        |> Repo.all()
+        Intent
+        |> Ash.Query.for_read(:due_across_tenants, %{now: now, recovery_before: recovery_before})
+        |> Ash.Query.select([:agent_uid, :binding_name, :outbound_key, :tenant_id])
+        |> Ash.read!(authorize?: false)
       end)
+      |> Enum.reject(
+        &MapSet.member?(active_keys, {&1.agent_uid, &1.binding_name, &1.outbound_key})
+      )
+      |> Enum.map(&Map.take(&1, [:agent_uid, :binding_name, :outbound_key, :tenant_id]))
 
     Enum.reduce_while(keys, :ok, fn key, :ok ->
       result =
@@ -200,40 +193,45 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
          %Adapter{} = adapter,
          now
        ) do
-    Repo.transact(fn repo ->
-      with %Intent{} = intent <-
-             Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(
-               repo,
-               agent_uid,
-               binding_name,
-               outbound_key
-             ),
-           {:ok, intent} <- refresh_late_reply_presentation(repo, intent),
-           {:ok, intent} <- adopt_late_reply_preview(repo, intent),
-           {:ok, conversation} <- intent_channel(repo, intent) do
-        case Ankole.Conversations.Delivery.Recovery.in_flight_recovery_action(
-               intent,
-               adapter,
-               now
-             ) do
-          {:in_flight, intent} ->
-            {:ok, intent}
+    agent_uid
+    |> Ankole.Conversations.claim_intent_dispatch(binding_name, outbound_key, adapter, now)
+    |> Ankole.Errors.reason()
+  end
 
-          {:reconcile, intent} ->
-            {:ok, {:reconcile, intent, conversation, adapter}}
+  @doc false
+  def claim_in_tx(repo, agent_uid, binding_name, outbound_key, %Adapter{} = adapter, now) do
+    with %Intent{} = intent <-
+           Ankole.Conversations.Delivery.Queries.fetch_delivery_for_update(
+             repo,
+             agent_uid,
+             binding_name,
+             outbound_key
+           ),
+         {:ok, intent} <- refresh_late_reply_presentation(intent),
+         {:ok, intent} <- adopt_late_reply_preview(intent),
+         {:ok, conversation} <- intent_channel(intent) do
+      case Ankole.Conversations.Delivery.Recovery.in_flight_recovery_action(
+             intent,
+             adapter,
+             now
+           ) do
+        {:in_flight, intent} ->
+          {:ok, intent}
 
-          {:unknown, intent, reason} ->
-            Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(repo, intent, reason, now)
+        {:reconcile, intent} ->
+          {:ok, {:reconcile, intent, conversation, adapter}}
 
-          :continue ->
-            prepare_fresh_intent_dispatch(repo, intent, conversation, adapter, now)
-        end
-      else
-        nil -> {:error, :intent_not_found}
-        {:unsupported, intent} -> mark_intent_unsupported(repo, intent)
-        {:error, _reason} = error -> error
+        {:unknown, intent, reason} ->
+          Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(repo, intent, reason, now)
+
+        :continue ->
+          prepare_fresh_intent_dispatch(repo, intent, conversation, adapter, now)
       end
-    end)
+    else
+      nil -> {:error, :intent_not_found}
+      {:unsupported, intent} -> mark_intent_unsupported(repo, intent)
+      {:error, _reason} = error -> error
+    end
   end
 
   # Actor completion and the transient preview use different transactions. A
@@ -306,15 +304,11 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # so plans, receipts, and other metadata cannot be frozen out of the terminal
   # card merely because the provider update was still in flight.
   defp refresh_late_reply_presentation(
-         repo,
          %Intent{status: status, payload: %{"reply_presentation" => original}} = intent
        )
        when status in [:pending, :failed] and is_map(original) do
     if reply_preview_finalization?(intent) do
-      case PreviewState.load(
-             repo.get(Signal, intent.source_signal_id),
-             repo
-           ) do
+      case PreviewState.load_signal(intent.source_signal_id) do
         %Signal{} = event ->
           with {:ok, refreshed} <-
                  terminal_presentation_from_latest_checkpoint(
@@ -339,7 +333,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     end
   end
 
-  defp refresh_late_reply_presentation(_repo, %Intent{} = intent), do: {:ok, intent}
+  defp refresh_late_reply_presentation(%Intent{} = intent), do: {:ok, intent}
 
   defp terminal_presentation_from_latest_checkpoint(_event, original, %{
          "reason" => "context_withdrawn"
@@ -386,16 +380,10 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     end
   end
 
-  defp adopt_late_reply_preview(
-         repo,
-         %Intent{status: status, operation: operation} = intent
-       )
+  defp adopt_late_reply_preview(%Intent{status: status, operation: operation} = intent)
        when status in [:pending, :failed] and operation in [:post, :reply] do
     if reply_preview_finalization?(intent) do
-      case PreviewState.load(
-             repo.get(Signal, intent.source_signal_id),
-             repo
-           ) do
+      case PreviewState.load_signal(intent.source_signal_id) do
         %Signal{
           preview: %PreviewState{
             provider_message_id: provider_message_id
@@ -419,7 +407,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     end
   end
 
-  defp adopt_late_reply_preview(_repo, %Intent{} = intent), do: {:ok, intent}
+  defp adopt_late_reply_preview(%Intent{} = intent), do: {:ok, intent}
 
   defp reply_preview_finalization?(%Intent{
          source_signal_id: signal_id,
@@ -439,10 +427,10 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
     end
   end
 
-  defp intent_channel(_repo, %Intent{conversation_id: nil}), do: {:ok, nil}
+  defp intent_channel(%Intent{conversation_id: nil}), do: {:ok, nil}
 
-  defp intent_channel(repo, %Intent{conversation_id: conversation_id}) do
-    case repo.get_by(Conversation, id: conversation_id) do
+  defp intent_channel(%Intent{conversation_id: conversation_id}) do
+    case Conversation |> Ash.Query.filter(id == ^conversation_id) |> Ankole.Ash.read_one!() do
       %Conversation{} = conversation -> {:ok, conversation}
       nil -> {:error, :signal_channel_not_found}
     end
@@ -686,7 +674,7 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
          } = intent
        )
        when is_binary(signal_id) and is_map(presentation) do
-    case PreviewState.load(Repo.get(Signal, signal_id), Repo) do
+    case PreviewState.load_signal(signal_id) do
       %Signal{preview: %PreviewState{checkpoint: checkpoint}}
       when is_map(checkpoint) ->
         %{
@@ -716,106 +704,69 @@ defmodule Ankole.Conversations.Delivery.Dispatch do
   # reply can retry inside the same bound after it gains a possible-duplicate
   # notice; other uncertain operations stop.
   defp finalize_intent_send(send_result, intent, conversation, now) do
-    Repo.transact(fn repo ->
-      case refetch_claimed_intent(repo, intent, "send") do
-        {:ok, current_intent} ->
-          case send_result do
-            {:ok, result} ->
-              Ankole.Conversations.Delivery.Mirror.finalize_successful_intent(
-                repo,
-                current_intent,
-                conversation,
-                result,
-                now
-              )
-
-            {:error, reason} ->
-              Ankole.Conversations.Delivery.Recovery.mark_intent_failed(
-                repo,
-                current_intent,
-                reason,
-                now
-              )
-
-            {:unknown, detail} ->
-              Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(
-                repo,
-                current_intent,
-                detail,
-                now
-              )
-
-            :unknown ->
-              Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(
-                repo,
-                current_intent,
-                %{
-                  "reason" => "adapter could not confirm provider delivery"
-                },
-                now
-              )
-          end
-
-        {:stale, current_intent} ->
-          {:ok, current_intent}
-
-        {:error, _reason} = error ->
-          error
-      end
-    end)
+    intent
+    |> Ankole.Conversations.finalize_intent_attempt(:send, send_result, conversation, now)
+    |> Ankole.Errors.reason()
   end
 
   defp finalize_intent_reconcile(reconcile_result, intent, conversation, now) do
-    Repo.transact(fn repo ->
-      case refetch_claimed_intent(repo, intent, "reconcile") do
-        {:ok, current_intent} ->
-          case reconcile_result do
-            {:ok, result} ->
-              Ankole.Conversations.Delivery.Mirror.finalize_successful_intent(
-                repo,
-                current_intent,
-                conversation,
-                result,
-                now
-              )
+    intent
+    |> Ankole.Conversations.finalize_intent_attempt(
+      :reconcile,
+      reconcile_result,
+      conversation,
+      now
+    )
+    |> Ankole.Errors.reason()
+  end
 
-            {:error, reason} ->
-              Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(
-                repo,
-                current_intent,
-                %{
-                  "reason" => "reconciliation adapter error",
-                  "error" => reason
-                },
-                now
-              )
+  @doc false
+  def finalize_in_tx(repo, intent, phase, result, conversation, now) do
+    case refetch_claimed_intent(repo, intent, Atom.to_string(phase)) do
+      {:ok, current_intent} ->
+        record_outcome(repo, phase, result, current_intent, conversation, now)
 
-            {:unknown, detail} ->
-              Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(
-                repo,
-                current_intent,
-                detail,
-                now
-              )
+      {:stale, current_intent} ->
+        {:ok, current_intent}
 
-            :unknown ->
-              Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(
-                repo,
-                current_intent,
-                %{
-                  "reason" => "reconciliation could not confirm provider send"
-                },
-                now
-              )
-          end
+      {:error, _reason} = error ->
+        error
+    end
+  end
 
-        {:stale, current_intent} ->
-          {:ok, current_intent}
+  defp record_outcome(repo, _phase, {:ok, result}, intent, conversation, now),
+    do:
+      Ankole.Conversations.Delivery.Mirror.finalize_successful_intent(
+        repo,
+        intent,
+        conversation,
+        result,
+        now
+      )
 
-        {:error, _reason} = error ->
-          error
-      end
-    end)
+  defp record_outcome(repo, :send, {:error, reason}, intent, _conversation, now),
+    do: Ankole.Conversations.Delivery.Recovery.mark_intent_failed(repo, intent, reason, now)
+
+  defp record_outcome(repo, :reconcile, {:error, reason}, intent, _conversation, now) do
+    detail = %{"reason" => "reconciliation adapter error", "error" => reason}
+    Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(repo, intent, detail, now)
+  end
+
+  defp record_outcome(repo, _phase, {:unknown, detail}, intent, _conversation, now),
+    do: Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(repo, intent, detail, now)
+
+  defp record_outcome(repo, phase, :unknown, intent, _conversation, now) do
+    reason =
+      if phase == :send,
+        do: "adapter could not confirm provider delivery",
+        else: "reconciliation could not confirm provider send"
+
+    Ankole.Conversations.Delivery.Recovery.mark_intent_unknown(
+      repo,
+      intent,
+      %{"reason" => reason},
+      now
+    )
   end
 
   # The attempt fence between the claim and its result. A finalizer may only

@@ -10,10 +10,9 @@ defmodule Ankole.Conversations.InboundBatches do
 
   @moduledoc false
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Signals.Signal
-  alias Ankole.Repo
 
   import Ankole.Conversations.MessageInput,
     only: [
@@ -27,7 +26,6 @@ defmodule Ankole.Conversations.InboundBatches do
   alias Ankole.Conversations.InputRevisions
   alias Ankole.Conversations.InboundBatch
   alias Ankole.Conversations.Observation
-  alias Ankole.Signals.Binding
   alias Ankole.Conversations.Conversation
   alias Ankole.Conversations.ExternalMessageRef
 
@@ -47,25 +45,30 @@ defmodule Ankole.Conversations.InboundBatches do
   def finalize_inbound_batch_by_id(batch_id, opts \\ []) when is_binary(batch_id) do
     now = Keyword.get(opts, :now, DateTime.utc_now(:microsecond))
 
-    Repo.transact(fn repo ->
-      case lock_inbound_batch_by_id(repo, batch_id) do
-        nil ->
-          {:error, :inbound_batch_not_found}
+    batch_id
+    |> Ankole.Conversations.finalize_inbound_batch(now)
+    |> Ankole.Errors.reason()
+  end
 
-        %InboundBatch{batch_state: :open} = batch ->
-          if DateTime.after?(batch.available_at, now),
-            do: {:ok, %{status: :not_due, available_at: batch.available_at}},
-            else: finalize_inbound_batch_in_tx(repo, batch, now)
+  @doc false
+  def finalize_due_in_tx(repo, batch_id, now) do
+    case lock_inbound_batch_by_id(batch_id) do
+      nil ->
+        {:error, :inbound_batch_not_found}
 
-        batch ->
-          {:ok, %{status: :already_finalized, inbound_batch: batch}}
-      end
-    end)
+      %InboundBatch{batch_state: :open} = batch ->
+        if DateTime.after?(batch.available_at, now),
+          do: {:ok, %{status: :not_due, available_at: batch.available_at}},
+          else: finalize_inbound_batch_in_tx(repo, batch, now)
+
+      batch ->
+        {:ok, %{status: :already_finalized, inbound_batch: batch}}
+    end
   end
 
   @spec entry_snapshot(module(), String.t(), String.t(), String.t(), String.t()) :: map() | nil
   def entry_snapshot(
-        repo,
+        _repo,
         agent_uid,
         binding_name,
         conversation_id,
@@ -73,7 +76,7 @@ defmodule Ankole.Conversations.InboundBatches do
       )
       when is_binary(agent_uid) and is_binary(binding_name) and is_binary(conversation_id) and
              is_binary(provider_message_id) do
-    case observed_entry_batch(repo, agent_uid, binding_name, conversation_id, provider_message_id) do
+    case observed_entry_batch(agent_uid, binding_name, conversation_id, provider_message_id) do
       %InboundBatch{entries: entries} -> find_entry(entries, provider_message_id)
       nil -> nil
     end
@@ -89,7 +92,6 @@ defmodule Ankole.Conversations.InboundBatches do
            Ankole.Conversations.External.get_message(repo, fact.conversation_id, provider_id)
          ) do
       case observed_entry_batch(
-             repo,
              binding.agent_uid,
              binding.name,
              fact.conversation_id,
@@ -107,32 +109,28 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp observed_entry_batch(repo, agent_uid, binding_name, conversation_id, provider_id) do
+  defp observed_entry_batch(agent_uid, binding_name, conversation_id, provider_id) do
     InboundBatch
-    |> where(
-      [batch],
-      batch.agent_uid == ^agent_uid and batch.binding_name == ^binding_name and
-        batch.conversation_id == ^conversation_id
+    |> Ash.Query.filter(
+      agent_uid == ^agent_uid and binding_name == ^binding_name and
+        conversation_id == ^conversation_id and
+        fragment(
+          "EXISTS (SELECT 1 FROM jsonb_array_elements(?) AS entry WHERE entry->>'provider_message_id' = ?)",
+          entries,
+          ^provider_id
+        )
     )
-    |> where(
-      [batch],
-      fragment(
-        "EXISTS (SELECT 1 FROM jsonb_array_elements(?) AS entry WHERE entry->>'provider_message_id' = ?)",
-        batch.entries,
-        ^provider_id
-      )
-    )
-    |> order_by([batch], desc: batch.inserted_at)
-    |> limit(1)
-    |> repo.one()
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read_one!()
   end
 
   def apply_im_entry_policy(repo, binding, fact, policy, type, now) do
     with :ok <- lock_in_tx(repo, fact),
-         %Conversation{} = channel <- repo.get_by(Conversation, id: fact.conversation_id) do
-      batch = open_inbound_batch(fact, repo)
+         %Conversation{} = channel <- conversation(fact.conversation_id) do
+      batch = open_inbound_batch(fact)
 
-      case mirrored_outside_open_batch?(repo, fact, batch) do
+      case mirrored_outside_open_batch?(fact, batch) do
         true ->
           with {:ok, mirror_entry} <- maybe_mirror_im_entry(repo, fact, policy, type, now),
                source_entry <- inbound_batch_entry(fact, mirror_entry, policy, type, now),
@@ -199,31 +197,32 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp mirrored_outside_open_batch?(repo, fact, batch) do
+  defp mirrored_outside_open_batch?(fact, batch) do
     not batch_contains_source_entry?(batch, fact.provider_message_id) and
       ExternalMessageRef
-      |> where([entry], entry.conversation_id == ^fact.conversation_id)
-      |> where([entry], entry.provider_message_id == ^fact.provider_message_id)
-      |> repo.exists?() and
-      finalized_batch_contains_source_entry?(repo, fact)
+      |> Ash.Query.filter(
+        conversation_id == ^fact.conversation_id and
+          provider_message_id == ^fact.provider_message_id
+      )
+      |> exists?() and
+      finalized_batch_contains_source_entry?(fact)
   end
 
-  defp finalized_batch_contains_source_entry?(repo, fact) do
+  defp finalized_batch_contains_source_entry?(fact) do
     InboundBatch
-    |> where([batch], batch.agent_uid == ^fact.agent_uid)
-    |> where([batch], batch.binding_name == ^fact.binding_name)
-    |> where([batch], batch.conversation_id == ^fact.conversation_id)
-    |> where([batch], batch.batch_state == :finalized)
-    |> where(
-      [batch],
-      fragment(
-        "EXISTS (SELECT 1 FROM jsonb_array_elements(?) AS entry WHERE entry->>'provider_message_id' = ?)",
-        batch.entries,
-        ^fact.provider_message_id
-      )
+    |> Ash.Query.filter(
+      agent_uid == ^fact.agent_uid and binding_name == ^fact.binding_name and
+        conversation_id == ^fact.conversation_id and batch_state == :finalized and
+        fragment(
+          "EXISTS (SELECT 1 FROM jsonb_array_elements(?) AS entry WHERE entry->>'provider_message_id' = ?)",
+          entries,
+          ^fact.provider_message_id
+        )
     )
-    |> repo.exists?()
+    |> exists?()
   end
+
+  defp exists?(query), do: query |> Ash.Query.limit(1) |> Ankole.Ash.read!() != []
 
   defp batch_contains_source_entry?(%InboundBatch{entries: entries}, provider_message_id) do
     Enum.any?(entries, &(&1["provider_message_id"] == provider_message_id))
@@ -717,11 +716,11 @@ defmodule Ankole.Conversations.InboundBatches do
   defp neutral_status(:may_intervene), do: :recorded
   defp neutral_status(:ignore), do: :ignored
 
-  defp lock_inbound_batch_by_id(repo, batch_id) do
+  defp lock_inbound_batch_by_id(batch_id) do
     InboundBatch
-    |> where([batch], batch.id == ^batch_id)
-    |> lock("FOR UPDATE")
-    |> repo.one()
+    |> Ash.Query.filter(id == ^batch_id)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read_one!()
   end
 
   defp finalize_inbound_batch_in_tx(repo, %InboundBatch{entries: []} = batch, _now) do
@@ -770,7 +769,7 @@ defmodule Ankole.Conversations.InboundBatches do
 
   def remove_pending_inbound_entry(repo, fact, now) do
     fact
-    |> pending_inbound_batches_for_lifecycle(repo)
+    |> pending_inbound_batches_for_lifecycle()
     |> Enum.map(&remove_entry_from_inbound_batch(repo, &1, fact, now))
     |> collect_results()
     |> case do
@@ -779,22 +778,23 @@ defmodule Ankole.Conversations.InboundBatches do
     end
   end
 
-  defp pending_inbound_batches_for_lifecycle(fact, repo) do
+  defp pending_inbound_batches_for_lifecycle(fact) do
     InboundBatch
-    |> where([batch], batch.agent_uid == ^fact.agent_uid)
-    |> where([batch], batch.binding_name == ^fact.binding_name)
-    |> where([batch], batch.conversation_id == ^fact.conversation_id)
+    |> Ash.Query.filter(
+      agent_uid == ^fact.agent_uid and binding_name == ^fact.binding_name and
+        conversation_id == ^fact.conversation_id and batch_state == :open
+    )
     |> maybe_where_thread(fact.provider_thread_id)
-    |> where([batch], batch.batch_state == :open)
-    |> order_by([batch], asc: batch.inserted_at)
-    |> lock("FOR UPDATE")
-    |> repo.all()
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.lock(:for_update)
+    |> Ankole.Ash.read!()
   end
 
   defp maybe_where_thread(query, nil), do: query
 
   defp maybe_where_thread(query, provider_thread_id) do
-    where(query, [batch], batch.provider_thread_id == ^thread_key(provider_thread_id))
+    thread = thread_key(provider_thread_id)
+    Ash.Query.filter(query, provider_thread_id == ^thread)
   end
 
   defp remove_entry_from_inbound_batch(repo, %InboundBatch{} = batch, fact, now) do
@@ -828,27 +828,33 @@ defmodule Ankole.Conversations.InboundBatches do
   end
 
   defp append_batch_signal(repo, batch, type, now) do
-    with {:ok, binding} <- batch_binding(repo, batch),
-         {:ok, channel} <- batch_channel(repo, batch),
+    with {:ok, binding} <- batch_binding(batch),
+         {:ok, channel} <- batch_channel(batch),
          :ok <- mirror_unmirrored_batch_entries(repo, batch, binding, now) do
       fact = batch_signal_fact(repo, batch, channel, type, now)
       Envelope.accept(repo, binding, fact, type, channel, nil, now)
     end
   end
 
-  defp batch_binding(repo, %InboundBatch{} = batch) do
-    case repo.get_by(Binding, agent_uid: batch.agent_uid, name: batch.binding_name) do
-      %Binding{} = binding -> {:ok, binding}
+  defp batch_binding(%InboundBatch{binding_name: name} = batch)
+       when is_binary(name) and name != "" do
+    case Ankole.Signals.Domain.get_binding!(batch.agent_uid, name) do
       nil -> {:error, :binding_not_found}
+      binding -> {:ok, binding}
     end
   end
 
-  defp batch_channel(repo, %InboundBatch{} = batch) do
-    case repo.get_by(Conversation, id: batch.conversation_id) do
+  defp batch_binding(%InboundBatch{}), do: {:error, :binding_not_found}
+
+  defp batch_channel(%InboundBatch{} = batch) do
+    case conversation(batch.conversation_id) do
       %Conversation{} = channel -> {:ok, channel}
       nil -> {:error, :conversation_not_found}
     end
   end
+
+  defp conversation(id),
+    do: Conversation |> Ash.Query.filter(id == ^id) |> Ankole.Ash.read_one!()
 
   defp create_inbound_batch(repo, fact, policy, mode, entries, now) do
     entries = normalize_batch_entries(entries)
@@ -914,16 +920,18 @@ defmodule Ankole.Conversations.InboundBatches do
 
   defp notify_inbound_batch_deadline(result, _repo), do: result
 
-  defp open_inbound_batch(fact, repo) do
+  defp open_inbound_batch(fact) do
+    thread = thread_key(fact.provider_thread_id)
+
     InboundBatch
-    |> where([batch], batch.agent_uid == ^fact.agent_uid)
-    |> where([batch], batch.binding_name == ^fact.binding_name)
-    |> where([batch], batch.conversation_id == ^fact.conversation_id)
-    |> where([batch], batch.provider_thread_id == ^thread_key(fact.provider_thread_id))
-    |> where([batch], batch.batch_state == :open)
-    |> order_by([batch], asc: batch.inserted_at)
-    |> limit(1)
-    |> repo.one()
+    |> Ash.Query.filter(
+      agent_uid == ^fact.agent_uid and binding_name == ^fact.binding_name and
+        conversation_id == ^fact.conversation_id and provider_thread_id == ^thread and
+        batch_state == :open
+    )
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.Query.limit(1)
+    |> Ankole.Ash.read_one!()
   end
 
   defp sort_batch_entries(entries) when is_list(entries) do

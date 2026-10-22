@@ -22,7 +22,6 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
   alias Ankole.Plugins.WeComAdapter
   alias Ankole.Repo
 
-  alias Ankole.Signals.Signal
   alias Ankole.Conversations.Delivery.Intent
   alias Ankole.Conversations.Delivery.ReplyPresentation
   alias Ankole.Conversations.Delivery.PreviewAdapter
@@ -233,7 +232,7 @@ defmodule Ankole.Plugins.ReplyPreviewTerminalRequestTest do
         "streaming_state" => "open"
       })
 
-    event = PreviewState.load(Repo.get!(Signal, event.id), Repo)
+    event = PreviewState.load_signal(event.id)
 
     presentation =
       ReplyPresentation.new() |> ReplyPresentation.terminal("completed", "final answer")

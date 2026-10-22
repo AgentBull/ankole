@@ -21,11 +21,9 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
        stale. A stale directory entry leaves its replacement unchanged.
   """
 
-  import Ecto.Query, only: [from: 2]
-
-  alias Ankole.Repo
   alias Ankole.RuntimeFabric.V1, as: FabricProto
   alias Ankole.Sessions.Common
+  alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.AgentWorker
   alias Ankole.AgentWorkers.WorkerAdmission
   alias Ankole.AgentWorkers.WorkerTracker
@@ -203,12 +201,13 @@ defmodule Ankole.AgentWorkers.WorkerRoute do
   # The worker id of a channel route is the Agent UID: each Agent has one
   # Worker row, and only a ready or draining row has a connection.
   defp current_fence(agent_uid) do
-    Repo.one(
-      from(worker in AgentWorker,
-        where: worker.agent_uid == ^agent_uid and worker.state in [:ready, :draining],
-        select: %{transport_route: worker.transport_route, incarnation_id: worker.incarnation_id}
-      )
-    )
+    case AgentWorkers.get_agent_worker!(agent_uid) do
+      %AgentWorker{state: state} = worker when state in [:ready, :draining] ->
+        %{transport_route: worker.transport_route, incarnation_id: worker.incarnation_id}
+
+      _absent ->
+        nil
+    end
   end
 
   @doc false

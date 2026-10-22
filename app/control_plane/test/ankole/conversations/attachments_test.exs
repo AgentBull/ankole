@@ -193,23 +193,20 @@ defmodule Ankole.Conversations.AttachmentsTest do
   defp observed_dm(binding, peer, suffix) do
     channel_id = "lark:dm:#{binding.agent_uid}:#{suffix}"
 
-    {:ok, %{signal: event}} =
-      Repo.transact(fn _repo ->
-        {:ok,
-         Ankole.SignalsFixtures.emit_addressed_signal(
-           binding.agent_uid,
-           binding.name,
-           Ankole.SignalsFixtures.group_entry(%{
-             provider_conversation_id: channel_id,
-             source_event_id: channel_id,
-             channel: %{kind: :im_dm, reply_mode: :channel},
-             author:
-               Ankole.SignalsFixtures.provider_author_fixture(peer.uid, peer.uid, %{
-                 display_name: peer.display_name
-               })
-           })
-         )}
-      end)
+    %{signal: event} =
+      Ankole.SignalsFixtures.emit_addressed_signal(
+        binding.agent_uid,
+        binding.name,
+        Ankole.SignalsFixtures.group_entry(%{
+          provider_conversation_id: channel_id,
+          source_event_id: channel_id,
+          channel: %{kind: :im_dm, reply_mode: :channel},
+          author:
+            Ankole.SignalsFixtures.provider_author_fixture(peer.uid, peer.uid, %{
+              display_name: peer.display_name
+            })
+        })
+      )
 
     assert event.conversation_id == external_conversation_id(channel_id)
     Repo.get_by!(Conversation, id: event.conversation_id)

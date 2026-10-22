@@ -11,7 +11,7 @@ defmodule Ankole.Conversations.Delivery.Deletion do
   intent row that names it, so the checkpoint is a necessary third source.
   """
 
-  import Ecto.Query
+  require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
   alias Ankole.Signals.Signal
@@ -20,11 +20,11 @@ defmodule Ankole.Conversations.Delivery.Deletion do
   alias Ankole.Conversations.Delivery.PreviewAdapter
 
   @spec intents(module(), Ecto.UUID.t(), [binary()]) :: [map()]
-  def intents(repo, signal_id, ai_message_ids \\ [])
+  def intents(_repo, signal_id, ai_message_ids \\ [])
       when is_binary(signal_id) and is_list(ai_message_ids) do
-    (mirrored_reply_targets(repo, ai_message_ids) ++
-       intent_reply_targets(repo, signal_id) ++
-       preview_surface_targets(repo, signal_id))
+    (mirrored_reply_targets(ai_message_ids) ++
+       intent_reply_targets(signal_id) ++
+       preview_surface_targets(signal_id))
     |> Enum.uniq_by(&{&1.conversation_id, &1.provider_message_id})
     |> Enum.sort_by(&{&1.conversation_id, &1.provider_message_id})
     |> Enum.map(&deletion_intent(&1, signal_id))
@@ -46,13 +46,13 @@ defmodule Ankole.Conversations.Delivery.Deletion do
     |> Ankole.Attrs.collect_results()
   end
 
-  defp mirrored_reply_targets(_repo, []), do: []
+  defp mirrored_reply_targets([]), do: []
 
-  defp mirrored_reply_targets(repo, ai_message_ids) do
+  defp mirrored_reply_targets(ai_message_ids) do
     ExternalMessageRef
-    |> where([entry], entry.ai_message_id in ^ai_message_ids)
-    |> order_by([entry], asc: entry.conversation_id, asc: entry.provider_message_id)
-    |> repo.all()
+    |> Ash.Query.filter(ai_message_id in ^ai_message_ids)
+    |> Ash.Query.sort(conversation_id: :asc, provider_message_id: :asc)
+    |> Ankole.Ash.read!()
     |> Enum.map(fn entry ->
       %{
         conversation_id: entry.conversation_id,
@@ -63,12 +63,11 @@ defmodule Ankole.Conversations.Delivery.Deletion do
     end)
   end
 
-  defp intent_reply_targets(repo, signal_id) do
+  defp intent_reply_targets(signal_id) do
     Intent
-    |> where([intent], intent.source_signal_id == ^signal_id)
-    |> where([intent], intent.delivery_class == :durable_ai_reply)
-    |> order_by([intent], asc: intent.inserted_at, asc: intent.outbound_key)
-    |> repo.all()
+    |> Ash.Query.filter(source_signal_id == ^signal_id and delivery_class == :durable_ai_reply)
+    |> Ash.Query.sort(inserted_at: :asc, outbound_key: :asc)
+    |> Ankole.Ash.read!()
     |> Enum.map(&intent_reply_target/1)
     |> Enum.reject(&is_nil/1)
   end
@@ -108,8 +107,8 @@ defmodule Ankole.Conversations.Delivery.Deletion do
 
   defp intent_reply_target(_intent), do: nil
 
-  defp preview_surface_targets(repo, signal_id) do
-    case PreviewState.load(repo.get(Signal, signal_id), repo) do
+  defp preview_surface_targets(signal_id) do
+    case PreviewState.load_signal(signal_id) do
       %Signal{conversation_id: conversation_id} = event
       when is_binary(conversation_id) ->
         event

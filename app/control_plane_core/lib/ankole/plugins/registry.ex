@@ -19,6 +19,7 @@ defmodule Ankole.Plugins.Registry do
 
   alias Ankole.AppConfigure
   alias Ankole.Plugins.Config
+  alias Ankole.Plugins.Contracts
   alias Ankole.Plugins.Spec
   alias Ankole.Setup.Config, as: SetupConfig
 
@@ -122,7 +123,7 @@ defmodule Ankole.Plugins.Registry do
     with {:ok, state} <- snapshot(opts),
          active_specs <- sorted_active_specs(state),
          :ok <- register_plugin_config(active_specs) do
-      maybe_refresh_provider_caches(opts, state, active_specs)
+      maybe_refresh_contracts(opts, state, active_specs)
       {:ok, state}
     else
       {:error, reason} ->
@@ -258,28 +259,7 @@ defmodule Ankole.Plugins.Registry do
   defp validate_adapter_contract_declaration(spec, declaration) do
     contract_id = adapter_contract_id(declaration)
 
-    result =
-      case contract_id do
-        "signals.adapter" ->
-          Ankole.Signals.Adapters.validate_declaration(declaration)
-
-        "signals.webhook_handler" ->
-          Ankole.Signals.WebhookHandlers.validate_declaration(declaration)
-
-        "principals.identity_provider" ->
-          Ankole.IdentityProviders.validate_adapter_declaration(declaration)
-
-        "ai_gateway.provider" ->
-          Ankole.AIGateway.Providers.validate_adapter_declaration(declaration)
-
-        "agent_workers.provider_kind" ->
-          Ankole.AgentWorkers.ProviderKind.validate_adapter_declaration(declaration)
-
-        _other_contract ->
-          :ok
-      end
-
-    case result do
+    case Contracts.validate(contract_id, declaration) do
       :ok ->
         :ok
 
@@ -315,23 +295,12 @@ defmodule Ankole.Plugins.Registry do
     end
   end
 
-  defp maybe_refresh_provider_caches(opts, state, active_specs) do
-    case Keyword.get(opts, :name, __MODULE__) do
-      __MODULE__ ->
-        active_specs
-        |> Enum.flat_map(& &1.adapter_declarations)
-        |> Ankole.AIGateway.Providers.refresh_from_adapter_declarations()
-
-        Ankole.AgentWorkers.ProviderKind.refresh_from_specs(
-          Map.values(state.discovered),
-          active_specs
-        )
-
-        :ok
-
-      _other_registry ->
-        :ok
-    end
+  # Only the named application Registry publishes the subsystem views; a test
+  # Registry with its own name keeps them unchanged.
+  defp maybe_refresh_contracts(opts, state, active_specs) do
+    if Keyword.get(opts, :name, __MODULE__) == __MODULE__,
+      do: Contracts.refresh(Map.values(state.discovered), active_specs),
+      else: :ok
   end
 
   defp build_state(specs, active_specs) do

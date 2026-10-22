@@ -26,7 +26,6 @@ defmodule Ankole.Conversations.Delivery.PreviewAdapter do
   """
 
   alias Ankole.Conversations.Delivery.PreviewState
-  alias Ankole.Repo
   alias Ankole.Signals.Signal
   alias Ankole.Signals.Adapters
   alias Ankole.Signals.Binding
@@ -306,9 +305,7 @@ defmodule Ankole.Conversations.Delivery.PreviewAdapter do
 
   defp complete_request(%Request{signal: %Signal{id: signal_id}} = request)
        when is_binary(signal_id) do
-    with %Signal{} = event <-
-           PreviewState.load(Repo.get(Signal, signal_id), Repo) ||
-             :signal_not_found,
+    with %Signal{} = event <- PreviewState.load_signal(signal_id) || :signal_not_found,
          {:ok, binding} <- Bindings.get_binding(event.agent_uid, event.reply_binding_name),
          {:ok, config} <- stored_config(binding) do
       checkpoint =

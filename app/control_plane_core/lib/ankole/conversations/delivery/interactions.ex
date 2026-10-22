@@ -6,11 +6,11 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   checkpoint decides whether an interaction is pending, answered, or superseded.
   """
 
-  import Ecto.Query, warn: false
+  require Ash.Query
 
   alias Ankole.Conversations.Delivery.PreviewState
+  alias Ankole.Conversations.Locks
   alias Ankole.Logging
-  alias Ankole.Principals.Principal
   alias Ankole.Signals.Signal
   alias Ankole.Signals.Types
   alias Ankole.Signals.Binding
@@ -36,7 +36,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   def open_in_tx(repo, %Signal{} = event, presentation, %DateTime{} = now)
       when is_map(presentation) do
     checkpoint = PreviewState.get(event).checkpoint || %{}
-    superseded_by = first_newer_conversation_event(repo, event)
+    superseded_by = first_newer_conversation_event(event)
 
     checkpoint =
       InteractionState.initialize(checkpoint, presentation, now, superseded_by: superseded_by)
@@ -56,7 +56,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   def supersede_older_in_tx(repo, %Signal{} = newer_event, %DateTime{} = now) do
     if Types.supersedes_pending_interaction?(newer_event.type) do
       newer_event
-      |> older_reply_interaction_events(repo)
+      |> older_reply_interaction_events()
       |> supersede_events_in_tx(repo, newer_event, now)
     else
       {:ok, []}
@@ -88,12 +88,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
       provider_message_id
     )
     |> Enum.filter(&(&1.session_id == removed_event.session_id))
-    |> Enum.map(
-      &PreviewState.load(
-        Ankole.Signals.lock_signal_in_tx(repo, &1.id),
-        repo
-      )
-    )
+    |> Enum.map(&PreviewState.load(Ankole.Signals.lock_signal_in_tx(repo, &1.id)))
     |> Enum.reject(&is_nil/1)
     |> supersede_events_in_tx(repo, removed_event, now)
   end
@@ -115,7 +110,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
         %DateTime{} = now
       ) do
     reset_event
-    |> older_reply_interaction_events(repo)
+    |> older_reply_interaction_events()
     |> supersede_events_in_tx(repo, reset_event, now)
   end
 
@@ -158,14 +153,14 @@ defmodule Ankole.Conversations.Delivery.Interactions do
 
   defp accept_managed_in_tx(repo, binding, fact, action, value, now) do
     with {:ok, callback} <- normalize_callback(value),
-         :ok <- authorize_operator(repo, map_value(action, "operator_principal_uid")),
-         %Signal{} = source <- find_source_event(repo, binding, fact, callback),
+         :ok <- authorize_operator(map_value(action, "operator_principal_uid")),
+         %Signal{} = source <- find_source_event(binding, fact, callback),
          :ok <-
            Ankole.Signals.lock_target_in_tx(repo, %{
              agent_uid: source.agent_uid,
              session_id: source.session_id
            }),
-         %Signal{} = event <- lock_source_event(repo, binding, fact, callback),
+         %Signal{} = event <- lock_source_event(binding, fact, callback),
          {:ok, result} <- accept_locked_event(repo, event, fact, callback, now) do
       {:ok, result}
     else
@@ -233,36 +228,41 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     end
   end
 
-  defp authorize_operator(repo, principal_uid) when is_binary(principal_uid) do
-    case repo.get(Principal, principal_uid) do
-      %Principal{type: :human, status: :active} -> :ok
-      %Principal{} -> {:error, :reply_interaction_operator_unauthorized}
+  defp authorize_operator(""), do: {:error, :reply_interaction_operator_unknown}
+
+  defp authorize_operator(principal_uid) when is_binary(principal_uid) do
+    case Ankole.Principals.get_principal_record!(principal_uid) do
+      %{type: :human, status: :active} -> :ok
+      %{} -> {:error, :reply_interaction_operator_unauthorized}
       nil -> {:error, :reply_interaction_operator_unknown}
     end
   end
 
-  defp authorize_operator(_repo, _principal_uid),
+  defp authorize_operator(_principal_uid),
     do: {:error, :reply_interaction_operator_missing}
 
-  defp find_source_event(repo, binding, fact, callback) do
-    source_event_query(binding, fact, callback)
-    |> repo.one()
+  defp find_source_event(binding, fact, callback) do
+    Ankole.Signals.Domain.list_signals!(
+      query: [filter: source_event_filter(binding, fact, callback)]
+    )
+    |> List.first()
     |> accepted_reply_surface(fact.provider_message_id, binding)
   end
 
-  defp lock_source_event(repo, binding, fact, callback) do
-    source_event_query(binding, fact, callback)
-    |> lock("FOR UPDATE")
-    |> repo.one(lock_identity: {"signals", callback.source_signal_id})
+  defp lock_source_event(binding, fact, callback) do
+    [filter: source_event_filter(binding, fact, callback)]
+    |> Locks.signals()
+    |> List.first()
     |> accepted_reply_surface(fact.provider_message_id, binding)
   end
 
-  defp source_event_query(binding, fact, callback) do
-    Signal
-    |> where([event], event.id == ^callback.source_signal_id)
-    |> where([event], event.agent_uid == ^binding.agent_uid)
-    |> where([event], event.reply_binding_name == ^binding.name)
-    |> where([event], event.session_id == ^fact.session_id)
+  defp source_event_filter(binding, fact, callback) do
+    [
+      id: callback.source_signal_id,
+      agent_uid: binding.agent_uid,
+      reply_binding_name: binding.name,
+      session_id: fact.session_id
+    ]
   end
 
   defp accepted_reply_surface(%Signal{} = event, provider_message_id, binding) do
@@ -304,7 +304,7 @@ defmodule Ankole.Conversations.Delivery.Interactions do
   end
 
   defp accept_pending_answer(repo, event, checkpoint, fact, callback, now) do
-    case first_newer_session_reset(repo, event) do
+    case first_newer_session_reset(event) do
       %Signal{} = reset_event ->
         with {:ok, _superseded} <-
                supersede_events_in_tx([event], repo, reset_event, now) do
@@ -356,35 +356,48 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     }
   end
 
-  defp older_reply_interaction_events(%Signal{} = newer_event, repo) do
-    Signal
-    |> join(:inner, [event, preview], preview in PreviewState, on: preview.signal_id == event.id)
-    |> where([event, preview], event.agent_uid == ^newer_event.agent_uid)
-    |> where([event, preview], event.session_id == ^newer_event.session_id)
-    |> where([event, preview], event.queue_sequence < ^newer_event.queue_sequence)
-    |> where([event, preview], not is_nil(preview.checkpoint))
-    |> where(
-      [event, preview],
-      fragment(
-        """
-        EXISTS (
-          SELECT 1
-          FROM jsonb_each(
-            CASE
-              WHEN jsonb_typeof(?->'interactions') = 'object' THEN ?->'interactions'
-              ELSE '{}'::jsonb
-            END
-          ) AS interaction
-          WHERE interaction.value->>'state' = 'pending'
-        )
-        """,
-        preview.checkpoint,
-        preview.checkpoint
+  # The older Signals of the session whose preview has a pending interaction.
+  defp older_reply_interaction_events(%Signal{} = newer_event) do
+    signal_ids =
+      PreviewState
+      |> Ash.Query.filter(
+        not is_nil(checkpoint) and
+          fragment(
+            """
+            EXISTS (
+              SELECT 1
+              FROM jsonb_each(
+                CASE
+                  WHEN jsonb_typeof(?->'interactions') = 'object' THEN ?->'interactions'
+                  ELSE '{}'::jsonb
+                END
+              ) AS interaction
+              WHERE interaction.value->>'state' = 'pending'
+            )
+            """,
+            checkpoint,
+            checkpoint
+          ) and
+          exists(
+            Signal,
+            id == parent(signal_id) and agent_uid == ^newer_event.agent_uid and
+              session_id == ^newer_event.session_id and
+              queue_sequence < ^newer_event.queue_sequence
+          )
       )
+      |> Ash.Query.select([:signal_id])
+      |> Ankole.Ash.read!()
+      |> Enum.map(& &1.signal_id)
+
+    Locks.signals(
+      filter: [
+        id: [in: signal_ids],
+        agent_uid: newer_event.agent_uid,
+        session_id: newer_event.session_id,
+        queue_sequence: [less_than: newer_event.queue_sequence]
+      ],
+      sort: [queue_sequence: :asc]
     )
-    |> order_by([event, preview], asc: event.queue_sequence)
-    |> lock("FOR UPDATE OF s0")
-    |> repo.lock_all("signals")
   end
 
   defp supersede_events_in_tx(events, repo, newer_event, now) do
@@ -414,29 +427,32 @@ defmodule Ankole.Conversations.Delivery.Interactions do
     end
   end
 
-  defp first_newer_conversation_event(repo, %Signal{} = event) do
-    superseding_types = Types.interaction_superseding_types()
-
-    Signal
-    |> where([candidate], candidate.agent_uid == ^event.agent_uid)
-    |> where([candidate], candidate.session_id == ^event.session_id)
-    |> where([candidate], candidate.queue_sequence > ^event.queue_sequence)
-    |> where([candidate], candidate.type in ^superseding_types)
-    |> order_by([candidate], asc: candidate.queue_sequence)
-    |> limit(1)
-    |> repo.one()
+  defp first_newer_conversation_event(%Signal{} = event) do
+    first_newer_signal(event, type: [in: Types.interaction_superseding_types()])
   end
 
-  defp first_newer_session_reset(repo, %Signal{} = event) do
-    Signal
-    |> where([candidate], candidate.agent_uid == ^event.agent_uid)
-    |> where([candidate], candidate.session_id == ^event.session_id)
-    |> where([candidate], candidate.queue_sequence > ^event.queue_sequence)
-    |> where([candidate], candidate.type == "session.reset_due" and candidate.producer == :kernel)
-    |> where([candidate], candidate.status in [:queued, :running])
-    |> order_by([candidate], asc: candidate.queue_sequence)
-    |> limit(1)
-    |> repo.one()
+  defp first_newer_session_reset(%Signal{} = event) do
+    first_newer_signal(event,
+      type: "session.reset_due",
+      producer: :kernel,
+      status: [in: [:queued, :running]]
+    )
+  end
+
+  defp first_newer_signal(event, filter) do
+    Ankole.Signals.Domain.list_signals!(
+      query: [
+        filter:
+          [
+            agent_uid: event.agent_uid,
+            session_id: event.session_id,
+            queue_sequence: [greater_than: event.queue_sequence]
+          ] ++ filter,
+        sort: [queue_sequence: :asc],
+        limit: 1
+      ]
+    )
+    |> List.first()
   end
 
   defp required_free_text(map, key) do

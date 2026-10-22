@@ -1,27 +1,37 @@
 defmodule Ankole.Conversations.Context do
   @moduledoc "Renders public Messages for conversation history and ambient observation."
-  import Ecto.Query
-  alias Ankole.Conversations.{Message, ExternalMessageRef}
-  alias Ankole.Repo
+  require Ash.Query
+  alias Ankole.Conversations.{ExternalMessageRef, Message}
 
   @ambient_rows 80
   @backdrop_rows 10
   @history_rows 200
   @history_tokens 8_000
 
-  defp observations(conversation_id) do
-    from message in Message,
-      left_join: ref in ExternalMessageRef,
-      on: ref.message_id == message.id and ref.tenant_id == message.tenant_id,
-      where: message.conversation_id == ^conversation_id,
-      select: %{message: message, external_ref: ref}
+  defp observations(conversation_id),
+    do: Ash.Query.filter(Message, conversation_id == ^conversation_id)
+
+  # Each public Message with its provider reference, or nil for a native Message.
+  defp read_observations(query) do
+    messages = Ankole.Ash.read!(query)
+    refs = external_refs(Enum.map(messages, & &1.id))
+    Enum.map(messages, &%{message: &1, external_ref: Map.get(refs, &1.id)})
   end
 
-  def ambient_scene_fingerprint(repo, conversation_id) do
+  defp external_refs([]), do: %{}
+
+  defp external_refs(message_ids) do
+    ExternalMessageRef
+    |> Ash.Query.filter(message_id in ^message_ids)
+    |> Ankole.Ash.read!()
+    |> Map.new(&{&1.message_id, &1})
+  end
+
+  def ambient_scene_fingerprint(_repo, conversation_id) do
     observations(conversation_id)
-    |> order_by([message], desc: message.seq)
-    |> limit(@ambient_rows)
-    |> repo.all()
+    |> Ash.Query.sort(seq: :desc)
+    |> Ash.Query.limit(@ambient_rows)
+    |> read_observations()
     |> Enum.reverse()
     |> Enum.map(fn row ->
       {row.message.id, row.message.seq, row.message.text,
@@ -39,30 +49,29 @@ defmodule Ankole.Conversations.Context do
 
     query =
       observations(conversation_id)
-      |> where([message], message.seq > ^cursor)
-      |> order_by([message], asc: message.seq)
-      |> limit(@history_rows + 1)
+      |> Ash.Query.filter(seq > ^cursor)
+      |> Ash.Query.sort(seq: :asc)
+      |> Ash.Query.limit(@history_rows + 1)
 
     query =
       Enum.reduce(opts, query, fn
         {:since, %DateTime{} = at}, query ->
-          where(query, [message], message.created_at >= ^at)
+          Ash.Query.filter(query, created_at >= ^at)
 
         {:until, %DateTime{} = at}, query ->
-          where(query, [message], message.created_at <= ^at)
+          Ash.Query.filter(query, created_at <= ^at)
 
-        {:query, text}, query when is_binary(text) ->
-          where(
+        {:query, search}, query when is_binary(search) ->
+          Ash.Query.filter(
             query,
-            [message],
-            fragment("strpos(lower(COALESCE(?, '')), lower(?)) > 0", message.text, ^text)
+            fragment("strpos(lower(COALESCE(?, '')), lower(?)) > 0", text, ^search)
           )
 
         _, query ->
           query
       end)
 
-    rows = Repo.all(query)
+    rows = read_observations(query)
 
     accepted =
       Enum.reduce_while(Enum.take(rows, @history_rows), {[], 0}, fn row, {accepted, tokens} ->
@@ -85,13 +94,12 @@ defmodule Ankole.Conversations.Context do
 
   def ambient_delta_messages(%{conversation_id: id} = attrs, entries, judged_until)
       when is_binary(id) do
-    query =
-      observations(id)
-      |> after_time(judged_until)
-      |> order_by([message], desc: message.seq)
-      |> limit(@ambient_rows)
-
-    Repo.all(query)
+    id
+    |> observations()
+    |> after_time(judged_until)
+    |> Ash.Query.sort(seq: :desc)
+    |> Ash.Query.limit(@ambient_rows)
+    |> read_observations()
     |> Enum.reverse()
     |> Enum.map(&observed_message(&1, attrs.provider_thread_id))
     |> Kernel.++(batch_observed_messages(entries))
@@ -105,10 +113,10 @@ defmodule Ankole.Conversations.Context do
   def ambient_backdrop_messages(%{conversation_id: id} = attrs, %DateTime{} = until)
       when is_binary(id) do
     observations(id)
-    |> where([message], message.created_at <= ^until)
-    |> order_by([message], desc: message.seq)
-    |> limit(@backdrop_rows)
-    |> Repo.all()
+    |> Ash.Query.filter(created_at <= ^until)
+    |> Ash.Query.sort(seq: :desc)
+    |> Ash.Query.limit(@backdrop_rows)
+    |> read_observations()
     |> Enum.reverse()
     |> Enum.map(&observed_message(&1, attrs.provider_thread_id))
   end
@@ -150,10 +158,10 @@ defmodule Ankole.Conversations.Context do
 
     rows =
       observations(id)
-      |> where([message], message.id not in ^current_ids)
-      |> order_by([message], desc: message.seq)
-      |> limit(@ambient_rows)
-      |> Repo.all()
+      |> Ash.Query.filter(id not in ^current_ids)
+      |> Ash.Query.sort(seq: :desc)
+      |> Ash.Query.limit(@ambient_rows)
+      |> read_observations()
       |> Enum.reverse()
 
     cutoff = rows |> Enum.filter(&(&1.message.author_type == :agent)) |> List.last()
@@ -201,7 +209,7 @@ defmodule Ankole.Conversations.Context do
   defp author_name(_author), do: nil
 
   defp after_time(query, nil), do: query
-  defp after_time(query, %DateTime{} = at), do: where(query, [message], message.created_at > ^at)
+  defp after_time(query, %DateTime{} = at), do: Ash.Query.filter(query, created_at > ^at)
 
   defp dedupe(messages),
     do:

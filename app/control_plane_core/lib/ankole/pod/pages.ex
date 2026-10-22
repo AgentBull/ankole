@@ -770,7 +770,7 @@ defmodule Ankole.Pod.Pages do
   defp source_message(uid, id) do
     with {:ok, id} <- Ecto.UUID.cast(id),
          {:ok, %Ankole.Conversations.Message{} = message} <-
-           Ankole.Conversations.Domain.get_message(id),
+           Ankole.Conversations.get_message(id),
          {:ok, _} <- source_conversation(uid, message.conversation_id),
          do: {:ok, message},
          else: (_ -> {:error, :not_found})
@@ -779,7 +779,7 @@ defmodule Ankole.Pod.Pages do
   defp source_status(_uid, %{saved_from_message_id: nil}), do: nil
 
   defp source_status(uid, page) do
-    case Ankole.Conversations.Domain.get_message!(page.saved_from_message_id) do
+    case Ankole.Conversations.get_message!(page.saved_from_message_id) do
       nil ->
         %{deleted: true}
 
@@ -804,8 +804,7 @@ defmodule Ankole.Pod.Pages do
       if principal.type == :agent do
         Ankole.Conversations.Target.conversation_for_agent_in_tx(Repo, uid, id)
       else
-        with {:ok, %{conversation: conversation}} <- Ankole.Conversations.get(uid, id),
-             do: {:ok, conversation}
+        Ankole.Conversations.visible_native_conversation(uid, id)
       end
     end
   end

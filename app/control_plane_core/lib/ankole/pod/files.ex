@@ -80,7 +80,7 @@ defmodule Ankole.Pod.Files do
   def copy_from_message(uid, page_id, base_revision, message_id, source_path) do
     with {:ok, message_id} <- Ecto.UUID.cast(message_id),
          {:ok, %Ankole.Conversations.Message{} = message} <-
-           Ankole.Conversations.Domain.get_message(message_id),
+           Ankole.Conversations.get_message(message_id),
          {:ok, _conversation} <- Ankole.Conversations.get(uid, message.conversation_id),
          %{"blob_ref" => digest} = attachment <-
            Enum.find(message.attachments, &(Map.get(&1, "path") == source_path)),
