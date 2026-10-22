@@ -5,7 +5,7 @@ section: User guide
 order: 41
 ---
 
-A ChatGPT subscription is an ordinary AIGateway provider. Any model profile can point to it, including normal conversations and Background Agent Jobs. A profile selects the provider row and model. It does not select one account inside the row.
+A ChatGPT subscription is an ordinary AIGateway provider. Any model profile can point to it, including normal conversations and Background Agent Jobs. A profile selects the provider row and model.
 
 The provider row owns a credential pool. The control plane encrypts each account token, refreshes OAuth tokens, and selects a usable pool member for each request. An Agent Computer receives only its AIGateway endpoint and AIGateway key. It never receives a ChatGPT refresh token.
 
@@ -32,7 +32,7 @@ The Console uses the official device login when it is available. If that route i
 
 Each member has a label, priority, source, health state, request count, rate-limit data, and model or image usage. Secret tokens are never shown.
 
-Choose one selection strategy. The Console translates the display name, while the API and stored value stay stable:
+Choose one selection strategy. The Console translates the display name, while the API and storage use the canonical key:
 
 | Console label | API value | Behavior |
 | --- | --- | --- |

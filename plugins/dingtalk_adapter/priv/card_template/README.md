@@ -52,14 +52,13 @@ written again.
 
 ## Native card state
 
-Ankole does not write a custom state selector. A streaming update without a
-terminal flag keeps the card in DingTalk's input lifecycle. `isFinalize: true`
-moves it to 完成, and `isError: true` moves it to 出错. A completed interactive
-card also sends one full `answer` update with `isFinalize: true` after creation.
+A streaming update without a terminal flag keeps the card in DingTalk's input
+lifecycle. `isFinalize: true` moves it to 完成, and `isError: true` moves it to
+出错. A completed interactive card also sends one full `answer` update with
+`isFinalize: true` after creation.
 
 Structural updates use `cardUpdateOptions.updateCardDataByKey` to merge fields
-such as `state`, `plan`, and `actions`. This option preserves other template
-data, but it does not select the AI card state.
+such as `state`, `plan`, and `actions` while preserving other template data.
 
 ## Action area (`actions` variable)
 
@@ -96,8 +95,5 @@ verbatim as the callback params**. Ankole creates instances with
 `value` into the portable interaction protocol. Buttons are not authorization:
 the operator's Principal is re-verified on the callback path, and a control
 that no longer answers a pending interaction is acknowledged but ignored.
-
-The exact param passthrough shape of the card platform's dynamic button list is
-smoke-test item §13.10. If a platform version cannot forward `value` as params,
-record the finding there — the inbound handler already tolerates the
-`content → cardPrivateData → params` nesting and string-typed integers.
+The inbound handler accepts the `content → cardPrivateData → params` nesting
+and string-typed integers.

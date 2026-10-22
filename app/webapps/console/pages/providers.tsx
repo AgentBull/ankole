@@ -19,7 +19,7 @@ import { RiArrowDownSLine, RiPauseCircleLine, RiPlayCircleLine, RiSparkling2Line
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { localizedText } from '../../common/config-fields'
 import i18n from '../../common/i18n'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
@@ -212,7 +212,7 @@ export function ProviderEditorPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(ProviderEditorModel)
-  const params = useParams()
+  const params = useParams({ strict: false })
   const providerID = params.providerID
   const mode = providerID ? 'edit' : 'new'
 
@@ -313,7 +313,7 @@ export function ProviderEditorPage() {
           }),
         (response, clean) => {
           toast.success(t('console.providers.saved', { id: response.ai_gateway_provider.provider_id }))
-          if (clean) void navigate(`/providers/${encodeURIComponent(response.ai_gateway_provider.provider_id)}`)
+          if (clean) void navigate({ to: `/providers/${encodeURIComponent(response.ai_gateway_provider.provider_id)}` })
         }
       )
       .catch(() => {

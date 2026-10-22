@@ -38,15 +38,6 @@ Ankole is an open source alternative to Claude Tag, the Slack agent that Anthrop
 
 Nobody asked Ankole to remember that rule. Company Brain learned it from a chat that Ankole belongs to, kept its source and date, and applied it to the next request that needed it.
 
-A site is one complete deployment. It may contain several tenants, each with
-its own people, Agents, Brain and integrations. Site operators manage shared
-providers and infrastructure. The administrator Console defaults to
-`/site-admin-console`; `/console` returns 404 after this upgrade. Set
-`ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup to choose another absolute path.
-Keep that path in operator configuration. Normal users sign in through their
-OIDC application rather than the site administration Console.
-
-
 ## Why Ankole
 
 A model supplies the reasoning. The harness around the model decides what the model sees and what it may do. The harness also decides how work continues after a failure and how results reach the next decision. Ankole puts these decisions into the system instead of into each prompt:
@@ -143,6 +134,8 @@ Other ways to run Ankole:
 The full [quick start](https://ankole.agentbull.com/en-US/docs/quickstart/) gives the steps for each identity provider, model provider, and chat platform. The [Compose guide](tools/deploy/docker-compose/README.md) covers backups, upgrades, and troubleshooting.
 
 ## How it works
+
+One Ankole site deployment can host one or more isolated tenants. Each tenant has its own people, Agents, Company Brain, and channel connections, while site operators manage shared model providers, Worker providers, and infrastructure.
 
 Ankole consists of a control plane, one Worker for each Agent, a shared Rust kernel, and durable storage:
 

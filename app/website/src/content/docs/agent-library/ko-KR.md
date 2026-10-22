@@ -24,7 +24,7 @@ tenant 설정은 Agent Plugin과 Skill의 유효 기본값을 제공합니다. t
 
 `effective_enabled`는 Agent 재정의 또는 상속한 tenant 기본값을 반영합니다. Plugin member Skill은 부모 Plugin도 활성화되어 있어야 합니다. 부모를 비활성화해도 member 설정은 유지하며 부모를 다시 활성화하면 적용합니다.
 
-Console의 [Agent Library capabilities](../console-api/)는 선택한 tenant의 기본값을 읽고 수정한 뒤 Agent별 재정의를 허용합니다. API 필드 이름 `global_default_enabled`는 유지하지만 값은 site 상속을 포함한 해당 tenant의 유효 기본값입니다.
+Console의 [Agent Library capabilities](../console-api/)는 선택한 tenant의 기본값을 읽고 수정한 뒤 Agent별 재정의를 허용합니다. API 필드 `global_default_enabled`는 site 상속을 포함한 선택된 tenant의 유효 기본값을 반환합니다.
 
 ## Brain에서만 검색하는 Skill 발견
 

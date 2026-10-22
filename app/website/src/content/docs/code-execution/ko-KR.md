@@ -22,13 +22,13 @@ Agent는 `app/agent_computer/src/tools/computer/command-tool.ts`에 기반한 co
 - **파일 읽기** — `read-file-tool.ts`, `cat`으로 셸을 호출하는 대신 파일 내용을 직접 검사합니다.
 - **파일 편집** — `apply-patch-tool.ts`, 고정된 Codex 릴리스와 동일한 문법을 사용하는 자유 형식 `apply_patch` 도구입니다.
 
-Main Agent는 원시 패치를 `custom_tool_call`로 AIGateway를 통해 보냅니다. Worker는 이를 `/usr/local/bin/apply_patch`를 통해 네이티브 Codex 바이너리에 전달합니다. Background Agent Jobs는 AIGateway 모델 카드에서 동일한 자유 형식 도구를 받아 동일한 바이너리를 사용합니다. Ankole은 별도의 패치 파서를 유지하지 않습니다.
+Main Agent는 원시 패치를 `custom_tool_call`로 AIGateway를 통해 보냅니다. Worker는 이를 `/usr/local/bin/apply_patch`를 통해 네이티브 Codex 바이너리에 전달합니다. Background Agent Jobs는 AIGateway 모델 카드에서 동일한 자유 형식 도구를 받아 동일한 바이너리를 사용합니다.
 
 이 공유 경로는 일반 대화와 Background Agent Jobs가 하나의 편집 프로토콜을 사용하게 합니다. 일치하지 않는 패치는 네이티브 도구에서 실패하고 그 실패가 모델에게 반환됩니다. 빠른 검색에는 셸이 충분합니다. 파일 편집에는 `apply_patch`를 사용하세요.
 
 ## /workspace 파일 시스템
 
-Agent Home은 `/workspace`의 영구 스토리지입니다. 이전 경로 `/agents/<agent_uid>`는 Home으로 연결됩니다. 경로 검증은 심볼릭 링크를 해석한 다음 Home 경계를 확인합니다. 구조는 다음과 같습니다.
+Agent Home은 `/workspace`의 영구 스토리지입니다. `/agents/<agent_uid>`는 `/workspace`를 가리키는 심볼릭 링크입니다. 경로 검증은 심볼릭 링크를 해석한 다음 Home 경계를 확인합니다. 구조는 다음과 같습니다.
 
 ```text
 /workspace/
@@ -50,7 +50,7 @@ Home은 인스턴스 삭제와 이미지 변경 후에도 유지됩니다. 재�
 
 control plane 드라이브는 첨부 파일, 게시한 파일, Skill, Automation 스크립트를 따로 저장합니다. `ankole-files`로 읽고 씁니다. Job 작업 공간과 Codex 스레드는 영구 Home에 남습니다. Turn 전에 `installed-skills/`를 드라이브와 동기화합니다.
 
-Background Agent Job은 Ankole `skill_view`를 통해 Skill을 로드하며 Skill root를 Job workspace에 복사하지 않습니다.
+Background Agent Job은 `skill_view`를 통해 필요할 때 Skill을 로드합니다.
 
 ## 반복 Python을 위한 Jupyter 라이브 커널
 
@@ -62,7 +62,7 @@ Background Agent Job은 Ankole `skill_view`를 통해 Skill을 로드하며 Skil
 
 CodexRunner는 모든 Background Agent Job의 실행 엔진입니다. Job은 주제를 조사하거나, 문서를 만들거나, 리포지토리를 수정하거나, 다른 장기 실행 작업을 할 수 있으며, CodexRunner를 선택하는 것은 주제가 아니라 수명 주기입니다. 러너는 `app-server-client.ts`를 통해 Codex app-server와 통신하고 별도의 Job 워크스페이스와 런타임 구성을 준비합니다.
 
-Console은 해당 모델 프로파일을 **Background Agent Jobs**라고 부릅니다. 저장된 키와 API 이름은 현재 `coding`으로 유지됩니다. 이것은 코드 중심 대화를 감지하는 규칙이 아니라 레거시 이름입니다.
+Console은 해당 모델 프로파일을 **Background Agent Jobs**라고 부릅니다. 저장된 키와 API 이름은 `coding`입니다.
 
 ## 이 경로들이 선택되는 방식
 

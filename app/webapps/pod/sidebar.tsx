@@ -24,7 +24,7 @@ import { RiAddLine, RiChat3Line, RiDeleteBinLine, RiHome5Line, RiSearchLine } fr
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation, useNavigate } from 'react-router'
+import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { AccountMenu } from './account-menu'
 import { conversationsQuery } from './api'
 import { ContentNavigation, CreatePageButton } from './page-navigation'
@@ -128,7 +128,9 @@ function ConversationMenu() {
     onSuccess: async (_result, id) => {
       await client.invalidateQueries({ queryKey: podKeys.conversations })
       setDeleting(undefined)
-      if (location.pathname === podLocation(`/conversations/${id}`).pathname) navigate(podLocation('/'))
+      if (location.pathname === podLocation(`/conversations/${id}`).pathname) {
+        void navigate({ to: podLocation('/').pathname })
+      }
     }
   })
   const close = () => {
@@ -139,7 +141,7 @@ function ConversationMenu() {
       <SidebarMenu>
         <SidebarMenuItem>
           <SidebarMenuButton
-            render={<Link to={podLocation('/')} />}
+            render={<Link to={podLocation('/').pathname} />}
             isActive={location.pathname === '/'}
             onClick={close}>
             <RiAddLine aria-hidden />
@@ -165,7 +167,7 @@ function ConversationMenu() {
         {conversations.data?.conversations.map(conversation => (
           <SidebarMenuItem key={conversation.id} className="pod-chat-row flex items-center">
             <SidebarMenuButton
-              render={<Link to={podLocation(`/conversations/${conversation.id}`)} />}
+              render={<Link to={podLocation(`/conversations/${conversation.id}`).pathname} />}
               isActive={location.pathname === podLocation(`/conversations/${conversation.id}`).pathname}
               onClick={close}
               title={conversation.title}>

@@ -24,7 +24,7 @@ Tenant settings provide the effective defaults for Agent Plugins and Skills. A t
 
 `effective_enabled` reflects the Agent override or inherited tenant default. A Plugin member Skill also requires its parent Plugin to be enabled. Disabling the parent keeps the member's saved setting, so it applies again when the parent is enabled.
 
-The Console's [Agent Library capabilities](../console-api/) routes read and update defaults for the selected tenant, then allow a narrower Agent override. The API field `global_default_enabled` retains its name but returns that tenant's effective default, including site inheritance.
+The Console's [Agent Library capabilities](../console-api/) routes read and update defaults for the selected tenant, then allow a narrower Agent override. The API field `global_default_enabled` returns the selected tenant's effective default, including site inheritance.
 
 ## Recall-only Skill discovery
 

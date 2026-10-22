@@ -38,9 +38,6 @@ Ankole は Claude Tag のオープンソース代替です。Claude Tag は Anth
 
 このルールを覚えるよう Ankole に頼んだ人はいません。Company Brain は Ankole が参加しているチャットからルールを学び、出所と日付を記録し、それを必要とする次の依頼に適用しました。
 
-1 つのデプロイをサイトと呼びます。サイト内の各テナントは人、Agent、Brain、外部接続を持ち、サイト管理者が共有基盤を管理します。管理 Console の既定パスは `/site-admin-console` です。起動前に `ANKOLE_SITE_ADMIN_CONSOLE_PATH` で変更できます。旧 `/console` は 404 を返します。
-
-
 ## Ankole を選ぶ理由
 
 推論するのはモデルです。モデルを取り巻く Harness は、モデルに何を見せ、何を許すかを決めます。障害の後に仕事をどう続けるか、結果をどう次の判断に生かすかも決めます。Ankole は、これらの判断をプロンプトごとに任せず、システムに組み込みます。
@@ -138,9 +135,11 @@ https://ankole.agentbull.com/ja-JP/docs/quickstart/index.md を使って、Ankol
 
 ## 仕組み
 
+1 つの Ankole サイトには、分離された複数のテナントをホストできます。各テナントは独自の人、Agent、Company Brain、外部チャネル接続を持ち、サイト管理者が共有のモデルプロバイダー、Worker プロバイダー、基盤を管理します。
+
 Ankole は、Control Plane、Agent ごとに 1 つの Worker、共有の Rust Kernel、永続ストレージで構成されます。
 
-- **Control Plane**（Elixir、Phoenix、OTP）は、プロセスが終わっても残すべきことをすべて決定し、記録します。これには、ID と権限、設定、受信するメッセージと Webhook、スケジュール、会話、ジョブ、Company Brain、モデルプロバイダーを呼び出す AI ゲートウェイが含まれます。各会話のモデルループは、Control Plane のスーパーバイザー配下のプロセスとして動きます。
+- **Control Plane**（Elixir、Phoenix、OTP）は、プロセスが終わっても残すべきことをすべて決定し、記録します。これには、ID と権限、設定、会話とメッセージ、シグナル、スケジュール、ジョブ、Company Brain、モデルプロバイダーを呼び出す AI ゲートウェイが含まれます。Sessions は各 Agent のモデルループをスーパーバイザー配下のプロセスとして動かします。
 - 各 Agent には **Agent Computer Worker** が 1 つあります。これは Linux コンテナー内で動く Bun と TypeScript のプログラムです。Worker はコマンド、ブラウザー、Codex、MCP サーバー、Skill、Automation スクリプトを実行します。Control Plane は Docker、Kubernetes、またはクラウドプラットフォームで Worker を作成し、コンピューターが必要な作業のときだけ呼び出します。
 - **Kernel** は、Elixir が読み込む Rust ライブラリです。暗号処理、識別子、権限評価、AI 通信を提供します。
 - **PostgreSQL** は、再起動後も残す必要がある事実をすべて保存します。ファイルストアは各 Agent のドライブと添付ファイルを保存し、各 Agent のホームディレクトリ（Agent Home）はそれぞれのストレージに残ります。
@@ -157,15 +156,16 @@ flowchart TB
   subgraph Control["Control Plane · 単一の logical state / coordination boundary"]
     direction TB
     Platform["Principal / AuthZ / 設定<br/>Control Plane Plugins"]
-    SG["SignalsGateway<br/>channel ingress · webhook admission · delivery"]
+    Convo["Conversations<br/>共有メッセージ · provider 観測 · 配信"]
+    Signals["Signals<br/>単一受付 · ルーティング · CloudEvents"]
     Schedule["Schedule<br/>Checkback · Cron"]
-    Runtime["Conversations<br/>Agent loop · admission · recovery"]
+    Runtime["Sessions<br/>Agent loop · admission · recovery"]
     Jobs["Durable work control<br/>Background Agent Jobs · Automation Jobs"]
     Brain["Brain<br/>共有知識 · recall · Dreaming"]
     AI["AIGateway<br/>model routing · conversation · credential"]
   end
 
-  Fabric["RuntimeFabric<br/>一時的な Actor 通信 · 上限付き RPC · Worker ファイル"]
+  Fabric["RuntimeFabric<br/>ライブセッション通信 · 上限付き RPC · Worker ファイル"]
   Workers["Agent Computer Worker · Agent ごとに 1 つ<br/>環境ツール · Codex · Automation script<br/>Skills · MCP · browser · terminal"]
   Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
@@ -174,9 +174,11 @@ flowchart TB
   Homes[("Agent Home ストレージ · 永続性の境界<br/>Agent ごとに 1 つ · ワークスペース · Codex スレッド")]
 
   External -->|"input と administration"| Control
-  SG -->|"ActorEvent"| Runtime
-  Schedule -->|"ActorEvent"| Runtime
-  SG -->|"bound webhook"| Jobs
+  Convo -->|"message stimulus"| Signals
+  Schedule -->|"time stimulus"| Signals
+  Jobs -->|"completion stimulus"| Signals
+  Signals -->|"Signal"| Runtime
+  Signals -->|"bound raw webhook"| Jobs
   Schedule -->|"bound trigger"| Jobs
   Platform --> Runtime
   Runtime --> AI
@@ -199,7 +201,7 @@ Ankole は本番環境で稼働しています。Ankole の Agent も、会社�
 
 [トレードオフと既知の制限](docs/TradeoffsAndKnownLimits.md)（英語）に、Ankole が保証しないことをまとめています。特に重要な点は次のとおりです。
 
-- 1 つのデプロイメントは 1 つの組織だけに使います。信頼境界を共有しない組織は、別々にデプロイする必要があります。
+- 1 つのサイトで、組織データが分離された複数のテナントを運用できます。すべてのテナントはサイト運用者を信頼し、サイトのモデルプロバイダーと Worker プロバイダーを共有します。
 - Worker コンテナーが、その Agent の唯一の隔離境界です。Ankole は Agent 自身の操作から Worker を守りません。
 - Worker プロバイダーごとにクラウド検証の範囲が異なります。[Agent Workers](docs/design-docs/AgentWorkers.md#provider-verification-evidence)（英語）に、記録された根拠と未検証の項目をまとめています。
 

@@ -3,7 +3,7 @@ import { parseMarkdown, printXml } from '@ankole/block-editor/document'
 import { Button, Dialog, DialogContent, DialogFooter, DialogTitle } from '@ankole/uikit'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
-import { Link, useNavigate } from 'react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import type { ConversationMessage } from './api'
 import type { ConversationAttachment } from '../common/api/generated/types.gen'
 import { podLocation } from '../common/browser-context'
@@ -59,7 +59,7 @@ function MessagePageReference({ id }: { id: string }) {
     )
   }
   return (
-    <Link className="link pod-object-reference" to={podLocation(`/pages/${id}`)}>
+    <Link className="link pod-object-reference" to={podLocation(`/pages/${id}`).pathname}>
       <PageIcon page={page.data.page} />
       <span>{page.data.page.title || t('pod.content.untitled')}</span>
     </Link>
@@ -126,7 +126,7 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
     onSuccess: async page => {
       await client.invalidateQueries({ queryKey: contentKeys.all })
       setOpen(false)
-      navigate(podLocation(`/pages/${page.id}`))
+      void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
     }
   })
   const cannotSave =
@@ -184,7 +184,7 @@ function SaveMessageButton({ message, attachment }: { message: Message; attachme
         {save.error && created.current && (
           <p className="text-sm">
             {t('pod.content.the_page_was_created_but_its_content_has_not_been')}{' '}
-            <Link className="link" to={podLocation(`/pages/${created.current.id}`)}>
+            <Link className="link" to={podLocation(`/pages/${created.current.id}`).pathname}>
               {t('pod.content.open_the_created_page')}
             </Link>
           </p>

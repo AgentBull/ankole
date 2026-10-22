@@ -14,7 +14,7 @@ import {
 import { RiAddLine, RiChat3Line, RiSearchLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { conversationsQuery } from './api'
 import { pagesQuery } from './content-api'
@@ -53,10 +53,10 @@ export function PodCommandMenu({
     selected.current = true
     onOpenChange(false)
     setOpenMobile(false)
-    return navigate(
-      podLocation(path),
-      newChat ? { state: { focusComposer: true } satisfies PodCommandNavigationState } : undefined
-    )
+    return navigate({
+      to: podLocation(path).pathname,
+      state: (newChat ? ({ focusComposer: true } satisfies PodCommandNavigationState) : undefined) as never
+    })
   }
   const label = t('pod.command.open')
   return (

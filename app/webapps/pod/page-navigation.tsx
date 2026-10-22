@@ -21,7 +21,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
-import { Link, NavLink, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   RiAddLine,
   RiArrowRightSLine,
@@ -140,10 +140,14 @@ export function ContentNavigation({ onNavigate }: { onNavigate?: () => void }) {
           {(['shared', 'recent', 'favorites', 'trash'] as const).map(scope => {
             const Icon = scopeIcons[scope]
             return (
-              <NavLink key={scope} className="pod-nav-link" to={podLocation(`/content/${scope}`)} onClick={onNavigate}>
+              <Link
+                key={scope}
+                className="pod-nav-link"
+                to={podLocation(`/content/${scope}`).pathname}
+                onClick={onNavigate}>
                 <Icon aria-hidden />
                 <span>{scopeLabels[scope]}</span>
-              </NavLink>
+              </Link>
             )
           })}
         </nav>
@@ -199,7 +203,7 @@ function NavigationTree({
           onClick={onToggleRoot}>
           <RiArrowRightSLine aria-hidden className={open ? 'rotate-90' : ''} />
         </button>
-        <Link className="min-w-0 flex-1 truncate" to={podLocation(`/content/${scope}`)} onClick={onNavigate}>
+        <Link className="min-w-0 flex-1 truncate" to={podLocation(`/content/${scope}`).pathname} onClick={onNavigate}>
           {scopeLabels[scope]}
         </Link>
         <div className="pod-nav-actions flex items-center">
@@ -224,7 +228,7 @@ function NavigationTree({
 
 function PageTree({ pages }: { pages: Page[] }) {
   const { collapsed } = usePageTree()
-  const { pageID: routePageID } = useParams()
+  const { pageID: routePageID } = useParams({ strict: false })
   const pageID = podRouteID(routePageID)
   const ids = new Set(pages.map(page => page.id))
   const roots = pages.filter(page => !page.parent_id || !ids.has(page.parent_id))
@@ -341,7 +345,7 @@ function PageTreeRow({
             <Link
               ref={drag.handleRef}
               className="pod-tree-link"
-              to={podLocation(`/pages/${page.id}`)}
+              to={podLocation(`/pages/${page.id}`).pathname}
               onClick={onNavigate}
               aria-current={active ? 'page' : undefined}
               title={label}>
@@ -501,7 +505,7 @@ export function CreatePageDialog({
       await client.invalidateQueries({ queryKey: contentKeys.all })
       onClose()
       if (onCreated) onCreated(page)
-      else navigate(podLocation(`/pages/${page.id}`))
+      else void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
     }
   })
   return (
@@ -543,7 +547,7 @@ export function CreatePageDialog({
 }
 
 export function ContentListRoute() {
-  const { scope = 'space' } = useParams()
+  const { scope = 'space' } = useParams({ strict: false })
   const effectiveScope: PageScope =
     scope === 'search' ? 'all' : Object.hasOwn(scopeLabels, scope) ? (scope as PageScope) : 'space'
   const search = scope === 'search'
@@ -558,7 +562,10 @@ export function ContentListRoute() {
     onSuccess: async ({ page }) => {
       await client.invalidateQueries({ queryKey: contentKeys.all })
       toast.success(t('pod.content.page_restored'), {
-        action: { label: t('pod.content.open_page'), onClick: () => navigate(podLocation(`/pages/${page.id}`)) }
+        action: {
+          label: t('pod.content.open_page'),
+          onClick: () => void navigate({ to: podLocation(`/pages/${page.id}`).pathname })
+        }
       })
     }
   })
@@ -636,7 +643,7 @@ export function ContentListRoute() {
                   className="pod-content-list-link flex min-h-8 min-w-0 items-center gap-3 rounded-control px-3 py-1 text-[13px] leading-5 text-foreground no-underline hover:bg-accent focus-visible:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
                   aria-label={page.title || t('pod.content.untitled')}
                   aria-description={typeLabels[page.type]}
-                  to={podLocation(`/pages/${page.id}`)}>
+                  to={podLocation(`/pages/${page.id}`).pathname}>
                   <PageIcon page={page} />
                   <span className="min-w-0 flex-1 truncate">{page.title || t('pod.content.untitled')}</span>
                   <span className="shrink-0 text-xs text-fg-tertiary">{typeLabels[page.type]}</span>

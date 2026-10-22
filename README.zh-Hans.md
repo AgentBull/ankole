@@ -38,13 +38,6 @@ Ankole 是 Claude Tag 的开源替代方案。Claude Tag 是 Anthropic 托管的
 
 没有人要求 Ankole 记住这条规则。公司大脑从 Ankole 所在的一个群聊中学到这条规则，记录来源和日期，并用在下一个需要它的请求上。
 
-站点是一套完整部署，可以包含多个租户。各租户拥有独立的人员、Agent、Brain 和外部
-平台连接；站点管理员管理共享的提供商与基础设施。管理员控制台默认位于
-`/site-admin-console`；本次升级后 `/console` 返回 404。需要其他路径时，在启动前设置
-`ANKOLE_SITE_ADMIN_CONSOLE_PATH`，并将路径保存在运维配置中。普通用户通过自己的
-OIDC 应用登录，不使用站点管理控制台。
-
-
 ## 为什么选择 Ankole
 
 模型负责推理。围绕模型的 Harness 决定模型能看到什么、可以做什么，还决定任务失败后怎样继续、结果怎样用于下一次决策。Ankole 把这些决定做进系统，而不是交给每条提示词：
@@ -142,9 +135,11 @@ Claude Code、Codex 等编程 Agent 可以和你一起完成整个部署。把�
 
 ## 工作原理
 
+一套 Ankole 站点部署可以承载一个或多个隔离的租户。每个租户拥有独立的人员、Agent、公司大脑和外部渠道连接；站点管理员管理共享的模型提供商、Worker 提供商与基础设施。
+
 Ankole 由控制面、Worker（每个 Agent 一个）、共享的 Rust Kernel 和持久存储组成：
 
-- **控制面**（Elixir、Phoenix 和 OTP）决定并记录所有必须在进程结束后保留的内容，包括身份与权限、配置、外部消息与 Webhook、定时计划、对话、后台任务、公司大脑，以及调用模型提供商的 AI 网关。每个对话的模型循环都是控制面里一个受监督的进程。
+- **控制面**（Elixir、Phoenix 和 OTP）决定并记录所有必须在进程结束后保留的内容，包括身份与权限、配置、对话与消息、信号、定时计划、后台任务、公司大脑，以及调用模型提供商的 AI 网关。Sessions 将每个 Agent 的模型循环作为受监督进程运行。
 - 每个 Agent 有一个 **Agent Computer Worker**，即运行在 Linux 容器中的 Bun 和 TypeScript 程序。它执行命令，运行浏览器、Codex、MCP 服务器、Skill 和 Automation 脚本。控制面在 Docker、Kubernetes 或云平台上创建 Worker，只在工作需要电脑时调用它。
 - **Kernel** 是由 Elixir 加载的 Rust 库，提供加密、标识符、权限求值和 AI 传输。
 - **PostgreSQL** 保存所有重启后必须保留的事实。文件存储存放每个 Agent 的云盘和附件，每个 Agent 的主目录（Agent Home）保存在各自的存储上。
@@ -160,16 +155,17 @@ flowchart TB
 
   subgraph Control["Control Plane · 单一逻辑状态与协调边界"]
     direction TB
-    Platform["主体 / AuthZ / 配置<br/>Control Plane Plugins"]
-    SG["SignalsGateway<br/>渠道入口 · Webhook 接入 · 交付"]
+    Platform["Principal / AuthZ / 配置<br/>Control Plane Plugins"]
+    Convo["Conversations<br/>共享消息 · 渠道观测 · 投递"]
+    Signals["Signals<br/>统一入口 · 路由 · CloudEvents"]
     Schedule["Schedule<br/>Checkback · Cron"]
-    Runtime["Conversations<br/>Agent loop · 准入 · 恢复"]
+    Runtime["Sessions<br/>Agent loop · 准入 · 恢复"]
     Jobs["持久工作控制<br/>后台 Agent 任务 · Automation Job"]
     Brain["Brain<br/>共享知识 · 召回 · Dreaming"]
     AI["AIGateway<br/>模型路由 · 会话 · 凭证"]
   end
 
-  Fabric["RuntimeFabric<br/>瞬时 Actor 通信 · 有界 RPC · Worker 文件"]
+  Fabric["RuntimeFabric<br/>实时会话通信 · 有界 RPC · Worker 文件"]
   Workers["Agent Computer Worker · 每个 Agent 一个<br/>环境工具 · Codex · Automation 脚本<br/>Skill · MCP · 浏览器 · 终端"]
   Providers["AI 提供商<br/>LLM · Embedding · Rerank · 图像 · 网页"]
 
@@ -178,9 +174,11 @@ flowchart TB
   Homes[("Agent Home 存储 · 持久性边界<br/>每个 Agent 一份 · 工作区 · Codex 线程")]
 
   External -->|"输入与管理"| Control
-  SG -->|"ActorEvent"| Runtime
-  Schedule -->|"ActorEvent"| Runtime
-  SG -->|"绑定的 Webhook"| Jobs
+  Convo -->|"消息刺激"| Signals
+  Schedule -->|"时间刺激"| Signals
+  Jobs -->|"完成刺激"| Signals
+  Signals -->|"Signal"| Runtime
+  Signals -->|"绑定的原始 Webhook"| Jobs
   Schedule -->|"绑定的触发器"| Jobs
   Platform --> Runtime
   Runtime --> AI
@@ -203,7 +201,7 @@ Ankole 已在生产环境中运行。一个 Ankole Agent 也在参与维护本�
 
 [取舍与已知限制](docs/TradeoffsAndKnownLimits.md)（英文）说明 Ankole 不做哪些保证。其中最重要的几点：
 
-- 一个部署实例只服务一个组织。不共享信任边界的组织需要分别部署。
+- 一个站点可以承载多个组织数据相互隔离的租户。所有租户信任同一站点运维方，并共享站点的模型提供商与 Worker 提供商。
 - Worker 容器是对应 Agent 唯一的隔离边界，Ankole 不防范 Agent 改动或破坏自己的 Worker。
 - 各 Worker 提供方的云端验证范围不同。[Agent Workers](docs/design-docs/AgentWorkers.md#provider-verification-evidence)（英文）统一记录已有证据和待验证项。
 

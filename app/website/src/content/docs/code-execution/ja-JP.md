@@ -22,13 +22,13 @@ shell に加えて、computer tools は Agent に 2 つのファイルプリミ�
 - **ファイルの読み取り**——`read-file-tool.ts`。`cat` に shell out するのではなく、ファイルの内容を直接検査します。
 - **ファイルの編集**——`apply-patch-tool.ts`。固定された Codex リリースと同じ文法を使う、freeform の `apply_patch` tool です。
 
-Main Agent は生の patch を `custom_tool_call` として AIGateway を通じて送ります。Worker はそれを `/usr/local/bin/apply_patch` を通じてネイティブの Codex バイナリに渡します。Background Agent Job は AIGateway の model card から同じ freeform tool を受け取り、同じバイナリを使います。Ankole は別の patch パーサーを保持しません。
+Main Agent は生の patch を `custom_tool_call` として AIGateway を通じて送ります。Worker はそれを `/usr/local/bin/apply_patch` を通じてネイティブの Codex バイナリに渡します。Background Agent Job は AIGateway の model card から同じ freeform tool を受け取り、同じバイナリを使います。
 
 この共有パスにより、通常の会話と Background Agent Job は 1 つの編集プロトコルに留まります。一致しない patch はネイティブ tool で失敗し、その失敗が model に返されます。素早い検索には shell で十分です。ファイル編集には `apply_patch` を使ってください。
 
 ## /workspace ファイルシステム
 
-Agent Home は `/workspace` の永続ストレージです。旧パス `/agents/<agent_uid>` は Home へのリンクです。パス検証はシンボリックリンクを解決してから Home の境界を確認します。構成は次のとおりです。
+Agent Home は `/workspace` の永続ストレージです。`/agents/<agent_uid>` は `/workspace` へのシンボリックリンクです。パス検証はシンボリックリンクを解決してから Home の境界を確認します。構成は次のとおりです。
 
 ```text
 /workspace/
@@ -50,7 +50,7 @@ Home はインスタンス削除やイメージ変更後も残ります。再構
 
 control plane のドライブは添付ファイル、公開ファイル、Skill、Automation スクリプトを別途保存します。`ankole-files` で読み書きします。Job workspace と Codex スレッドは永続 Home に残ります。Turn の前に `installed-skills/` をドライブと同期します。
 
-Background Agent Job は Ankole `skill_view` を通して Skill を読み込み、Skill root を Job ワークスペースへコピーしません。
+Background Agent Job は `skill_view` を通してオンデマンドで Skill を読み込みます。
 
 ## 反復的な Python のための Jupyter live kernel
 
@@ -62,7 +62,7 @@ Skill 自身のガイダンスが経験則です。短くステートレスな P
 
 CodexRunner はすべての Background Agent Job の実行エンジンです。Job はトピックの調査、ドキュメントの作成、リポジトリの変更、その他の長時間の作業ができます。CodexRunner を選ぶのは、そのライフサイクルであり、主題ではありません。runner は `app-server-client.ts` を通じて Codex app-server と通信し、別の Job workspace と runtime 設定を準備します。
 
-Console は対応する model profile を **Background Agent Jobs** と表示します。その保存キーと API 名は、当面 `coding` のままです。これはレガシー名であり、コード量の多い会話を検出する規則ではありません。
+Console は対応する model profile を **Background Agent Jobs** と表示します。その保存キーと API 名は `coding` です。
 
 ## これらのパスの選択方法
 

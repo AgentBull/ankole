@@ -5,7 +5,7 @@ order: 124
 description: 控制面的任务清单、决策问题，以及 Codex Job 的独立输入路径。
 ---
 
-`todo` 与 `clarify` 是控制面工具，由 `Ankole.Sessions.Tools.Session` 拥有。Driver 校验参数，经 AIGateway 保存模型可见结果，并把效果应用到当前运行。Worker 不拥有这些主回合工具。
+`todo` 与 `clarify` 是控制面工具，由 `Ankole.Sessions.Tools.Session` 拥有。Driver 校验参数，经 AIGateway 保存模型可见结果，并把效果应用到当前运行。
 
 ## 任务清单
 
@@ -23,6 +23,6 @@ description: 控制面的任务清单、决策问题，以及 Codex Job 的独�
 
 ## 后台 Job 与运维
 
-原生 Codex Job 使用独立的输入请求路径。请求人工输入时，Job 进入 `waiting_on_user` 并释放运行槽位；owner 的回复使其继续。这是 Job 生命周期契约，不是在 Worker 中执行主 Agent 的 `clarify`。参见 [后台 Agent 任务](../background-agent-jobs/)。
+原生 Codex Job 使用独立的输入请求路径。请求人工输入时，Job 进入 `waiting_on_user` 并释放运行槽位；owner 的回复使其继续。这是 Job 生命周期契约。参见 [后台 Agent 任务](../background-agent-jobs/)。
 
 规划状态与回合结束行为没有 Console 调节开关。若 Agent 选择规划或提问的方式需要调整，应修改 Agent 的指导与能力。参见 [Agents](../agents/) 与 [Agent 循环](../agent-loop/)。

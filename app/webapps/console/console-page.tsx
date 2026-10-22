@@ -4,7 +4,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useState, type ComponentProps, type ReactNode } from 'react'
 import { Helmet } from 'react-helmet-async'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
+import { Link } from '@tanstack/react-router'
+import { linkTarget } from '../common/router'
 
 /**
  * Names the browser tab and history entry after the page. The Phoenix shell
@@ -31,7 +32,7 @@ export function BackLink({ label, to }: { label?: string; to: string }) {
   const { t } = useTranslation()
   return (
     <Link
-      to={to}
+      {...linkTarget(to)}
       className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
       <RiArrowLeftLine className="size-4" aria-hidden />
       {label ?? t('common.back')}

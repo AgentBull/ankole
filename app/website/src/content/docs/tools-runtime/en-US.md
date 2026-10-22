@@ -30,4 +30,4 @@ A Workflow task has a restricted catalog: web operations, the Background Agent J
 
 ## Add a tool
 
-Put a domain tool declaration and implementation in its control-plane owner. Add an environment tool to the Worker catalog and regenerate `worker_tools.json`. `WorkerAgentTool` and Zod remain the Worker implementation contract; they do not own the main model loop. Preserve the schema and the execution boundary together.
+Put a domain tool declaration and implementation in its control-plane owner. Add an environment tool to the Worker catalog and regenerate `worker_tools.json`. `WorkerAgentTool` and Zod define the Worker tool implementation contract. Preserve the schema and the execution boundary together.

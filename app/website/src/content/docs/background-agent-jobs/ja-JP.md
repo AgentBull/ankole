@@ -44,7 +44,7 @@ wakeup は通常の Signalです。他の signal と同じキュー、同じフ�
 
 wakeup イベントの source id は Job、ステータス、試行番号をエンコードするため、再開された Job の後の wakeup が以前のものと混同されることはありません。
 
-完了 wakeup はサイズが制限された結果概要を保持します。保存された最終応答が概要の上限を超える場合、owner Agent は `result_offset: 0` を指定して `show_background_job_details` を呼び出します。返された `result.next_offset` を次の呼び出しに渡し、値が `null` になるまで続けます。UTF-8 安全な各セグメントを順番に連結すると、元の応答を正確に復元できます。これにより、別の Job 操作を追加せずに、wakeup と各読み取りのサイズを制限できます。
+完了 wakeup はサイズが制限された結果概要を保持します。保存された最終応答が概要の上限を超える場合、owner Agent は `result_offset: 0` を指定して `show_background_job_details` を呼び出します。返された `result.next_offset` を次の呼び出しに渡し、値が `null` になるまで続けます。UTF-8 安全な各セグメントを順番に連結すると、元の応答を正確に復元できます。これにより、完全な永続結果をスライス単位で読み取り可能に保ちながら、wakeup と各読み取りのサイズを制限できます。
 
 ## 再開と入力待ち
 
@@ -67,11 +67,11 @@ AIGateway のクォータ枯渇に既知の将来のリカバリ時刻がある�
 
 ## ディスパッチと agent のプラグイン
 
-Job はオプションの workspace テンプレートを 1 つ保持します。最初の実際の execution admission は、provider と model の binding、および Agent Plugin と Skill の選択を同じトランザクションで記録します。再試行と再開は、その固定された選択と agent の現在の有効セットとの積集合を使います。選択済みの capability を無効にすると削除され、再度有効にすると復元されますが、admission 時に選択されなかった capability を後から追加することはできません。credential と変更可能な Skill content は、引き続き現在の owner から読み取ります。`Sessions.CodexJob` は内核の Signal から Job の試行を受け入れ、steer イベントを別々に扱うため、session へのライブ配信が Job への steer と誤認されません。すべてのモデル turn は記録済みの binding で AIGateway を通ります。その provider が複数の credential を持つ場合、その選択、affinity、refresh、retry は AIGateway が所有します。Job はアカウントフィールドもアカウント並行スロットも持ちません。
+Job はオプションの workspace テンプレートを 1 つ保持します。最初の実際の execution admission は、provider と model の binding、および Agent Plugin と Skill の選択を同じトランザクションで記録します。再試行と再開は、その固定された選択と agent の現在の有効セットとの積集合を使います。選択済みの capability を無効にすると削除され、再度有効にすると復元されますが、admission 時に選択されなかった capability を後から追加することはできません。credential と変更可能な Skill content は、引き続き現在の owner から読み取ります。`Sessions.CodexJob` は内核の Signal から Job の試行を受け入れ、steer イベントを別々に扱うため、session へのライブ配信が Job への steer と誤認されません。すべてのモデル turn は記録済みの binding で AIGateway を通ります。その provider が複数の credential を持つ場合、その選択、affinity、refresh、retry は AIGateway が所有します。
 
-Background Agent Job は、メイン Agent と同じ Ankole `skill_view` loader を使用します。通常の互換 Skill は Job の Skill index に入ります。`brain-recall-only: true` を宣言した Skill は index に入らず、Brain から発見できます。`get_page` が対応する発見レコードに一致すると、`skill_view` に委譲します。loader は `SKILL.md` または reference file を読むたびに、現在の Agent Plugin と Skill の実効状態を control plane に確認します。そのため、実行中の Job も、無効化された Skill を読み続けることはできません。この経路は Codex native Skill discovery、`.agents/skills`、`skills/list` に依存しません。
+Background Agent Job は、メイン Agent と同じ Ankole `skill_view` loader を使用します。通常の互換 Skill は Job の Skill index に入ります。`brain-recall-only: true` を宣言した Skill は index に入らず、Brain から発見できます。`get_page` が対応する発見レコードに一致すると、`skill_view` に委譲します。loader は `SKILL.md` または reference file を読むたびに、現在の Agent Plugin と Skill の実効状態を control plane に確認します。そのため、実行中の Job も、無効化された Skill を読み続けることはできません。
 
-Job が初めて workspace を初期化するとき、ランナーはプロジェクトの `AGENTS.md` を組み立てます。オプションの workspace テンプレートが最初に来て、その後にレンダリングされた Job context（agent の SOUL と MISSION、実行の事実）が続きます。共有の `app/library/templates/AGENT_JOB.md` は拡張ポイントのままですが、同梱のファイルは空なので、ランナーは Job Guidance セクションを省略します。Codex プロジェクト設定は、ネイティブ subagent の待ち最小時間を 1 分、デフォルトを 2 分に設定します。最大時間は設定しないため、Codex はデフォルトを維持します。これにより、空の待ち時間の後の繰り返しのモデル turn が減ります。これは [openai/codex#35259](https://github.com/openai/codex/issues/35259) で追跡されています。再開されたスレッドは既存の `AGENTS.md` を保持します。
+Job が初めて workspace を初期化するとき、ランナーはプロジェクトの `AGENTS.md` を組み立てます。オプションの workspace テンプレートが最初に来て、その後にレンダリングされた Job context（agent の SOUL と MISSION、実行の事実）が続きます。Codex プロジェクト設定は、ネイティブ subagent の待ち最小時間を 1 分、デフォルトを 2 分に設定します。最大時間は設定しないため、Codex はデフォルトを維持します。これにより、空の待ち時間の後の繰り返しのモデル turn が減ります。これは [openai/codex#35259](https://github.com/openai/codex/issues/35259) で追跡されています。再開されたスレッドはそのプロジェクトの `AGENTS.md` を再利用します。
 
 ## 運用者向けの表面
 

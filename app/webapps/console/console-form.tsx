@@ -42,7 +42,7 @@ import {
   type ReactNode
 } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useBlocker } from 'react-router'
+import { useBlocker } from '@tanstack/react-router'
 import { BackLink, DocumentTitle, PageStack } from './console-page'
 import { ErrorBlock } from '../common/error-block'
 import { formatJSONDraft, inspectJSONDraft } from './state/json-editor'
@@ -248,14 +248,16 @@ function useBeforeUnloadGuard(blocked: boolean) {
  * a draft never reach `useBlocker`, which requires a data router.
  */
 export function EditorNavigationGuard({ blocked }: { blocked: boolean }) {
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) => blocked && currentLocation.pathname !== nextLocation.pathname
-  )
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) => blocked && current.pathname !== next.pathname,
+    enableBeforeUnload: false,
+    withResolver: true
+  })
   useBeforeUnloadGuard(blocked)
 
   return (
     <DiscardConfirmDialog
-      open={blocker.state === 'blocked'}
+      open={blocker.status === 'blocked'}
       onDiscard={() => blocker.proceed?.()}
       onKeep={() => blocker.reset?.()}
     />

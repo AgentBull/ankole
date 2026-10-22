@@ -44,7 +44,7 @@ queued → running → waiting_on_user → running → … → succeeded | faile
 
 唤醒事件的 source id 编码了任务、状态和尝试序号，所以一个被恢复的任务后续的唤醒，不会和早先那一次混淆。
 
-完成唤醒只携带有界的结果摘要。持久化的最终回复超过摘要上限时，owner Agent 调用 `show_background_job_details` 并传入 `result_offset: 0`，随后把每次返回的 `result.next_offset` 传给下一次调用，直到它为 `null`。按顺序拼接这些 UTF-8 安全的片段，可以逐字还原最终回复。这样既能限制唤醒和每次读取的大小，也无需增加另一种任务操作，同时不会失去对持久结果的访问。
+完成唤醒只携带有界的结果摘要。持久化的最终回复超过摘要上限时，owner Agent 调用 `show_background_job_details` 并传入 `result_offset: 0`，随后把每次返回的 `result.next_offset` 传给下一次调用，直到它为 `null`。按顺序拼接这些 UTF-8 安全的片段，可以逐字还原最终回复。这样既能限制唤醒和每次读取的大小，又能让完整持久结果按分片读取。
 
 ## 恢复与等待输入
 
@@ -67,11 +67,11 @@ AIGateway 配额耗尽且池有已知的未来恢复时间时，生命周期会�
 
 ## 派发与 agent 的插件
 
-一个任务保留一个可选的工作空间模板。第一次实际 execution admission 会在同一事务中记录 Provider 和模型绑定，以及 Agent Plugin 和 Skill 选择。重试和续接使用这份固定选择，并与 Agent 当前的有效集合取交集：停用已选能力会把它移除，重新启用会恢复它，但 admission 时未选择的能力之后不能加入。凭据和可变 Skill 内容仍从当前 owner 读取。`Sessions.CodexJob` 从内核 Signal 准入任务尝试，并把 steer 事件单独处理，以免一次发往 session 的实时交付被误当成对任务的 steer。每个模型回合都通过 AIGateway，并使用已记录的绑定。若该 Provider 有多个凭据，选择、亲和、刷新和重试都由 AIGateway 管理；任务没有账号字段或账号并发槽。
+一个任务保留一个可选的工作空间模板。第一次实际 execution admission 会在同一事务中记录 Provider 和模型绑定，以及 Agent Plugin 和 Skill 选择。重试和续接使用这份固定选择，并与 Agent 当前的有效集合取交集：停用已选能力会把它移除，重新启用会恢复它，但 admission 时未选择的能力之后不能加入。凭据和可变 Skill 内容仍从当前 owner 读取。`Sessions.CodexJob` 从内核 Signal 准入任务尝试，并把 steer 事件单独处理，以免一次发往 session 的实时交付被误当成对任务的 steer。每个模型回合都通过 AIGateway，并使用已记录的绑定。若该 Provider 有多个凭据，选择、亲和、刷新和重试都由 AIGateway 管理。
 
-后台 Agent Job 与主 Agent 使用同一个 Ankole `skill_view` loader。普通的兼容 Skill 会进入 Job 的 Skill 目录；声明 `brain-recall-only: true` 的 Skill 不进入该目录，而是通过 Brain 发现，`get_page` 命中对应发现记录时会转交给 `skill_view`。每次读取 `SKILL.md` 或参考文件之前，loader 都会向控制面复核当前的 Agent Plugin 与 Skill 有效状态。因此，运行中的 Job 也不能在 Skill 被关闭后继续读取它。这条路径不依赖 Codex 原生 Skill 发现、`.agents/skills` 或 `skills/list`。
+后台 Agent Job 与主 Agent 使用同一个 Ankole `skill_view` loader。普通的兼容 Skill 会进入 Job 的 Skill 目录；声明 `brain-recall-only: true` 的 Skill 不进入该目录，而是通过 Brain 发现，`get_page` 命中对应发现记录时会转交给 `skill_view`。每次读取 `SKILL.md` 或参考文件之前，loader 都会向控制面复核当前的 Agent Plugin 与 Skill 有效状态。因此，运行中的 Job 也不能在 Skill 被关闭后继续读取它。
 
-任务第一次初始化工作空间时，runner 组装项目 `AGENTS.md`：可选的工作空间模板在最前，随后追加渲染出的任务上下文——agent 的 SOUL 与 MISSION 和执行事实。共享模板 `app/library/templates/AGENT_JOB.md` 仍作为扩展点，但随产品交付的文件为空，因此 runner 不生成 Job Guidance 一节。Codex 项目配置把原生子 agent 等待的最小值设为 1 分钟，默认值设为 2 分钟；不设置最大值，因此沿用 Codex 默认值。这样可以减少空等待超时后模型重复进入，相关问题见 [openai/codex#35259](https://github.com/openai/codex/issues/35259)。续接既有线程的任务保留原有 `AGENTS.md`。
+任务第一次初始化工作空间时，runner 组装项目 `AGENTS.md`：可选的工作空间模板在最前，随后追加渲染出的任务上下文——agent 的 SOUL 与 MISSION 和执行事实。Codex 项目配置把原生子 agent 等待的最小值设为 1 分钟，默认值设为 2 分钟；不设置最大值，因此沿用 Codex 默认值。这样可以减少空等待超时后模型重复进入，相关问题见 [openai/codex#35259](https://github.com/openai/codex/issues/35259)。续接的线程复用其项目 `AGENTS.md`。
 
 ## 运维界面
 

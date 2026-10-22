@@ -76,10 +76,6 @@ Agent Computer는 실행마다 고유한 `0600` config를 작성하고 그 경�
 
 Main Agent는 command tool을 통해 mcporter를 호출합니다. Background Agent Jobs는 Codex terminal을 통해 호출합니다. Automation Jobs는 `main.ts`에서 `Bun.spawn`으로 호출합니다.
 
-## Native model-visible MCP 경계
-
-현재 Ankole과 함께 번들로 제공되는 model-visible MCP server는 없습니다. 미래의 구체적인 통합은 Main과 Background에서 동일한 `mcp__<server>` 네임스페이스, tool 이름, description 및 지연 로딩 동작을 사용해야 합니다. Ankole은 server JSON Schema를 각 runtime에 변경 없이 전달합니다. Main은 자체 Responses tool owner를 사용하고, Background는 Codex native MCP를 사용하여 Codex가 해당 프로젝션을 소유하게 합니다. Ankole은 한 runtime의 schema를 다른 runtime을 모방하도록 다시 쓰지 않으며, 이 미래 사례를 위해 빈 registry나 일반 로컬 MCP loader를 추가하지 않습니다.
-
 ## tool 하나 선택 및 호출
 
 Skill은 schema discovery 전에 domain tool 하나를 선택해야 합니다. 현재 schema가 필요할 때 해당 tool만 검사하십시오.
@@ -98,7 +94,7 @@ Automation script도 같은 argv를 사용하고, 자식 프로세스 stdin에 J
 
 ## 보안 제한
 
-MCP 출력은 신뢰할 수 없는 input입니다. Skill 및 mcporter 경로는 Ankole의 이전 native output-schema 검증, MCP annotation 스케줄링, tool 수준 승인 UI 또는 모든 WorkerEnv secret에 대한 결과 redaction을 제공하지 않습니다. 신뢰할 수 있는 first-party MCP Skill에 사용하십시오. 원격 credential scope가 실제 읽기/쓰기 권한 경계로 남습니다.
+MCP 출력은 신뢰할 수 없는 input입니다. Skill 및 mcporter 경로는 출력 schema 검증, MCP annotation 기반 스케줄링, tool 수준 승인 확인, 또는 결과에서 WorkerEnv secret redaction을 수행하지 않습니다. 신뢰할 수 있는 first-party MCP Skill에 사용하십시오. 원격 credential scope가 실제 읽기/쓰기 권한 경계로 남습니다.
 
 ## 다음 단계
 

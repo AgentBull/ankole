@@ -1,7 +1,7 @@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@ankole/uikit'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { useSearchParams } from '../common/router'
 import { ankoleWebAgentControllerIndexOptions } from './api/generated/@tanstack/react-query.gen'
 import { resetCursorParams } from './state/cursor-pagination'
 

@@ -7,7 +7,7 @@ order: 202
 
 本页列出 PostgreSQL、部署密钥、文件存储与进程设置的启动变量。Worker provider 的设置以 YAML 保存在 PostgreSQL 中。
 
-可以在实例运行期间修改的 AppConfigure 键已经迁入 [系统配置](../app-configuration/)。不要把这些运行时设置写入 `.env` 或 Kubernetes Secret。
+可以在实例运行期间修改的运行时设置见 [系统配置](../app-configuration/)。不要把这些运行时设置写入 `.env` 或 Kubernetes Secret。
 
 ## 引导与 secret（进程启动）
 

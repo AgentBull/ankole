@@ -9,7 +9,7 @@ This specification gives the behavior of the `@ankole/block-editor` package in `
 - `upstream/fixtures/commonmark-dialect.json` records each example where this format is different from the CommonMark reference implementation. This file is part of this specification.
 - `upstream/NOTICE.md` gives the sources and licenses of the third-party test data.
 - In shortcuts, ⌘ is the Command key on Apple platforms (macOS, iOS, and iPadOS) and the Ctrl key on other platforms. In this specification, Ctrl is the Control key on all platforms. On Apple platforms, editor shortcuts do not use Ctrl with a letter, because the system uses these keys to edit text.
-- Document errors and warnings remain in Chinese. Interface labels use the editor's `PhraseSet` mechanism. `BlockEditor.labels` supplies host translations; omitted labels retain the Chinese defaults below. Menus search their translated titles and details and their fixed keyword aliases. A label change updates the interface without changing the page, selection, or undo history. Hosts own their translation catalogs. The Pod host uses the four shared application catalogs. Parsing and serialization do not depend on interface labels.
+- Document errors and warnings are in Chinese. Interface labels default to Chinese and can be translated through `BlockEditor.labels` (section 7.6). Parsing and serialization do not depend on interface labels.
 
 | Term | Meaning |
 | --- | --- |
@@ -466,7 +466,7 @@ For each valid page tree `T`, an import and then a read give `N(T)`.
 
 `preparePageUpdate(transaction)` prepares the final local transaction of a batch for XML storage. Run input appenders first, and call it after IME composition ends. The function reads and writes the document through the XML conversion chain, makes a correction for the parts that differ, and merges that correction into the transaction. Mark changes keep text positions. The returned transaction keeps the mapped selection and effects, annotations, and history boundary.
 
-The client applies the returned transaction in place of the original. It composes that transaction's changes with the earlier changes in the batch, then sends the result. Normalizing only the wire data while keeping the old client document breaks the next batch. Remote replay applies the prepared changes without a new local preparation. The M2 live transport and client adapter are separate work.
+The client applies the returned transaction in place of the original. It composes that transaction's changes with the earlier changes in the batch, then sends the result. Normalizing only the wire data while keeping the old client document breaks the next batch. Remote replay applies the prepared changes without a new local preparation.
 
 ### 7.4 Read-only elements
 
@@ -620,10 +620,10 @@ Props of `BlockEditor`:
 | `children` | `ReactNode` | — | Content in the editor context. It can use `useEditor` and `useEditorState`. |
 
 A host re-render, new callback, or label change does not make a new editor.
-Labels use the existing `PhraseSet`; hosts own locale selection and catalogs.
+Labels use `PhraseSet`; hosts own locale selection and translation catalogs.
 `ariaLabel` and `placeholder` override the corresponding labels when supplied.
-Slash search matches the translated block title and detail, plus its existing
-keywords. Labels do not change document text, selection, or undo history.
+Slash search matches the translated block title and detail, plus its fixed
+keyword aliases. Labels do not change document text, selection, or undo history.
 The interface descriptions below use the default Chinese labels.
 When `readOnly` is `true`:
 
@@ -712,6 +712,7 @@ During an IME composition, Enter, Escape, and keys with `keyCode=229` do not sub
 | `new PageSession(editor)` | Starts the revision count. A new instance on the same editor replaces the old instance. |
 | `revision` | The revision number. It increases by 1 each time a dispatched update changes the page. |
 | `read()` | Returns `{ revision, markdown, xml }`. |
+| `readXml()` | Returns `{ revision, xml }`, reusing the accepted document's validated XML source. |
 | `apply({ format, source, revision })` | Refer to the steps below. |
 | `dispose()` | Stops the count and rejects later writes through this instance. Reads remain available. |
 
@@ -762,13 +763,11 @@ the server assigns revisions. Preparation failures preserve the local document
 and publish an error. The host owns reconnecting the transport. Calling
 `dispose()` ends that collaboration instance.
 
-Document transactions validate the existing source, node, and depth bounds
+Document transactions validate the source, node, and depth bounds (section 1.5)
 before updating editor state, revision, or undo history. A rejected transaction
-keeps the preceding legal draft. `PageSession.readXml()` returns its revision
-and XML, reusing the accepted document's validated source; `read()` retains the
-complete XML and Markdown snapshot contract. When a remote change combined
-with pending local edits exceeds a bound, collaboration preserves the current
-legal draft and requests the existing reset/reload recovery.
+keeps the preceding legal draft. When a remote change combined with pending
+local edits exceeds a bound, collaboration preserves the current legal draft and
+requests reset/reload recovery from the host.
 
 ### 8.2 Dependencies and build
 
@@ -877,8 +876,7 @@ The build targets for JS and CSS are `chrome126`, `firefox153`, and `safari17`.
 - `E2E_PREVIEW=1 bun run test:chromium126` runs the same scenarios on Chrome for Testing 126.
 - `bun run test:native` runs WebDriver tests in native Firefox ESR on port 3147. `NATIVE_BROWSER=safari` uses Safari.
 - `bun run generate:corpus` writes the shared golden file in `corpus/rust`. `bun run test:corpus` checks it without rewriting it. It holds pages, rejected sources, exact document-limit boundaries, and local edit batches from the production transaction pipeline. Each batch has the expected client XML and document. Replay compares the in-memory client with a server that stores and reads XML after every batch. A mismatch fails the preflight. `FC_SEED` selects the generated samples or the independent property-test seed. `corpus/rust/README.md` describes format version 2 and its limits.
-- `bun run test:package` installs the editor and UI Kit from tarballs and checks the public types. Then it checks reads and writes on a headless editor state and builds a host. Last, it runs the embedding tests in the three browsers. These tests also use `PageSession`, `PageCollaboration`, and the host hooks,
-  including cursor-position image insertion and undo.
+- `bun run test:package` installs the editor and UI Kit from tarballs and checks the public types. Then it checks reads and writes on a headless editor state and builds a host. Last, it runs the embedding tests in the three browsers, exercising `PageSession`, `PageCollaboration`, the host hooks, cursor-position image insertion, and undo.
 - `bun run type-check`, `bun run fmt:check`, and `bun run build` check the types, the format, and the build.
 - `bun run test:e2e:install` and `bun run test:compat:install chromium126 firefox-esr` install the test browsers.
 

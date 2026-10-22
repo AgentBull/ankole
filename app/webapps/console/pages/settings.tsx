@@ -37,7 +37,8 @@ import {
 import { useIsMutating, useMutation, useQuery } from '@tanstack/react-query'
 import { Fragment, useDeferredValue, useEffect, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useNavigate, useParams, useSearchParams } from 'react-router'
+import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router'
+import { useSearchParams } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebAppConfigurationControllerDecryptMutation,
@@ -214,7 +215,7 @@ function SettingValueCell({ item, scope }: { item?: AppConfigurationItem; scope:
           <span>{t(`console.settings.source_${item.source}`)}</span>
           {item.encrypted ? <Badge variant="info">{t('console.status.encrypted')}</Badge> : null}
           {item.editable ? (
-            <Link className="link" to={`${encodeURIComponent(item.key)}?scope=${scope}`}>
+            <Link className="link" to={encodeURIComponent(item.key)} search={{ scope }}>
               {t('common.edit')}
             </Link>
           ) : null}
@@ -283,13 +284,13 @@ function SettingGroupRow({
         </div>
       </TableCell>
       <TableCell>
-        <Link className="link text-xs" to={`group/${group.id}?scope=global`}>
+        <Link className="link text-xs" to={`group/${group.id}`} search={{ scope: 'global' }}>
           {t('common.edit')}
         </Link>
       </TableCell>
       <TableCell>
         {group.items.some(item => tenantItems.get(item.key)?.editable) ? (
-          <Link className="link text-xs" to={`group/${group.id}?scope=tenant`}>
+          <Link className="link text-xs" to={`group/${group.id}`} search={{ scope: 'tenant' }}>
             {t('common.edit')}
           </Link>
         ) : null}
@@ -305,7 +306,7 @@ export function SettingEditorDrawer() {
   const formCompleteness = useFormCompleteness()
   const navigate = useNavigate()
   const model = useModel(SettingEditorModel)
-  const params = useParams()
+  const params = useParams({ strict: false })
   const [searchParams] = useSearchParams()
   const scope = searchParams.get('scope') === 'global' ? 'global' : 'tenant'
   const api = SETTING_API[scope]
@@ -362,7 +363,7 @@ export function SettingEditorDrawer() {
     if (!clean) return
     model.resetSource()
     decrypt.reset()
-    navigate('/settings')
+    void navigate({ to: '/settings' })
   }
   const update = useMutation({ ...api.update(), mutationKey: SETTING_MUTATION_KEY })
   const restoreDefault = useMutation({ ...api.remove(), mutationKey: SETTING_MUTATION_KEY })
@@ -388,7 +389,7 @@ export function SettingEditorDrawer() {
 
   const saving = update.isPending || restoreDefault.isPending
   const requestClose = () => {
-    if (!saving) navigate('/settings')
+    if (!saving) void navigate({ to: '/settings' })
   }
   const drawerError =
     model.validationError.value ??
@@ -572,7 +573,7 @@ export function SettingGroupDrawer() {
   const formCompleteness = useFormCompleteness()
   const navigate = useNavigate()
   const model = useModel(SettingGroupEditorModel)
-  const params = useParams()
+  const params = useParams({ strict: false })
   const [searchParams] = useSearchParams()
   const scope = searchParams.get('scope') === 'global' ? 'global' : 'tenant'
   const api = SETTING_API[scope]
@@ -656,7 +657,7 @@ export function SettingGroupDrawer() {
         (key, value) => update.mutateAsync({ body: { value }, path: { key } }),
         (count, clean) => {
           toast.success(t('console.settings.group_saved', { count }))
-          if (clean) navigate('/settings')
+          if (clean) void navigate({ to: '/settings' })
         }
       )
       .catch(error => toast.error(requestErrorMessage(error)))
@@ -664,7 +665,7 @@ export function SettingGroupDrawer() {
 
   const busy = saving || restoreDefault.isPending
   const requestClose = () => {
-    if (!busy) navigate('/settings')
+    if (!busy) void navigate({ to: '/settings' })
   }
 
   return (

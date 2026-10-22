@@ -41,7 +41,7 @@ manifest.
 
 Job creation can set one `workspace_template_id`. Agent Computer copies that
 Plugin's template when it first creates the Job Workspace. It does not copy a
-template when the field is absent. A resumed Job keeps the existing files.
+template when the field is absent. A resumed Job keeps its workspace files.
 Runtime package refresh does not copy the template again.
 
 The template selection does not select runtime Plugins. A Job loads only the
@@ -137,9 +137,9 @@ It stores Skill overrides in `agent_skills.enabled_override`.
 A null Skill override means inheritance.
 
 The Agent Library resources own sparse Plugin overrides, Skill catalog sync,
-per-Agent enablement, and runtime document writes. Catalog sync preserves an
-existing enablement override. Active documents keep their partial unique path
-identity and exact content bytes. Public API projections keep string enum
+per-Agent enablement, and runtime document writes. Catalog sync preserves saved
+enablement overrides. Active documents keep their partial unique path
+identity and exact content bytes. Public API projections use string enum
 values; resource records use atoms.
 
 Plugin member rows use `source_kind = "builtin"`.
@@ -161,9 +161,9 @@ use this discovery mode.
 The Job stores one optional `workspace_template_id`. At first execution
 admission, it also stores the logical Plugin and Skill selection in its typed
 runtime projection. Retry, resume, and Worker migration use that projection.
-They intersect it with the current effective capability set, so a later disable
-still removes the capability. The projection does not store package bytes,
-overlays, credentials, or Hook state.
+They intersect it with the current effective capability set, so disabling a
+capability removes it from subsequent executions. The projection does not store
+package bytes, overlays, credentials, or Hook state.
 
 Before the first Job thread starts, `AgentCodexRuntime` performs these actions
 in one per-Agent serialized owner:
@@ -221,8 +221,8 @@ Capability rows include these state fields:
 - `override_enabled`
 - `effective_enabled`
 
-The field name `global_default_enabled` is retained in the API. Its value is
-the effective default for the selected tenant, including site inheritance.
+The API field `global_default_enabled` reports the effective default for the
+selected tenant, including site inheritance.
 
 Each Agent Plugin row contains its member Skills. The top-level Skill list
 contains standalone and Agent-installed Skills.
@@ -266,14 +266,14 @@ The Mix dependencies have one direction:
 ```
 
 `app/control_plane` owns configuration, migrations, deployment commands, test
-support, and the existing application supervisor. `app/control_plane_core`
+support, and the application supervisor. `app/control_plane_core`
 owns the public domain and web source. Each `plugins/<name>` directory is a
 local Mix project named `:ankole_<name>`. Private projects use the same name
 rule under `internals/plugins`. The assembly includes these projects at build
 time. They do not depend on the assembly application.
 
 The six provider clients are internal modules of their matching Plugins. Their
-module names and provider error types remain distinct. Plugin applications have
+module names and provider error types are distinct. Plugin applications have
 no application callback. Their caches, token supervisors, and connections start
 as children of the active Plugin cohort, after Repo and AppConfigure are ready.
 The core package does not start a Repo or a Plugin when used as a dependency.
@@ -287,41 +287,41 @@ project; the test helper starts only that client's supervisor.
 
 `im_transport` owns shared JSON body primitives, request-body selection,
 Retry-After parsing, download filename parsing, WebSocket URL decomposition,
-and the Mint WebSocket connection. These HTTP functions retain their callers'
-existing error and empty-value behavior. DingTalk and WeCom keep their
-empty-body mapping. Feishu keeps its filename rules.
+and the Mint WebSocket connection. Callers supply their own error and
+empty-value mappings: DingTalk and WeCom map empty bodies through their own
+handlers, and Feishu applies its own filename rules.
 
 `IMTransport.WebSocket` opens the socket, completes the upgrade, decodes frames,
 and sends frames. It does not choose reconnect timing, heartbeats, or frame
 meaning. A canonical HTTP/1 upgrade header form is a connection option for a
-gateway that requires conventional header names. Feishu keeps its own URL
-error. Discord reports the shared URL error.
+gateway that requires conventional header names. Feishu uses its own URL
+error, and Discord reports the shared URL error.
 
 `IMTransport.TokenCache` owns one ETS row `{key, token, expires_at}`, the
 three-minute expiry margin, the thirty-second refresh lead, and the single-key
 fetch that joins concurrent misses into one upstream request. DingTalk and
-WeCom use that fetch. Each still owns its token HTTP request and its error
-struct. Feishu keeps its multi-key token state machine and uses the same expiry
-margin. Microsoft and Google keep last-write-wins caches. Response envelopes,
-error classifications, and reconnect callbacks remain provider-owned.
+WeCom use that fetch and own their token HTTP requests and error
+structs. Feishu uses its multi-key token state machine with the same expiry
+margin. Microsoft and Google use last-write-wins caches. Response envelopes,
+error classifications, and reconnect callbacks belong to each provider.
 
 `feishu_protocol` owns the Feishu WebSocket frame codec. Both the Lark Plugin
 and `tools/fake-feishu` depend on it; the fake platform does not depend on the
 control plane. The host integration suite runs the real client against that
 standalone platform.
 
-Reuse an existing domain owner for domain operations. Shared Markdown prose
+Reuse the owning domain module for domain operations. Shared Markdown prose
 transformations live in `Ankole.Plugins.MarkdownChunks`; normalized multi-send
 results live in `Conversations.Delivery.Adapter`. Identity phone normalization,
-Plugin fields, configuration helpers, and connection lifecycle contracts keep
-their existing owners. A repeated call to one of these functions is not a
+Plugin fields, configuration helpers, and connection lifecycle contracts belong
+to their domain owners. A repeated call to one of these functions is not a
 second implementation.
 
 Before sharing a function, compare its input meaning, nil and empty handling,
 error shape, units, side effects, and recovery ownership. Renderer-specific
-checkpoint keys remain adapter-owned even when two current implementations are
-identical. The Lark string-array validator keeps its different whitespace
-behavior. Shared code must not grow provider-selection branches.
+checkpoint keys belong to each adapter even when two implementations are
+identical. The Lark string-array validator uses its own whitespace
+rules. Shared code must not grow provider-selection branches.
 
 `mix ankole.compile_cycles` checks the assembly and every local Mix dependency.
 CI runs it in test and production environments. A smaller assembly-only xref
@@ -331,9 +331,9 @@ Fixed build composition is separate from `plugins.enabled_ids`. The selected
 HTTP entry, Host policy, site authentication sources, AppConfigure declarations,
 frontend entries, locales, and migration paths cannot disappear because an
 operator disables a Plugin. These use their owning subsystem's concrete build
-configuration; they are not new generic Plugin callbacks. AppConfigure reloads
+configuration; they are not generic Plugin callbacks. AppConfigure reloads
 the fixed declarations when its Registry recovers, then restores active Plugin
-declarations as before.
+declarations.
 
 See [Browser Sessions](BrowserSessions.md) for site sources and
 [CONTRIBUTING](../../CONTRIBUTING.md#source-builds) for source, resource, and
@@ -353,8 +353,8 @@ First-run setup is the only exception. While `setup.completed` is false, the
 Registry activates every discovered Control Plane Plugin. This keeps all
 bundled adapters, AppConfigure keys, and supervised processes available while
 the operator moves between setup choices or restarts an incomplete setup. The
-enable list remains the durable post-setup policy. The first restart after setup
-completes applies that list. Completed installations continue to fail closed.
+enable list is the durable post-setup policy. The first restart after setup
+completes applies that list. Completed installations fail closed.
 
 The Console API makes both states visible.
 
@@ -369,8 +369,8 @@ Each response row includes these fields:
 - `active`
 - `restart_required`
 
-The Console can still list an inactive Plugin, and its old settings can remain
-in PostgreSQL. It adds no definitions, adapters, or processes until activation.
+The Console lists inactive Plugins, and their saved settings stay
+in PostgreSQL. An inactive Plugin adds no definitions, adapters, or processes until activation.
 
 A Worker-provider Plugin cannot be disabled while any tenant has an assigned
 Worker row for one of its kinds. Paused Workers and Agents being deleted count
@@ -389,19 +389,16 @@ Plugins do not run that check. A stored list that cannot be decoded stops the
 write; delete the key with `Ankole.AppConfigure.delete_global/1` to recover.
 
 Function Compute requires `china-market-ai-providers`; Vercel requires
-`vercel-worker-provider`. Before upgrading an existing installation, use the
-existing configuration API to select each Plugin that the installation uses:
+`vercel-worker-provider`. The China-market Plugin enables both its model
+adapters and Function Compute. Neither Plugin is enabled by default. To select
+them through the configuration API before a restart:
 
 ```elixir
 Ankole.Plugins.put_configured_enabled("china-market-ai-providers", true)
 Ankole.Plugins.put_configured_enabled("vercel-worker-provider", true)
 ```
 
-Run only the command for each required Plugin, then deploy and restart. These
-calls preserve the other selected IDs and permit a future compiled Plugin ID.
-The China-market Plugin enables both its model adapters and Function Compute.
-The upgrade does not enable either Plugin automatically or change stored Worker
-provider data.
+These calls preserve other selected IDs and accept any compiled Plugin ID.
 
 ### Recover the Boot Snapshot
 
@@ -484,7 +481,7 @@ the request. Long connections use `Ankole.Plugins.ConnectionLifecycle`.
 Its `start_owner/3` registers single-consumer owners with the tenant and config
 fingerprint; each adapter keeps its own connection state and protocol.
 `Ankole.Conversations.AdapterContext.dispatch_chat/2` selects chat consumers
-and collects their results in binding order. Each adapter still parses its own
+and collects their results in binding order. Each adapter parses its own
 event and supplies its own subject namespace.
 
 The reconcile pass runs every minute and calls `binding_spec/2` for every
@@ -525,29 +522,3 @@ see [Conversations](Conversations.md) for shared history and Delivery, and
 - Keep new Control Plane Plugins inactive on completed installations until an
   operator enables them.
 - Keep durable state with its owning subsystem.
-
-Shared input transforms use `Ankole.Attrs`. `MapHelpers` reads external JSON
-string keys; `ConsoleParams` reads the atom keys from OpenAPI casting. Required
-text callers retain their domain error reason. Presence-based and truthy key
-fallback are separate operations: `Attrs.get/3` preserves an explicit atom-key
-`nil` or `false`, while `Attrs.get_truthy/2` uses the preferred key type to set
-lookup order. Neither string-key reader creates atoms from external input.
-Adapter configuration keys use `Signals.Bindings.binding_config_key/3`; each
-adapter keeps its stored prefix and the JSON/SHA256/lowercase-hex format.
-
-Console REST actions return failed domain results to Phoenix `action_fallback`.
-`AnkoleWeb.ConsoleErrors` owns the shared authorization response, resource and
-validation renderers, and error envelope. Controllers retain resource messages,
-special validation rules, and their existing handling of unlisted errors.
-`Ankole.Ash` projects field validation errors for Console and tool callers. It
-formats declared numeric limits and allowed values. It does not interpolate
-unknown templates or include rejected values. Validators use fixed public
-messages for parser failures; native diagnostics stay outside this response.
-The shared unexpected-error handler logs the failure class through
-`Ankole.Logging.failure_fields/3`. It does not log action data or exception messages.
-Connection reconciliation logs retain the failure class, stack locations, and
-error count. They do not log the returned error list or private exit causes.
-Manual identity mappings retain their error envelope without a `details` field.
-Their unlisted errors return a generic 500 message; the server log records the
-internal reason. A blank Worker provider selection is a field validation error.
-OpenAI-compatible and Pod-specific response contracts keep their own handlers.

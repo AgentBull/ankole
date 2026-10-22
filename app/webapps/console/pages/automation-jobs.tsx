@@ -13,7 +13,8 @@ import { RiCodeSSlashLine } from '@remixicon/react'
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useSearchParams } from 'react-router'
+import { Link } from '@tanstack/react-router'
+import { linkTarget, useSearchParams } from '../../common/router'
 import {
   ankoleWebAutomationJobControllerIndexOptions,
   ankoleWebAutomationJobControllerShowOptions
@@ -238,7 +239,7 @@ function AutomationJobDetail({ job }: { job: AutomationJobItem }) {
           <div className="grid min-w-0 gap-1">
             <dt className="text-xs text-muted-foreground">{t('console.automation_jobs.script_folder')}</dt>
             <dd className="break-all font-mono text-xs">
-              <Link to={agentFilesPath(job.agent_uid, job.drive_prefix)} className="link">
+              <Link {...linkTarget(agentFilesPath(job.agent_uid, job.drive_prefix))} className="link">
                 {job.drive_prefix}
               </Link>
             </dd>

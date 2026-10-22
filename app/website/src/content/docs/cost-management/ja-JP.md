@@ -67,7 +67,7 @@ Workflow の各 `agent()` 試行は 1 回の完全なモデル Turn です。1 �
 |---|---:|---:|---|
 | `workflow.max_concurrency_per_run` | 8 | 32 | 1 つの run から同時に実行できるタスク数 |
 | `workflow.max_running_per_agent` | 8 | 64 | 1 つの Agent の複数 run にまたがって実行中の Workflow タスク数 |
-| `workflow.max_agent_calls_per_run` | 256 | 1,024 | 1 つの run が作成できるサブエージェント call の総数 |
+| `workflow.max_agent_calls_per_run` | 32 | 1,024 | 1 つの run が作成できるサブエージェント call の総数 |
 
 同時実行数が変えるのは所要時間であり、モデル call の総数は減りません。有限の入力サイズから call 上限を決め、デプロイメントに必要な同時実行数だけを要求します。run は `concurrency` と `max_agent_calls` に低い値を要求できますが、複数 run にまたがる `max_running_per_agent` は変更できず、AppConfigure の上限も引き上げられません。
 

@@ -30,4 +30,4 @@ Driver는 선언에 따라 병렬 또는 순차 호출을 예약합니다. 영�
 
 ## 도구 추가
 
-도메인 도구의 선언과 구현은 제어 플레인의 소유자에 둡니다. 환경 도구는 Worker에 추가하고 `worker_tools.json`을 다시 생성합니다. `WorkerAgentTool`과 Zod는 Worker의 구현 계약이며 주 모델 루프를 소유하지 않습니다. Schema와 실행 경계를 함께 일치시켜야 합니다.
+도메인 도구의 선언과 구현은 제어 플레인의 소유자에 둡니다. 환경 도구는 Worker에 추가하고 `worker_tools.json`을 다시 생성합니다. `WorkerAgentTool`과 Zod는 Worker 도구 구현 계약을 정의합니다. Schema와 실행 경계를 함께 일치시켜야 합니다.

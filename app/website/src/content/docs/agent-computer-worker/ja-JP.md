@@ -29,7 +29,7 @@ Codex は Job ID と attempt を含む `JobTurnRef` を使います。`adopt` �
 
 ## ファイルシステム契約
 
-Agent Home は `/workspace` の永続ストレージです。旧パス `/agents/<agent_uid>` は Home へのリンクです。パス検証はシンボリックリンクを解決してから Home の境界を確認します。構成は次のとおりです。
+Agent Home は `/workspace` の永続ストレージです。`/agents/<agent_uid>` は `/workspace` へのシンボリックリンクです。パス検証はシンボリックリンクを解決してから Home の境界を確認します。構成は次のとおりです。
 
 ```text
 /workspace/
@@ -52,7 +52,7 @@ Home はインスタンス削除やイメージ変更後も残ります。再構
 
 control plane のドライブは添付ファイル、公開ファイル、Skill、Automation スクリプトを別途保存します。`ankole-files` で読み書きします。Job workspace と Codex スレッドは永続 Home に残ります。Turn の前に `installed-skills/` をドライブと同期します。
 
-Codex Home は `/workspace/.codex` です。スレッドファイルは置換後も残り、`/var/cache/ankole/codex` の SQLite が失われても再開できます。Background Job は `skill_view` で Skill を読み、Skill ルートを workspace にコピーしません。
+Codex Home は `/workspace/.codex` です。スレッドファイルは置換後も残り、`/var/cache/ankole/codex` の再構築可能な SQLite キャッシュが置き換えられても再開できます。Background Job は `skill_view` で Skill を読み込みます。
 
 ## 進捗と容量
 

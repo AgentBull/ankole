@@ -1,8 +1,9 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../../common/i18n'
-import { MemoryRouter } from 'react-router'
+import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import type { BackgroundAgentJobListItem } from '../api/generated/types.gen'
 import {
   BackgroundAgentJobsPage,
@@ -14,15 +15,30 @@ import {
 // Catalogs load on demand; these assertions render translated en-US copy.
 beforeAll(() => loadLocale('en-US'))
 
+async function renderJobsPage(queryClient: QueryClient, initialEntry: string) {
+  const rootRoute = createRootRoute()
+  const jobsRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/background-agent-jobs',
+    component: BackgroundAgentJobsPage
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([jobsRoute]),
+    history: createMemoryHistory({ initialEntries: [initialEntry] }),
+    parseSearch: parseRouterSearch,
+    stringifySearch: stringifyRouterSearch
+  })
+  await router.load()
+  return renderToStaticMarkup(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  )
+}
+
 describe('Background Agent Job scope changes', () => {
-  test('renders one ID or name search beside the Agent filter', () => {
-    const html = renderToStaticMarkup(
-      <QueryClientProvider client={new QueryClient()}>
-        <MemoryRouter initialEntries={['/background-agent-jobs']}>
-          <BackgroundAgentJobsPage />
-        </MemoryRouter>
-      </QueryClientProvider>
-    )
+  test('renders one ID or name search beside the Agent filter', async () => {
+    const html = await renderJobsPage(new QueryClient(), '/background-agent-jobs')
 
     expect(html).toContain('aria-label="Search by Job ID or name"')
     expect(html).toContain('maxLength="200"')
@@ -50,7 +66,7 @@ describe('Background Agent Job scope changes', () => {
     expect(whitespace.toString()).toBe('agent=agent-a&job=1000')
   })
 
-  test('announces the number of matching Jobs', () => {
+  test('announces the number of matching Jobs', async () => {
     const queryClient = new QueryClient()
     const matchingJob: BackgroundAgentJobListItem = {
       agent_uid: 'agent-a',
@@ -68,13 +84,7 @@ describe('Background Agent Job scope changes', () => {
       next_cursor: null
     })
 
-    const html = renderToStaticMarkup(
-      <QueryClientProvider client={queryClient}>
-        <MemoryRouter initialEntries={['/background-agent-jobs?q=quarterly+report']}>
-          <BackgroundAgentJobsPage />
-        </MemoryRouter>
-      </QueryClientProvider>
-    )
+    const html = await renderJobsPage(queryClient, '/background-agent-jobs?q=quarterly+report')
 
     expect(html).toContain('aria-live="polite"')
     expect(html).toContain('1 shown')

@@ -19,7 +19,7 @@ import { RiUserReceivedLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useNavigate } from '@tanstack/react-router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebIdentityMappingRequestControllerBindMutation,
@@ -187,7 +187,7 @@ export function IdentityMappingCreatePage() {
     ...ankoleWebIdentityMappingRequestControllerCreateMappingMutation(),
     onSuccess: () => {
       toast.success(t('console.identity_mappings.created'))
-      navigate('/identity/mappings')
+      void navigate({ to: '/identity/mappings' })
     }
   })
 

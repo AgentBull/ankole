@@ -22,13 +22,13 @@ Alongside the shell, the computer tools give the Agent two file primitives:
 - **Read a file** — `read-file-tool.ts`, for inspecting a file's contents directly rather than shelling out to `cat`.
 - **Edit files** — `apply-patch-tool.ts`, a freeform `apply_patch` tool that uses the same grammar as the pinned Codex release.
 
-The Main Agent sends the raw patch through AIGateway as a `custom_tool_call`. The Worker passes it to the native Codex binary through `/usr/local/bin/apply_patch`. Background Agent Jobs get the same freeform tool from the AIGateway model card and use the same binary. Ankole does not keep a separate patch parser.
+The Main Agent sends the raw patch through AIGateway as a `custom_tool_call`. The Worker passes it to the native Codex binary through `/usr/local/bin/apply_patch`. Background Agent Jobs get the same freeform tool from the AIGateway model card and use the same binary.
 
 This shared path keeps normal conversations and Background Agent Jobs on one edit protocol. A patch that does not match fails in the native tool and returns that failure to the model. For a quick search, the shell is fine. Use `apply_patch` for file edits.
 
 ## The /workspace filesystem
 
-Agent Home is persistent storage at `/workspace`. The old `/agents/<agent_uid>` path links to it; path checks resolve symbolic links before checking the Home boundary. Its layout is:
+Agent Home is persistent storage at `/workspace`. `/agents/<agent_uid>` is a symbolic link to `/workspace`; path checks resolve symbolic links before checking the Home boundary. Its layout is:
 
 ```text
 /workspace/
@@ -50,7 +50,7 @@ Home survives instance deletion and image changes. A rebuild removes only `/var/
 
 The control-plane drive separately holds attachments, published files, Skills, and Automation scripts. Use `ankole-files` to read or publish drive files. Job workspaces and Codex threads remain in persistent Home. Before a turn, the Worker brings `installed-skills/` in step with the drive.
 
-Background Agent Jobs load Skills through Ankole `skill_view`; they do not copy Skill roots into the Job workspace.
+Background Agent Jobs load Skills on demand through `skill_view`.
 
 ## Jupyter live kernel for iterative Python
 
@@ -62,7 +62,7 @@ The skill's own guidance is the rule of thumb: prefer a one-shot shell execution
 
 CodexRunner is the execution engine for every Background Agent Job. A Job can research a topic, produce a document, modify a repository, or do other long-running work; its lifecycle, not its subject, selects CodexRunner. The runner talks to the Codex app-server through `app-server-client.ts` and prepares a separate Job workspace and runtime configuration.
 
-Console calls the corresponding model profile **Background Agent Jobs**. Its stored key and API name remain `coding` for now. This is a legacy name, not a rule that detects code-heavy conversations.
+Console calls the corresponding model profile **Background Agent Jobs**. Its stored key and API name is `coding`.
 
 ## How these paths are selected
 

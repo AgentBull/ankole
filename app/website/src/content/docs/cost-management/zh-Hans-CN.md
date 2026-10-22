@@ -67,7 +67,7 @@ Workflow 中每次 `agent()` 尝试都是一个完整模型回合。一次调用
 |---|---:|---:|---|
 | `workflow.max_concurrency_per_run` | 8 | 32 | 单次运行可以同时执行的任务数 |
 | `workflow.max_running_per_agent` | 8 | 64 | 单个 Agent 的所有 Workflow 中正在运行的任务总数 |
-| `workflow.max_agent_calls_per_run` | 256 | 1,024 | 单次运行可以创建的子 Agent 调用总数 |
+| `workflow.max_agent_calls_per_run` | 32 | 1,024 | 单次运行可以创建的子 Agent 调用总数 |
 
 并发数只改变完成时间，不会减少模型调用总数。应根据有限输入设置调用上限，并且只申请实例确实需要的并发数。单次运行可以申请更低的 `concurrency` 和 `max_agent_calls`，但不能修改跨运行的 `max_running_per_agent`，也不能抬高任何 AppConfigure 上限。
 

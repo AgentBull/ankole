@@ -2,9 +2,8 @@
 
 Skill lessons are dated field notes that one Agent accumulates on its own
 Skills: short, evidence-backed observations from finished work that ship with
-the Skill text on later runs. Lessons replace the free-text per-skill overlay
-blob with leased, per-item rows that Dreaming maintains and an operator can
-audit and revoke.
+the Skill text on later runs. Each lesson is a leased, per-item row that
+Dreaming maintains and an operator can audit and revoke.
 
 The Elixir control plane owns lesson state and every gate.
 `Ankole.Brain.SkillLessons` owns the reflection and review rounds,
@@ -28,7 +27,7 @@ receives the rendered notes with the Skill content.
 | `retired_at`, `retire_reason` | Terminal state: `obsolete`, `lapsed`, or `human_revoked` |
 
 The Lesson resource owns `teach_human`, `teach_dreaming`, `renew`, and
-`retire` actions. Content remains immutable. Native constraints preserve the
+`retire` actions. Content is immutable. Native constraints enforce the
 lease and retirement shape. Review locks all candidate rows in ID order before
 writing verdicts; Human retirement locks the same row. A stale resource action
 cannot renew a retired row or replace its retirement reason. Enum attributes
@@ -70,7 +69,8 @@ output enters `Library.apply_skill_lesson_adds` through mechanical gates:
 - Content: non-blank, no URLs, at most 100 estimated tokens, and no
   prompt-injection scanner hit. The scanner checks explicit bypass phrases,
   including `do anything now` and `developer mode enable` or `enabled`; a bare
-  `DAN` token or the name `Dan` does not trigger this rule. Other rules still apply.
+  `DAN` token or the name `Dan` does not trigger this rule. All other content
+  rules apply.
 - Evidence: at least two bundle Jobs, or one bundle Job that carried human
   input; every cited id must be inside the round's bundle.
 - Dedup against active lessons and immunity against human-revoked lessons,

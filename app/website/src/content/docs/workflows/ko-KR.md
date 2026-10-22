@@ -109,7 +109,7 @@ Workflow JavaScript는 파일, 네트워크, import, timer API가 없는 bare V8
 |---|---:|---:|
 | run 하나가 요청하는 동시 task | 8 | 32 |
 | Agent 하나에서 실행 중인 Workflow task | 8 | 64 |
-| run 하나의 `agent()` 호출 | 256 | 1,024 |
+| run 하나의 `agent()` 호출 | 32 | 1,024 |
 | 저장된 script | — | 256 KiB |
 | 저장된 `args` JSON | — | 64 KiB |
 | `agent()` 호출 하나의 전체 argument object | — | 8 KiB |
@@ -133,7 +133,7 @@ run이 `completed` 또는 `failed`가 되면 제어 플레인이 남은 `queued`
 
 - `workflow.max_concurrency_per_run`: run별 task 동시성, 기본값 `8`, 범위 `1`–`32`;
 - `workflow.max_running_per_agent`: Agent별 실행 중 Workflow task, 기본값 `8`, 범위 `1`–`64`;
-- `workflow.max_agent_calls_per_run`: run별 총 `agent()` 호출, 기본값 `256`, 범위 `1`–`1,024`.
+- `workflow.max_agent_calls_per_run`: run별 총 `agent()` 호출, 기본값 `32`, 범위 `1`–`1,024`.
 
 ## 다음 단계
 

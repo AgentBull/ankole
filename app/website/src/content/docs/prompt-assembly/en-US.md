@@ -5,7 +5,7 @@ order: 118
 description: How the control plane renders main Agent instructions and separates Codex Job context.
 ---
 
-The control plane assembles the main Agent's model instructions. `Ankole.Sessions.Context.resolve/2` reads the current domain facts; `Ankole.Sessions.Prompt.system/1` renders them; `Ankole.Sessions.Driver` sends the result through AIGateway. The Worker receives environment work and Codex Jobs, rather than rendering the main Agent prompt. See [The agent loop](../agent-loop/).
+The control plane assembles the main Agent's model instructions. `Ankole.Sessions.Context.resolve/2` reads the current domain facts; `Ankole.Sessions.Prompt.system/1` renders them; `Ankole.Sessions.Driver` sends the result through AIGateway. The Worker receives environment work and Codex Jobs. See [The agent loop](../agent-loop/).
 
 ## Current context
 
@@ -17,7 +17,7 @@ The Skill catalog omits `brain-recall-only: true` entries. They remain in the ef
 
 ## Settings and history
 
-`AgentConfig` resolves tenant settings for `ai_agent.max_iterations` (90), `ai_agent.max_output_tokens` (no explicit cap), and `ai_agent.inactivity_timeout_ms` (30 minutes). These bound the control-plane turn. They are not a Worker-owned main loop configuration.
+`AgentConfig` resolves tenant settings for `ai_agent.max_iterations` (90), `ai_agent.max_output_tokens` (no explicit cap), and `ai_agent.inactivity_timeout_ms` (30 minutes). These bound the control-plane turn.
 
 AIGateway owns transcript history and stores model requests for audit. The current input and provider observations become user messages through `Prompt.Input`; they are not copied into the system instructions. The control plane renders instructions from current context for each run.
 
@@ -25,4 +25,4 @@ AIGateway owns transcript history and stores model requests for audit. The curre
 
 Codex Jobs have a separate Worker path. The runner resolves frozen Job execution choices, gets current domain context through RPC, and prepares the Job project and its `AGENTS.md`. Native Codex owns that Job's model loop. See [Background Agent Jobs](../background-agent-jobs/).
 
-Workflow tasks use `Prompt.workflow_system/1`: identity, task IDs, the persisted result schema, submission rules, and delegation and sleep rules. Ambient routing uses its own prompt. These paths retain their own execution contracts instead of using a Worker copy of the main prompt renderer.
+Workflow tasks use `Prompt.workflow_system/1`: identity, task IDs, the persisted result schema, submission rules, and delegation and sleep rules. Ambient routing uses its own prompt. Each path uses its own execution contract.

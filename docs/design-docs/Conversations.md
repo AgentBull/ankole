@@ -98,7 +98,7 @@ database writes. It updates source entries, their summary, ambient batch facts,
 and the attachment supplement deadline. Both `Conversations.InputRevisions`
 and `Sessions.Revisions` use this calculation. The former owns queued changes
 and revision intake; the latter owns in-flight cancellation, retained effects,
-and recovery. Each caller keeps its existing transaction and locks. Inbound
+and recovery. Each caller runs inside its own transaction and locks. Inbound
 batch windows and supplement waiting remain separate policies. Other Signal
 sources do not need this message representation or these revision rules.
 
@@ -138,7 +138,7 @@ admission checks those facts again when execution starts.
 The browser generates the conversation and message UUIDs. A retry with the
 same IDs and facts reuses the stored message and signal. Reusing an ID for
 different facts returns `conversation_conflict`. A deleted native Conversation
-UUID cannot be reused: the existing execution/history facts retire that identity.
+UUID cannot be reused: the execution and history records retire that identity.
 Text must be valid UTF-8,
 contain no NUL character, and be nonempty after whitespace is removed from both
 ends. Storage and retry comparison retain the original text. The title uses
@@ -165,9 +165,9 @@ together; the page receives message and status events after that commit.
 
 ## Execute and Commit the Reply
 
-The native signal enters the existing main Session loop. `Prompt.Input` reads
+The native signal enters the main Session loop. `Prompt.Input` reads
 the Human message text. A follow-up from the same Human can join the active
-Run through the existing steering path.
+Run through the steering path.
 
 Presentation appends the visible Agent reply in the completion transaction.
 It does not create a provider Delivery operation. A silent turn adds no message.
@@ -221,8 +221,8 @@ and the separate Chat view use the same Conversation and committed messages.
 Purging a Page clears the association and keeps the Conversation history.
 
 In Pod conversations, documents and research reports default to editable Pages.
-An explicit file-format request keeps its requested format. Other channels keep
-their existing file delivery rules.
+An explicit file-format request keeps its requested format. Other channels use
+their file delivery rules.
 
 The current Pod document owns unsent Chat drafts and pending request IDs.
 Closing a panel, switching conversations, or navigating between Pages keeps
@@ -248,7 +248,7 @@ the remaining queue stays paused.
 
 `Conversations.get/3` reads the message range, pending inputs, queue version,
 retry capability, and durable Session status in one transaction under the
-existing Session advisory lock. Input acceptance, admission, and terminal
+Session advisory lock. Input acceptance, admission, and terminal
 reply commits use the same lock. A detail read cannot combine messages from
 before a native reply commit with an idle status from after that commit.
 Controllers serialize the returned status without a second query. Activity
@@ -303,7 +303,7 @@ a full history read.
 Its status event covers Conversation deletion and Agent availability.
 `Sessions.Events` owns acceptance, queue, admission, retry, and terminal state
 notifications. A committed turn publishes one `turn_completed` notification in
-place of a status notification. The SSE connection maps either to the existing
+place of a status notification. The SSE connection maps either to the
 `status` frame. An external turn completion proves that its Delivery intents
 committed; only provider confirmation creates its public messages. Activity
 events are transient observations and do not establish committed facts.
@@ -330,7 +330,7 @@ matching reply commits, or when a fresh execution status settles that same
 Response without a visible reply.
 
 Native Chat detail also returns pending inputs, durable queue pause state, a
-queue comparison token, and the latest message that the existing retry owner
+queue comparison token, and the latest message that the retry owner
 can retry. Queue edits and reordering check that token under the Session lock.
 A lost response to an already committed retry can replay the same command ID;
 it does not create another input or recapture its model selection.
@@ -346,7 +346,7 @@ eligible failed reply exposes Retry through the same capability predicate;
 Stop and preflight notices do not become retryable merely because they are
 notices. A new Human retry captures the current Chat model preference. Completed
 Page, Database, and applet changes remain. Native edits, regeneration, and logical
-queue removal call the existing message-change lifecycle in their transaction,
+queue removal call the message-change lifecycle in their transaction,
 invalidating affected Brain facts and rewinding its learning cursor. Removed
 messages retain stable idempotency identities while a shared visibility query
 excludes them from history, Main context, and Brain learning.
@@ -374,12 +374,12 @@ A signed upload receipt binds the tenant, Human, client file ID, digest, name,
 size, and content type. A Message accepts verified receipts and retains its
 attachment references in the same transaction. Unsent receipts expire after one
 day; an exact retry of an accepted Message remains valid. Unreferenced upload
-bytes use the existing file collection grace. An upload does not create a Page.
+bytes use the file collection grace. An upload does not create a Page.
 The Human can use the explicit Save action to create a file Page later.
 
-The existing input owner links accepted attachments into the Agent's drive
+The input owner links accepted attachments into the Agent's drive
 before they enter the model input. An input that waits in the queue does not
-expose its files in that drive. Image inputs use the existing native image
+expose its files in that drive. Image inputs use the native image
 normalization. Attachment downloads read the Message's frozen bytes through
 current Conversation membership, so an Agent's later file edits do not change
 the download. The local Chat draft owns selected Files and upload retries when
@@ -400,7 +400,7 @@ locks its execution target and conversation. Pending and running Signals cause
 `conversation_busy`; the owner can retry after the work finishes. The operation
 ends the target's active model history, removes messages and participation,
 and leaves saved Pages in place. A saved
-Page reports a deleted source only when its source message no longer exists.
+Page reports a deleted source only when its source message is absent.
 
 Cron reports and notices
 can target a native conversation through its UUID. Its own execution Session
@@ -438,9 +438,16 @@ this shared guard.
 
 An observation that changes a public statement commits `message_changed_in_tx`
 in the same transaction. It invalidates affected Brain learning. Explicit input
-edits, supplements, and removals retain their revision rules; changing a
+edits, supplements, and removals apply their revision rules; changing a
 background statement does not create a revision. A duplicate observation does
 not reset learning. Durable jobs and facts own crash recovery.
+
+The public record owner does not invoke Session execution. One transactional
+exception applies: removing a shared Message calls
+`Sessions.AmbientCuration.message_removed_in_tx/2` so every Agent's accepted
+ambient judgment loses its anchor atomically. The database requires accepted
+judgments to retain an anchor. `Sessions.Key` is a pure value-format dependency;
+it performs no Session execution.
 
 ## Read Shared History and Learn It
 
@@ -543,7 +550,7 @@ drive catalog or Binding disappears.
 
 Delivery filters configured secrets immediately before invoking the provider.
 Secret candidates shorter than 12 characters are excluded to avoid replacing
-common short text. Public diagnostics use the existing sanitizer rather than
+common short text. Public diagnostics use the secret sanitizer rather than
 logging credential payloads.
 
 Provider-native previews are transient renderers. Their versioned checkpoint,
@@ -565,10 +572,3 @@ See [Signals](Signals.md) for intake and adapter contracts, [Sessions](Sessions.
 for execution and recovery, [AIGateway](AIGateway.md) for model state,
 [Browser Sessions](BrowserSessions.md) for authentication, and
 [Human Offboarding](HumanOffboarding.md) for retained work authorization.
-
-The public record owner does not invoke Session execution. One transactional
-exception remains: removing a shared Message calls
-`Sessions.AmbientCuration.message_removed_in_tx/2` so every Agent's accepted
-ambient judgment loses its anchor atomically. The database requires accepted
-judgments to retain an anchor. `Sessions.Key` is a pure value-format dependency;
-it performs no Session execution.

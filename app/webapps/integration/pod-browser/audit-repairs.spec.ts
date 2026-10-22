@@ -7,6 +7,82 @@ import { pageRoute, listRoute } from './routes'
 test.setTimeout(30_000)
 const location = (id: string) => state.base_url + pageRoute(id)
 
+test('a late automatic recovery cannot replace edits made after a manual reload', async ({ browser }) => {
+  const context = await browser.newContext()
+  await context.addCookies(state.owner.cookies)
+  const page = await context.newPage()
+  const started = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  let id: string | undefined
+  let held = 0
+  await page.routeWebSocket('**/pod/socket/websocket*', ws => {
+    const server = ws.connectToServer()
+    ws.onMessage(message => {
+      if (JSON.parse(message.toString())[3] === 'changes') {
+        held++
+        return
+      }
+      server.send(message)
+    })
+    server.onMessage(message => ws.send(message))
+  })
+  try {
+    await page.goto(location(state.report_id))
+    const saved = await request<{ page: { id: string; revision: number } }>(page, '/pages', 'POST', {
+      title: 'Overlapping draft recovery',
+      type: 'doc'
+    })
+    id = saved.page.id
+    await request(page, `/pages/${id}/content`, 'PUT', {
+      base_revision: saved.page.revision,
+      xml: '<page><p>Initial</p></page>'
+    })
+    await page.goto(location(id))
+    const editor = page.locator('.editor-content')
+    await expect(editor).toContainText('Initial')
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.insertText('First local draft')
+    await expect.poll(() => held).toBeGreaterThan(0)
+    const latest = await request<{ page: { revision: number } }>(page, `/pages/${id}`)
+    let reads = 0
+    await page.route(`**/.internal-apis/pod/pages/${id}`, async route => {
+      if (route.request().method() !== 'GET' || ++reads !== 1) return route.continue()
+      const response = await route.fetch()
+      expect(response.ok()).toBe(true)
+      started.resolve()
+      await release.promise
+      await route.fulfill({ response })
+    })
+    await request(page, `/pages/${id}/content`, 'PUT', {
+      base_revision: latest.page.revision,
+      xml: '<page><p>Remote reset</p></page>'
+    })
+    await started.promise
+    await page.getByRole('button', { name: '重新读取文档', exact: true }).click()
+    await expect(editor).toContainText('Remote reset')
+    await expect(editor).not.toContainText('First local draft')
+    await editor.click()
+    await page.keyboard.press('ControlOrMeta+End')
+    await page.keyboard.insertText('Latest local draft')
+    await expect(editor).toContainText('Latest local draft')
+    const delivered = page.waitForEvent('requestfinished', {
+      predicate: request => request.method() === 'GET' && request.url().endsWith(`/pages/${id}`)
+    })
+    release.resolve()
+    await delivered
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await expect(editor).toContainText('Latest local draft')
+    const download = page.waitForEvent('download')
+    await page.getByRole('button', { name: /导出保留的草稿/ }).click()
+    expect(readFileSync((await (await download).path())!, 'utf8')).toContain('First local draft')
+  } finally {
+    release.resolve()
+    if (id) await request(page, `/pages/${id}`, 'DELETE').catch(() => {})
+    await context.close()
+  }
+})
+
 test('two external document resets keep both local drafts exportable and protect navigation', async ({ browser }) => {
   const context = await browser.newContext()
   await context.addCookies(state.owner.cookies)

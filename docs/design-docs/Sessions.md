@@ -32,10 +32,9 @@ and Agent. A Conversation reference includes the tenant because its participants
 can use separate Agent Sessions. A missing owner cannot allocate a workspace.
 
 PostgreSQL generates `session_id` from these facts. Callers cannot write a key
-that disagrees with its owner. An upgrade keeps every workspace ID, transport
-key, and Driver epoch. Owner deletion removes its workspace through the foreign
-key. Allocation locks the referenced owner before the Session advisory lock;
-the `advance_epoch` action advances the locked workspace once.
+that disagrees with its owner. Owner deletion removes its workspace through the
+foreign key. Allocation locks the referenced owner before the Session advisory
+lock; the `advance_epoch` action advances the locked workspace once.
 
 ## Durable Owners
 
@@ -68,22 +67,22 @@ is not recovery truth. Committing an input also commits an EnsureDriver job.
 Immediate wakeups improve latency after commit; startup and durable recovery
 find accepted work even if the producer dies at that point.
 
-`Sessions.Events` uses the existing `Ankole.PubSub` server. Its input and state
+`Sessions.Events` uses the `Ankole.PubSub` server. Its input and state
 topics include the tenant, Agent, and Session. It accepts scalar identities and
 encodes the Agent and Session identifiers before it joins the topic fields, so
 delimiters cannot change the target or channel. It does not depend on a Signal
 schema or execution module. Input notifications
 contain an already accepted Signal ID. They do not create work or start a Driver.
-The public wakeup path still calls `ensure_driver/1` before it publishes a ready
-input. Future inputs retain their stored EnsureDriver deadline.
+The public wakeup path calls `ensure_driver/1` before it publishes a ready
+input. Future inputs keep their stored EnsureDriver deadline.
 
 Both Driver types set their tenant context and subscribe to input before their
 initial inbox rebuild. A publication before subscription is found by that rebuild;
-a later publication enters the existing inbox handler. Admission, preparation,
-round recording, and finalization retain their existing postponement rules.
+a later publication enters the inbox handler. Admission, preparation,
+round recording, and finalization apply their postponement rules.
 The handler reads the Signal under its Agent and Session and checks authorization.
 Duplicate notifications cannot change the durable queue order. Lost notifications
-are repaired by EnsureDriver and the existing Reconciler.
+are repaired by EnsureDriver and the Reconciler.
 
 ## Persistence and Operations
 
@@ -139,7 +138,7 @@ operation results, inbox notices, Worker messages, model completion, and timer
 expiry. The Turn includes its Run, pending calls, observation state, and Worker
 acquisition state. It has no process, database table, or recovery journal.
 
-The Driver executes these commands through the existing Admission, Run, Tools,
+The Driver executes these commands through the Admission, Run, Tools,
 Commands, and Worker contracts. It owns registry membership, subscriptions,
 Task monitors, stream handles, timers, tracing, and activity publication. It
 returns each operation result to the Turn. Commands are private to this pair;
@@ -148,34 +147,34 @@ they do not form a shared work engine or a persistent command queue.
 Turn owns tool scheduling, result acceptance, receipt restoration, round
 completion, continuation, and failure policy. Its repeated-tool-failure rule
 also folds committed history during Run recovery. Run and the Ash resources
-retain transaction authority: a proposed record, retry, or finalization cannot
+hold transaction authority: a proposed record, retry, or finalization cannot
 advance past that boundary until its operation succeeds. Epoch and closed-run
 errors stop the Driver. Turn state cannot authorize a durable write.
 
 Preparation replays durable inbox controls before it resumes model or tool I/O.
 A superseded epoch cannot resume the previous Run. Round commit cancels that
 round's transport and observation tasks before the next boundary. Worker
-acquisition uses the existing bounded policy, including safe probes for calls
-whose result is unknown. Activity remains an observation of these pending calls
+acquisition uses the bounded policy, including safe probes for calls
+whose result is unknown. Activity is an observation of these pending calls
 in the same Driver process.
 
 Turn tests exercise event sequences without a Driver or database. Receipt and
-Run tests still use PostgreSQL for atomicity and recovery. Driver integration
-tests retain process ordering, cancellation, presentation, single-writer,
+Run tests use PostgreSQL for atomicity and recovery. Driver integration
+tests verify process ordering, cancellation, presentation, single-writer,
 epoch-fence, and cross-node checks.
 
 State publications occur in the outer transaction owner's process after success.
 The guard only rejects a transaction in that process; it is not proof of commit.
 Transaction code must not start a Task to publish pending facts. Completion
 publishes one `turn_completed` notification with its Signal ID and outcome.
-Transient activity uses a separate publication method and retains its Driver PID,
+Transient activity uses a separate publication method with Driver PID,
 epoch, and revision checks. No subscriber commits a reply or sends a Delivery
 because it received a completion notification.
 
 `Sessions.driver_name/1` owns the shared registry identity for ordinary and Job
 drivers. `driver_pid/1` and `active_model_conversation_id/1` are read-only
-locators; neither starts a process nor creates history. External Preview keeps
-its existing checkpoint identity when recovering a completed presentation.
+locators; neither starts a process nor creates history. External Preview uses
+its checkpoint identity when recovering a completed presentation.
 
 Both Driver types register the same global name before initialization.
 `ensure_driver/1` reuses an existing PID and accepts an `already_started` result
@@ -190,7 +189,7 @@ statements to a shared conversation without changing the running model log.
 
 Optional tracing uses the durable Signal ID across intake, admission, model
 requests, finalization, and Delivery. Intake inside a caller-owned transaction
-records `prepared_in_tx`; only an existing post-commit path records `committed`.
+records `prepared_in_tx`; only a post-commit path records `committed`.
 Admission records `observed_committed`, queue age, readiness delay, and its
 outcome. These observations neither wake work nor establish durability.
 
@@ -198,9 +197,9 @@ Each attempt keeps its epoch and attempt number. A turn that absorbs more inputs
 records each input's relationship to the root Signal and the chosen reply Signal.
 Each Delivery records its own key, source Signal, attempt, send or reconciliation
 phase, and outcome, including unknown and stale results. Async recovery can start
-a new trace and still use these identities; no persistent trace registry is needed.
+a new trace and use these identities; no persistent trace registry is needed.
 
-New stage spans carry identifiers, states, and elapsed times, never stimulus
+Stage spans carry identifiers, states, and elapsed times, never stimulus
 bodies, prompts, tool arguments, credentials, or attachment bytes. They use facts
 already loaded by the owning operation and do not add business queries or RPCs.
 Missing or failed tracing does not change admission, retries, sends, or commits.
@@ -241,13 +240,13 @@ A tenant suspension, Agent disablement, or expiry during the model request
 prevents the proposed route from committing. That transaction also completes `NOOP` and `HANDOFF` inputs silently.
 A HANDOFF locks its Job before the participating Session locks and commits one
 idempotent steer with the judgment. A changed scene rejects that entire write
-and returns to the existing observation resolver.
+and returns to the observation resolver.
 
 Only a persisted `FOREGROUND_REPLY` or `NEW_WORK` judgment permits ordinary
 admission to create model history and increment the workspace epoch. A retry
 uses that judgment instead of asking the model to select another route. Model
 request failures defer the input and increment `attempt_count`; they leave
-`last_attempt_at` empty so a newer room batch can still supersede it. The third
+`last_attempt_at` empty so a newer room batch can supersede it. The third
 failure records a silent `NOOP`. A missing light profile also records a silent
 `NOOP` without posting a configuration notice to the room. Triage checks the
 Agent token quota before it builds model context. An exhausted quota records a
@@ -272,7 +271,7 @@ Before a request, the runtime snapshots bounded unread public statements from
 the same conversation. The actual request records `conversation_read.max_seq`
 and its `message_ids` atomically. Subsequent requests derive their read position
 from the visible model branch. They exclude the running Session's own published
-output by both author Agent and Session, and still see another Agent's output.
+output by both author Agent and Session, and see another Agent's output.
 A retry, fork, truncation, or compaction follows that branch's committed facts.
 Only completed ordinary Responses establish consumption. A compaction checkpoint
 can retain caller metadata for history without proving that its pending model
@@ -310,8 +309,8 @@ model-visible error or start the next call in its round.
 
 Unexpected Ash tool errors return a generic message. Their logs use
 `Ankole.Logging.failure_fields/3` to keep private action data out of diagnostics.
-Job Driver operation failures use the same diagnostics and retain their existing
-retry. Logs include the operation name without the request payload.
+Job Driver operation failures use the same diagnostics and keep their retry
+policy. Logs include the operation name without the request payload.
 Receipt notification, workspace close, and Session reconciliation failures use
 the same diagnostics. A failed notification cannot undo a committed receipt
 or repeat its domain write.
@@ -320,8 +319,8 @@ Jobs and Workflow calls preserve the parent's source authorization, explicit
 reply route, and owner Session. Their dispatch/completion/failure/attention
 notifications are Signals accepted through the same intake. Parent completion
 and child completion are separate records; a finished child cannot overwrite a
-parent model branch. A long-lived recipient can retain an ended model history.
-An orphaned pinned history or a cyclic owner chain remains invalid.
+parent model branch. A long-lived recipient can keep an ended model history.
+An orphaned pinned history or a cyclic owner chain is invalid.
 
 Cron fires create Signals in the rule's stable Session. Native and external
 recipient conversations are explicit targets. Completion commits every native
@@ -336,15 +335,15 @@ extension contract. Workflow owns model-unavailable diagnostics and locked task
 transitions. A caller-owned transaction returns the Workflow transition through
 the Session result; `Run.after_finalization/1` performs terminal cleanup only
 after the outer transaction commits. Ordinary cancellation and Human revocation
-retain their different treatment of already admitted work.
+apply their respective rules to already admitted work.
 
 Input injection locks Workflow parents and calls before it locks Session,
 Workspace, and Signal rows. This also applies to a fresh steer that must be
 rejected after tenant suspension. That rejection completes only the fresh
-input; an admitted task and its current input retain their attempt.
+input; an admitted task and its current input keep their attempt.
 
 `RoundState` captures and restores the same six scalar loop controls. Pages,
-steers, tool results, and Workflow attempts retain their distinct recovery rules.
+steers, tool results, and Workflow attempts follow their recovery rules.
 Run records tool journals, completed wait inputs, RoundState, and receipt removal
 in the same fenced transaction. Recovery asks AIGateway for the caller's visible
 suffix; checkpoints and unmatched tool journals do not falsely end that suffix.
@@ -353,7 +352,7 @@ suffix; checkpoints and unmatched tool journals do not falsely end that suffix.
 
 A new Human input, control command, or explicit input revision reaches the
 running Driver at a durable boundary. Explicit edits, supplements, and removals
-keep the original trigger and frozen authorization through their existing
+keep the original trigger and frozen authorization through the
 revision path.
 
 Terminal validation distinguishes two withdrawals. If an explicit input source
@@ -373,11 +372,11 @@ Generated image bytes are prepared before the final Session transaction. The
 transaction rechecks the selected Artifact identity and digest, then commits
 file references, the recomputed journal-based presentation, and input completion
 together. A changed provider image alias or a collected blob returns a retryable
-execution error. The existing bounded admission/recovery path prepares it again;
+execution error. The bounded admission and recovery path prepares it again;
 no path or reply is committed with missing image bytes. A failed final commit
-can leave unreferenced bytes for the existing file collector.
-If preparation fails, a short fence check gives closed or replaced runs their
-existing rejection before returning an artifact error. Successful preparation
+can leave unreferenced bytes for the file collector.
+If preparation fails, a short fence check rejects closed or replaced runs
+before returning an artifact error. Successful preparation
 uses only the final transaction's fence check.
 
 A native Session publishes live progress through Pod SSE. External
@@ -385,7 +384,7 @@ Sessions can use their Binding's transient reply preview. The preview is a
 presentation owner, not the execution log. Final delivery settles its recorded
 surface after the durable terminal intent takes ownership.
 
-Native activity is a bounded observation in the existing Driver: one phase and
+Native activity is a bounded observation in the Driver: one phase and
 up to four unfinished tool labels from its PendingCalls. `Sessions.Activity`
 filters native display fields, ignores late updates to terminal tools, advances
 display revisions, and clears details. The Driver holds the Turn and its
@@ -397,7 +396,7 @@ falls back to durable generic status. Completion, retry, replacement, and death
 clear details. Activity creates no process, journal, or separate pending state.
 
 Only the Run's native source conversation receives activity. A scheduled report's
-destinations do not subscribe to its execution. External Preview retains its
+destinations do not subscribe to its execution. External Preview uses its
 synchronous ownership, adoption, revision, checkpoint, and terminal handoff
 contracts; the native display projection does not filter its payloads.
 
@@ -416,20 +415,14 @@ An explicit `signal::<uuid>` retry must identify retained terminal work of the
 same Agent and valid Session, with no newer intervening user input. It restores
 the declared model anchor instead of merging an unrelated branch. Reset ends
 that Session's active model history and starts a new one; public conversation
-history remains retained and can be read under the new branch's watermark.
+history remains available and can be read under the new branch's watermark.
 Neither operation removes another Agent's Session in a shared room.
 
-A Worker is rebuildable compute. Session workspace IDs remain durable numeric
-IDs across provider restarts and upgrades. Runtime Fabric protocol v10 names
+A Worker is rebuildable compute. Session workspace IDs are durable numeric
+IDs across provider restarts. Runtime Fabric protocol v10 names
 the execution key `SessionKey`, the run reference field `session`, and accepted
-inputs `Signal`; an accountable `ActorRef` still identifies the responsible
+inputs `Signal`; an accountable `ActorRef` identifies the responsible
 Principal. File provenance names public Conversation and Message UUIDs.
-
-The CSS upgrade renames stored Session keys and all corresponding model,
-workspace, scheduling, Job, Workflow, and queued worker references together.
-It preserves model row IDs, provider bytes, and checkpoint artifacts. External
-history migration retains one physical room and learns it once; every evidenced
-Agent keeps its own execution state.
 
 See [Signals](Signals.md), [Conversations](Conversations.md),
 [AIGateway](AIGateway.md), [Background Agent Jobs](BackgroundAgentJob.md),

@@ -5,7 +5,7 @@ section: User guide
 order: 41
 ---
 
-ChatGPT 订阅是普通的 AIGateway Provider。任何模型档案都可以指向它，包括普通对话和后台 Agent 任务。模型档案选择 Provider 行和模型，不选择行内的某一个账号。
+ChatGPT 订阅是普通的 AIGateway Provider。任何模型档案都可以指向它，包括普通对话和后台 Agent 任务。模型档案选择 Provider 行和模型。
 
 Provider 行拥有一个凭据池。控制面加密保存每个账号的 token，负责刷新 OAuth token，并为每次请求选择可用的池成员。Agent Computer 只会收到 AIGateway 地址和 AIGateway Key，不会收到 ChatGPT refresh token。
 
@@ -32,7 +32,7 @@ Console 会优先使用官方设备码登录。若该入口不可用，Console �
 
 每个成员显示 label、priority、source、健康状态、请求计数、限额信息，以及模型或图像用量。页面永远不会回显 secret token。
 
-可以选择以下策略。Console 会翻译显示名称，API 值和存储值保持不变：
+可以选择以下策略。Console 会翻译显示名称，API 和存储使用规范键名：
 
 | Console 显示 | API 值 | 行为 |
 | --- | --- | --- |

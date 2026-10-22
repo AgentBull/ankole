@@ -47,8 +47,8 @@ login proof, or selection. The login resource owns the `pending`,
 `authenticated`, `consumed`, and `cancelled` transitions. Terminal transactions
 cannot reopen. Cancellation uses one atomic update for the matching open
 transactions. Expiry uses atomic deletion, with the retained RP association
-check in the same browser deletion. Ecto migrations continue to own the native
-keys and constraints.
+check in the same browser deletion. Ecto migrations own the native keys and
+constraints.
 
 A trusted Pod entry can pass a held authentication reference to `begin_login`
 with `mode: :add`. Under the same browser lock, the owner checks the browser,
@@ -58,7 +58,7 @@ neither caller writes a proof directly.
 
 An authentication lives for 24 hours. A login transaction lives for 10 minutes.
 A completed authentication extends the group's expiry to cover that proof.
-Cleanup cannot delete a group while a valid proof still needs it.
+Cleanup cannot delete a group while a valid proof references it.
 
 SaaS account, email proof, and email limit records use site-level Ash resources.
 The email proof action fixes its browser transaction, email, and purpose. A
@@ -68,9 +68,9 @@ code. Verification atomically consumes the current, unexpired digest. The
 account binding action accepts only a verified, unbound proof; a composite
 foreign key requires that account to have the same email. Native constraints
 also reject a verified proof that retains a code and a nonpositive limit count.
-Email limits retain one atomic `ON CONFLICT` statement: a live window increments
+Email limits use one atomic `ON CONFLICT` statement: a live window increments
 its counter without moving the deadline, and an expired window starts at one.
-The existing ordered advisory locks still serialize the aggregate limit check.
+Ordered advisory locks serialize the aggregate limit check.
 
 ## Login purposes and targets
 
@@ -89,9 +89,9 @@ Site authentication also records `console_authenticated`. Only a successful
 account center cannot grant Console access. Console requests also check the
 current privileged tenant, Human access proof, and siteadmin membership.
 
-Pod login retains the browser's existing work identities. Its account chooser
+Pod login preserves the browser's other work identities. Its account chooser
 selects a proven identity for the fixed target tenant without signing out.
-Console and OAuth retain their identity replacement rule:
+Console and OAuth apply an identity replacement rule:
 a new identity ends a conflicting Console or OAuth context. Contexts for the
 same Principal can remain, with their original provider and authentication time.
 A native Pod login does not grant Console access, including for an administrator.
@@ -124,7 +124,7 @@ response still names the same group; it cannot displace the next account.
 Each authentication has its own sealed cookie, named
 `__Secure-ankole-auth-<id>` in HTTPS builds and `_ankole-auth-<id>` in HTTP
 development. It carries the authentication ID and revision. Cookies use the
-existing `SessionCookieStore` AEAD format, HttpOnly, the site's configured
+`SessionCookieStore` AEAD format, HttpOnly, the site's configured
 parent domain, and `Path=/`; production also requires Secure. Development uses
 `ankole.localhost` to permit sharing across Pod subdomains. Login replaces only its own proof
 cookie. No response serializes a snapshot of all logged-in accounts.
@@ -132,12 +132,6 @@ cookie. No response serializes a snapshot of all logged-in accounts.
 In development, Vite permits module requests from `http://ankole.localhost:4000`
 and its single-label Pod hosts in both editions. These origins must match the
 browser hosts that Phoenix serves, so that the login application can load.
-
-On a host that still holds older `__Host-ankole` and `__Host-ankole-auth-*`
-cookies, the transport verifies their existing group and authentication records
-and copies valid proofs into the shared cookies. This does not mint an identity
-or change the browser's active account. Revoked proofs cannot migrate. The old
-host cookies expire after this request.
 
 `authentication_ref` encodes an ID and revision. It selects a proof; it is not
 a credential. The web boundary requires the matching valid cookie and server
@@ -158,8 +152,8 @@ logged-in account by adding an identity parameter. Shareable links contain only
 the tenant and resource.
 
 Pod API gates check the selected tenant, authentication, current Human access,
-and binding. Conversation operations retain their participant checks. A Console
-API still requires current siteadmin membership; Pod login does not open its
+and binding. Conversation operations check participant membership. A Console
+API requires current siteadmin membership; Pod login does not open its
 `/api/v1` administration scope. Protected responses cannot enter a shared cache.
 Pod query keys include both identity and tenant. Console data selection is local
 to the document's authentication. Switching the browser default does not change
@@ -236,7 +230,7 @@ Human gets no new proof. An unavailable Pod does not stop access to another Pod.
 
 Restoration does not refresh an old proof or an authentication completed during
 disablement. A new real authentication must verify the restored Human. This uses
-HumanAccess's existing access version and transaction revocation check; it adds
+HumanAccess's access version and transaction revocation check; it adds
 no restoration clock. One Human's revocation does not end the same account's
 other Pod identities.
 
@@ -256,8 +250,7 @@ minting an authentication. A private handoff can use this one-use boundary; it
 still owns its origin, state, and parent-proof checks.
 
 The handoff owner computes and stores its code digest. It uses the login
-transaction's ten-minute expiry and preserves the stored digest format while
-pending transactions can still be consumed.
+transaction's ten-minute expiry and the stored digest format.
 
 `AnkoleWeb.Session` seals each handoff's browser state in a separate host-only
 cookie. Its random name lets concurrent entries keep independent state. A
@@ -277,7 +270,7 @@ other Pod proofs fail with the parent. Other authentications remain usable.
 If it was active, the default is cleared; another account is not selected.
 A Pod stream rechecks its original proof before each frame or ping.
 
-Console logout and confirmed RP logout retain browser-wide semantics. They end
+Console logout and confirmed RP logout apply browser-wide. They end
 all authentications, pending login and password transactions, and online RP
 associations in one transaction. The response drops the individual proof cookies
 after commit and keeps the group reference. A stale RP logout confirmation cannot
@@ -286,23 +279,17 @@ RP confirmation commits this revocation once. Back-channel delivery and cookie
 cleanup do not repeat it or end an authentication added after that commit.
 
 Browser exit does not disable a Human, end another browser, or log out an
-upstream provider. Existing `offline_access` grants retain their OIDC lifetime;
-Human disablement still revokes them. See [OIDC Server](OIDCServer.md).
+upstream provider. Granted `offline_access` tokens keep their OIDC lifetime;
+Human disablement revokes them. See [OIDC Server](OIDCServer.md).
 
-## Migration and cleanup
-
-The independent-authentication migration ends old online RP associations, clears
-pending login and logout requests, and removes the single-value `admin_auth`
-and `oauth_auth` fields. Existing browsers must sign in again. It retains
-Principals, bindings, permissions, work, offline grants, and logout delivery
-records. It does not fabricate authentication time from an old cookie.
+## Expiration and cleanup
 
 The hourly OIDC cleanup uses one cutoff across all tenants. It calls
 `BrowserSessions.cleanup_expired/1` once after tenant cleanup attempts, including
 when a tenant failed. Browser Sessions removes expired transactions and expired
 groups with no retained RP association. Foreign keys then remove their
 independent authentications and proofs. Tenant deletion removes its access
-proofs and native authentication rows through the existing deletion owner.
+proofs and native authentication rows through the tenant deletion owner.
 
 The edition Host policy declares classification, the shared cookie domain,
 tenant origins, and canonical origins through `RequestHost` callbacks. FOSS

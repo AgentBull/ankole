@@ -7,7 +7,7 @@ order: 317
 
 A WorkerProvider selects where an Agent's computer runs and how it stores Home and cache. Each Agent has one fixed provider and its own Worker. Providers belong to the site. Console stores credentials encrypted in separate fields; do not put credentials in configuration YAML. See [Workers](../worker-management/) for creation and daily operations.
 
-Vercel requires the `vercel-worker-provider` Control Plane Plugin. Alibaba Function Compute requires `china-market-ai-providers`, which also supplies model adapters. Enable the required Plugin and restart the control plane before use. Existing installations must select these Plugin IDs before upgrading. Ankole rejects Plugin disable while any Agent still uses its Worker providers, including paused Agents and pending deletion.
+Vercel requires the `vercel-worker-provider` Control Plane Plugin. Alibaba Function Compute requires `china-market-ai-providers`, which also supplies model adapters. Enable the required Plugin and restart the control plane before use. Ankole rejects Plugin disable while any Agent still uses its Worker providers, including paused Agents and pending deletion.
 
 ## Three storage roles
 
@@ -30,7 +30,7 @@ A drive S3 bucket cannot replace Worker Home or the SQLite cache disk. Cloudflar
 | `lambda` | Agent directory on EFS | Instance disk | Suspend with memory | 8 hours, including suspension |
 | `function_compute` | AgenticSpace or Agent prefix in OSS | Instance disk | Pause with memory | 24 hours |
 
-These are limits selected by the Ankole adapters, not a complete platform specification. Check account quotas, plans, and region availability. ACS is not registered as a WorkerProvider.
+These are limits selected by the Ankole adapters, not a complete platform specification. Check account quotas, plans, and region availability.
 
 All six providers default to `idleReleaseAfter: 15m`; you can set `never`. This controls idle release and cannot extend the platform lifetime. Location, storage keys, provider type, and existing Agent assignments cannot change. Size, environment, or endpoint changes replace idle Workers. Seed YAML imports only when the provider table is empty; use Console for later changes.
 
@@ -63,7 +63,6 @@ All six providers default to `idleReleaseAfter: 15m`; you can set `never`. This 
 - Home uses a private Drive in the same region. `teamId`, `projectId`, `region`, and `driveSizeGiB` cannot change after creation.
 - Prepare a `linux/amd64` image in the project's VCR repository and use the target digest. `cpus` accepts 1 or an even number from 2 to 32. The adapter requests 2048 MiB per vCPU.
 - `sessionTimeoutSeconds` defaults to 86400 (24 hours). Set 2700 for an account with a 45-minute limit, including a trial account that reports this limit. The value must not exceed the account limit. See [Vercel session limits](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence). Sandbox deletion keeps Drive and loses instance cache.
-- Short startup, file retention, image replacement, and Drive deletion have been checked. OOM, host failure, and the full 24-hour lifetime still need target-environment checks.
 
 ### AWS Lambda MicroVMs
 
@@ -71,7 +70,6 @@ All six providers default to `idleReleaseAfter: 15m`; you can set `never`. This 
 - Official Worker images accept only `memoryMiB: 4096` or `8192`. Correct lower saved values in Console before runtime or cleanup can proceed. `env` has at most 47 entries; `stopGraceSeconds` has a maximum of 59 seconds.
 - Memory quota covers running Workers, suspended Workers, and storage deletion helpers. Suspension does not release this capacity. After deletion, wait for AWS to confirm termination before treating capacity as free. See [MicroVM quotas and lifecycle](https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html).
 - EFS stores Home; SQLite stays on instance disk. The eight-hour limit includes suspension. Old build objects and images are not collected automatically. Repair failed build roles, images, or networking before retrying.
-- Short memory suspension, EFS retention, and cleanup have been checked. Long suspension and the full lifetime still need deployment checks.
 
 ### Alibaba Function Compute
 
@@ -80,7 +78,7 @@ All six providers default to `idleReleaseAfter: 15m`; you can set `never`. This 
 - The image must include OSSFS2 2.0.10 or later and keep `/workspace` empty before mounting. The official Worker image meets these requirements; its entry creates runtime directories after the mount.
 - OSS mounts only this Agent's `<root>/<agent_uid>` and does not provide full POSIX semantics. Keep SQLite cache off OSS mounts. A failed `chown` alone does not prove that the mount is unwritable.
 - Provider `env` can add variables but cannot override variables recorded by the image. Pause requests retain memory; resume requests use a new 24-hour timeout. Old templates are not collected automatically.
-- Resume reconnects OSSFS2 through the image helper while keeping the mount and open files. This prevents reads from waiting on TCP connections that became unusable during memory pause. If the helper fails, the provider deletes the instance and the next reconciliation rebuilds it from Home. Use a Worker image with this helper and its matching control-plane version. AgenticFS still needs live checks.
+- Resume reconnects OSSFS2 through the image helper while keeping the mount and open files. This prevents reads from waiting on TCP connections that became unusable during memory pause. If the helper fails, the provider deletes the instance and the next reconciliation rebuilds it from Home. Use a Worker image with this helper and its matching control-plane version.
 
 External providers and remote Kubernetes need instance-reachable `runtimeFabricUrl`, `relayOrigin`, and `aiGatewayUrl`. Do not use Compose service names or cluster-only addresses that the instance cannot reach.
 

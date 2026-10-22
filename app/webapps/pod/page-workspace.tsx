@@ -48,8 +48,9 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { QueryClientProvider, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type RefObject } from 'react'
 import { createRoot } from 'react-dom/client'
-import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router'
+import { Link, useBlocker, useNavigate, useParams } from '@tanstack/react-router'
 import { podLocation, podRouteID } from '../common/browser-context'
+import { useSearchParams } from '../common/router'
 import { requestErrorMessage } from '../common/request-errors'
 import { contentKeys, fileURL, pageAPI, pageQuery, pagesQuery, type Page, type PageDetail } from './content-api'
 import { contentError } from './content-errors'
@@ -72,7 +73,7 @@ const DatabasePage = lazy(() => import('./database-page').then(module => ({ defa
 const PagePicker = lazy(() => import('./page-picker').then(module => ({ default: module.PagePicker })))
 
 export function PageRoute() {
-  const pageID = podRouteID(useParams().pageID) ?? ''
+  const pageID = podRouteID(useParams({ strict: false }).pageID) ?? ''
   const { state: sidebarState, isMobile } = useSidebar()
   const navigation =
     isMobile || sidebarState === 'collapsed' ? (
@@ -144,11 +145,13 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
   const model = useModel(PageDraftModel)
   model.load(page.id, detail.content?.xml ?? '<page/>', page.revision, page.title)
   const dirty = model.hasUnsavedChanges.value
-  const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname
-  )
+  const blocker = useBlocker({
+    shouldBlockFn: ({ current, next }) => dirty && current.pathname !== next.pathname,
+    enableBeforeUnload: false,
+    withResolver: true
+  })
   useEffect(() => {
-    if (!dirty && blocker.state === 'blocked') blocker.proceed()
+    if (!dirty && blocker.status === 'blocked') blocker.proceed?.()
   }, [dirty, blocker])
   useEffect(() => {
     const leave = (event: BeforeUnloadEvent) => {
@@ -193,7 +196,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
     },
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: contentKeys.all })
-      navigate(podLocation('/content/trash'))
+      void navigate({ to: podLocation('/content/trash').pathname })
     }
   })
   const favorite = useMutation({
@@ -362,7 +365,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
                 {detail.source_conversation.deleted ? (
                   t('pod.content.source_conversation_deleted')
                 ) : (
-                  <Link className="link" to={podLocation(`/conversations/${detail.source_conversation.id}`)}>
+                  <Link className="link" to={podLocation(`/conversations/${detail.source_conversation.id}`).pathname}>
                     {t('pod.content.source_conversation')}
                     {detail.source_conversation.title || t('pod.content.view_conversation')}
                   </Link>
@@ -385,7 +388,7 @@ function PageWorkspace({ detail, loadError, reload }: { detail: PageDetail; load
           />
         )}
       </div>
-      <Dialog open={blocker.state === 'blocked'} onOpenChange={open => !open && blocker.reset?.()}>
+      <Dialog open={blocker.status === 'blocked'} onOpenChange={open => !open && blocker.reset?.()}>
         <DialogContent className="pod-dialog" closeLabel={t('common.close')}>
           <DialogTitle>{t('pod.content.unsaved_changes')}</DialogTitle>
           <p className="text-sm">{t('pod.content.wait_for_saving_to_finish_or_retry_you_can_download')}</p>
@@ -421,7 +424,7 @@ function ParentPageLink({ pageID }: { pageID: string }) {
   return (
     <Link
       className="inline-flex max-w-40 items-center gap-1.5 rounded px-1 py-1 text-fg-secondary no-underline hover:bg-accent"
-      to={podLocation(`/pages/${pageID}`)}>
+      to={podLocation(`/pages/${pageID}`).pathname}>
       {parent.data && <PageIcon page={parent.data.page} />}
       <span className="truncate">{parent.data?.page.title || t('pod.content.untitled')}</span>
     </Link>
@@ -487,7 +490,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
                 configure={(config, table) =>
                   update({ ...attributes, ...(table ? { table } : {}), view: JSON.stringify(config) })
                 }
-                openPage={id => navigate(podLocation(`/pages/${id}`))}
+                openPage={id => void navigate({ to: podLocation(`/pages/${id}`).pathname })}
               />
             </ContentScope>
           </QueryClientProvider>
@@ -496,7 +499,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
           queueMicrotask(() => root.unmount())
         }
       },
-      openPage: id => navigate(podLocation(`/pages/${id}`)),
+      openPage: id => void navigate({ to: podLocation(`/pages/${id}`).pathname }),
       resolveAsset: src =>
         src.startsWith('ankole:asset/') ? fileURL(detail.page.id, `assets/${src.slice('ankole:asset/'.length)}`) : src,
       deleteEmbed: async id => {
@@ -513,9 +516,12 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
     [client, navigate, detail.page.id, content]
   )
   const reload = async () => {
-    const latest = await pageAPI.read(detail.page.id)
-    model.reload(latest.content?.xml ?? '<page/>', latest.page.revision)
-    setInitialXML(latest.content?.xml ?? '<page/>')
+    const xml = await model.reload(async () => {
+      const latest = await pageAPI.read(detail.page.id)
+      return { xml: latest.content?.xml ?? '<page/>', revision: latest.page.revision }
+    })
+    if (xml === undefined) return
+    setInitialXML(xml)
     setGeneration(value => value + 1)
   }
   const uploadImage = async (file: File) => {
@@ -740,6 +746,7 @@ function DocumentPage({ detail, model }: { detail: PageDetail; model: InstanceTy
             })
             return () => {
               disposed = true
+              model.cancelReload()
               unwatch()
               collaboration.dispose()
               handle?.close()

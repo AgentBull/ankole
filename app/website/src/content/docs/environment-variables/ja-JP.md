@@ -7,7 +7,7 @@ order: 202
 
 このページは PostgreSQL、デプロイの秘密情報、ファイルストア、プロセス設定の起動変数です。Worker provider の設定は PostgreSQL に YAML として保存します。
 
-インスタンスの実行中に管理者が変更できるランタイム設定は、[AppConfigure](../app-configuration/)ガイドが所有しています。それらの設定を `.env` や Kubernetes Secret に入れないでください。
+インスタンスの実行中に管理者が変更できるランタイム設定については、[アプリケーション設定](../app-configuration/)を参照してください。それらの設定を `.env` や Kubernetes Secret に入れないでください。
 
 ## ブートストラップと secret（プロセス起動）
 

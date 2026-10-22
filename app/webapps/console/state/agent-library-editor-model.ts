@@ -134,8 +134,24 @@ export const AgentLibraryEditorModel = createModel(() => {
         documents[kind].conflict.value = conflict
       })
     },
-    reload(kind: AgentLibraryDocumentKind, document: AgentLibraryDocumentSnapshot) {
-      batch(() => replaceDocumentState(documents[kind], document))
+    async reload(kind: AgentLibraryDocumentKind, request: () => Promise<AgentLibraryDocumentSnapshot>) {
+      const state = documents[kind]
+      const requestedRevision = ++state.revision.value
+      try {
+        const document = await request()
+        if (state.revision.value !== requestedRevision) return
+        batch(() => replaceDocumentState(state, document))
+      } catch (error) {
+        if (state.revision.value === requestedRevision) throw error
+      }
+    },
+    resetSource() {
+      batch(() => {
+        sourceKey.value = undefined
+        for (const kind of AGENT_LIBRARY_DOCUMENT_KINDS) {
+          replaceDocumentState(documents[kind], { kind, content: '', content_hash: '' })
+        }
+      })
     },
     snapshot(kind: AgentLibraryDocumentKind): AgentLibraryDocumentSubmission {
       return {

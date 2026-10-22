@@ -60,7 +60,7 @@ State whether the Job needs a repository, document set, or installed tool. The A
 
 Every Job uses AIGateway. When the Job is created, Ankole saves the effective **Background Agent Jobs** model profile. If that profile is empty, the Agent's `heavy` profile is the fallback.
 
-To use a ChatGPT subscription, first create a [ChatGPT subscription provider](../chatgpt-subscription-provider/). Then open **Agents** in the Console, find **Background Agent Jobs** in the Agent's model profiles, and select that provider, an entitled model, the reasoning effort, and Fast Mode. The provider's credential pool selects and rotates accounts. The Job does not select an account.
+To use a ChatGPT subscription, first create a [ChatGPT subscription provider](../chatgpt-subscription-provider/). Then open **Agents** in the Console, find **Background Agent Jobs** in the Agent's model profiles, and select that provider, an entitled model, the reasoning effort, and Fast Mode. The provider's credential pool selects and rotates accounts.
 
 ## Inspect Jobs in the Console
 

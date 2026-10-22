@@ -46,7 +46,7 @@ import { match } from '@agentbull/active-support'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useSearchParams } from 'react-router'
+import { useSearchParams } from '../../common/router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebBackgroundAgentJobControllerCancelMutation,

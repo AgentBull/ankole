@@ -174,7 +174,7 @@ alias at that terminal boundary, but the alias is not an MCP or Ankole tool
 identity.
 
 Codex reserves the `mcp__` prefix for native MCP. The Background dynamic-tool
-projection quarantines that prefix, but it still accepts explicitly allowed
+projection quarantines that prefix and accepts explicitly allowed
 non-MCP namespaces. A future integration adds its concrete server owner and
 tests; it does not add an empty registry or a general local MCP loader.
 
@@ -212,7 +212,7 @@ or server error fails the mcporter process. The caller must keep the diagnostic
 and must not treat partial stdout as a successful result.
 
 Main command output, Codex terminal output, and Automation stdout and stderr
-remain bounded by their existing execution contracts. Skills must set server
+are bounded by their execution contracts. Skills must set server
 pagination and result-size bounds that fit those contracts.
 
 Agent Computer does not fetch an MCP catalog during setup. Config generation
@@ -226,20 +226,21 @@ runs the model command or Automation script. The generated file stores only
 environment variable placeholders. A missing variable diagnostic must name the variable
 and must not print a credential value.
 
-The server output is untrusted input. Removing the native MCP client also
-removes these client-side guarantees:
+The server output is untrusted input. The Skill and `mcporter` path does not
+perform client-side output-schema validation, MCP annotation scheduling,
+tool-level interactive approval, or automatic WorkerEnv secret redaction:
 
 - MCP output-schema validation.
 - MCP annotation mapping to programmatic callers or parallel scheduling.
 - Native tool-level activity and approval UI.
 - MCP-result redaction against all WorkerEnv secret values.
 
-The last item removes a defense against a server that accidentally returns a
-secret and lets command output enter persistent history. Ankole accepts this
-narrower contract for trusted, first-party MCP Skills. The secret already
-exists in the same Worker environment, and the config still stores only its
-variable name. Do not use this contract for an untrusted third-party server without a
-separate security review.
+Without client-side secret redaction, a secret accidentally returned by a server
+can enter persistent command history. Ankole accepts this narrower contract for
+trusted, first-party MCP Skills: the secret already exists in the same Worker
+environment, and the generated config stores only its variable name. Do not use
+this contract for an untrusted third-party server without a separate security
+review.
 
 The real write boundary is the remote credential scope. Tool filters and Skill
 instructions guide trusted code; they do not create a security boundary. If an

@@ -7,7 +7,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useMemo, type ComponentProps } from 'react'
 import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
+import { Link } from '@tanstack/react-router'
 import { ankoleWebAgentControllerPutProviderHostedMutation } from '../api/generated/@tanstack/react-query.gen'
 import {
   ankoleWebAgentControllerDeleteModelProfile,

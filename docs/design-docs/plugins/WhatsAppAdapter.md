@@ -3,7 +3,7 @@
 The WhatsApp Adapter connects one WhatsApp Business phone number to one Agent
 binding through the WhatsApp Business Platform Cloud API. WhatsApp is a consumer
 IM. The category changes catalog and Console presentation only; the adapter uses
-the same Signals and Signals and Conversations contracts as every other Signal adapter.
+the same Signals and Conversations contracts as every other Signal adapter.
 
 Read [Signals](../Signals.md), [Conversations](../Conversations.md),
 [Sessions](../Sessions.md), [Principal](../Principal.md), and
@@ -87,7 +87,7 @@ gets status 404, before the handler reads any event.
 One App can serve several phone numbers, and only some of them belong to this
 installation. The handler reads `value.metadata.phone_number_id` of each change
 and dispatches to the binding that owns that number. A change for a number no
-binding serves is ignored and still gets status 200, so one unconfigured number
+binding serves is ignored and returns status 200, so one unconfigured number
 never blocks the others.
 
 The handler completes durable Conversations.Observe for every message in the
@@ -140,22 +140,14 @@ is matched at once, exactly as for an enterprise IM adapter with a directory
 mobile number. A number the kernel cannot normalize is left out instead of
 being stored in a broken form.
 
-The binding owns `unmatched_sender_policy`. One standard consumer IM setup uses
-this sequence:
-
-1. An administrator signs in through LocalPassword and creates a human
-   Principal.
-2. The WhatsApp binding selects `manual_review`.
-3. An unmatched user receives the fixed mapping notice. Conversations.IdentityAdmission creates a
-   mapping request with the WhatsApp profile name and the phone number, and does
-   not store the original message.
-4. The administrator maps the WhatsApp external identity to the existing
-   Principal.
-5. The user sends the message again, and Conversations.IdentityAdmission admits it to the Agent.
-
-This sequence describes a common setup. It is not a dependency between
-LocalPassword and WhatsApp. The mapping target can be any existing human
-Principal.
+The binding owns `unmatched_sender_policy` (`manual_review` or
+`create_standalone`). With `manual_review`, an unmatched sender receives the
+fixed mapping notice while `Conversations.IdentityAdmission` creates a mapping
+request with the WhatsApp profile name and phone number without storing the
+original message; an administrator can then bind the WhatsApp external identity
+to any existing human Principal. With `create_standalone`,
+`Conversations.IdentityAdmission` creates a human Principal and binds the
+WhatsApp ID.
 
 ## Materialize Attachments
 
@@ -213,8 +205,7 @@ blank line, and a cut row title keeps its full text in the row description.
 A reply that asks for a choice is several messages: the text chunks first and
 the interactive message last. The adapter records the ID of that interactive
 message as the Signal's reply surface, because that is the message the
-buttons live on. The row's created entry ID stays the first message, as for
-every other reply.
+buttons live on. The row's created entry ID is the first message.
 
 On an interactive reply, the adapter resolves the WhatsApp user to a Principal,
 restores the action from the durable checkpoint, and checks that the reply's
@@ -236,8 +227,8 @@ Cloud API accepts one message type for each media class:
 
 A file that is larger than the limit of its type, or whose content type is not
 in these lists, stops that attachment row with a permanent
-`outbound_attachment_unsupported` error. The text row still goes out, because
-the gateway stores each attachment in its own Delivery intent.
+`outbound_attachment_unsupported` error. The text intent is delivered
+separately because each attachment has its own Delivery intent.
 
 ## The Customer Service Window
 
@@ -257,7 +248,7 @@ Meta re-opens the window on any user action, and a button or list reply is one.
 The adapter keeps the time of the newest interactive reply on the channel,
 exactly as WhatsApp reports it on the message, and reads the newer of that time
 and the newest human message. A user who answers a clarification after 24 hours
-can therefore still receive the Agent's answer, while a tap that Meta delivers
+can therefore receive the Agent's answer, while a tap that Meta delivers
 late does not open a window that has already closed. The adapter records that
 time under the channel row lock and keeps the newest one, so an older tap that
 Meta delivers later cannot move the window back. A callback whose token does not

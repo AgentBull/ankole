@@ -88,7 +88,7 @@ lowercase, so the client preserves their canonical case in the HTTP/1 request.
 
 An acknowledgement timeout closes the connection and fails its queued sends.
 A later acknowledgement cannot confirm the next frame with the same `req_id`.
-The existing reconnect and intent recovery rules then apply.
+The reconnect and intent recovery rules then apply.
 
 WeCom permits one live connection for each bot. When a second consumer
 connects, the platform disconnects the first one and announces it with a
@@ -147,7 +147,7 @@ files; an oversized file fails loudly.
 
 Markdown conversion changes prose only. The kernel uses CommonMark source
 positions to protect the original bytes of fenced, indented, and inline code.
-The existing AI Stream keeps its own rendering and paging rules.
+The AI Stream uses its own rendering and paging rules.
 
 Template cards are plain JSON. Card buttons round-trip only a `key` string, so
 the portable interaction protocol packs into the key and the source actor
@@ -155,10 +155,10 @@ event rides `task_id`. After a click, the card can change only inside a
 5-second event window; the adapter settles the interaction and writes a
 receipt card in that window.
 
-New button keys use an `ank2:` prefix and a JSON array of interaction fields.
-This preserves separators inside IDs and values. If a key exceeds 1,024 UTF-8
-bytes, the whole card uses its Markdown fallback. The decoder still accepts
-`ank1|` keys from previously sent cards.
+Button keys use an `ank2:` prefix and a JSON array of interaction fields,
+preserving separators inside IDs and values; the decoder also accepts `ank1|`
+keys. If a key exceeds 1,024 UTF-8 bytes, the whole card uses its Markdown
+fallback.
 
 Neither send path has an idempotency parameter. The adapter cannot reconcile an
 uncertain send. Delivery stops it as `unknown`. An operator can requeue a
@@ -216,7 +216,7 @@ authorized stimuli; Sessions owns Agent execution and recovery. Principals and A
 grants.
 
 A control-plane restart rebuilds the long connections. An open stream page
-continues under its recorded stream ID when its window still permits;
+continues under its recorded stream ID within the 10-minute window;
 otherwise it seals and the chain continues. Agent Computer does not receive
 WeCom credentials.
 

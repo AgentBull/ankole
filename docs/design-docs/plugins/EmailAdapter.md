@@ -73,8 +73,8 @@ this cycle:
 
 The `\Seen` flag is the provider-side confirmation, in the same way that the
 Telegram `offset` is. A control-plane crash between ingress and the flag write
-delivers the same message again. Signals deduplicates it with its
-durable source keys, so the adapter keeps no cursor table.
+delivers the same message again. Signals deduplicates replayed messages with
+its durable source keys.
 
 This makes the mailbox an Agent-owned resource: a person must not read the same
 mailbox with another mail client, because a message that another client marks
@@ -186,13 +186,10 @@ mirrored, so the adapter addresses the notice to the sender that
 Conversations recorded on the notice row, with `In-Reply-To` set to the held
 message; a `Reply-To` header on the held message is not honored. With
 `create_standalone`, the gateway creates a standalone human Principal. Because
-the DMARC rule refuses unauthenticated senders first, the standalone policy
-carries the same risk as on Telegram: anyone who can send authenticated mail
-can get an account. An address equal to an existing Principal UID does not
-prove mailbox ownership and never selects that Principal. With no `email`
-identity binding, `manual_review` holds the message; `create_standalone`
-creates a separate account. An administrator can explicitly bind the address
-to an existing Human instead.
+the DMARC rule refuses unauthenticated senders first, anyone who can send
+authenticated mail can obtain a standalone account under `create_standalone`.
+An address equal to an existing Principal UID does not prove mailbox ownership
+and never selects that Principal without an `email` identity binding.
 
 ## Materialize Attachments
 

@@ -60,7 +60,7 @@ Job にリポジトリ、ドキュメントセット、インストール済み�
 
 すべての Job は AIGateway を使用します。Job の作成時に、Ankole は実効的な **Background Agent Jobs** モデルプロファイルを保存します。そのプロファイルが空の場合は、Agent の `heavy` プロファイルがフォールバックになります。
 
-ChatGPT サブスクリプションを使うには、まず [ChatGPT subscription provider](../chatgpt-subscription-provider/) を作成します。次に Console で **Agents** を開き、Agent のモデルプロファイルにある **Background Agent Jobs** を探して、その provider、対象モデル、推論努力、Fast Mode を選択します。provider の認証情報プールがアカウントを選択してローテーションします。Job がアカウントを選ぶことはありません。
+ChatGPT サブスクリプションを使うには、まず [ChatGPT subscription provider](../chatgpt-subscription-provider/) を作成します。次に Console で **Agents** を開き、Agent のモデルプロファイルにある **Background Agent Jobs** を探して、その provider、対象モデル、推論努力、Fast Mode を選択します。provider の認証情報プールがアカウントを選択してローテーションします。
 
 ## Console で Job を確認する
 

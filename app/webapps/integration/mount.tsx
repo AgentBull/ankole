@@ -1,7 +1,15 @@
 import '@ankole/uikit/styles.css'
 import '../common/styles.css'
 import { createRoot } from 'react-dom/client'
-import { createBrowserRouter, Link, Outlet, RouterProvider, useParams } from 'react-router'
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  Link,
+  Outlet,
+  RouterProvider,
+  useParams
+} from '@tanstack/react-router'
 import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { SetupApp } from '../setup/app'
@@ -9,6 +17,7 @@ import { LocalPasswordForm } from '../auth/local-password-form'
 import { LoginModel } from '../auth/state/login-model'
 import { AppProviders, createQueryClient } from '../common/providers'
 import { loadLocale } from '../common/i18n'
+import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { configureConsoleAPIClient } from '../console/api/client'
 import { createConsoleMutationCache } from '../console/query-client'
 import { ProviderEditorPage, ProvidersListPage } from '../console/pages/providers'
@@ -54,48 +63,87 @@ const app = setupSurface ? (
 ) : consoleSurface ? (
   (() => {
     configureConsoleAPIClient()
+    const rootRoute = createRootRoute()
+    const regressionNavRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      id: 'regression-nav',
+      component: RegressionNavigation
+    })
+    const settingsRoute = createRoute({
+      getParentRoute: () => regressionNavRoute,
+      path: '/settings',
+      component: SettingsPage
+    })
+    const brainNavRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      id: 'brain-nav',
+      component: BrainTestNavigation
+    })
+    const brainObjectsRoute = createRoute({
+      getParentRoute: () => brainNavRoute,
+      path: '/brain/objects',
+      component: BrainObjectsPage
+    })
+    const routeTree = rootRoute.addChildren([
+      regressionNavRoute.addChildren([
+        settingsRoute.addChildren([
+          createRoute({ getParentRoute: () => settingsRoute, path: 'group/$group', component: SettingGroupDrawer }),
+          createRoute({ getParentRoute: () => settingsRoute, path: '$key', component: SettingEditorDrawer })
+        ]),
+        createRoute({ getParentRoute: () => regressionNavRoute, path: '/tenants/new', component: TenantEditorPage }),
+        createRoute({
+          getParentRoute: () => regressionNavRoute,
+          path: '/tenants/$tenantID',
+          component: TenantEditorPage
+        }),
+        createRoute({
+          getParentRoute: () => regressionNavRoute,
+          path: '/worker-providers/$providerID',
+          component: WorkerProviderEditorPage
+        }),
+        createRoute({ getParentRoute: () => regressionNavRoute, path: '/webhooks', component: WebhooksPage }),
+        createRoute({ getParentRoute: () => regressionNavRoute, path: '/files/$uid', component: AgentFilesPage }),
+        createRoute({ getParentRoute: () => regressionNavRoute, path: '/schedules', component: SchedulesListPage }),
+        createRoute({
+          getParentRoute: () => regressionNavRoute,
+          path: '/schedules/new',
+          component: ScheduleCronEditorPage
+        }),
+        createRoute({ getParentRoute: () => regressionNavRoute, path: '/library/$uid', component: LibraryTestPage }),
+        createRoute({
+          getParentRoute: () => regressionNavRoute,
+          path: '/worker-env',
+          component: () => <WorkerEnvAgentSection agentUID="agent-one" />
+        })
+      ]),
+      createRoute({ getParentRoute: () => rootRoute, path: '/console-home', component: HomePage }),
+      createRoute({ getParentRoute: () => rootRoute, path: '/providers', component: ProvidersListPage }),
+      createRoute({ getParentRoute: () => rootRoute, path: '/providers/new', component: ProviderEditorPage }),
+      createRoute({ getParentRoute: () => rootRoute, path: '/providers/$providerID', component: ProviderEditorPage }),
+      brainNavRoute.addChildren([
+        createRoute({
+          getParentRoute: () => brainNavRoute,
+          path: '/brain/objects/new',
+          component: BrainObjectEditorPage
+        }),
+        createRoute({
+          getParentRoute: () => brainNavRoute,
+          path: '/brain/objects/$slug/edit',
+          component: BrainObjectEditorPage
+        }),
+        brainObjectsRoute.addChildren([
+          createRoute({ getParentRoute: () => brainObjectsRoute, path: '/', component: () => null }),
+          createRoute({ getParentRoute: () => brainObjectsRoute, path: '$', component: BrainObjectDrawer })
+        ])
+      ])
+    ])
     return (
       <RouterProvider
-        router={createBrowserRouter([
-          {
-            element: <RegressionNavigation />,
-            children: [
-              {
-                path: '/settings',
-                element: <SettingsPage />,
-                children: [
-                  { path: 'group/:group', element: <SettingGroupDrawer /> },
-                  { path: ':key', element: <SettingEditorDrawer /> }
-                ]
-              },
-              { path: '/tenants/new', element: <TenantEditorPage /> },
-              { path: '/tenants/:tenantID', element: <TenantEditorPage /> },
-              { path: '/worker-providers/:providerID', element: <WorkerProviderEditorPage /> },
-              { path: '/webhooks', element: <WebhooksPage /> },
-              { path: '/files/:uid', element: <AgentFilesPage /> },
-              { path: '/schedules', element: <SchedulesListPage /> },
-              { path: '/schedules/new', element: <ScheduleCronEditorPage /> },
-              { path: '/library/:uid', element: <LibraryTestPage /> },
-              { path: '/worker-env', element: <WorkerEnvAgentSection agentUID="agent-one" /> }
-            ]
-          },
-          { path: '/console-home', element: <HomePage /> },
-          { path: '/providers', element: <ProvidersListPage /> },
-          { path: '/providers/new', element: <ProviderEditorPage /> },
-          { path: '/providers/:providerID', element: <ProviderEditorPage /> },
-          {
-            element: <BrainTestNavigation />,
-            children: [
-              { path: '/brain/objects/new', element: <BrainObjectEditorPage /> },
-              { path: '/brain/objects/:slug/edit', element: <BrainObjectEditorPage /> },
-              {
-                path: '/brain/objects',
-                element: <BrainObjectsPage />,
-                children: [{ path: '*', element: <BrainObjectDrawer /> }]
-              }
-            ]
-          }
-        ])}
+        router={createRouter({
+          routeTree,
+          parseSearch: parseRouterSearch,
+          stringifySearch: stringifyRouterSearch
+        })}
       />
     )
   })()
@@ -110,7 +158,9 @@ function RegressionNavigation() {
       <nav aria-label="Regression navigation">
         <Link to="/settings">Settings</Link>
         <Link to="/library/agent-one">Library</Link>
-        <Link to="/schedules/new?agent=agent-one&amp;cron=cron-one">Schedule</Link>
+        <Link to="/schedules/new" search={{ agent: 'agent-one', cron: 'cron-one' }}>
+          Schedule
+        </Link>
       </nav>
       <Outlet />
     </>
@@ -120,7 +170,7 @@ function RegressionNavigation() {
 function LibraryTestPage() {
   useSignals()
   const model = useModel(AgentLibraryEditorModel)
-  return <AgentLibraryEditor agentUID={useParams().uid!} model={model} />
+  return <AgentLibraryEditor agentUID={useParams({ strict: false }).uid!} model={model} />
 }
 
 // Test-only links change router parameters without replacing the application or its QueryClient.

@@ -33,7 +33,7 @@ docker compose exec -T postgresql \
   pg_dump -U ankole -d ankole -Fc > ankole-backup.dump
 ```
 
-卷与桶使用各自存储系统的备份机制。升级与破坏性维护之前都要备份；切换旧镜像不能撤销数据库迁移。池化版本的旧 Agent Home 卷，要保留到一次性 Compose 迁移完成且文件核验通过之后。
+卷与桶使用各自存储系统的备份机制。升级与破坏性维护之前都要备份；切换旧镜像不能撤销数据库迁移。
 
 ## 恢复与验证
 

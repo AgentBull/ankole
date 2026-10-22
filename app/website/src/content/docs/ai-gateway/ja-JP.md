@@ -83,7 +83,7 @@ compaction は、長く保存された履歴を、流れを失わずに短いも
 
 AIGateway は、どの上流呼び出しよりも前に、model selector を実際の provider binding に解決します。Agent には 8 つの組み込み profile があります。`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch`、`image_generate` です。最初の 5 つは言語モデルを選び、最後の 3 つは独立した能力を選びます。Agent はカスタムの言語モデル profile も持てます。管理者は明示的な provider entry を使います。`GET /models` は現在の主体が解決できるものを一覧表示し、OpenRouter スタイルのフィルタ（`q`、`context`、`min_price`、`max_price`、`sort`、modal フィルタ）をオプションで受け付けます。
 
-各 provider row は credential pool を所有します。provider kind、base URL、ヘッダ、設定、capability 宣言は、すべてのメンバーで共有されます。model profile は row を指し、pool メンバーを名指しすることはありません。AIGateway は構成済みの `fill_first`、`round_robin`、`least_used`、`random` strategy に従って健全なメンバーを選択します。Console は選択された UI 言語に合わせてこれらの strategy 名を翻訳し、API と保存された値は変わりません。stateful な thread は、可能な限り同じメンバーに留まります。
+各 provider row は credential pool を所有します。provider kind、base URL、ヘッダ、設定、capability 宣言は、すべてのメンバーで共有されます。model profile は row を指し、pool メンバーを名指しすることはありません。AIGateway は構成済みの `fill_first`、`round_robin`、`least_used`、`random` strategy に従って健全なメンバーを選択します。Console は選択された UI 言語に合わせてこれらの strategy 名を翻訳し、API とストレージは正規キーを使います。stateful な thread は、可能な限り同じメンバーに留まります。
 
 属性の付く `429`、`5xx`、または transport の失敗は、request を行った credential だけをクールダウンします。AIGateway は別のメンバーを選択し、provider の request を再構築し、指数バックオフと jitter 付きの有界 retry を実行します。Rust kernel は一度に 1 回の transport 試行を行います。pool が空のとき、AIGateway は別の provider に切り替えません。
 

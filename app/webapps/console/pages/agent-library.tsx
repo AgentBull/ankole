@@ -34,7 +34,8 @@ import { RiInformationLine, RiRestartLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { Link, useParams } from '@tanstack/react-router'
+import { linkTarget, useSearchParams } from '../../common/router'
 import { requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebAgentControllerIndexOptions,
@@ -209,7 +210,7 @@ export function AgentLibraryPage() {
 
 export function AgentPluginDetailPage() {
   const { t } = useTranslation()
-  const { pluginID = '' } = useParams()
+  const { pluginID = '' } = useParams({ strict: false })
   const [searchParams, setSearchParams] = useSearchParams()
   const scope = searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
   const data = useLibraryCapabilities(scope)
@@ -374,7 +375,7 @@ function AgentPluginCard({
         <CardTitle className="normal-case">
           <Link
             className="hover:underline"
-            to={agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope)}>
+            {...linkTarget(agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope))}>
             {name}
           </Link>
         </CardTitle>
@@ -407,7 +408,7 @@ function AgentPluginCard({
         <Link
           aria-label={t('common.view_details_for', { name })}
           className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}
-          to={agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope)}>
+          {...linkTarget(agentLibraryScopeQuery(`/agent-library/agent-plugins/${plugin.id}`, scope))}>
           {t('console.agent_library_capabilities.view_details')}
         </Link>
       </CardContent>
@@ -614,7 +615,7 @@ function SkillLessonRow({ children, lesson }: { children?: React.ReactNode; less
           <span className="flex flex-wrap items-center gap-1.5">
             {t('console.agent_library_capabilities.lessons_evidence')}
             {lesson.evidence_job_ids.map(jobID => (
-              <Link key={jobID} className="link" to={`/background-agent-jobs?job=${jobID}`}>
+              <Link key={jobID} className="link" {...linkTarget(`/background-agent-jobs?job=${jobID}`)}>
                 #{jobID}
               </Link>
             ))}

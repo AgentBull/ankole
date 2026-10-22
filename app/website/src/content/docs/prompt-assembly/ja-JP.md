@@ -5,7 +5,7 @@ order: 118
 description: メイン Agent の指示と Codex Job のコンテキストを組み立てる経路。
 ---
 
-コントロールプレーンがメイン Agent のモデル指示を組み立てます。`Ankole.Sessions.Context.resolve/2` が現在のドメイン情報を読み、`Ankole.Sessions.Prompt.system/1` が描画し、`Ankole.Sessions.Driver` が AIGateway 経由で送ります。Worker は環境操作と Codex Job を受け取り、メイン Agent のプロンプトを描画しません。[Agent loop](../agent-loop/) を参照してください。
+コントロールプレーンがメイン Agent のモデル指示を組み立てます。`Ankole.Sessions.Context.resolve/2` が現在のドメイン情報を読み、`Ankole.Sessions.Prompt.system/1` が描画し、`Ankole.Sessions.Driver` が AIGateway 経由で送ります。Worker は環境操作と Codex Job を受け取ります。[Agent loop](../agent-loop/) を参照してください。
 
 ## 現在のコンテキスト
 
@@ -17,7 +17,7 @@ Agent の識別情報と文書、有効な Skill とプラグイン、会話の�
 
 ## 設定と履歴
 
-`AgentConfig` はテナント設定を解決します。`ai_agent.max_iterations` は 90、`ai_agent.max_output_tokens` は明示的上限なし、`ai_agent.inactivity_timeout_ms` は 30 分が既定値です。コントロールプレーンの Turn を制限し、Worker のメインループ設定ではありません。
+`AgentConfig` はテナント設定を解決します。`ai_agent.max_iterations` は 90、`ai_agent.max_output_tokens` は明示的上限なし、`ai_agent.inactivity_timeout_ms` は 30 分が既定値です。これらはコントロールプレーンの Turn を制限します。
 
 AIGateway が会話履歴と監査用リクエストを保存します。現在の入力と provider の観測は `Prompt.Input` で user message にし、system 指示に重複しません。コントロールプレーンは Run ごとに現在の情報から描画します。
 

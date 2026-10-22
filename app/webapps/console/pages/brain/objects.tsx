@@ -30,7 +30,7 @@ import { RiBrainLine, RiCloseLine, RiEditLine, RiLoaderLine } from '@remixicon/r
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, Outlet, useNavigate, useParams } from 'react-router'
+import { Link, Outlet, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebBrainControllerForgetObjectMutation,
   ankoleWebBrainControllerForkObjectMutation,
@@ -178,8 +178,8 @@ function BrainObjectsList() {
 export function BrainObjectDrawer() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const params = useParams()
-  const slug = params['*'] ?? ''
+  const params = useParams({ strict: false })
+  const slug = params._splat ?? params['*'] ?? ''
   const [forgetOpen, setForgetOpen] = useState(false)
   const [forgetReason, setForgetReason] = useState('')
   const [forkOpen, setForkOpen] = useState(false)
@@ -209,7 +209,7 @@ export function BrainObjectDrawer() {
       setForgetOpen(false)
       toast.success(t('console.brain.forget_object_done', { slug }))
 
-      navigate('/brain/objects')
+      void navigate({ to: '/brain/objects' })
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -231,7 +231,7 @@ export function BrainObjectDrawer() {
 
   const busy = rollback.isPending || forget.isPending || restore.isPending || fork.isPending
   const requestClose = () => {
-    if (!busy) navigate('/brain/objects')
+    if (!busy) void navigate({ to: '/brain/objects' })
   }
 
   return (

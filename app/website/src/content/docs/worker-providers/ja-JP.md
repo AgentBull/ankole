@@ -7,7 +7,7 @@ order: 317
 
 WorkerProvider は Agent のコンピューターの実行先と Home・キャッシュの保存方法を決めます。各 Agent は一つの固定 provider と専用 Worker を持ちます。provider はサイトに属し、認証情報は Console の別フィールドに暗号化保存します。設定 YAML に鍵を記載しないでください。作成と日常操作は [Worker](../worker-management/)を参照してください。
 
-Vercel には Control Plane Plugin `vercel-worker-provider` が必要です。Alibaba Function Compute には、モデルアダプターも提供する `china-market-ai-providers` が必要です。使用前に必要な Plugin を有効にして control plane を再起動してください。既存環境ではアップグレード前に該当する Plugin ID を選択します。休止中や削除待ちを含め、Agent が Plugin の Worker provider を参照している間は無効にできません。
+Vercel には Control Plane Plugin `vercel-worker-provider` が必要です。Alibaba Function Compute には、モデルアダプターも提供する `china-market-ai-providers` が必要です。使用前に必要な Plugin を有効にして control plane を再起動してください。休止中や削除待ちを含め、Agent が Plugin の Worker provider を参照している間は無効にできません。
 
 ## 三つのストレージ
 
@@ -30,7 +30,7 @@ Vercel には Control Plane Plugin `vercel-worker-provider` が必要です。Al
 | `lambda` | EFS の Agent ディレクトリ | インスタンスディスク | メモリを保持して休止 | 休止を含め 8 時間 |
 | `function_compute` | AgenticSpace または OSS の Agent prefix | インスタンスディスク | メモリを保持して休止 | 24 時間 |
 
-これは Ankole adapter の制約です。プラットフォーム全仕様ではありません。アカウント quota、plan、利用可能 region も確認してください。ACS は WorkerProvider に未登録です。
+これは Ankole adapter の制約です。プラットフォーム全仕様ではありません。アカウント quota、plan、利用可能 region も確認してください。
 
 全 6 種類の `idleReleaseAfter` は既定で `15m`、`never` も指定できます。アイドル回収設定はプラットフォーム期限を延長しません。場所、保存キー、provider 種類、既存 Agent の割り当ては変更できません。仕様、環境変数、endpoint の変更はアイドル Worker を置換します。seed は provider テーブルが空のときだけ取り込み、以後は Console で編集します。
 
@@ -63,7 +63,6 @@ Vercel には Control Plane Plugin `vercel-worker-provider` が必要です。Al
 - 同一 region の専用 Drive を Home に使います。`teamId`、`projectId`、`region`、`driveSizeGiB` は作成後に変更できません。
 - project の VCR に `linux/amd64` イメージを準備し、対象 digest を使います。`cpus` は 1 または 2～32 の偶数、メモリは vCPU ごとに 2048 MiB です。
 - `sessionTimeoutSeconds` の既定値は 86400（24 時間）です。アカウントの上限が 45 分の場合は 2700 に設定します。この上限が適用される試用アカウントも同様です。アカウントの実際の上限を超えない値を指定してください。[Vercel の期限](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)を参照してください。sandbox 削除で Drive は残り、キャッシュは失われます。
-- 短時間の起動、ファイル保持、イメージ置換、Drive 削除は検証済みです。OOM、ホスト障害、全 24 時間の動作は対象環境での検証が必要です。
 
 ### AWS Lambda MicroVMs
 
@@ -71,7 +70,6 @@ Vercel には Control Plane Plugin `vercel-worker-provider` が必要です。Al
 - 公式イメージは `memoryMiB: 4096` または `8192` のみ受け付けます。保存済みの低い値は Console で修正しないと実行もクリーンアップも進みません。`env` は最大 47 項目、`stopGraceSeconds` は最大 59 秒です。
 - メモリ quota は実行中、休止中、ストレージ削除 helper を含みます。休止では容量を解放しません。削除後も AWS の終了確認を待ちます。[MicroVM の quota と lifecycle](https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html)を参照してください。
 - Home は EFS、SQLite はインスタンスディスクです。8 時間は休止を含みます。古いビルドオブジェクトとイメージは自動回収しません。失敗時はビルド role、イメージ、接続を修正して再試行します。
-- 短いメモリ休止、EFS 保持、削除は検証済みです。長い休止と全期限はデプロイ環境で検証してください。
 
 ### Alibaba Function Compute
 
@@ -80,7 +78,7 @@ Vercel には Control Plane Plugin `vercel-worker-provider` が必要です。Al
 - イメージには OSSFS2 2.0.10 以降が必要で、mount 前の `/workspace` は空である必要があります。公式 Worker イメージはこの要件を満たし、entry が mount 後に実行用ディレクトリを作成します。
 - OSS は本 Agent の `<root>/<agent_uid>` のみを mount し、完全な POSIX semantics はありません。SQLite を OSS に置かないでください。`chown` 失敗だけでは書き込み不能と判定できません。
 - provider `env` は変数を追加できますが、イメージが記録した変数を上書きできません。pause はメモリを保持し、resume は新しい 24 時間 timeout を使います。旧 template は自動回収しません。
-- 再開時はイメージ内の補助プログラムで OSSFS2 の接続を作り直し、mount と開いたファイルを保持します。これにより、休止中に使用不能になった TCP 接続での読み取り待ちを防ぎます。補助プログラムが失敗した場合、プロバイダーはそのインスタンスを削除し、次の調整で Home から再構築します。このプログラムを含む Worker イメージと対応するコントロールプレーンを使用してください。AgenticFS は引き続き実環境での検証が必要です。
+- 再開時はイメージ内の補助プログラムで OSSFS2 の接続を作り直し、mount と開いたファイルを保持します。これにより、休止中に使用不能になった TCP 接続での読み取り待ちを防ぎます。補助プログラムが失敗した場合、プロバイダーはそのインスタンスを削除し、次の調整で Home から再構築します。このプログラムを含む Worker イメージと対応するコントロールプレーンを使用してください。
 
 外部 provider と remote Kubernetes は、インスタンスから接続できる `runtimeFabricUrl`、`relayOrigin`、`aiGatewayUrl` が必要です。到達できない Compose service 名や cluster 内限定アドレスを使わないでください。
 

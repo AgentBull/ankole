@@ -39,7 +39,7 @@ describe('AgentLibraryEditorModel', () => {
     model[Symbol.dispose]()
   })
 
-  test('saves, cancels, and reloads one document without changing the other draft', () => {
+  test('saves, cancels, and reloads one document without changing the other draft', async () => {
     const model = new AgentLibraryEditorModel()
     model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
     model.beginEdit('mission')
@@ -65,7 +65,11 @@ describe('AgentLibraryEditorModel', () => {
     })
     expect(model.documents.mission.conflict.value).toBeTrue()
 
-    model.reload('mission', { kind: 'mission', content: 'Latest mission', content_hash: 'mission:latest' })
+    await model.reload('mission', async () => ({
+      kind: 'mission',
+      content: 'Latest mission',
+      content_hash: 'mission:latest'
+    }))
     expect(model.documents.mission.draft.value).toBe('Latest mission')
     expect(model.documents.mission.editing.value).toBeFalse()
     expect(model.documents.mission.conflict.value).toBeFalse()
@@ -96,6 +100,52 @@ describe('AgentLibraryEditorModel', () => {
       content: 'Newer unsaved mission',
       expectedContentHash: 'mission:submitted'
     })
+    model[Symbol.dispose]()
+  })
+
+  test('edits during a reload retain the draft, its CAS hash, and its conflict', async () => {
+    const model = new AgentLibraryEditorModel()
+    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
+    model.beginEdit('mission')
+    model.setDraft('mission', 'Conflicting draft')
+    model.setError('mission', 'Changed elsewhere', true)
+    const response = Promise.withResolvers<AgentLibraryDocumentsSnapshot['mission']>()
+    const reload = model.reload('mission', () => response.promise)
+    model.setDraft('mission', 'Newer draft')
+    response.resolve(documents('Remote', 'Soul A').mission)
+    await reload
+    expect(model.documents.mission.draft.value).toBe('Newer draft')
+    expect(model.documents.mission.contentHash.value).toBe('mission:Mission A')
+    expect(model.documents.mission.conflict.value).toBeTrue()
+    expect(model.documents.mission.editing.value).toBeTrue()
+    expect(model.dirty.value).toBeTrue()
+    model[Symbol.dispose]()
+  })
+
+  test('only the last reload can replace a draft, even when it finishes first', async () => {
+    const model = new AgentLibraryEditorModel()
+    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
+    const first = Promise.withResolvers<AgentLibraryDocumentsSnapshot['mission']>()
+    const pending = model.reload('mission', () => first.promise)
+    await model.reload('mission', async () => documents('Newest', 'Soul A').mission)
+    first.resolve(documents('Older', 'Soul A').mission)
+    await pending
+    expect(model.documents.mission.draft.value).toBe('Newest')
+    expect(model.documents.mission.contentHash.value).toBe('mission:Newest')
+    model[Symbol.dispose]()
+  })
+
+  test('closing and reopening the same source rejects old reload failures', async () => {
+    const model = new AgentLibraryEditorModel()
+    model.initialize('agent:alpha', documents('Mission A', 'Soul A'))
+    const response = Promise.withResolvers<AgentLibraryDocumentsSnapshot['mission']>()
+    const pending = model.reload('mission', () => response.promise)
+    model.resetSource()
+    model.initialize('agent:alpha', documents('Reopened', 'Soul A'))
+    response.reject(new Error('Old read failed'))
+    await pending
+    expect(model.documents.mission.draft.value).toBe('Reopened')
+    expect(model.documents.mission.error.value).toBeUndefined()
     model[Symbol.dispose]()
   })
 })

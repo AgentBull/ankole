@@ -37,7 +37,7 @@ import {
 import { useMutation } from '@tanstack/react-query'
 import { useRef, useState, type ComponentType } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, NavLink, Outlet, useLocation } from 'react-router'
+import { Link, Outlet, useLocation } from '@tanstack/react-router'
 import { ThemeToggle } from '../common/theme-toggle'
 import { endSiteSession } from '../common/browser-session'
 import { ConsoleReadiness } from './console-readiness'
@@ -250,26 +250,27 @@ function ConsoleNavigation({ onNavigate }: { onNavigate?: () => void }) {
             ) : null}
             {section.items.map(item => {
               const Icon = item.icon
-              const matchesArea = Boolean(item.match) && location.pathname.startsWith(`${item.match}/`)
+              const isActive =
+                (item.to === '/'
+                  ? location.pathname === '/'
+                  : location.pathname === item.to || location.pathname.startsWith(`${item.to}/`)) ||
+                (Boolean(item.match) &&
+                  (location.pathname === item.match || location.pathname.startsWith(`${item.match}/`)))
               return (
-                <NavLink
+                <Link
                   key={item.to}
                   to={item.to}
-                  end={item.to === '/'}
+                  activeOptions={{ exact: item.to === '/', includeSearch: false }}
                   onClick={onNavigate}
-                  className={({ isActive, isPending }) =>
-                    cn(
-                      'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:-outline-offset-2',
-                      isPending
-                        ? 'border-foreground/40 bg-accent text-accent-foreground'
-                        : isActive || matchesArea
-                          ? 'border-foreground bg-accent text-accent-foreground'
-                          : 'border-transparent text-muted-foreground fine-hover:hover:bg-accent fine-hover:hover:text-accent-foreground'
-                    )
-                  }>
+                  className={cn(
+                    'flex min-h-10 items-center gap-3 border-l-4 px-3 py-2 text-left text-sm transition-colors focus-visible:-outline-offset-2',
+                    isActive
+                      ? 'border-foreground bg-accent text-accent-foreground'
+                      : 'border-transparent text-muted-foreground fine-hover:hover:bg-accent fine-hover:hover:text-accent-foreground'
+                  )}>
                   <Icon className="size-4 shrink-0" aria-hidden />
                   <span className="truncate">{t(item.label)}</span>
-                </NavLink>
+                </Link>
               )
             })}
           </div>

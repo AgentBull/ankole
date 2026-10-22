@@ -80,7 +80,7 @@ and image changes. It contains:
 - `sessions/<workspace-id>/` for Session workspaces; PostgreSQL allocates IDs from 10000
 - `jobs/<workspace-owner-job-id>/` for BackgroundAgentJob workspaces
 
-`/agents/<agent_uid>` links to Home so persisted old paths still work. Path
+`/agents/<agent_uid>` is a symbolic link to `/workspace`. Path
 checks resolve symbolic links. Codex SQLite is rebuildable and lives at
 `/var/cache/ankole/codex`, outside persistent Home.
 

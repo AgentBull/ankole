@@ -117,7 +117,7 @@ One failed URL does not remove successful results. The result order matches the 
 If the rendered fetch fails, Agent Computer logs the backend kind, failure
 stage, error code, retryable state, and failed URL index. It does not log the
 URL, browser endpoint, connection headers, credentials, or browser error details.
-The model continues to receive a neutral rendered-fallback error.
+The model receives a neutral rendered-fallback error.
 
 After the call, Agent Computer closes the browser route and removes its files.
 It can restart the daemon once if cleanup fails.
@@ -184,15 +184,15 @@ are disabled. Backend arguments cannot override the managed proxy settings.
 
 The saved local-browser metadata includes the proxy port and private-network
 setting. After a daemon crash, the new daemon binds that port before it resumes
-the saved browser. If the port is unavailable, recovery fails. An older browser
-without proxy metadata, or a browser with a different private-network setting,
-is closed through CDP and restarted with its existing profile.
+the saved browser. If the port is unavailable, recovery fails. A browser
+without matching proxy metadata or private-network settings is closed through
+CDP and restarted with its profile.
 
 Remote CDP and provider-created persistent contexts own their SSRF policy and
 DNS environment. Ankole checks URL syntax and supported protocols for these
 backends. It does not resolve or classify their destinations on the Worker.
 
-The Lark image resolver uses the same Rust admission functions and retains its
+The Lark image resolver uses the same Rust admission functions with its
 Req/Finch adapter. It connects to a checked IP, keeps the original Host and TLS
 hostname, and checks each redirect again.
 

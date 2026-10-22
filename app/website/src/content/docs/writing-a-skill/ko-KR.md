@@ -94,7 +94,7 @@ dependencies:
       bearer_token_env_var: MY_MCP_TOKEN
 ```
 
-dependency는 Skill이 활성화된 동안에만 사용할 수 있습니다. native model tool로 등록되지 않습니다. `SKILL.md`에서는 domain tool과 선택 규칙을 이름으로 지정하고, Agent에게 선택한 tool만 `mcporter list server.tool --schema --json`으로 검사하고 stdin으로 JSON을 전달해 호출하라고 지시하십시오. 전체 contract는 [MCP reference](../mcp/)를 참조하십시오.
+dependency는 Skill이 활성화된 동안에만 사용할 수 있습니다. `SKILL.md`에서는 domain tool과 선택 규칙을 이름으로 지정하고, Agent에게 선택한 tool만 `mcporter list server.tool --schema --json`으로 검사하고 stdin으로 JSON을 전달해 호출하라고 지시하십시오. 전체 contract는 [MCP reference](../mcp/)를 참조하십시오.
 
 ### Skill 검증
 

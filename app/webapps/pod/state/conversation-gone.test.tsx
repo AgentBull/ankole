@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider, QueryObserver } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createMemoryRouter, RouterProvider } from 'react-router'
 import { InternalAPIError } from '../../common/internal-api-client'
+import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import { ChatRoute } from '../chat-page'
 import { ChatDraftProvider } from '../chat-drafts'
 import { conversationNotFound, conversationQuery, podKeys, type ConversationDetail } from '../api'
@@ -48,7 +49,7 @@ describe('Pod unavailable conversations', () => {
     expect(conversationNotFound(new Error('Connection lost'))).toBe(false)
   })
 
-  test('a 404 hides cached history and the composer immediately and offers a new conversation', () => {
+  test('a 404 hides cached history and the composer immediately and offers a new conversation', async () => {
     const client = new QueryClient({
       defaultOptions: { queries: { gcTime: Infinity, retry: false, staleTime: Infinity } }
     })
@@ -104,9 +105,21 @@ describe('Pod unavailable conversations', () => {
       .getQueryCache()
       .find({ queryKey: podKeys.detail(conversationID), exact: true })!
       .setState({ status: 'error', error: notFound })
-    const router = createMemoryRouter([{ path: '/conversations/:conversationID', element: <ChatRoute /> }], {
-      initialEntries: [podLocation(`/conversations/${conversationID}`).pathname]
+    const rootRoute = createRootRoute()
+    const conversationRoute = createRoute({
+      getParentRoute: () => rootRoute,
+      path: '/conversations/$conversationID',
+      component: ChatRoute
     })
+    const router = createRouter({
+      routeTree: rootRoute.addChildren([conversationRoute]),
+      history: createMemoryHistory({
+        initialEntries: [podLocation(`/conversations/${conversationID}`).pathname]
+      }),
+      parseSearch: parseRouterSearch,
+      stringifySearch: stringifyRouterSearch
+    })
+    await router.load()
     try {
       const html = renderToStaticMarkup(
         <QueryClientProvider client={client}>
@@ -122,7 +135,6 @@ describe('Pod unavailable conversations', () => {
       expect(html).not.toContain('<textarea')
       expect(html).not.toContain('data-slot="input-group"')
     } finally {
-      router.dispose()
       client.clear()
     }
   })

@@ -76,10 +76,6 @@ Agent Computer 为每次执行写一个唯一的 `0600` 配置，并把路径注
 
 Main Agent 通过 command tool 调用 mcporter；Background Agent Job 通过 Codex terminal 调用；Automation Job 在 `main.ts` 中用 `Bun.spawn` 调用。
 
-## 模型可见的原生 MCP 边界
-
-Ankole 当前不内置模型可见的 MCP server。未来的具体集成必须让 Main 与 Background 暴露相同的 `mcp__<server>` namespace、工具名、description 与 deferred loading 行为。Ankole 把 server JSON Schema 原样交给两个 runtime。Main 使用自己的 Responses tool owner；Background 使用 Codex native MCP，并让 Codex 自己负责该 projection。平台不会改写一侧 schema 来模仿另一侧，也不会为未来场景预先增加空注册表或通用本地 MCP loader。
-
 ## 只选择并调用一个工具
 
 Skill 必须先选择一个领域工具。只有需要当前 schema 时，才检查这个工具：
@@ -98,7 +94,7 @@ Automation 脚本使用同样的 argv，把 JSON 写入子进程 stdin，检查 
 
 ## 安全边界
 
-MCP output 是不可信输入。Skill 与 mcporter 路径不再提供 Ankole 旧原生路径的 output-schema 校验、MCP annotation 调度、tool-level approval UI，也不会按全部 WorkerEnv secrets 清洗结果。该路径用于受信、第一方 MCP Skills。远端 credential scope 仍是真正的读写权限边界。
+MCP output 是不可信输入。Skill 与 mcporter 路径不会校验输出 schema、按 MCP annotation 调度、弹出工具级审批确认，或从结果中脱敏 WorkerEnv 密钥。该路径用于受信、第一方 MCP Skills。远端 credential scope 仍是真正的读写权限边界。
 
 ## 下一步
 

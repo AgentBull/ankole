@@ -83,7 +83,7 @@ curl https://ankole.example.com/api/v1/ai-gateway/responses/resp_4f3c... \
 
 AIGateway 在任何上游调用之前，先把模型选择符解析到真实的 Provider 绑定。每个 Agent 有八个内置档案：`primary`、`light`、`heavy`、`coding`、`vision_fallback`、`web_search`、`web_fetch` 和 `image_generate`。前五个选择语言模型，后三个选择独立能力。Agent 还可以有自定义语言模型档案。管理员使用显式 Provider 条目。`GET /models` 列出当前主体能够解析的模型，并支持可选的 OpenRouter 风格过滤（`q`、`context`、`min_price`、`max_price`、`sort` 和模态过滤）。
 
-每个 Provider 行拥有一个凭据池。Provider kind、base URL、请求头、设置和能力声明由所有池成员共享。model profile 只指向 Provider 行，从不指定池成员。AIGateway 按该行配置的 `fill_first`、`round_robin`、`least_used` 或 `random` 策略选择健康成员。Console 会根据当前界面语言翻译这些策略名称，API 值和存储值保持不变。AIGateway 会尽量让同一个有状态 thread 使用同一成员。
+每个 Provider 行拥有一个凭据池。Provider kind、base URL、请求头、设置和能力声明由所有池成员共享。model profile 只指向 Provider 行，从不指定池成员。AIGateway 按该行配置的 `fill_first`、`round_robin`、`least_used` 或 `random` 策略选择健康成员。Console 会根据当前界面语言翻译这些策略名称，API 和存储使用规范键名。AIGateway 会尽量让同一个有状态 thread 使用同一成员。
 
 能归属到具体凭据的 `429`、`5xx` 或传输失败，只会冷却实际发起请求的凭据。AIGateway 改选其他成员、重建 Provider 请求，再按指数退避和抖动做有界重试。Rust kernel 每次只执行一次传输尝试。池为空时，AIGateway 不会切换到另一个 Provider。
 

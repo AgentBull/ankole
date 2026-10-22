@@ -31,7 +31,7 @@ Both models are Ash resources. The root module `Ankole.Files` is their Ash
 domain. Blob actions own storage refresh, reference renewal, collection
 marking, and final removal. The marking and removal actions use the same
 live-reference predicate. DriveFile actions own path upserts and moves under
-the existing natural identity. `drive_files` has no primary key, so AshPostgres
+the natural identity. `drive_files` has no primary key, so AshPostgres
 has no destroy action for it: `DriveFile.remove_paths_in_tx/2` removes a
 subtree with one `DELETE ... RETURNING` statement that binds the current
 tenant. It requires the caller's transaction.
@@ -76,13 +76,13 @@ backend from the same authorized revision and manifest. Viewers can read source
 and backend files through the ordinary page file interface. Digest reads reject
 a changed manifest, so the host can restart loading after a publication race.
 Page purge and tenant deletion remove `server/` with the other page paths;
-unreferenced content follows the existing collector rules.
+unreferenced content follows the collector rules.
 
 Saving a visible Conversation attachment to Pod adds a reference to its original
 message digest. It does not copy bytes, and a later move or replacement in the
 Agent drive cannot change the attachment. Removing a document image reference
 or trashing a page leaves its bytes referenced until page purge removes the Pod
-paths. The existing collector then applies the same live-reference and grace
+paths. The collector then applies the same live-reference and grace
 rules. See [Pod Content Model](PodContentModel.md).
 
 Some prefixes have a fixed meaning:
@@ -250,7 +250,7 @@ before it calls the domain function. The stream and function run in the caller's
 process, with the caller's tenant context. Relay errors return their declared
 reason. Other exceptions propagate. The temporary file is removed on every
 exit. Pod and drive callers retain path validation, authorization, digest
-checks, and durable writes. Bundle reception retains its separate format.
+checks, and durable writes. Bundle reception uses its separate format.
 
 The turn-local command `ankole-files` gives the model the drive:
 `list [<folder>] [--after <path>]`, `get <drive path> [--output <local path>]`,
@@ -311,7 +311,7 @@ updated scripts and MCP files take effect when the Worker prepares the next Turn
 
 Before each turn or Automation Job run, the Worker brings its local
 `installed-skills/` directory in step with the drive. It removes indexed files
-that the drive no longer has and downloads changed files. A local index
+that are absent from the drive and downloads changed files. A local index
 records size, mtime, and digest, so an unchanged file is not hashed again.
 Each list page carries a digest of the complete path, content, and mode
 manifest, read under the drive transaction lock. The Worker requires the
@@ -359,48 +359,3 @@ overwrite option.
 
 The AuthZ resource is `agent:<uid>:files` with the actions `read`, `update`,
 and `delete`.
-
-## Upgrade From Agent Home Files
-
-An existing instance has Agent files under `/agents/<uid>`. The one-time
-import copies them into the drives:
-
-- `installed-skills/<name>/` to `skills/<name>/` for each folder with a
-  `SKILL.md`;
-- the directory of each Automation Job created before the drive to its
-  `drive_prefix`;
-- files named by unsent legacy Delivery attachments from `user-files/` to
-  content-addressed `sent/` paths. It updates the attachment with `blob_ref`
-  and `path`, retaining provider metadata, attempt counts, and recovery state.
-
-Other user files, Session workspaces, and Job workspaces stay in Home.
-Legacy attachments wait for this conversion before a new provider send.
-The import schedules the converted intent through the existing Delivery owner;
-uncertain or manually stopped deliveries keep their existing recovery policy.
-A missing file is reported and its original payload remains available for a
-later import with the correct Home. Symlinks cannot redirect the import
-outside that Home.
-
-A release runs `bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'`
-in a container that mounts the Agent volume at `/agents`. Development runs
-`mix run --no-start -e 'Ankole.Upgrade202610.import_agent_home("var/ankole-dev/agents")'`. The import never
-replaces a drive file, so a second run copies only what the first run did not.
-It reports skipped symlinks, Skills or scripts over the Worker transfer limit,
-Automation Jobs without `main.ts`, and every directory or file that it cannot
-read, so an unreadable Agent Home never looks empty. An Automation Job keeps
-`legacy_directory_path`
-until every file of its script arrived. The report also names each directory
-with an Agent UID name but no Agent: the old release did not remove the Home
-of a deleted Agent, and the import does not read it.
-
-Workers before the drive ran as root and created each Agent Home readable only
-by root, while the import runs as the control-plane user. The deployment
-guides therefore make the old volume readable (`chmod -R a+rX`) before the
-import.
-
-Remove `Ankole.Upgrade202610.import_agent_home/1` and
-`files.importAgentHomeClaim` when upgrades from pooled Worker releases are
-no longer supported, all old Skills are present in the drives, and no
-Automation Job has `legacy_directory_path`, and no unsent Delivery attachment
-uses a legacy Home path. Remove the related legacy
-provider assignment and pooled-release e2e at the same release.

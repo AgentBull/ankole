@@ -106,7 +106,7 @@ file type fails before the adapter reads its bytes.
 
 Markdown conversion changes prose only. The kernel uses CommonMark source
 positions to protect the original bytes of fenced, indented, and inline code.
-The existing AI Card stream keeps its own rendering and paging rules.
+The AI Card stream uses its own rendering and paging rules.
 
 Recall requires the `processQueryKey` from an earlier adapter send. The adapter
 rejects a target without this key.
@@ -121,8 +121,7 @@ send.
 deterministic `outTrackId` for each page.
 
 DingTalk owns the card state transition. A stream stays open until the adapter
-sends `isFinalize`, and `isError` selects the failed state. The template does
-not use a custom flow-status variable.
+sends `isFinalize`, and `isError` selects the failed state.
 
 The Signal checkpoint is the durable page ledger. It stores the source
 text, `outTrackId`, and sealed state for each page. It also stores the last
@@ -150,10 +149,10 @@ reads departments, users, and memberships.
 Real-time user events fetch the current user before each update. A user
 departure records a provider restriction through `DirectoryAccess`, including
 the last active Human administrator. The stable Stream `eventId` and each user
-ID form the event deduplication key. The adapter retains `eventBornTime` when
+ID form the event deduplication key. The adapter records `eventBornTime` when
 present. A missing event ID fails processing so Stream requests redelivery.
-An unknown subject remains blocked from later admission. A departure without
-user IDs remains recorded for review and queues a full sync.
+An unknown subject is blocked from later admission. A departure without
+user IDs is recorded for review and queues a full sync.
 
 Full sync records a snapshot under the current provider configuration. Complete
 department and user pagination is required; missing or repeated cursors fail

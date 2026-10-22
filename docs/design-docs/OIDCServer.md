@@ -13,28 +13,28 @@ Only secret rotation can change an existing confidential Client's secret.
 Ordinary configuration cannot replace its ID or public/confidential type. The
 key initialization action
 returns the installed record on conflict without changing its key or timestamps.
-The SigningKey process still validates the stored key before publishing its
-runtime projection. Native tables, keys, and constraints retain Ecto migrations.
+The SigningKey process validates the stored key before publishing its
+runtime projection. Ecto migrations own the native tables, keys, and constraints.
 
 OIDC sessions, logout confirmations, and logout deliveries use the same Domain.
 Session authorization is one upsert on the Client and the authentication
 revision. It writes only a later expiry, so it keeps the original
-authentication binding and never shortens a Session. Session actions retain the
+authentication binding and never shortens a Session. Session actions keep the
 first revocation and logout markers. Logout delivery actions own the pending,
 delivering, delivered, and failed transitions. A
 delivered record cannot restart or consume another attempt. Native constraints
 also enforce positive access and authentication versions and nonnegative
-browser revisions and delivery attempt counts. Historical sessions can retain a
+browser revisions and delivery attempt counts. Historical sessions can keep a
 cleared authentication reference. A composite foreign key also binds each
 authentication reference to the Session's browser. Removing that reference
-retains the immutable browser and authentication revision history.
+preserves the immutable browser and authentication revision history.
 
 Authorization codes, refresh tokens, and refresh families also use named
 transaction actions. A Code can be consumed once and finalized once. Its replay
 facts cannot be replaced after finalization. A Refresh can record its successor
 once. The redaction action can remove retry ciphertext only after its deadline;
-it retains the consumption tombstone. Family actions cannot change the original
-Session or absolute deadline, and repeated revocation retains its first marker.
+it keeps the consumption tombstone. Family actions cannot change the original
+Session or absolute deadline, and repeated revocation keeps its first marker.
 Native composite foreign keys bind each credential's Client and Human to its
 Session and each refresh token's family to that same Session. The context CHECK
 also binds the stored protocol JSON to those native columns.
@@ -47,7 +47,7 @@ also binds the stored protocol JSON to those native columns.
 - The ID token and UserInfo return `sub` and the profile fields allowed by scope.
 - An RP that requests `offline_access` can renew access for at most 30 days.
   Each successful renewal rotates the refresh token.
-- An authorized RP can request `ai_gateway.write`. Agents use their existing
+- An authorized RP can request `ai_gateway.write`. Agents use their
   30-day Agent tokens for the AI Gateway.
 - Revocation, a changed Human access version, a disabled Human, a suspended
   tenant, a disabled Client, or reduced Client scopes takes effect when a
@@ -132,9 +132,9 @@ redirect URI, verifier, or expired grant cannot restore the code. Token
 issuance then checks the Client, granted scopes, OIDC session, active Human, and
 AI Gateway policy. The Human row is held with `FOR SHARE` during issuance.
 
-Ankole issues the existing RS256 `at+jwt` access token with a 30-minute lifetime.
-Its audiences, `client_id`, `sid`, `sub`, `subject_type`, and `token_use` semantics
-remain unchanged. `Attesto.IDToken.mint/4` signs the ID token once. It includes
+Ankole issues an RS256 `at+jwt` access token with a 30-minute lifetime, carrying
+the target audiences, `client_id`, `sid`, `sub`, `subject_type`, and `token_use`
+claims. `Attesto.IDToken.mint/4` signs the ID token once. It includes
 `sid`, the requested nonce, `at_hash`, and the original `auth_time` when known.
 `Ankole.OIDC.Claims.project/3` is the common owner of scope-based profile claims.
 
@@ -219,18 +219,11 @@ passes requests to that context. Attesto currently advertises DPoP without a
 configuration switch, so the projection removes that unsupported capability.
 
 `Ankole.TokenSigning` reads the issuer from its own application configuration.
-SaaS uses its console origin for the same setting. The migration preserves the
-exact previous issuer value. Only development and test builds can use an HTTP
+SaaS uses its console origin for the same setting. Only development and test builds can use an HTTP
 issuer with a valid host and no query, fragment, or userinfo. This local exception
 validates the Principal kind and keystore callbacks before constructing the
 configuration. Production builds reject HTTP issuers and use
 `Attesto.Config.new/1` for HTTPS configuration.
-
-The storage upgrade retains existing refresh digests and absolute expiry times.
-Each existing token becomes generation 0 of its own family. The hash algorithm
-is unchanged. Existing access tokens, Agent tokens, ID-token logout hints, and
-signing keys remain valid. Existing authorization codes cannot be converted from
-their one-way challenge hashes; those short-lived grants must be requested again.
 
 ## Logout and cleanup
 
@@ -240,9 +233,9 @@ session and the permitted recent-logout window. The browser must confirm the
 request before Ankole ends its login. `Attesto.EndSession.confirm_redirect/2`
 checks the exact registered return URI and appends `state`.
 
-Back-Channel Logout remains a durable Ankole delivery queue. Attesto signs each
-`logout+jwt` with `sub`, `sid`, and the required logout event. Delivery attempts,
-backoff, and deadlines remain in PostgreSQL.
+Back-Channel Logout uses a durable Ankole delivery queue. Attesto signs each
+`logout+jwt` with `sub`, `sid`, and the required logout event. PostgreSQL stores
+delivery attempts, backoff, and deadlines.
 
 RP logout confirmation is the `confirm` generic action on `LogoutRequest`: it
 ends the browser login with `BrowserSessions.logout_in_tx/2` and confirms the

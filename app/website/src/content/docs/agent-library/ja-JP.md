@@ -24,7 +24,7 @@ tenant 設定が Agent Plugin と Skill の実効既定値を提供します。t
 
 `effective_enabled` は Agent の上書き、または継承した tenant 既定値です。Plugin member Skill は親 Plugin の有効化も必要です。親を無効にしても member の設定は保持し、親を再び有効にすると適用します。
 
-Console の [Agent Library capabilities](../console-api/) は選択した tenant の既定値を読み書きし、Agent 単位の上書きを許可します。API フィールド名 `global_default_enabled` は維持しますが、値は site 継承を含む、その tenant の実効既定値です。
+Console の [Agent Library capabilities](../console-api/) は選択した tenant の既定値を読み書きし、Agent 単位の上書きを許可します。API フィールド `global_default_enabled` は site 継承を含む、選択した tenant の実効既定値を返します。
 
 ## Brain からだけ想起する Skill の発見
 

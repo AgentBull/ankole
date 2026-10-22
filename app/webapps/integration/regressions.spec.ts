@@ -183,6 +183,66 @@ test('a rejected save notification does not cover the corrected Save action', as
   await expect.poll(() => attempts).toBe(2)
 })
 
+test('a library reload keeps edits made while the response is pending', async ({ page }) => {
+  const documents = Object.fromEntries(
+    ['mission', 'soul', 'design', 'confidentiality_policy'].map(kind => [
+      kind,
+      { kind, content: `Initial ${kind}`, content_hash: `hash-${kind}` }
+    ])
+  )
+  const started = Promise.withResolvers<void>()
+  const release = Promise.withResolvers<void>()
+  let reloading = false
+  let failRead = false
+  await page.route('**/api/v1/agents/agent-one/library-documents**', async route => {
+    if (route.request().method() === 'PUT') {
+      return route.fulfill({
+        status: 409,
+        json: { error: { code: 'agent_library_document_conflict', message: 'Changed elsewhere' } }
+      })
+    }
+    if (failRead) {
+      return route.fulfill({ status: 503, json: { error: { code: 'unavailable', message: 'Reload unavailable' } } })
+    }
+    if (reloading) {
+      started.resolve()
+      await release.promise
+    }
+    return route.fulfill({ json: { library_documents: documents } })
+  })
+  try {
+    await page.goto('/library/agent-one')
+    const panel = page.getByRole('tabpanel', { name: 'MISSION', exact: true })
+    await panel.getByRole('button', { name: 'Edit', exact: true }).click()
+    await panel.getByRole('textbox').fill('Conflicting draft')
+    await panel.getByRole('button', { name: 'Save', exact: true }).click()
+    const reload = panel.getByRole('button', { name: 'Discard draft and reload', exact: true })
+    await expect(reload).toBeVisible()
+    documents.mission = { kind: 'mission', content: 'Remote mission', content_hash: 'remote-hash' }
+    reloading = true
+    await reload.click()
+    await started.promise
+    await panel.getByRole('textbox').fill('Newer local mission')
+    const delivered = page.waitForEvent('requestfinished', {
+      predicate: request => request.method() === 'GET' && request.url().endsWith('/library-documents')
+    })
+    release.resolve()
+    await delivered
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    await expect(panel.getByRole('textbox')).toHaveValue('Newer local mission')
+    failRead = true
+    await reload.click()
+    await expect(panel).toContainText('Reload unavailable')
+    await expect(panel.getByRole('textbox')).toHaveValue('Newer local mission')
+    failRead = false
+    await reload.click()
+    await expect(panel.getByText('Remote mission', { exact: true })).toBeVisible()
+    await expect(panel.getByRole('textbox')).toHaveCount(0)
+  } finally {
+    release.resolve()
+  }
+})
+
 test('a library save completed after leaving the editor supplies the next visit and CAS hash', async ({ page }) => {
   const documents = Object.fromEntries(
     ['mission', 'soul', 'design', 'confidentiality_policy'].map(kind => [

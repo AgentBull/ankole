@@ -33,7 +33,7 @@ docker compose exec -T postgresql \
   pg_dump -U ankole -d ankole -Fc > ankole-backup.dump
 ```
 
-Use the storage system's backup mechanism for each volume or bucket. Take backups before upgrades and destructive maintenance. A database migration cannot be undone by changing the image. Keep an old pooled Agent Home volume until the one-time Compose migration completes and the migrated files have been checked.
+Use the storage system's backup mechanism for each volume or bucket. Take backups before upgrades and destructive maintenance. A database migration cannot be undone by changing the image.
 
 ## Restore and verify
 

@@ -85,7 +85,7 @@ Triage retries keep `last_attempt_at` empty until a real turn starts.
 PostgreSQL requires completion time only for `completed` work, and dead-letter
 time and an object reason only for `dead_letter` work. Live work cannot carry
 terminal evidence, and `running` requires an admission time. Actions and bulk
-revocation use the caller's existing transaction and tenant context. Signal
+revocation use the caller's transaction and tenant context. Signal
 writes do not start a second transaction owner.
 
 `Ankole.Signals` is the Signals Ash domain (`Signal`, `Binding`,
@@ -165,7 +165,7 @@ Its outer transaction owner calls `Signals.publish_committed/1` in the same
 process after commit. The `intake` action declares the same publication with
 `after_commit`, and a call inside another transaction raises
 `Ankole.Errors.Framework.NestedOperation`. Publication sends a Session state notification,
-retains the `ensure_driver/1` startup fast path, and publishes ready Signal IDs
+calls the `ensure_driver/1` startup fast path, and publishes ready Signal IDs
 on the Session input topic. Drivers read the durable input; an observation or
 raw Conversation message cannot create a second input through PubSub.
 The publication guard checks only the current process. A Task cannot be used
@@ -200,7 +200,7 @@ authorization of the current request.
 actions persist configuration replacement, disabling, and removal in the
 caller's transaction. Its typed JSON fields reject runtime values before SQL;
 BindingFilters owns CEL validation and Target owns route parsing. Adapter save
-hooks still run after commit.
+hooks run after commit.
 `signal_bindings` stores the Agent, name, adapter, configuration reference,
 filter, target, policies, and enabled state. The globally unique Agent UID and
 binding name identify the row; every query also enforces its tenant scope.
@@ -246,10 +246,10 @@ separate persisted Channel or Entry records.
 ## CloudEvents HTTP Intake
 
 An operator creates an Endpoint with `event_format: "cloudevents"`, a label,
-mode, and future expiry through `POST /api/v1/webhook-endpoints`. The existing
+mode, and future expiry through `POST /api/v1/webhook-endpoints`. The
 Console webhook permission controls creation. Creation returns the capability
-URL once. The Console and safe list API retain the Endpoint ID and metadata,
-but do not return the token or its digest.
+URL once. The Console and safe list API keep the Endpoint ID and metadata,
+and do not return the token or its digest.
 
 Create a `cloudevents` Binding for each subscription. Its configuration names
 `webhook_endpoint_id`; its reference is `webhook-endpoint://<endpoint UUID>`.
@@ -356,7 +356,7 @@ unknown capabilities return 404.
 Automation Job for the same Agent. The callback creates a durable Job run
 with the same receipt envelope. `Signals.Trigger.deliver_in_tx/5` owns this
 Signal-or-AutomationJob dispatch for Webhook and Schedule triggers. The Endpoint
-keeps its existing strong foreign keys. An Endpoint cannot be rebound; cancel it and
+uses strong foreign keys. An Endpoint cannot be rebound; cancel it and
 create another one. See [Automation Jobs](AutomationJobs.md).
 
 A capability authorizes a stimulus only. Its body and headers are untrusted
@@ -396,18 +396,23 @@ not divide the platform room into private Agent copies.
 Entry authors report provider subjects and profile observations. Raw
 `principal_uid`, `agent_uid`, `human_access_version`, and top-level `sender_key`
 are rejected at this boundary. Identity admission supplies the Principal and
-access version. Managed actions retain their separately verified operator UID.
+access version. Managed actions keep their separately verified operator UID.
 Input channel fields use the nested `channel` map; diagnostic provider facts
 use `raw_payload`.
 
 `Conversations.Attachments` owns attachment storage, download results, and
 reuse on redelivery. Observe owns the order of pending and final observations.
 LINE and WhatsApp share its deferred attachment operation: it commits pending
-attachment IDs before starting the existing tenant-bound task and admits the
-final result through a fresh Binding lookup. Redelivery retains the first
+attachment IDs before starting the tenant-bound task and admits the
+final result through a fresh Binding lookup. Redelivery keeps the first
 observation time. A task admission error returns to the provider for retry;
-a missing task supervisor still fails the request. Lark retains its separate
+a missing task supervisor fails the request. Lark uses its
 all-consumers pending barrier.
+
+`Conversations.MessageInput` owns entry text/list merging and pending
+attachment deadlines. An empty pending set has no deadline. An initial batch
+uses its aggregation window; an input revision becomes available immediately.
+Initial batches and input revisions use these respective scheduling rules.
 
 An observed result contains `conversation` and `message_observation`. The
 latter contains `message`, `external_ref`, and its observation status. Public
@@ -483,7 +488,7 @@ For a sender with no identity match, `unmatched_sender_policy` selects:
   Unaddressed chatter is ignored silently.
 - `create_standalone`: create a Human Principal with a new UUIDv7 and serve
   that account. Without an identity binding or verified contact match, a
-  provider ID equal to an existing Principal UID still creates a separate
+  provider ID equal to an existing Principal UID creates a separate
   account.
 
 A disabled Human is ignored without a notice. Admission locks an admitted
@@ -587,11 +592,11 @@ backwards on concurrent redelivery.
 ## Future Host and Event Source Contracts
 
 The contract review for Jira and Salesforce requires no new conversation or
-queue owner. Neither plugin is implemented in this change.
+queue owner.
 
 | Platform fact | Owning contract | Identity and result |
 | --- | --- | --- |
-| Jira issue comment | Conversation host `observe` and `deliver` | The issue comment space supplies one opaque provider conversation ID; each comment supplies its provider message ID. `external_kind: issue`, `reply_mode: entry`, and an explicit addressed Signal type use the existing observation contract. A confirmed comment send or edit uses Delivery and the same external reference. |
+| Jira issue comment | Conversation host `observe` and `deliver` | The issue comment space supplies one opaque provider conversation ID; each comment supplies its provider message ID. `external_kind: issue`, `reply_mode: entry`, and an explicit addressed Signal type use the observation contract. A confirmed comment send or edit uses Delivery and the same external reference. |
 | Salesforce record change | Event source and `Signals.accept_in_tx/2` | The record ID is the CloudEvent subject; the change is JSON data. Source and event ID deduplicate the stimulus. A subscription names its Agent and ordinary Session. The event creates no Conversation or Message. |
 | Salesforce comment space, if later supported | Conversation host `observe` and `deliver` | The platform's actual comment space is the Conversation; observed comments and confirmed replies follow the host contract. A record change must not fabricate a comment. |
 
@@ -599,11 +604,6 @@ A future host declares its provider configuration, identity mapping, and
 Delivery adapter in the plugin catalog. Its catalog category is display
 metadata; adding that category does not change Conversation identity, Signal
 acceptance, execution ownership, or authorization. A comment author uses the
-existing Principal mapping and WorkAccess snapshot. An unknown author cannot
+Principal mapping and WorkAccess snapshot. An unknown author cannot
 borrow the integration owner's authority. Several Agents observing the same
-comment space share its public Messages and retain their own Sessions.
-
-`Conversations.MessageInput` owns entry text/list merging and pending
-attachment deadlines. An empty pending set has no deadline. An initial batch
-then uses its aggregation window; an input revision becomes available now.
-The two callers retain these distinct scheduling decisions.
+comment space share its public Messages and keep their own Sessions.

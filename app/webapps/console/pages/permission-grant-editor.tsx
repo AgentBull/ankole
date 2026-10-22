@@ -18,7 +18,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebPermissionGrantControllerCreateMutation,
@@ -159,7 +159,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(PermissionGrantEditorModel)
-  const params = useParams()
+  const params = useParams({ strict: false })
   const grantID = params.grantID
   const mode = grantID ? 'edit' : 'new'
 
@@ -207,7 +207,7 @@ export function PermissionGrantEditorPage({ createFor }: { createFor?: 'group' |
     onSuccess: () => {
       toast.success(t('console.permission_grants.saved'))
 
-      navigate(backTo)
+      void navigate({ to: backTo })
     }
   })
   const updateGrant = useMutation({

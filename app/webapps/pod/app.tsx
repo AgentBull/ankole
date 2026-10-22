@@ -11,8 +11,17 @@ import {
 } from 'react'
 import { SidebarInset, SidebarProvider, SidebarTrigger, TooltipProvider, useSidebar } from '@ankole/uikit'
 import { useTranslation } from 'react-i18next'
-import { createBrowserRouter, Outlet, useLocation, useNavigate, useNavigation, useRouteError } from 'react-router'
-import { RouterProvider } from 'react-router/dom'
+import {
+  createRootRoute,
+  createRoute,
+  createRouter,
+  lazyRouteComponent,
+  Outlet,
+  RouterProvider,
+  useLocation,
+  useNavigate,
+  useRouterState
+} from '@tanstack/react-router'
 import { useQueryClient } from '@tanstack/react-query'
 import { PodSidebar } from './sidebar'
 import { ContentListRoute } from './page-navigation'
@@ -21,44 +30,60 @@ import { ContentError } from './content-primitives'
 import { ChatDraftProvider } from './chat-drafts'
 import { pageQuery } from './content-api'
 import { podLocation, podRouteID } from '../common/browser-context'
+import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { PodCommandContext, PodCommandMenu, type PodCommandNavigationState } from './command-menu'
 import './pod.css'
 
 const AccountNavigation = createContext<ReactNode>(null)
-const routeFeedback = { HydrateFallback: PodRouteLoading, ErrorBoundary: PodRouteError }
-const loadChatRoute = async () => ({ Component: (await import('./chat-page')).ChatRoute })
+const routeFeedback = { pendingComponent: PodRouteLoading, pendingMs: 0, errorComponent: PodRouteError }
+const LazyChatRoute = lazyRouteComponent(() => import('./chat-page'), 'ChatRoute')
+const LazyPageRoute = lazyRouteComponent(() => import('./page-workspace'), 'PageRoute')
 
 /** `accountNavigation` adds `DropdownMenuItem`s to the sidebar account menu. */
 type PodAppProps = { accountNavigation?: ReactNode }
 
 export function PodApp({ accountNavigation }: PodAppProps = {}) {
   const client = useQueryClient()
-  const router = useMemo(
-    () =>
-      createBrowserRouter([
-        {
-          element: <PodShell />,
-          children: [
-            { index: true, lazy: loadChatRoute, ...routeFeedback },
-            {
-              path: 'pages/:pageID',
-              loader: async ({ params }) => {
-                const pageID = podRouteID(params.pageID)
-                if (!pageID) throw new Response('Page not found', { status: 404 })
-                await client.prefetchQuery(pageQuery(pageID))
-                return null
-              },
-              shouldRevalidate: ({ currentParams, nextParams }) => currentParams.pageID !== nextParams.pageID,
-              lazy: async () => ({ Component: (await import('./page-workspace')).PageRoute }),
-              ...routeFeedback
-            },
-            { path: 'content/:scope', element: <ContentListRoute /> },
-            { path: 'conversations/:conversationID', lazy: loadChatRoute, ...routeFeedback }
-          ]
-        }
-      ]),
-    [client]
-  )
+  const router = useMemo(() => {
+    const rootRoute = createRootRoute({ component: PodShell })
+    const routeTree = rootRoute.addChildren([
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/',
+        component: LazyChatRoute,
+        ...routeFeedback
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: 'pages/$pageID',
+        loader: async ({ params }) => {
+          const pageID = podRouteID(params.pageID)
+          if (!pageID) throw new Response('Page not found', { status: 404 })
+          await client.prefetchQuery(pageQuery(pageID))
+          return null
+        },
+        component: LazyPageRoute,
+        ...routeFeedback
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: 'content/$scope',
+        component: ContentListRoute
+      }),
+      createRoute({
+        getParentRoute: () => rootRoute,
+        path: 'conversations/$conversationID',
+        component: LazyChatRoute,
+        ...routeFeedback
+      })
+    ])
+
+    return createRouter({
+      routeTree,
+      parseSearch: parseRouterSearch,
+      stringifySearch: stringifyRouterSearch
+    })
+  }, [client])
   return (
     <AccountNavigation value={accountNavigation}>
       <ContentProvider>
@@ -82,8 +107,7 @@ function PodRouteLoading() {
   )
 }
 
-function PodRouteError() {
-  const error = useRouteError()
+function PodRouteError({ error }: { error: unknown }) {
   return (
     <>
       <PodTopBar pageFallback />
@@ -126,13 +150,19 @@ function PodShell() {
     window.addEventListener('keydown', shortcut, true)
     return () => window.removeEventListener('keydown', shortcut, true)
   }, [commandOpen, openCommand])
+  const locationState = location.state as
+    | (Partial<PodCommandNavigationState> & {
+        __TSR_key?: string
+        key?: string
+      })
+    | null
+  const locationKey = locationState?.__TSR_key ?? locationState?.key ?? location.href
   useEffect(() => {
-    const state = location.state as PodCommandNavigationState | null
     if (
       location.pathname !== '/' ||
-      !state?.focusComposer ||
+      !locationState?.focusComposer ||
       commandOpen ||
-      focusedChatLocation.current === location.key
+      focusedChatLocation.current === locationKey
     ) {
       return
     }
@@ -144,12 +174,12 @@ function PodShell() {
       )
       if (!composer) return
       composer.focus()
-      focusedChatLocation.current = location.key
+      focusedChatLocation.current = locationKey
       observer.disconnect()
-      void navigate(podLocation('/'), { replace: true, state: null, preventScrollReset: true })
+      void navigate({ to: podLocation('/').pathname, replace: true, resetScroll: false })
     }
     focusComposer()
-    if (focusedChatLocation.current !== location.key) {
+    if (focusedChatLocation.current !== locationKey) {
       observer.observe(document.body, {
         childList: true,
         subtree: true,
@@ -158,7 +188,7 @@ function PodShell() {
       })
     }
     return () => observer.disconnect()
-  }, [location.key, location.pathname, location.state, commandOpen, navigate])
+  }, [locationKey, location.pathname, locationState?.focusComposer, commandOpen, navigate])
   return (
     <PodCommandContext value={openCommand}>
       <TooltipProvider>
@@ -183,7 +213,7 @@ function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
   const { t } = useTranslation()
   const { state, isMobile } = useSidebar()
   const location = useLocation()
-  const navigation = useNavigation()
+  const isLoading = useRouterState({ select: routerState => routerState.isLoading })
   const contentHeader =
     location.pathname === '/' ||
     location.pathname.startsWith('/pages/') ||
@@ -191,7 +221,7 @@ function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
   if (contentHeader && !pageFallback) return null
   if (!contentHeader && pageFallback) return null
   if (!isMobile && state === 'expanded') {
-    return navigation.state === 'loading' ? (
+    return isLoading ? (
       <span role="status" className="absolute top-3 left-3 text-xs text-fg-tertiary">
         {t('pod.content.loading')}
       </span>
@@ -201,7 +231,7 @@ function PodTopBar({ pageFallback = false }: { pageFallback?: boolean } = {}) {
   return (
     <header className="flex h-11 shrink-0 items-center gap-2 px-3">
       <SidebarTrigger label={t('pod.sidebar.expand')} />
-      {navigation.state === 'loading' && (
+      {isLoading && (
         <span role="status" className="text-xs text-fg-tertiary">
           {t('pod.content.loading')}
         </span>

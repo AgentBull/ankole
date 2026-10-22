@@ -1,14 +1,15 @@
 import { t } from 'i18next'
 import { describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { createMemoryRouter, RouterProvider } from 'react-router'
+import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import { contentKeys } from '../content-api'
 import { ContentListRoute, ContentNavigation } from '../page-navigation'
 
 describe('Private page creation', () => {
   for (const state of ['pending', 'error', 'ready'] as const) {
-    test(`both navigation and the Private list retain their destination while identity is ${state}`, () => {
+    test(`both navigation and the Private list retain their destination while identity is ${state}`, async () => {
       const client = new QueryClient({
         defaultOptions: { queries: { gcTime: Infinity, retry: false, staleTime: Infinity } }
       })
@@ -20,20 +21,24 @@ describe('Private page creation', () => {
           .build(client, { queryKey: contentKeys.list('private') })
           .setState({ status: 'error', error: new Error('Private unavailable') })
       }
-      const router = createMemoryRouter(
-        [
-          {
-            path: '/content/:scope',
-            element: (
-              <>
-                <ContentNavigation />
-                <ContentListRoute />
-              </>
-            )
-          }
-        ],
-        { initialEntries: ['/content/private'] }
-      )
+      const rootRoute = createRootRoute()
+      const contentRoute = createRoute({
+        getParentRoute: () => rootRoute,
+        path: '/content/$scope',
+        component: () => (
+          <>
+            <ContentNavigation />
+            <ContentListRoute />
+          </>
+        )
+      })
+      const router = createRouter({
+        routeTree: rootRoute.addChildren([contentRoute]),
+        history: createMemoryHistory({ initialEntries: ['/content/private'] }),
+        parseSearch: parseRouterSearch,
+        stringifySearch: stringifyRouterSearch
+      })
+      await router.load()
       try {
         const html = renderToStaticMarkup(
           <QueryClientProvider client={client}>
@@ -50,7 +55,6 @@ describe('Private page creation', () => {
           expect(/\sdisabled(?:=|\s|>)/.test(button)).toBe(state !== 'ready')
         }
       } finally {
-        router.dispose()
         client.clear()
       }
     })

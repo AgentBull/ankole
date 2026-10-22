@@ -9,7 +9,7 @@ A webhook delegation lets an Agent wait for work that runs outside Ankole. The e
 
 The callback is a wake-up capability. It is not proof that the request body is true. The Agent reads the current external object before it reports a fact or makes an authorized change.
 
-GitHub repository webhooks are the first supported scenario. EventBridge and Flink are not implemented.
+GitHub repository webhooks are the supported scenario.
 
 ## When to use it
 

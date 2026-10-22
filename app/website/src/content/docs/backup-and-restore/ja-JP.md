@@ -33,7 +33,7 @@ docker compose exec -T postgresql \
   pg_dump -U ankole -d ankole -Fc > ankole-backup.dump
 ```
 
-volume とバケットにはストレージのバックアップ機能を使います。アップグレードや破壊的な保守の前にも取得します。イメージ変更ではデータベース migration を戻せません。旧プール型 Home volume は Compose の一度限りの移行とファイル確認が完了するまで保持します。
+volume とバケットにはストレージのバックアップ機能を使います。アップグレードや破壊的な保守の前にも取得します。イメージ変更ではデータベース migration を戻せません。
 
 ## 復元と検証
 

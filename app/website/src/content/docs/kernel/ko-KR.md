@@ -5,7 +5,7 @@ section: Developer guide
 order: 109
 ---
 
-Rust Kernel은 Control Plane의 네이티브 라이브러리입니다. Elixir가 Rustler를 통해 로드합니다. Bun Worker는 생성된 protobuf 코덱을 사용하며 Kernel 네이티브 모듈을 로드하지 않습니다.
+Rust Kernel은 Control Plane의 네이티브 라이브러리입니다. Elixir가 Rustler를 통해 로드합니다. Bun Worker는 생성된 protobuf 코덱을 사용합니다.
 
 ## 네이티브 기능
 
@@ -26,7 +26,7 @@ RuntimeFabric 구조와 프로토콜 버전 10는 `proto/ankole/runtime_fabric/v
 
 ## 빌드와 통신
 
-개발, 테스트, 프로덕션은 Cargo feature `nif`를 공유합니다. Rustler는 `src/nif_exports.rs`에서 BEAM 값과 오류를 변환합니다. JSON 형태의 값과 바이트 데이터는 이 경계에서 각각의 표현을 유지합니다.
+Cargo feature `nif`는 Elixir Control Plane을 지원하고, `napi`는 브라우저 데몬과 호스트 테스트를 지원합니다. Rustler는 `src/nif_exports.rs`에서 BEAM 값과 오류를 변환합니다. JSON 형태의 값과 바이트 데이터는 이 경계에서 각각의 표현을 유지합니다.
 
 공유 reqwest client는 모든 환경에서 HTTP/1.1과 aws-lc-rs TLS를 사용합니다. 업스트림 WebSocket 호출은 별도 연결을 사용합니다. 공급자 정책과 transcript 커밋은 [AIGateway](../ai-gateway/)가 소유합니다.
 

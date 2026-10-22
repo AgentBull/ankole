@@ -19,7 +19,8 @@ import { match } from '@agentbull/active-support'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { Link, useParams } from '@tanstack/react-router'
+import { useSearchParams } from '../../common/router'
 import { AgentFilter, useAgentScope } from '../console-agent-scope'
 import { BackLink, DocumentTitle, PageStack } from '../console-page'
 import { ErrorBlock } from '../../common/error-block'
@@ -332,7 +333,7 @@ function ConversationHeader({ conversation }: { conversation: AIGatewayConversat
  */
 export function ConversationDetailPage() {
   const { t } = useTranslation()
-  const { conversationID = '' } = useParams()
+  const { conversationID = '' } = useParams({ strict: false })
   const [searchParams, setSearchParams] = useSearchParams()
   const cursor = searchParams.get('cursor') ?? undefined
   const messageHeading = useRef<HTMLHeadingElement>(null)

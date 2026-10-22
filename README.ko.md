@@ -38,9 +38,6 @@ Ankole은 Claude Tag의 오픈 소스 대안입니다. Claude Tag는 Anthropic�
 
 아무도 Ankole에게 이 규칙을 기억하라고 하지 않았습니다. Company Brain이 Ankole이 참여한 채팅에서 규칙을 배우고, 출처와 날짜를 기록한 뒤, 그 규칙이 필요한 다음 요청에 적용했습니다.
 
-하나의 배포를 사이트라고 합니다. 각 테넌트는 사용자, Agent, Brain, 외부 연결을 소유하고 사이트 관리자는 공유 인프라를 관리합니다. 관리 Console의 기본 경로는 `/site-admin-console`입니다. 시작 전에 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`로 변경할 수 있습니다. 기존 `/console`은 404를 반환합니다.
-
-
 ## Ankole을 선택하는 이유
 
 추론은 모델이 합니다. 모델을 둘러싼 Harness는 모델이 무엇을 보고 무엇을 할 수 있는지 정합니다. 장애 뒤에 작업을 어떻게 이어 갈지, 결과를 다음 결정에 어떻게 활용할지도 정합니다. Ankole은 이런 결정을 프롬프트마다 맡기지 않고 시스템에 넣었습니다.
@@ -138,9 +135,11 @@ https://ankole.agentbull.com/ko-KR/docs/quickstart/index.md 를 사용하여 프
 
 ## 작동 방식
 
+하나의 Ankole 사이트 배포에서 격리된 여러 테넌트를 호스팅할 수 있습니다. 각 테넌트는 고유한 구성원, Agent, Company Brain, 외부 채널 연결을 가지며, 사이트 운영자가 공유 모델 제공자, Worker 제공자, 인프라를 관리합니다.
+
 Ankole은 Control Plane, Agent마다 하나인 Worker, 공유 Rust Kernel, 영속 저장소로 구성됩니다.
 
-- **Control Plane**(Elixir, Phoenix, OTP)은 프로세스가 끝난 뒤에도 남아야 하는 모든 것을 결정하고 기록합니다. 여기에는 ID와 권한, 설정, 들어오는 메시지와 Webhook, 일정, 대화, Job, Company Brain, 모델 제공자를 호출하는 AI 게이트웨이가 포함됩니다. 각 대화의 모델 루프는 Control Plane에서 슈퍼바이저가 관리하는 프로세스로 실행됩니다.
+- **Control Plane**(Elixir, Phoenix, OTP)은 프로세스가 끝난 뒤에도 남아야 하는 모든 것을 결정하고 기록합니다. 여기에는 ID와 권한, 설정, 대화와 메시지, 시그널, 일정, Job, Company Brain, 모델 제공자를 호출하는 AI 게이트웨이가 포함됩니다. Sessions는 각 Agent의 모델 루프를 슈퍼바이저가 관리하는 프로세스로 실행합니다.
 - 각 Agent에는 **Agent Computer Worker**가 하나 있습니다. Linux 컨테이너에서 실행되는 Bun과 TypeScript 프로그램입니다. Worker는 명령, 브라우저, Codex, MCP 서버, Skill, Automation 스크립트를 실행합니다. Control Plane은 Docker, Kubernetes 또는 클라우드 플랫폼에 Worker를 만들고, 컴퓨터가 필요한 작업에만 Worker를 호출합니다.
 - **Kernel**은 Elixir가 로드하는 Rust 라이브러리입니다. 암호화, 식별자, 권한 평가, AI 통신을 제공합니다.
 - **PostgreSQL**은 재시작 뒤에도 남아야 하는 모든 사실을 저장합니다. 파일 저장소는 각 Agent의 드라이브와 첨부 파일을 보관하고, 각 Agent의 홈 디렉터리(Agent Home)는 각자의 저장소에 유지됩니다.
@@ -157,15 +156,16 @@ flowchart TB
   subgraph Control["Control Plane · 단일 logical state / coordination boundary"]
     direction TB
     Platform["Principal / AuthZ / 설정<br/>Control Plane Plugins"]
-    SG["SignalsGateway<br/>channel 수신 · webhook 수용 · 전달"]
+    Convo["Conversations<br/>공유 메시지 · provider 관찰 · 전달"]
+    Signals["Signals<br/>단일 수신 · 라우팅 · CloudEvents"]
     Schedule["Schedule<br/>checkbacks · cron"]
-    Runtime["Conversations<br/>Agent loop · 수용 · recovery"]
+    Runtime["Sessions<br/>Agent loop · 수용 · recovery"]
     Jobs["Durable 작업 제어<br/>Background Agent Jobs · Automation Jobs"]
     Brain["Brain<br/>공유 지식 · recall · dreaming"]
     AI["AIGateway<br/>model routing · conversation · credential"]
   end
 
-  Fabric["RuntimeFabric<br/>일시적 Actor 통신 · 제한된 RPC · Worker 파일"]
+  Fabric["RuntimeFabric<br/>실시간 세션 통신 · 제한된 RPC · Worker 파일"]
   Workers["Agent Computer Worker · Agent마다 하나<br/>환경 도구 · Codex · Automation scripts<br/>Skills · MCP · browser · terminal"]
   Providers["AI providers<br/>LLM · embedding · rerank · image · web"]
 
@@ -174,10 +174,12 @@ flowchart TB
   Homes[("Agent Home 저장소 · 영속성 경계<br/>Agent마다 하나 · 작업 공간 · Codex 스레드")]
 
   External -->|"input과 administration"| Control
-  SG -->|"ActorEvent"| Runtime
-  Schedule -->|"ActorEvent"| Runtime
-  SG -->|"바인딩된 webhook"| Jobs
-  Schedule -->|"바인딩된 trigger"| Jobs
+  Convo -->|"message stimulus"| Signals
+  Schedule -->|"time stimulus"| Signals
+  Jobs -->|"completion stimulus"| Signals
+  Signals -->|"Signal"| Runtime
+  Signals -->|"bound raw webhook"| Jobs
+  Schedule -->|"bound trigger"| Jobs
   Platform --> Runtime
   Runtime --> AI
   Control -->|"live execution"| Fabric
@@ -199,7 +201,7 @@ Ankole은 프로덕션에서 실행 중입니다. Ankole Agent도 회사가 쓰�
 
 [트레이드오프와 알려진 제한](docs/TradeoffsAndKnownLimits.md)(영어)에 Ankole이 보장하지 않는 내용을 정리했습니다. 가장 중요한 내용은 다음과 같습니다.
 
-- 배포 하나는 조직 하나만 사용합니다. 신뢰 경계를 공유하지 않는 조직은 따로 배포해야 합니다.
+- 하나의 사이트에서 조직 데이터가 격리된 여러 테넌트를 운영할 수 있습니다. 모든 테넌트는 사이트 운영자를 신뢰하며 사이트의 모델 제공자와 Worker 제공자를 공유합니다.
 - Worker 컨테이너는 해당 Agent의 유일한 격리 경계입니다. Ankole은 Agent 자신의 작업으로부터 Worker를 보호하지 않습니다.
 - Worker 제공자마다 클라우드 검증 범위가 다릅니다. [Agent Workers](docs/design-docs/AgentWorkers.md#provider-verification-evidence)(영어)에서 기록된 근거와 남은 검증 항목을 확인하세요.
 

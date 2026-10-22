@@ -15,7 +15,7 @@ import {
 } from '../../../src/core/types/schema'
 import { Blockquote } from '../types'
 import ist from 'ist'
-import { builder, basicBuilders, tableSchema } from '../schema'
+import { builder, basicBuilders, basicSchema, tableSchema, tag, eq } from '../schema'
 import { rDoc, rChangeSpec } from '../generate'
 
 const { DocTile } = Wordgard
@@ -771,6 +771,24 @@ describe('DocTile', () => {
       let tile = render(doc(h2('ab'), p('cd')), Decoration.Tag.shape(Paragraph, Elt.mk('para')))
       tile = update(tile, { changes: { from: 2, to: 6, insert: [Plot.End, Paragraph] } })
       ist(tile.dom.innerHTML, `<h2>a</h2><para${uned}></para>`)
+    })
+
+    it('redraws an inline plot rendered as an atom', () => {
+      const Footnote = Plot.define('Footnote', {
+        inline: true,
+        inlineContent: true,
+        selectable: true,
+        shape: { element: 'footnote' }
+      })
+      const fn = builder(Footnote)
+      const fdoc = builder(Schema.define(basicSchema.elements.concat([Footnote])))
+      const shape = Decoration.Tag.shape(Footnote, Elt.mk('fn'))
+      const page = fdoc(p('ab', fn('x', 0, 'y'), 'cd'))
+      const at = tag(page, 0)
+      let tile = render(page, shape)
+      tile = update(tile, { changes: { from: at, to: at + 1, insert: [Leaf.text('z')] } })
+      ist(tile.state.doc, fdoc(p('ab', fn('xz'), 'cd')), eq)
+      ist(tile.dom.querySelectorAll('fn').length, 1)
     })
 
     it('supports selectors for wrapper decorations', () => {

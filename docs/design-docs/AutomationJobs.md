@@ -18,9 +18,9 @@ The Job and Run resources use AshStateMachine actions in the transaction of the
 generic action. A Job moves from `active` to `cancelled`. A Run starts as
 `queued` or as a failed trigger receipt. Only queued work can start an attempt.
 A running attempt can retry or finish, and cancellation only stops queued work.
-The attempt fence and both Worker-wait and execution deadlines keep their
-existing meaning. PostgreSQL also rejects incompatible lifecycle timestamps and
-attempt fences.
+The attempt fence and both Worker-wait and execution deadlines enforce attempt
+ownership and time budgets. PostgreSQL also rejects incompatible lifecycle
+timestamps and attempt fences.
 
 ## Human Work Authorization
 
@@ -99,7 +99,7 @@ without a Worker request. When the Worker is ready, the job claims the run
 under a row lock, increases the attempt count, and gives the attempt a new
 UUID. It then calls the Worker through the worker-owned
 `automation_job.run` RuntimeFabric RPC. Each attempt resolves the Agent's
-current enabled Skills and sends their existing `RuntimeSkillSummary`
+current enabled Skills and sends their `RuntimeSkillSummary`
 projection with the request. The request does not copy `SKILL.md` or MCP
 connection declarations.
 
@@ -205,21 +205,34 @@ Session. Creation fails with `long_lived_reply_owner_not_found` if these facts
 do not identify a recipient. The actual calling Signal remains the source
 of authorization and provenance. Cancellation changes queued runs to
 `cancelled` in the same transaction. A running attempt can finish and emit.
-
-The upgrade moves provable old Job or Workflow task owners to their long-lived
-Session. It keeps resource IDs, scripts, run history, source authorization, and
-webhook tokens. It keeps an unresolved row unchanged and reports its ID. The
-existing Console scope can inspect these rows. Delivery uses the same owner
-resolver until no resource retains a `job:` or `wf_task:` owner. An unresolved
-emission fails explicitly. If a failed run cannot send its failure notice, the
-run retains `long_lived_reply_owner_not_found` in its error instead of sending
-the notice to an ended task.
+If a failed run cannot send its failure notice because the recipient cannot be
+resolved, the run records `long_lived_reply_owner_not_found` in its error
+instead of sending the notice to an ended task.
 
 The Console API is read-only. It lists jobs in the selected tenant or
 filters them by Agent. The list requires `automation_jobs/read`. It reads one
 job and its recent runs through the owning Agent path. The detail read requires
 `agent:<agent_uid>:automation_jobs/read`. It shows the attempt count, terminal
 result, exit code, error, and bounded logs.
+
+### Live activity in Console Home
+
+Home can inspect queued and running Automation runs for an explicitly selected
+Agent, under the `agent:<agent_uid>:automation_jobs` read permission.
+The query starts from runs and reads their definitions through the Run `job`
+relationship without filtering the definition status. A cancelled definition can
+therefore still show its admitted running attempt, consistent with the
+cancellation contract above. Activity is filtered before the independent cursor
+page; labels, owner Session, attempt identity, bounded error text and known
+Schedule trigger ID are available without loading scripts, event bodies or
+stdout/stderr.
+
+The activity view is read-only and links to the definition detail. Its
+observation time describes the read, not proof that an external effect succeeded.
+It is one of three explicit background activity groups alongside
+[Workflow](Workflow.md#console-activity-inspection) and
+[Background Agent Job](BackgroundAgentJob.md); pending Schedule rules and ordinary
+conversation Turns are outside this view.
 
 ## Rules
 
@@ -235,22 +248,3 @@ result, exit code, error, and bounded logs.
 - Infrastructure failures can use at most five attempts.
 - A successful `emitEvent` call means the Signal is durable.
 - The platform stores no script state, DAG, mutex, or trigger rule.
-
-### Live activity in Console Home
-
-Home can inspect queued and running Automation runs for an explicitly selected
-Agent, under the existing `agent:<agent_uid>:automation_jobs` read permission.
-The query starts from runs and reads their definitions through the Run `job`
-relationship without filtering the definition status. A cancelled definition can
-therefore still show its admitted running attempt, consistent with the
-cancellation contract above. Activity is filtered before the independent cursor
-page; labels, owner Session, attempt identity, bounded error text and known
-Schedule trigger ID are available without loading scripts, event bodies or
-stdout/stderr.
-
-The activity view is read-only and links to the existing definition detail. Its
-observation time describes the read, not proof that an external effect succeeded.
-It is one of three explicit background activity groups alongside
-[Workflow](Workflow.md#console-activity-inspection) and
-[Background Agent Job](BackgroundAgentJob.md); pending Schedule rules and ordinary
-conversation Turns are outside this view.

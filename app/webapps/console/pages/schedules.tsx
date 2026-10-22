@@ -32,7 +32,8 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { linkTarget, useSearchParams } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebAgentControllerIndexOptions,
@@ -184,7 +185,7 @@ export function SchedulesListPage() {
         return (
           <TableRow key={`${row.agent_uid}:${row.id}`}>
             <TableCell className="font-mono text-xs">
-              <Link data-row-link className="text-foreground" to={editTo}>
+              <Link data-row-link className="text-foreground" {...linkTarget(editTo)}>
                 {row.name || row.binding_name}
               </Link>
               <div className="text-muted-foreground">{row.binding_name}</div>
@@ -456,14 +457,14 @@ export function ScheduleCronEditorPage() {
     ...ankoleWebScheduleControllerCreateCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.saved'))
-      navigate(backTo)
+      void navigate(linkTarget(backTo))
     }
   })
   const updateCron = useMutation({
     ...ankoleWebScheduleControllerUpdateCronMutation(),
     onSuccess: () => {
       toast.success(t('console.schedules.saved'))
-      navigate(backTo)
+      void navigate(linkTarget(backTo))
     }
   })
 
@@ -493,7 +494,7 @@ export function ScheduleCronEditorPage() {
     onSuccess: () => {
       toast.success(t('console.schedules.deleted'))
 
-      navigate(backTo)
+      void navigate(linkTarget(backTo))
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -512,7 +513,7 @@ export function ScheduleCronEditorPage() {
         return
       }
       if (Object.keys(body).length === 0) {
-        navigate(backTo)
+        void navigate(linkTarget(backTo))
         return
       }
       updateCron.mutate({ body, path: { agent_uid: agentUID, cron_schedule_id: cronID } })
@@ -735,7 +736,7 @@ export function ScheduleCronEditorPage() {
           {!editing && agentUID && !bindings.isLoading && bindingList.length === 0 ? (
             <p className="text-xs leading-5 text-muted-foreground">
               {t('console.schedules.binding_empty_hint')}{' '}
-              <Link className="link" to={`/signals/new?agent=${encodeURIComponent(agentUID)}`}>
+              <Link className="link" {...linkTarget(`/signals/new?agent=${encodeURIComponent(agentUID)}`)}>
                 {t('console.schedules.binding_empty_action')}
               </Link>
             </p>

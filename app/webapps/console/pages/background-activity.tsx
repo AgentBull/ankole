@@ -2,7 +2,8 @@ import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, 
 import { useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useSearchParams } from 'react-router'
+import { Link } from '@tanstack/react-router'
+import { linkTarget, useSearchParams } from '../../common/router'
 import { requestErrorCode, requestErrorMessage } from '../../common/request-errors'
 import {
   backgroundActivityJobsOptions,
@@ -293,7 +294,7 @@ function JobRow({ row }: { row: BackgroundActivityJob }) {
       kind="job_kind"
       id={row.id}
       title={
-        <Link className="hover:underline" to={`/background-agent-jobs?job=${row.id}`}>
+        <Link className="hover:underline" {...linkTarget(`/background-agent-jobs?job=${row.id}`)}>
           {row.title}
         </Link>
       }
@@ -374,7 +375,7 @@ function AutomationRow({ row }: { row: BackgroundActivityAutomationRun }) {
       title={
         <Link
           className="hover:underline"
-          to={`/automation-jobs?agent=${encodeURIComponent(row.agent_uid)}&job=${row.automation_job_id}`}>
+          {...linkTarget(`/automation-jobs?agent=${encodeURIComponent(row.agent_uid)}&job=${row.automation_job_id}`)}>
           {row.label || `#${row.automation_job_id}`}
         </Link>
       }

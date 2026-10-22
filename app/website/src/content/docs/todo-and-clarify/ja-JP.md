@@ -5,7 +5,7 @@ order: 124
 description: コントロールプレーンの計画と質問、Codex Job の入力経路。
 ---
 
-`todo` と `clarify` は `Ankole.Sessions.Tools.Session` が所有するコントロールプレーンのツールです。Driver が引数を検証し、AIGateway でモデル向けの結果を保存して現在の Run に反映します。Worker はメイン Turn のこれらのツールを所有しません。
+`todo` と `clarify` は `Ankole.Sessions.Tools.Session` が所有するコントロールプレーンのツールです。Driver が引数を検証し、AIGateway でモデル向けの結果を保存して現在の Run に反映します。
 
 ## タスクリスト
 
@@ -23,6 +23,6 @@ description: コントロールプレーンの計画と質問、Codex Job の入
 
 ## Background Job と運用
 
-Native Codex Job は独自の入力要求経路を使います。人間の入力が必要な Job は `waiting_on_user` になり実行 slot を解放し、所有者の返信で続行します。これは Job のライフサイクル契約であり、Worker でメイン Agent の `clarify` を実行する経路ではありません。[Background Agent Jobs](../background-agent-jobs/) を参照してください。
+Native Codex Job は独自の入力要求経路を使います。人間の入力が必要な Job は `waiting_on_user` になり実行 slot を解放し、所有者の返信で続行します。これは Job のライフサイクル契約です。[Background Agent Jobs](../background-agent-jobs/) を参照してください。
 
 計画状態と Turn 終了に Console の調整フラグはありません。計画や質問の選び方は Agent の指示と能力を調整します。[Agents](../agents/) と [Agent loop](../agent-loop/) を参照してください。

@@ -22,13 +22,13 @@ shell 之外，computer 工具给 Agent 两个文件原语：
 - **读文件**——`read-file-tool.ts`，直接看一个文件的内容，而不是开 shell 跑 `cat`。
 - **编辑文件**——`apply-patch-tool.ts`，提供与固定 Codex 版本相同语法的 freeform `apply_patch` 工具。
 
-Main Agent 通过 AIGateway 把原始 patch 作为 `custom_tool_call` 发送。Worker 再通过 `/usr/local/bin/apply_patch` 交给 Codex 原生二进制。后台 Agent 任务从 AIGateway 模型卡获得同一个 freeform 工具，也使用同一个二进制。Ankole 不再维护另一套 patch 解析器。
+Main Agent 通过 AIGateway 把原始 patch 作为 `custom_tool_call` 发送。Worker 再通过 `/usr/local/bin/apply_patch` 交给 Codex 原生二进制。后台 Agent 任务从 AIGateway 模型卡获得同一个 freeform 工具，也使用同一个二进制。
 
 这条共享路径让普通对话和后台 Agent 任务使用同一种编辑协议。patch 无法匹配时，原生工具会失败，并把失败结果返回给模型。快速搜索可以用 shell；文件编辑使用 `apply_patch`。
 
 ## /workspace 文件系统
 
-Agent Home 是 `/workspace` 上的持久存储。旧路径 `/agents/<agent_uid>` 链接到这里；路径检查先解析符号链接，再校验 Home 边界。目录结构如下：
+Agent Home 是 `/workspace` 上的持久存储。`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接；路径检查先解析符号链接，再校验 Home 边界。目录结构如下：
 
 ```text
 /workspace/
@@ -50,7 +50,7 @@ Home 在删除实例和更换镜像后保留，重建只删除 `/var/cache/ankol
 
 控制面云盘独立保存附件、发布的文件、Skill 和 Automation 脚本。用 `ankole-files` 读写云盘；Job 工作区与 Codex 线程文件留在持久 Home。回合开始前，Worker 将 `installed-skills/` 与云盘同步。
 
-后台 Agent Job 通过 Ankole `skill_view` 加载 Skill，不会把 Skill root 复制到 Job 工作区。
+后台 Agent Job 通过 `skill_view` 按需加载 Skill。
 
 ## 迭代 Python 用的 Jupyter live kernel
 
@@ -62,7 +62,7 @@ skill 自带的指引是经验法则：短小、无状态的 Python 脚本优先
 
 CodexRunner 是所有后台 Agent 任务的执行引擎。任务可以是调研、制作文档、修改代码仓库，也可以是其他需要持续运行的工作。决定是否使用 CodexRunner 的是任务的生命周期，而不是任务内容。Runner 通过 `app-server-client.ts` 与 Codex app-server 通信，并为每个任务准备独立的工作区和运行配置。
 
-Console 将对应的模型档案显示为**后台 Agent 任务**。它在数据库和 API 中暂时仍使用 `coding` 这个历史名称，但这不表示普通对话会在代码较多时自动切换模型。
+Console 将对应的模型档案显示为**后台 Agent 任务**。它的存储键名与 API 名称为 `coding`。
 
 ## Ankole 如何选择运行路径
 

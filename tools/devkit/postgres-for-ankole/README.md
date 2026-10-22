@@ -63,9 +63,9 @@ WHERE name IN ('pg_search', 'vector', 'pg_trgm')
 ORDER BY name;
 ```
 
-The fresh-install baseline installs `vector` in `public` before `pg_search`;
-`pg_search` requires it. The BrainV3 migration also installs `pg_trgm`. The
-packages must be available in this image for the migrations to run.
+Ankole migrations install `vector` (required by `pg_search`), `pg_search`, and
+`pg_trgm`. All three extensions must be available in this image before the
+migrations run.
 
 Apply pending migrations the usual way:
 
@@ -87,9 +87,6 @@ SELECT * FROM paradedb.version_info();
 
 Both the installed extension and the loaded library must be 0.25.11. Then
 apply Ankole migrations and repeat a Brain text recall before you start the
-control plane. Existing BM25 indexes that contain only text do not need a
-rebuild for this version change. For a failed native index reader, use the
+control plane. BM25 indexes that contain only text do not require a rebuild
+when upgrading to `0.25.11`. For a failed native index reader, use the
 [Brain index recovery procedure](../../../docs/design-docs/BrainV3.md#retrieval-index-recovery).
-
-The image has no optional LLVM JIT provider. PostgreSQL does not use JIT when
-the provider is absent; no configuration change is required.

@@ -7,7 +7,7 @@ order: 313
 
 本指南适用于从 1.0 及后续 1.x 版本升级到 2.0 的自托管站点。升级需要维护窗口：先停止旧版本的全部写者，再运行新版本的迁移。数据库迁移不能通过切换镜像撤销。
 
-仓库的 Compose 升级测试以最后一个池化 Worker 版本 `v1.6.18-rc.1` 为起点。更早的 1.x 版本、自定义部署和修改过的 schema，应先用备份在隔离环境演练相同流程；这项测试不代表所有 1.x 起点都已验证。
+升级正式环境前，先用备份在隔离环境中演练完整流程，尤其是较早的 1.x 版本、自定义部署或修改过 schema 的站点。
 
 ## 升级后改变什么
 
@@ -17,6 +17,7 @@ order: 313
 | Home 中的已安装 Skill 与 Automation 脚本 | 控制面云盘中的 `skills/` 与 `automation/` | 执行一次文件导入 |
 | Worker 临时 Codex 状态 | `/workspace/.codex` 保存线程，`/var/cache/ankole/codex` 保存可重建缓存 | 保留 Home，另配缓存盘 |
 | 无租户的数据与配置 | 原数据归入 `default` 租户，站点配置与租户配置分开 | 运行数据库和加密配置迁移，保留原密钥 |
+| 位于 `/console` 的 Console | 位于 `/site-admin-console`（或 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`）的站点管理 Console | 更新书签与入口路由规则 |
 
 已经采用独享 Worker 或云盘的 1.x 站点，只需执行仍适用的迁移步骤。不要把已有 Home 或云盘替换成空存储。
 

@@ -2,7 +2,7 @@ import { Button, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, 
 import { useMutation } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
+import { Link } from '@tanstack/react-router'
 import { ErrorBlock } from '../../common/error-block'
 import { ankoleWebWorkerProviderControllerAssignMutation } from '../api/generated/@tanstack/react-query.gen'
 import type { AgentItem, WorkerProvider } from '../api/generated/types.gen'

@@ -49,7 +49,7 @@ import { RiCheckLine, RiFileCopyLine, RiKey2Line, RiRefreshLine } from '@remixic
 import { useIsMutating, useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebAuthZGroupControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerModelsOptions as ankoleWebAIGatewayControllerModelsOptions,
@@ -181,7 +181,7 @@ export function OIDCClientEditorPage() {
   useSignals()
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { clientID } = useParams()
+  const { clientID } = useParams({ strict: false })
   const mode = clientID ? 'edit' : 'new'
   const model = useModel(OIDCClientEditorModel)
   const draft = model.draft.value
@@ -242,7 +242,7 @@ export function OIDCClientEditorPage() {
       toast.success(t('console.oidc_clients.saved', { name: response.oidc_client.name }))
       const nextPath = `/oidc-clients/${encodeURIComponent(response.oidc_client.id)}`
       if (response.client_secret) setSecret({ nextPath, value: response.client_secret })
-      else navigate(nextPath)
+      else void navigate({ to: nextPath })
     }
   })
   const updateClient = useMutation({
@@ -277,7 +277,7 @@ export function OIDCClientEditorPage() {
     onSuccess: (response, _variables, requestedSource) => {
       if (!model.isCurrentSource(requestedSource)) return
       toast.success(t('console.oidc_clients.deleted', { name: response.oidc_client.name }))
-      navigate('/oidc-clients')
+      void navigate({ to: '/oidc-clients' })
     },
     onError: (error, _variables, requestedSource) => {
       if (model.isCurrentSource(requestedSource)) toast.error(requestErrorMessage(error))
@@ -620,7 +620,7 @@ export function OIDCClientEditorPage() {
         onClose={() => {
           const nextPath = secret?.nextPath
           setSecret(undefined)
-          if (nextPath) navigate(nextPath)
+          if (nextPath) void navigate({ to: nextPath })
         }}
       />
     </fieldset>

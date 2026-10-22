@@ -88,9 +88,6 @@ File bytes move over HTTP through a one-time relay URL.
 The worker connection is not a durable queue. PostgreSQL keeps any fact that Ankole must replay,
 check, reconcile, or commit after a restart.
 
-`ActorBus` is a name for Actor message behavior. It is not a second transport
-API and does not add another set of environment variables.
-
 ## Only the Control Plane Commits Business Data
 
 Workers never write AIGateway messages, Signal rows, or provider outbox rows

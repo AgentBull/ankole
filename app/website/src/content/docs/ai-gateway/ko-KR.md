@@ -83,7 +83,7 @@ compaction은 흐름을 잃지 않고 긴 저장 기록을 짧은 기록으로 �
 
 AIGateway는 업스트림 호출 전에 모델 selector를 실제 provider binding으로 해석합니다. Agent에는 8개의 내장 profile이 있습니다. `primary`, `light`, `heavy`, `coding`, `vision_fallback`, `web_search`, `web_fetch`, `image_generate`입니다. 처음 5개는 언어 모델을 선택하고, 마지막 3개는 별도 기능을 선택합니다. Agent는 사용자 지정 언어 모델 profile도 가질 수 있습니다. 관리자는 명시적 provider entry를 사용합니다. `GET /models`는 현재 subject가 해석할 수 있는 것을 나열하며 OpenRouter 스타일 필터(`q`, `context`, `min_price`, `max_price`, `sort`, modality 필터)를 선택적으로 받습니다.
 
-각 provider 행은 credential 풀을 소유합니다. provider kind, base URL, 헤더, 설정, capability 선언은 모든 멤버가 공유합니다. 모델 profile은 행을 가리키며 풀 멤버를 지명하지 않습니다. AIGateway는 구성된 `fill_first`, `round_robin`, `least_used`, `random` strategy에 따라 정상 멤버를 선택합니다. Console은 선택된 UI 언어에 맞춰 이 strategy 이름들을 번역하며, API와 저장된 값은 그대로 유지됩니다. stateful thread는 가능하면 같은 멤버에 머무릅니다.
+각 provider 행은 credential 풀을 소유합니다. provider kind, base URL, 헤더, 설정, capability 선언은 모든 멤버가 공유합니다. 모델 profile은 행을 가리키며 풀 멤버를 지명하지 않습니다. AIGateway는 구성된 `fill_first`, `round_robin`, `least_used`, `random` strategy에 따라 정상 멤버를 선택합니다. Console은 선택된 UI 언어에 맞춰 이 strategy 이름들을 번역하며, API와 스토리지는 정규 키를 사용합니다. stateful thread는 가능하면 같은 멤버에 머무릅니다.
 
 귀속된 `429`, `5xx`, 또는 transport 실패는 요청을 만든 credential만 쿨다운합니다. AIGateway는 다른 멤버를 선택하고 provider 요청을 다시 구성한 뒤 지수 백오프와 지터가 있는 유계(bounded) 재시도를 수행합니다. Rust kernel은 한 번에 하나의 transport 시도만 수행합니다. 풀이 비어 있으면 AIGateway는 다른 provider로 전환하지 않습니다.
 

@@ -92,7 +92,7 @@ SIGTERM 让监督进程排水并结束剩余写者；SIGUSR1 让它立即结束�
 
 `stopGraceSeconds` 要容纳排水与备份。OOM、SIGKILL、备份失败或平台强制停止可能
 丢失最后完成的备份之后的修改；控制面停机超过适配器的六小时保活上限也可能触发
-这类停止。这些路径需要在上线前用真实账户验证。
+这类停止。
 
 ## 升级
 
@@ -115,5 +115,4 @@ bun run test
 bun run type-check
 ```
 
-单元测试替换 Container 和 DirectoryBackup/R2 边界，不证明云端备份、恢复或平台停止
-的行为。部署后的日志用 `bunx wrangler tail ankole-agent-workers` 查看。
+部署后的日志用 `bunx wrangler tail ankole-agent-workers` 查看。

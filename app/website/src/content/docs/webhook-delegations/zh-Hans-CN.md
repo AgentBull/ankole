@@ -9,7 +9,7 @@ Webhook 委托让 Agent 等待运行在 Ankole 之外的任务。外部系统检
 
 回调 URL 只是一张唤醒凭据，不证明请求 body 中的内容为真。Agent 在报告事实或执行已授权变更之前，会先读取外部系统中的当前对象。
 
-首个支持的场景是 GitHub repository webhook。EventBridge 和 Flink 尚未实现。
+支持的场景是 GitHub repository webhook。
 
 ## 适用场景
 

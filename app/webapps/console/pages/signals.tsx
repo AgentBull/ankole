@@ -28,7 +28,8 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { linkTarget, useSearchParams } from '../../common/router'
 import {
   ConfigField,
   ConfigFields,
@@ -196,7 +197,7 @@ export function SignalsListPage() {
             <Link
               data-row-link
               className="text-foreground"
-              to={editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID)}>
+              {...linkTarget(editTo(binding.agent_uid, binding.adapter, binding.name, scope.agentUID))}>
               {binding.name}
             </Link>
           </TableCell>
@@ -609,10 +610,10 @@ function signalBindingReturnPath(agentUID: string): string {
 export function finishSignalBindingSave(
   message: string,
   returnPath: string,
-  navigate: (path: string) => unknown
-): void {
+  navigate: (options: ReturnType<typeof linkTarget>) => unknown
+): unknown {
   toast.success(message)
-  navigate(returnPath)
+  return navigate(linkTarget(returnPath))
 }
 
 function emptyForm(): SignalBindingAdapterDraft {

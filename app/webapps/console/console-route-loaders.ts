@@ -1,5 +1,4 @@
 import type { QueryClient } from '@tanstack/react-query'
-import type { LoaderFunctionArgs } from 'react-router'
 import {
   ankoleWebAgentWorkerControllerIndexOptions,
   ankoleWebAgentControllerIndexOptions,
@@ -29,8 +28,12 @@ import { conversationListOptions } from './pages/conversations'
 import { resourceID } from './console-primitives'
 import { GLOBAL_LIBRARY_SCOPE } from './state/agent-library-capabilities'
 
+export interface ConsoleRouteLoaderContext {
+  location: { searchStr: string }
+}
+
 /**
- * Critical route reads complete before React Router commits the destination.
+ * Critical route reads complete before TanStack Router commits the destination.
  * TanStack Query still owns the cache and all later background refreshes.
  */
 export function createConsoleRouteLoaders(queryClient: QueryClient) {
@@ -38,7 +41,8 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
   const all = (...queries: Promise<unknown>[]) => Promise.all(queries).then(() => null)
 
   // The agent-scoped lists cover every agent unless `?agent=` narrows them.
-  const agentFilter = (request: Request) => new URL(request.url).searchParams.get('agent')?.trim() || undefined
+  const agentFilter = (location: { searchStr: string }) =>
+    new URLSearchParams(location.searchStr).get('agent')?.trim() || undefined
 
   return {
     home: () =>
@@ -51,8 +55,8 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
         ensure(ankoleWebAIGatewayConversationControllerIndexOptions({ query: { limit: 5, min_messages: 2 } }))
       ),
     agents: () => ensure(ankoleWebAgentControllerIndexOptions()).then(() => null),
-    agentLibrary: ({ request }: LoaderFunctionArgs) => {
-      const scope = new URL(request.url).searchParams.get('scope') || GLOBAL_LIBRARY_SCOPE
+    agentLibrary: ({ location }: ConsoleRouteLoaderContext) => {
+      const scope = new URLSearchParams(location.searchStr).get('scope') || GLOBAL_LIBRARY_SCOPE
       const agents = ensure(ankoleWebAgentControllerIndexOptions())
 
       return scope === GLOBAL_LIBRARY_SCOPE
@@ -78,40 +82,40 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
       ),
     principalGroups: () => ensure(ankoleWebAuthZGroupControllerIndexOptions()).then(() => null),
     principals: () => ensure(ankoleWebPrincipalControllerIndexOptions()).then(() => null),
-    signals: ({ request }: LoaderFunctionArgs) =>
+    signals: ({ location }: ConsoleRouteLoaderContext) =>
       all(
         ensure(ankoleWebAgentControllerIndexOptions()),
-        ensure(ankoleWebSignalBindingControllerIndexOptions({ query: { agent: agentFilter(request) } }))
+        ensure(ankoleWebSignalBindingControllerIndexOptions({ query: { agent: agentFilter(location) } }))
       ),
-    schedules: ({ request }: LoaderFunctionArgs) =>
+    schedules: ({ location }: ConsoleRouteLoaderContext) =>
       all(
         ensure(ankoleWebAgentControllerIndexOptions()),
-        ensure(ankoleWebScheduleControllerIndexCronOptions({ query: { agent: agentFilter(request) } }))
+        ensure(ankoleWebScheduleControllerIndexCronOptions({ query: { agent: agentFilter(location) } }))
       ),
-    scheduleCheckbacks: ({ request }: LoaderFunctionArgs) =>
+    scheduleCheckbacks: ({ location }: ConsoleRouteLoaderContext) =>
       all(
         ensure(ankoleWebAgentControllerIndexOptions()),
-        ensure(ankoleWebScheduleControllerIndexCheckbacksOptions({ query: { agent: agentFilter(request) } }))
+        ensure(ankoleWebScheduleControllerIndexCheckbacksOptions({ query: { agent: agentFilter(location) } }))
       ),
-    webhooks: ({ request }: LoaderFunctionArgs) =>
+    webhooks: ({ location }: ConsoleRouteLoaderContext) =>
       all(
         ensure(ankoleWebAgentControllerIndexOptions()),
-        ensure(ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: agentFilter(request) } }))
+        ensure(ankoleWebWebhookEndpointControllerIndexOptions({ query: { agent: agentFilter(location) } }))
       ),
-    automationJobs: ({ request }: LoaderFunctionArgs) =>
+    automationJobs: ({ location }: ConsoleRouteLoaderContext) =>
       all(
         ensure(ankoleWebAgentControllerIndexOptions()),
         ensure(
           ankoleWebAutomationJobControllerIndexOptions({
-            query: { agent: agentFilter(request), limit: 100 }
+            query: { agent: agentFilter(location), limit: 100 }
           })
         )
       ),
     settings: () => ensure(ankoleWebAppConfigurationControllerIndexOptions()).then(() => null),
     workerEnvs: () => ensure(ankoleWebWorkerEnvControllerIndexOptions()).then(() => null),
     workers: () => ensure(ankoleWebAgentWorkerControllerIndexOptions()).then(() => null),
-    backgroundAgentJobs: ({ request }: LoaderFunctionArgs) => {
-      const searchParams = new URL(request.url).searchParams
+    backgroundAgentJobs: ({ location }: ConsoleRouteLoaderContext) => {
+      const searchParams = new URLSearchParams(location.searchStr)
       const selectedID = resourceID(searchParams.get('job'), 1000)
       const list = ensure(
         backgroundAgentJobListOptions(searchParams.get('agent')?.trim() ?? '', searchParams.get('q') ?? '')
@@ -129,8 +133,8 @@ export function createConsoleRouteLoaders(queryClient: QueryClient) {
           )
         : list.then(() => null)
     },
-    conversations: ({ request }: LoaderFunctionArgs) => {
-      const searchParams = new URL(request.url).searchParams
+    conversations: ({ location }: ConsoleRouteLoaderContext) => {
+      const searchParams = new URLSearchParams(location.searchStr)
 
       return ensure(
         conversationListOptions({

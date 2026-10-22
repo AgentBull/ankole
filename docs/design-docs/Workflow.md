@@ -88,7 +88,7 @@ so every wake can rebuild `submit_result`.
 Each sleep resets the call attempt budget to zero and consumes one unit of the
 hard wake budget of 16 sleeps per call. A crashed wake turn returns the call to
 `queued`. Its open wake event owns redelivery, and the three-attempt budget
-still bounds repeated wake failures. The hourly watchdog treats a sleeping call
+bounds repeated wake failures. The hourly watchdog treats a sleeping call
 whose deadline passed more than an hour ago as overdue: with an open mailbox
 event it re-notifies the session, and with none it fails the call as
 `workflow_task_wake_lost` instead of sleeping forever.
@@ -98,7 +98,7 @@ event it re-notifies the session, and with none it fails the call as
 The task tool catalog includes `create_background_job`,
 `show_background_job_details`, `send_message_to_background_job`, and
 `stop_background_job`. A Job created by a task records the task session as its
-`owner_session_id`, so the existing Job lifecycle wakeup reaches the task
+`owner_session_id`, so the Job lifecycle wakeup reaches the task
 mailbox and never notifies the main Agent's session. The task judges the Job
 outcome and submits the schema-shaped result; a delegated Job that enters
 `waiting_on_user` also wakes the task, which answers with its own context or
@@ -199,12 +199,12 @@ nor sleeps. The Workflow owner keeps the three-call-attempt limit. Recovery of
 a crashed Driver adopts its running call without another call attempt.
 
 PostgreSQL is the durable owner. RunServer performs replay; `PokeRun` is its
-Oban wakeup. The existing conversation Reconciler also repairs a missing
+Oban wakeup. The conversation Reconciler also repairs a missing
 RunServer or pending terminal cleanup when no task event exists yet.
 
 After a replay commit, the caller delivers new task events to their Drivers.
 Terminal cleanup delivers the owner event after the state commit. An attention
-sleep returns its owner event to the tool's existing post-commit actions.
+sleep returns its owner event to the tool's post-commit actions.
 Future task wakeups use EnsureDriver. Reconciler repairs a missed delivery.
 
 ## Human Work Authorization
@@ -302,10 +302,10 @@ field. PostgreSQL checks these combinations. Claim clears both fields and
 sets `progress_at`; a new committed tool-result round advances `progress_at`.
 The watchdog uses this timestamp, not unrelated metadata updates.
 
-One temporary `RunServer` serializes replay for one run. PostgreSQL remains the
+One temporary `RunServer` serializes replay for one run. PostgreSQL is the
 source of truth. The conversation Reconciler asks the Workflow owner for runs
 without a `RunServer` and terminal runs that need cleanup, then inserts the
-existing `PokeRun` job. The pass reads every tenant and needs no transaction:
+`PokeRun` job. The pass reads every tenant and needs no transaction:
 each idempotent job insert stands alone, and the next pass repeats a failed
 one. This also covers a crash before the first task event.
 A new replay reads the script and memo from PostgreSQL, so completed tasks do
@@ -315,7 +315,7 @@ guardian process.
 
 An unexpected replay-isolate cancellation failure emits a warning with the
 failure class and stack locations. It omits exception messages and function
-arguments and keeps the existing best-effort cancellation result.
+arguments and returns the best-effort cancellation result.
 
 The replay supervisor runs at most four kernel replay isolates at one time. If
 all four slots are in use, another running run stays durable and its `RunServer`
@@ -326,7 +326,7 @@ If a successful `sleep` or `submit_result` result has committed for the current
 input, recovery reads its receipt or recorded tape and closes that input without
 a new task claim or model request. It preserves the committed Workflow state,
 even when the tenant is suspended. Without a committed ending result, recovery
-uses the existing retry or adoption path.
+uses the retry or adoption path.
 
 If a task turn exits before it submits a result or sleeps, the control plane
 returns the same call to `queued`. The
@@ -336,7 +336,7 @@ follows the Job rule for dead-letter accounting: recoverable Worker errors keep
 the event open because the call row owns the retry budget. The hourly watchdog
 applies the same compensation when a running call has no newly committed
 tool-result round for one hour. Run locks the current Workflow call in the
-existing slot, run, and call order before it records the round. The new round
+slot, run, and call order before it records the round. The new round
 and the call's progress timestamp commit in the same transaction. An existing
 journal, a rolled-back round, an earlier attempt, or a cancelled or terminal
 call does not renew that timestamp. A single model or tool round with no
@@ -370,13 +370,13 @@ Startup recovery includes terminal runs without that time and repeats the
 idempotent cleanup before it marks them complete.
 
 Cancellation uses the same durable call cleanup. After the transaction commits,
-cleanup tells the existing `RunServer` to stop. On normal exit, that owner
+cleanup tells the active `RunServer` to stop. On normal exit, that owner
 cancels any running kernel replay and stops its replay task. Cleanup does not
 start a replacement `RunServer`; a later wake reads the terminal state before
 native replay. A late replay or task result cannot revive the cancelled run.
 
-The current control-plane deployment model uses one control-plane node. A
-duplicate driver is still safe: PostgreSQL state guards, unique call and event
+The control-plane deployment model uses one control-plane node. A
+duplicate driver is safe: PostgreSQL state guards, unique call and event
 keys, and the kernel run-ID fence prevent duplicate durable effects.
 
 ## Cost Boundaries
@@ -407,7 +407,7 @@ The 6 MiB durable memo budget reserves space below the kernel's 8 MiB input
 limit. If a run reaches the budget, it fails with a message that tells the main
 Agent to reduce fanout, return summaries, or split the work into more runs.
 
-Workflow v1 has no batch-wide token budget. Each task still uses the ordinary
+Workflow has no batch-wide token budget. Each task uses the ordinary
 turn limits from its request context.
 
 ## Console activity inspection
@@ -450,7 +450,7 @@ registered read model: it selects the next capacity waiter across calls, runs,
 and Signals and gives only identifiers. The resource actions own legal
 transitions through `AshStateMachine`; each action uses the caller's tenant and
 the transaction of its generic action. `TaskLifecycle` uses one
-compensation function when a stopped run still has a running call. It cancels
+compensation function when a stopped run has a running call. It cancels
 the call and notifies its Session in the same transaction. A retry that queues a
 running call releases its slot and wakes capacity waiters after commit, just as
 a terminal result does.

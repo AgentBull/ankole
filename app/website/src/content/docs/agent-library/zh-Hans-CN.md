@@ -24,7 +24,7 @@ Agent Library 回答一个问题：这个 Agent 实际可以使用哪些能力�
 
 `effective_enabled` 使用 Agent 覆盖值或继承的租户默认值。Plugin 成员 Skill 还要求父 Plugin 已启用。关闭父 Plugin 会保留成员原来的设置，父级重新启用后继续生效。
 
-[Console](../console-api/) 的 Agent Library 能力路由读写所选租户的默认值，再允许按 Agent 覆盖。API 字段保留 `global_default_enabled` 名称，返回的是该租户包含站点继承的有效默认值。
+[Console](../console-api/) 的 Agent Library 能力路由读写所选租户的默认值，再允许按 Agent 覆盖。API 字段 `global_default_enabled` 返回所选租户包含站点继承的有效默认值。
 
 ## 只通过 Brain 召回的 Skill 发现
 

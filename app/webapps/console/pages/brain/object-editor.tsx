@@ -18,7 +18,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebBrainControllerCreateObjectMutation,
   ankoleWebBrainControllerObjectTypesOptions,
@@ -50,7 +50,7 @@ const MARKDOC_ERROR_CODES = new Set([
 type Translate = (key: string, values?: Record<string, unknown>) => string
 
 export function BrainObjectEditorPage() {
-  const slug = useParams().slug ?? ''
+  const slug = useParams({ strict: false }).slug ?? ''
   return <BrainObjectEditor key={slug} slug={slug} />
 }
 
@@ -114,7 +114,7 @@ function BrainObjectEditor({ slug }: { slug: string }) {
             if (!response.object) return
             model.markSaved(response.object)
             toast.success(t('console.brain.object_created', { slug: response.object.slug }))
-            navigate(brainObjectPath(response.object.slug))
+            void navigate({ to: brainObjectPath(response.object.slug) })
           }
         }
       )

@@ -42,7 +42,7 @@ A background job stores its per-turn execution as an append-only stream of sanit
 | `item_key` | a stable key for the item (a `client:` key marks a caller message) |
 | `item` | one typed semantic thread item |
 
-The rows are append-only: a steer or nudge appends new items instead of rewriting stored ones. Every reader projects each stored item into canonical ChatML messages at read time, and an item that projects no messages stays stored for thread replay. A turn recorded before the item stream existed has no item rows, so its trajectory renders empty.
+The rows are append-only: a steer or nudge appends new items instead of rewriting stored ones. Every reader projects each stored item into canonical ChatML messages at read time, and an item that projects no messages stays stored for thread replay. A turn with no item rows renders an empty trajectory.
 
 Tool-result message metadata records `execution_mechanism` as `provider_hosted` when the model Provider executes the tool, or `local_dynamic` when Codex invokes a dynamic tool implemented by Ankole. This stable fact distinguishes tools that use the same display name.
 

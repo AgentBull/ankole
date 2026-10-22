@@ -60,7 +60,7 @@ Workflow 任务不能接收后续消息、创建嵌套工作或使用后台任�
 
 所有后台任务都通过 AIGateway 运行。创建任务时，Ankole 会保存当时生效的“后台 Agent 任务”模型档案；若该档案为空，则回退到 Agent 的 `heavy` 档案。
 
-要使用 ChatGPT 订阅，先创建一个 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/)。然后打开 Console 的**智能体**，在该 Agent 的模型档案中找到**后台 Agent 任务**，选择该 Provider、账号有权使用的模型、推理强度和 Fast Mode。Provider 的凭据池会自动选择并轮换账号，任务本身不选择账号。
+要使用 ChatGPT 订阅，先创建一个 [ChatGPT 订阅 Provider](../chatgpt-subscription-provider/)。然后打开 Console 的**智能体**，在该 Agent 的模型档案中找到**后台 Agent 任务**，选择该 Provider、账号有权使用的模型、推理强度和 Fast Mode。Provider 的凭据池会自动选择并轮换账号。
 
 ## 在 Console 中查看任务
 

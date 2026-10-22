@@ -2,6 +2,7 @@ import { batch, computed, createModel, signal } from '@preact/signals-react'
 
 /** A draft keeps its own base revision even while remote queries refresh. */
 export const PageDraftModel = createModel(() => {
+  let reloadVersion = 0
   const xml = signal('<page/>')
   const savedXML = signal('<page/>')
   const revision = signal(0)
@@ -43,6 +44,7 @@ export const PageDraftModel = createModel(() => {
         }
         return
       }
+      reloadVersion++
       batch(() => {
         source.value = id
         xml.value = content
@@ -65,13 +67,25 @@ export const PageDraftModel = createModel(() => {
         conflict.value = false
       })
     },
-    reload(content: string, version: number) {
-      batch(() => {
-        xml.value = content
-        savedXML.value = content
-        revision.value = version
-        conflict.value = false
-      })
+    async reload(request: () => Promise<{ xml: string; revision: number }>) {
+      const requestedVersion = ++reloadVersion
+      const requestedXML = xml.value
+      try {
+        const latest = await request()
+        if (reloadVersion !== requestedVersion || xml.value !== requestedXML || latest.revision < revision.value) return
+        batch(() => {
+          xml.value = latest.xml
+          savedXML.value = latest.xml
+          revision.value = latest.revision
+          conflict.value = false
+        })
+        return latest.xml
+      } catch (error) {
+        if (reloadVersion === requestedVersion && xml.value === requestedXML) throw error
+      }
+    },
+    cancelReload() {
+      reloadVersion++
     }
   }
 })

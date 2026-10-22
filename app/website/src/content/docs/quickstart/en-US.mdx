@@ -120,7 +120,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Compose waits for PostgreSQL, completes migrations and the one-time Home migration, then starts the control plane and Caddy."
+            "Compose waits for PostgreSQL, completes migrations, then starts the control plane and Caddy."
           ]
         },
         {
@@ -1290,7 +1290,7 @@ export const modelAdvanced = {
         {
           name: 'Background Agent Jobs',
           description:
-            'Uses the coding profile for durable Background Agent Jobs. Normal conversations do not select it because a message contains a lot of code.'
+            'Selects the provider and model for durable Background Agent Jobs (stored as the coding profile).'
         },
         {
           name: 'vision_fallback',
@@ -2439,7 +2439,7 @@ Agents never share a Worker, just as each colleague has a work computer of their
 
 Each deployment needs PostgreSQL, a drive file store, and persistent storage for every Agent Home. The default Kubernetes chart uses a shared ReadWriteMany Home claim and separate ReadWriteOnce cache claims. Home needs a backup; the cache does not.
 
-One site can contain several tenants. Site operators manage the shared infrastructure; each tenant has its own people, Agents, Brain and integrations. The administrator Console defaults to `/site-admin-console`. Set `ANKOLE_SITE_ADMIN_CONSOLE_PATH` (Helm: `controlPlane.siteAdminConsolePath`) before startup to change it. The old `/console` path returns 404.
+One site can contain several tenants. Site operators manage the shared infrastructure; each tenant has its own people, Agents, Brain and integrations. The administrator Console defaults to `/site-admin-console`. Set `ANKOLE_SITE_ADMIN_CONSOLE_PATH` (Helm: `controlPlane.siteAdminConsolePath`) before startup to change it.
 
 <span id="terminology" aria-hidden="true" />
 
@@ -2462,7 +2462,7 @@ This page defines the terms used in Ankole user documentation and interfaces. Th
 | **Delivery** | A durable intent, attempt, and result for a message sent to an external conversation | Delivery |
 | **Signal Routing Rule (Signal Binding)** | The rule that sends messages or events from a signal source to an Agent | Routing rule |
 | **LLM Provider** | A configuration that stores a model service endpoint, credentials, and available models | LLM Provider |
-| **Background Agent Jobs profile (internal key: `coding`)** | Selects the AIGateway provider and model for Background Agent Jobs; normal conversations do not select it by code volume | Background Agent Jobs |
+| **Background Agent Jobs profile (internal key: `coding`)** | Selects the AIGateway provider and model for Background Agent Jobs | Background Agent Jobs |
 
 ## Let an Agent complete the setup
 
@@ -2567,7 +2567,7 @@ Slack, Teams, Lark/Feishu, DingTalk, and WeCom are enterprise platforms: their u
 
 ### Complete the connection in the Console
 
-The current release uses a direct connection. One routing rule connects one Channel Provider to one Agent. It records the adapter, app credentials, target Agent, and group-message behavior. Create a separate rule for each bot.
+A routing rule connects one Channel Provider to one Agent. It records the adapter, app credentials, target Agent, and group-message behavior. Create a separate rule for each bot.
 
 In the Console, open **Signal Routing → New routing rule** and set:
 

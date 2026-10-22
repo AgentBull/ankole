@@ -30,4 +30,4 @@ Workflow 任务的工具集受限：Web 操作、用于委托与检查的 Backgr
 
 ## 新增工具
 
-领域工具的声明与实现放在控制面的领域 owner 中。环境工具加入 Worker 目录后，重新生成 `worker_tools.json`。`WorkerAgentTool` 与 Zod 仍是 Worker 工具的实现契约，不拥有主模型循环。schema 与执行边界必须一起保持一致。
+领域工具的声明与实现放在控制面的领域 owner 中。环境工具加入 Worker 目录后，重新生成 `worker_tools.json`。`WorkerAgentTool` 与 Zod 定义了 Worker 工具的实现契约。schema 与执行边界必须一起保持一致。

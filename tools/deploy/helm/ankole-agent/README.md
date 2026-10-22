@@ -8,12 +8,12 @@ the Kubernetes API. The chart can also install the Ankole PostgreSQL 18 image.
 That image includes `pg_search` and `vector`.
 
 A site is one complete deployment. It may contain several tenants, each with
-its own people, Agents, Brain and integrations. Site operators manage shared
-providers and infrastructure. The administrator Console defaults to
-`/site-admin-console`; `/console` returns 404 after this upgrade. Set
-`controlPlane.siteAdminConsolePath` in Helm values to choose another absolute path.
-Keep that path in operator configuration. Normal users sign in through their
-OIDC application rather than the site administration Console.
+its own people, Agents, Brain, and integrations. Site operators manage shared
+providers and infrastructure. The site administration Console defaults to
+`/site-admin-console`. Set `controlPlane.siteAdminConsolePath` in Helm values
+to choose another absolute path, and keep that path in operator configuration.
+Normal users sign in through their tenant host or OIDC application rather than
+the site administration Console.
 
 ## Requirements
 
@@ -218,7 +218,7 @@ put provider API keys in Helm values.
 
 ## Image policy and upgrades
 
-Direct upgrades to this release are supported only from v0.70.0 or later.
+Direct upgrades are supported only from v0.70.0 or later.
 Upgrades from an older release are not supported.
 
 The defaults pin control plane `2.0.0-alpha.5` and the PostgreSQL digest in
@@ -271,9 +271,9 @@ The default provider uses the retained shared Agent Home claim, usually
 name in `worker.agents.persistence.existingClaim` if the release name changes.
 
 The old Workers ran as root, and each old Agent Home has mode 0700. New Worker
-commands, Codex, MCP servers, browsers, and Automation scripts run as uid 1000.
-The credential-holding Worker still runs as root. The one-time drive import
-reads the old files as uid 10001.
+commands, Codex, MCP servers, browsers, and Automation scripts run as uid 1000,
+while the credential-holding Worker supervisor runs as root. The one-time drive
+import reads the old files as uid 10001.
 After all old writers have stopped, prepare the old claim for its storage:
 
 - **Root in a Pod is root on the files**, for example on block and local
@@ -324,19 +324,15 @@ the old volume; legacy sends wait for conversion.
 
 The old release did not remove the Home of an Agent that you deleted. The
 import report names each orphan directory ("No Agent has the UID of …").
-New Agents receive generated UIDs. Remove a reported orphan directory when
+Remove a reported orphan directory when
 its files are no longer required. After the preparation above, the files belong to
 uid 1000, so run the preparation Pod with `"runAsUser":1000` and the command
 `["rm","-rf","/agents/<uid>"]`.
 
 The chart uses `Recreate` for every control-plane replica count. An upgrade has a
-short service interruption, but an old control plane does not run against a
+short service interruption, so an old control plane does not run against a
 schema that the new release is changing. Worker Pods keep running during the
-upgrade and connect to the new control plane. Retain Recreate until all supported
-direct-upgrade origins already contain tenant ownership and mixed-version
-schema, writes and durable jobs have passed an upgrade rehearsal. The two Release
-data steps remain until those origins also include identity scope and per-Agent
-Slack/Teams keys and no legacy rows remain after rehearsal.
+upgrade and connect to the new control plane.
 
 ## Storage and backup
 
@@ -511,7 +507,7 @@ Every control-plane Pod is one named Erlang node, `ankole@<POD_IP>`. The chart
 renders a headless Service for node discovery, sets `DNS_CLUSTER_QUERY` to it,
 stores a generated `RELEASE_COOKIE` in the bootstrap Secret, and fixes the
 distribution port at `controlPlane.distributionPort`. With one replica these
-settings are inert. This release uses Recreate even with several replicas:
+settings are inert. The chart uses `Recreate` even with several replicas:
 all old control-plane Pods stop before a new Pod runs database migrations.
 Workers reconnect after the new control plane starts. Plan a maintenance window;
 mixed old and new tenant schemas are not supported.
@@ -540,10 +536,10 @@ instance metadata hop limit, set it to 1. Validate the deployed boundary below.
 `files.store=fs` allows one replica, and the chart refuses to render more; use
 a shared remote backend for more than one.
 
-Keep `controlPlane.replicaCount` at 1 until the control-plane singleton
-processes (schedule firing, chat adapter connections, scheduler hydration) are
-verified safe on more than one node. The migration init container runs in
-every new Pod under the existing database migration lock.
+Set `controlPlane.replicaCount` to 1, because control-plane singleton
+processes (schedule firing, chat adapter connections, and scheduler hydration)
+run on a single node. The migration init container runs in every new Pod under
+the database migration lock.
 
 ### Verify Worker egress in a deployment
 
@@ -568,11 +564,10 @@ not verify enforcement by the cluster's network plugin.
    timeout and result. Confirm control-plane connectivity and DNS still work.
 4. Check that the allowed response contains its marker. For the private endpoint,
    correlate the failed request with network-plugin denial evidence and the
-   endpoint's request log. A missing listener, DNS error, connection refusal or
-   timeout alone does not prove policy enforcement. A browser SSRF rejection is
-   an application check; a remote browser request tests another network. Record
-   those cases as unverified for Worker NetworkPolicy, without weakening those
-   controls to make the probe run. Remove the temporary Job and endpoints.
+   endpoint's request log. A missing listener, DNS error, connection refusal,
+   timeout, browser SSRF rejection, or remote-browser request does not by itself
+   verify cluster NetworkPolicy enforcement. Remove the temporary Job and
+   endpoints when done.
 
 ## Worker Pods
 

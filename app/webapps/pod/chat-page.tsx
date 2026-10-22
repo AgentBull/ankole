@@ -32,10 +32,11 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useLocation, useNavigate, useParams } from 'react-router'
+import { Link, useLocation, useNavigate, useParams } from '@tanstack/react-router'
 import { useStickToBottom } from 'use-stick-to-bottom'
 import { InternalAPIError } from '../common/internal-api-client'
 import { MarkdownBody } from '../common/markdown-body'
+import { linkTarget } from '../common/router'
 import { MessageArtifacts } from './message-artifacts'
 import { requestErrorCode, requestErrorMessage } from '../common/request-errors'
 import {
@@ -67,10 +68,11 @@ import { PageIcon } from './page-icon'
 import './chat.css'
 
 export function ChatRoute() {
-  const { conversationID } = useParams()
+  const { conversationID } = useParams({ strict: false })
   const location = useLocation()
   const fullID = podRouteID(conversationID)
-  return <ChatPage key={fullID ?? conversationID ?? location.key} conversationID={fullID ?? conversationID} />
+  const locationKey = (location.state as { __TSR_key?: string; key?: string } | null)?.__TSR_key ?? location.href
+  return <ChatPage key={fullID ?? conversationID ?? locationKey} conversationID={fullID ?? conversationID} />
 }
 
 export function ChatPage({
@@ -122,7 +124,7 @@ export function ChatPage({
   useEffect(() => {
     if (!requestedConversationID && conversationID) {
       if (onConversationStarted) onConversationStarted(conversationID)
-      else void navigate(podLocation(`/conversations/${conversationID}`))
+      else void navigate({ to: podLocation(`/conversations/${conversationID}`).pathname })
     }
   }, [requestedConversationID, conversationID, onConversationStarted, navigate])
 
@@ -311,7 +313,7 @@ function ConversationPageLink({ pageID, conversationID }: { pageID: string; conv
     <div className="pod-chat-page-reference">
       <Link
         className="link inline-flex items-center gap-1.5"
-        to={podLocation(`/pages/${pageID}`, { chat: conversationID })}>
+        {...linkTarget(podLocation(`/pages/${pageID}`, { chat: conversationID }))}>
         {page.data && <PageIcon page={page.data.page} />}
         {t('pod.page_chat.context_page')}: {page.data?.page.title || t('pod.content.untitled')}
       </Link>
@@ -334,7 +336,7 @@ function ChatHeader({ title }: { title: string }) {
         aria-label={t('pod.chat.new_conversation')}
         title={t('pod.chat.new_conversation')}
         nativeButton={false}
-        render={<Link to={podLocation('/')} />}>
+        render={<Link to={podLocation('/').pathname} />}>
         <RiAddLine aria-hidden />
       </Button>
     </header>
@@ -464,7 +466,7 @@ function ConversationGone({ model }: { model: InstanceType<typeof ChatModel> }) 
       </p>
       <LocalChatDrafts drafts={drafts} />
       <ChatAttachmentDrafts model={model.attachments} recovery />
-      <Button render={<Link to={podLocation('/')} />} nativeButton={false} variant="outline">
+      <Button render={<Link to={podLocation('/').pathname} />} nativeButton={false} variant="outline">
         {t('pod.chat.new_conversation')}
       </Button>
     </section>

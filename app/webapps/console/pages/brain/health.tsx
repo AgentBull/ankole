@@ -2,7 +2,7 @@ import { Badge, Button, Skeleton, toast } from '@ankole/uikit'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { ReactNode } from 'react'
-import { Link } from 'react-router'
+import { Link } from '@tanstack/react-router'
 import {
   ankoleWebBrainControllerDreamMutation,
   ankoleWebBrainControllerHealthOptions
@@ -65,7 +65,8 @@ export function BrainHealthPage() {
               {snapshot.maintainer_agent_uid ? (
                 <Link
                   className="link font-mono text-xs"
-                  to={`/agents/${encodeURIComponent(snapshot.maintainer_agent_uid)}#model-profiles`}>
+                  to={`/agents/${encodeURIComponent(snapshot.maintainer_agent_uid)}`}
+                  hash="model-profiles">
                   {snapshot.maintainer_agent_uid}
                 </Link>
               ) : (

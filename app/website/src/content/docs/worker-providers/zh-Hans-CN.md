@@ -7,7 +7,7 @@ order: 317
 
 WorkerProvider 决定 Agent 的电脑运行在哪里，以及 Home 和缓存如何保存。每个 Agent 固定使用一个 provider，独享一台 Worker。provider 属于站点，凭据在 Console 的独立字段加密保存；不要把凭据写入配置 YAML。创建与日常操作见 [工作节点](../worker-management/)。
 
-Vercel 需要启用 `vercel-worker-provider` 控制面插件。阿里云函数计算需要启用 `china-market-ai-providers`，这个插件同时提供模型适配器。启用所需插件并重启控制面后再使用。已有部署须在升级前选中对应的插件 ID。只要仍有 Agent 引用插件的 Worker 提供方，就不能关闭插件；暂停中和等待删除的 Agent 也计入引用。
+Vercel 需要启用 `vercel-worker-provider` 控制面插件。阿里云函数计算需要启用 `china-market-ai-providers`，这个插件同时提供模型适配器。启用所需插件并重启控制面后再使用。只要仍有 Agent 引用插件的 Worker 提供方，就不能关闭插件；暂停中和等待删除的 Agent 也计入引用。
 
 ## 先区分三种存储
 
@@ -30,7 +30,7 @@ Vercel 需要启用 `vercel-worker-provider` 控制面插件。阿里云函数�
 | `lambda` | EFS 上的 Agent 目录 | 实例磁盘 | 保留内存暂停 | 8 小时，含暂停 |
 | `function_compute` | AgenticSpace 或 OSS 中的 Agent 前缀 | 实例磁盘 | 保留内存暂停 | 24 小时 |
 
-以上时限是 Ankole 适配器采用的限制，不是所有平台规格的全集。平台账户配额、套餐和区域可用性仍需核对。ACS 当前未注册为 WorkerProvider。
+以上时限是 Ankole 适配器采用的限制，不是所有平台规格的全集。平台账户配额、套餐和区域可用性仍需核对。
 
 6 种 provider 的 `idleReleaseAfter` 默认均为 `15m`，可设 `never`。这只控制空闲回收，不能延长平台实例时限。位置、存储键、provider 类型和已有 Agent 的绑定不能修改；实例规格、环境变量或连接地址变化在空闲时替换 Worker。种子 YAML 只在 provider 表为空时导入，后续通过 Console 修改。
 
@@ -63,7 +63,6 @@ Vercel 需要启用 `vercel-worker-provider` 控制面插件。阿里云函数�
 - Home 使用同一区域的独享 Drive。`teamId`、`projectId`、`region` 和 `driveSizeGiB` 创建后不能更改。
 - Worker 需要项目 VCR 仓库中准备好的 `linux/amd64` 镜像；使用目标 digest。`cpus` 支持 1，或 2 到 32 的偶数；适配器按每 vCPU 2048 MiB 请求内存。
 - `sessionTimeoutSeconds` 默认为 86400（24 小时）。账户限额为 45 分钟时设为 2700；试用账户若返回该限额，也使用此值。配置不得超过账户实际限额。参见 [Vercel 会话限制](https://vercel.com/kb/guide/vercel-sandbox-duration-and-persistence)。删除沙箱会保留 Drive，实例缓存随之删除。
-- 已验证短周期启动、保留文件、换镜像和 Drive 删除；OOM、宿主故障及完整 24 小时时限仍需要目标环境验证。
 
 ### AWS Lambda MicroVMs
 
@@ -71,7 +70,6 @@ Vercel 需要启用 `vercel-worker-provider` 控制面插件。阿里云函数�
 - 官方 Worker 镜像只允许 `memoryMiB: 4096` 或 `8192`。已有配置中的更低数值必须在 Console 修正，否则运行和清理均无法继续。`env` 最多 47 项，`stopGraceSeconds` 最大 59 秒。
 - 内存配额同时覆盖运行中、暂停中和存储删除 helper。暂停不释放这项容量；删除后也要等 AWS 确认终止才算释放。参见 [MicroVM 配额与生命周期](https://docs.aws.amazon.com/lambda/latest/dg/microvms-launching.html)。
 - EFS 保存 Home，SQLite 留在实例盘。8 小时时限包括暂停时间；旧构建对象和镜像不自动回收。构建失败需要修复构建 role、镜像或网络后重试。
-- 已验证短时内存暂停、EFS 保留和清理；长时间暂停及完整实例时限仍需要部署验证。
 
 ### 阿里云函数计算
 
@@ -80,7 +78,7 @@ Vercel 需要启用 `vercel-worker-provider` 控制面插件。阿里云函数�
 - 镜像必须包含 OSSFS2 2.0.10 或更高版本，并在挂载前保持 `/workspace` 为空。官方 Worker 镜像满足这些要求，启动入口会在挂载后创建运行目录。
 - OSS 仅挂载本 Agent 的 `<root>/<agent_uid>`，不具备完整 POSIX 语义。不要把 SQLite 缓存放在 OSS 挂载上，也不要把 `chown` 失败直接当作文件不可写。
 - provider `env` 可以新增变量，但不能覆盖镜像记录的环境变量。暂停请求保留内存，恢复请求使用新的 24 小时时限；旧模板不自动回收。
-- 恢复时通过镜像内的辅助程序重建 OSSFS2 连接，并保留挂载和已打开的文件，避免读取等待暂停期间失效的 TCP 连接。若辅助程序失败，provider 会删除该实例，下一轮协调从 Home 重建。请同时使用包含该程序的 Worker 镜像和对应的控制面版本。AgenticFS 仍需实测。
+- 恢复时通过镜像内的辅助程序重建 OSSFS2 连接，并保留挂载和已打开的文件，避免读取等待暂停期间失效的 TCP 连接。若辅助程序失败，provider 会删除该实例，下一轮协调从 Home 重建。请同时使用包含该程序的 Worker 镜像和对应的控制面版本。
 
 外部 provider 和远程 Kubernetes 需要可从实例访问的 `runtimeFabricUrl`、`relayOrigin` 与 `aiGatewayUrl`。不要使用实例无法解析的 Compose service 名称或仅集群内可达的地址。
 

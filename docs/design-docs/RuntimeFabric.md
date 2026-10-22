@@ -87,7 +87,7 @@ the stream; the payload is one envelope:
 Environment messages enter the Driver mailbox without a second open-input
 query in the Channel. The Driver checks `Fence` when it writes durable facts.
 A message that arrives after input closure cannot change those facts. Job
-acceptance and progress still check the persisted attempt before handoff.
+acceptance and progress check the persisted attempt before handoff.
 Transport acknowledgement confirms this handoff; it does not confirm a later
 Driver commit.
 
@@ -227,9 +227,8 @@ replay spool across that restart:
 
 - The old connection's unacknowledged state is gone.
 - Messages from the old route fail the route fence.
-- An unacknowledged turn follows the existing failure and rebuild path.
-- A repeated durable commit is absorbed by the existing unique constraints and
-  idempotency keys.
+- An unacknowledged turn follows the failure and rebuild path.
+- Unique constraints and idempotency keys absorb a repeated durable commit.
 
 If the control plane committed a transaction but the `ok` reply was lost, the
 worker can repeat the message. The domain handler must stay idempotent; the
@@ -340,7 +339,7 @@ control plane.
 
 `app/kernel/proto/ankole/runtime_fabric/v1/envelope.proto` declares the message
 structure and current protocol version. The generated package namespace
-remains `ankole.runtime_fabric.v1`.
+is `ankole.runtime_fabric.v1`.
 
 `Ankole.RuntimeFabric` in `app/control_plane_core` owns the Elixir Protox
 codec and protocol checks. The protocol files stay in `app/kernel/proto`.
@@ -352,7 +351,7 @@ The Rust kernel does not encode or validate RuntimeFabric envelopes.
 The host supplies the message ID, transport sequence, stream, and body.
 The authenticated connection supplies Agent identity. Domain consumers check
 Run references, Job attempts, RPC scope, and tool calls against their owning
-state. Database fences and unique constraints retain commit authority.
+state. Database fences and unique constraints hold commit authority.
 
 `worker_progress` carries the Job attempt reference as a keepalive. RPC
 request and reply matching uses `request_id`. Each RPC method has its own
@@ -363,6 +362,12 @@ fields. Empty bytes mean that the value is absent.
 Golden fixtures live under `app/kernel/proto/golden`. Elixir and TypeScript
 decode the same bytes and check representative typed and JSON RPC payloads.
 These fixtures verify codec agreement; domain tests verify business authority.
+
+The frozen Codex model binding header is base64url-encoded UTF-8 JSON without
+padding. Worker encoding and Control Plane decoding use the same vectors in
+`app/kernel/proto/ankole/runtime_fabric/v1/codex_model_binding_vectors.json`.
+The vectors include nested Provider options, image fallback, hosted Brain
+operations, and Unicode. Selector fields keep their routing roles.
 
 ## Execute Environment Tools and Codex Jobs
 
@@ -393,7 +398,7 @@ A recovered tool result can arrive before a pending workspace open completes.
 When that result completes the tool batch, the Driver cancels the batch's
 pending acquisition tasks and timers together. Acquisition returns to
 `{:idle, :requested}`, so a later batch can acquire the workspace again and
-finalization still closes the exact Signal's workspace. A ready workspace and
+finalization closes the exact Signal's workspace. A ready workspace and
 a definite acquisition failure remain valid for the current run. A run that
 never requested a Worker sends no Worker messages.
 
@@ -690,7 +695,7 @@ API. Workers must be able to reach this origin.
 
 The endpoint admits this exact relay path before browser host checks, body
 parsers, and session middleware. The relay validates its one-time token and
-method. Browser pages and APIs still use their configured host policy.
+method. Browser pages and APIs use their configured host policy.
 
 The relay session is supervised memory state with an idle timeout. It is not a
 PostgreSQL row. When the relay Pod, the worker, or the drive RPC fails, the
@@ -805,14 +810,6 @@ whose protocol version differs from the control plane at once, and a Worker
 whose image or backend template differs when it is idle (see
 [AgentWorkers](AgentWorkers.md)).
 
-The first upgrade to Session drivers requires a maintenance window.
-Stop all old control-plane nodes before the migration. Old Workers use an
-incompatible protocol; their open inputs resume under the new driver and can
-repeat one interrupted operation. Later planned restarts adopt retained
-Worker calls and Codex attempts. The migration removes activation and delivery
-tables. An older image cannot run against this schema. A rollback requires
-the pre-upgrade database and Worker storage backups.
-
 Every control-plane Pod is one named Erlang node. DNSCluster discovers the
 other Pods through a headless Service, the Pods share one release cookie, and
 the distribution port is fixed so a NetworkPolicy can limit it to control-plane
@@ -840,9 +837,3 @@ RuntimeFabric is not any of these systems:
 - A file-chunk protocol inside the worker connection.
 - A conversation-history RPC service.
 - A second set of domain records written by the worker.
-
-The frozen Codex model binding header is base64url-encoded UTF-8 JSON without
-padding. Worker encoding and Control Plane decoding use the same vectors in
-`app/kernel/proto/ankole/runtime_fabric/v1/codex_model_binding_vectors.json`.
-The vectors include nested Provider options, image fallback, hosted Brain
-operations, and Unicode. Selector fields retain their existing routing roles.

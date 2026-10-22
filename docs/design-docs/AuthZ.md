@@ -72,7 +72,7 @@ Bun code calls the control plane for permission decisions.
 
 `Ankole.AuthZ` is the Ash domain of the four stored resource types. Their typed
 actions own field validation, native constraint errors, and persistence.
-Group conditions and grant rules use the existing Kernel syntax validators.
+Group conditions and grant rules use the Kernel syntax validators.
 Metadata uses the durable JSON object type.
 
 Each aggregate write that locks a group, a Principal, or the Pod tree is a
@@ -82,7 +82,7 @@ the caller's transaction: another domain's action calls them, for example
 `Store.replace_static_group_members/4` or `Grants.upsert_permission_grant/2`.
 They protect the last administrator and distinguish operator groups from
 groups owned by directory and conversation synchronization. Grant writes
-retain the Pod tree lock. `AuthZ.create_permission_grant/1` and
+hold the Pod tree lock. `AuthZ.create_permission_grant/1` and
 `ensure_synced_group_member/2` still open their own transaction, because
 callers of other subsystems call them in a transaction; they become generic
 actions when those callers use the `Grants` and `_in_tx` forms. Ash policies
@@ -94,8 +94,8 @@ grants, groups, and memberships and reads the Principal through
 `Principals.get_principal_across_tenants/1`. `AuthZ.restoration_review/1` is
 the other read model. The other AuthZ reads use Ash queries.
 
-Membership admission preserves its first timestamp. External bindings retain
-their tenant-scoped composite key. Grant upserts use the existing partial
+Membership admission preserves its first timestamp. External bindings use
+their tenant-scoped composite key. Grant upserts use the partial
 natural indexes for a Principal or a group and update only descriptive fields.
 An ensure operation returns the stored group identity without replacing its
 shape or metadata. Built-in group identity and computation are immutable in
@@ -333,7 +333,7 @@ active administrator remains.
 
 `restoration_review/1` projects direct grants, static memberships, and computed
 group rules for explicit approval before Human restoration. Its fingerprint
-includes the current rule set and Human access version. Existing AuthZ editors
+includes the current rule set and Human access version. AuthZ editors
 remove unwanted permissions; restoration records the approved projection.
 
 ## Public Functions
@@ -350,6 +350,16 @@ remove unwanted permissions; restoration records the approved projection.
 It also exposes data builders for tests and explicit cross-process calls. Write
 functions return detailed domain errors.
 
+## Site Administration
+
+`tenants.privileged_tenant_id` selects the privileged tenant by its stable ID. A
+slug change does not change this assignment. The key is not writable in
+the generic settings editor. `Tenants.transfer_site_administration/2` owns the
+transaction that locks this configuration and the target tenant, makes the
+selected active human a site administrator, and transfers the role. Suspending
+or deleting the privileged tenant is rejected. Site resources use the `site:`
+AuthZ namespace and `/api/v1/site/` HTTP namespace.
+
 ## Rules
 
 - Use Principals as the only accountable subjects.
@@ -363,13 +373,3 @@ functions return detailed domain errors.
 - Protect the last active Human administrator during manual operations.
 
 See [Principal](Principal.md) for identity and status rules.
-
-## Site Administration
-
-`tenants.privileged_tenant_id` selects the privileged tenant by its stable ID. A
-slug change does not change this assignment. The key is not writable in
-the generic settings editor. `Tenants.transfer_site_administration/2` owns the
-transaction that locks this configuration and the target tenant, makes the
-selected active human a site administrator, and transfers the role. Suspending
-or deleting the privileged tenant is rejected. Site resources use the `site:`
-AuthZ namespace and `/api/v1/site/` HTTP namespace.

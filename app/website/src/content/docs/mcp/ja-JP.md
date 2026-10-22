@@ -76,10 +76,6 @@ Agent Computer は実行ごとに一意の `0600` 設定を書き、そのパス
 
 Main Agent は command tool を通じて mcporter を呼びます。Background Agent Job は Codex terminal を通じて呼びます。Automation Job は `main.ts` から `Bun.spawn` で呼びます。
 
-## ネイティブのモデル可視 MCP 境界
-
-現在のところ、Ankole にはバンドルされたモデル可視 MCP server は同梱されていません。将来の具体的な統合は、Main と Background の両方で同じ `mcp__<server>` namespace、ツール名、説明、遅延ロード（deferred loading）の動作を使わなければなりません。Ankole は server の JSON Schema をそのまま各 runtime に渡します。Main は自身の Responses tool owner を使い、Background は Codex ネイティブの MCP を使い、その projection を Codex に所有させます。Ankole は一方の runtime の schema を書き換えて他方を模倣することはせず、この将来のケースのために空のレジストリや汎用のローカル MCP loader を追加しません。
-
 ## 1 つのツールを選択して呼ぶ
 
 Skill は、schema の探索より先に 1 つのドメインツールを選択しなければなりません。そのツールの現在の schema が必要なときにだけ、そのツールを検査します。
@@ -98,7 +94,7 @@ Automation スクリプトは同じ argv を使い、JSON を子プロセスの 
 
 ## セキュリティの制限
 
-MCP の出力は信頼できない入力です。Skill と mcporter の経路は、Ankole のかつてのネイティブ出力 schema 検証、MCP annotation のスケジューリング、ツールレベルの承認 UI、すべての WorkerEnv secret に対する結果の編集を提供しません。信頼された第一方の MCP Skill に使ってください。実際の読み書きの権限境界は、リモート credential の scope であり続けます。
+MCP の出力は信頼できない入力です。Skill と mcporter の経路は、出力 schema の検証、MCP annotation によるスケジューリング、ツールレベルの承認確認、または結果からの WorkerEnv secret のマスクを行いません。信頼された第一方の MCP Skill に使ってください。実際の読み書きの権限境界は、リモート credential の scope であり続けます。
 
 ## 次のステップ
 

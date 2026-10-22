@@ -20,7 +20,7 @@ import { RiBuildingLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebPrincipalControllerIndexOptions,
   ankoleWebTenantControllerCreateMutation,
@@ -97,7 +97,7 @@ export function TenantsListPage() {
 }
 
 export function TenantEditorPage() {
-  const { tenantID } = useParams()
+  const { tenantID } = useParams({ strict: false })
   return <TenantEditor key={tenantID ?? 'new'} tenantID={tenantID} />
 }
 
@@ -140,7 +140,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
       })
       if (!accepted) return
       saved()
-      if (!model.dirty.value) navigate(`/tenants/${response.tenant.id}`)
+      if (!model.dirty.value) void navigate({ to: `/tenants/${response.tenant.id}` })
     }
   })
   const update = useMutation({
@@ -157,7 +157,7 @@ function TenantEditor({ tenantID }: { tenantID?: string }) {
     onMutate: () => window.location.href,
     onSuccess: (_response, _variables, sourceURL) => {
       if (window.location.href !== sourceURL) return
-      navigate('/tenants')
+      void navigate({ to: '/tenants' })
     }
   })
   if (status === 'absent') return <EditorNotFound backTo="/tenants" message={t('console.tenants.not_found')} />
