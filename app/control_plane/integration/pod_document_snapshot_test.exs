@@ -66,9 +66,11 @@ defmodule Ankole.Pod.DocumentSnapshotTest do
 
       error =
         assert_raise Postgrex.Error, fn ->
+          # The test sets the lock timeout, so it owns the transaction and runs the write body.
           Repo.transact(fn repo ->
             repo.query!("SET LOCAL lock_timeout = '100ms'")
-            Documents.write(ctx.owner, ctx.page.id, 1, "<page><p>After</p></page>")
+            xml = "<page><p>After</p></page>"
+            Documents.write_in_tx(ctx.owner, ctx.page.id, 1, Ankole.Kernel.page_validate(xml))
           end)
         end
 

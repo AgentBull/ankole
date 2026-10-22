@@ -5,8 +5,12 @@ defmodule Ankole.Files.Schemas.Blob do
   References refresh the row while it is not marked for deletion. Collection
   checks every tenant's durable references before it marks or removes content.
   """
-  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.Files.Domain
+  use Ankole.Ash.Resource, tenancy: :site, domain: Ankole.Files
   require Ash.Expr
+
+  # The content table belongs to the site, so its raw SQL has no tenant.
+  Module.register_attribute(__MODULE__, :raw_sql_scope, persist: true)
+  @raw_sql_scope :site
 
   @unreferenced Ash.Expr.expr(
                   fragment(
@@ -63,7 +67,6 @@ defmodule Ankole.Files.Schemas.Blob do
     defaults([:read])
 
     create :store do
-      transaction?(false)
       accept([:sha256, :size])
       validate(byte_size(:sha256, exact: 32))
 
@@ -87,14 +90,14 @@ defmodule Ankole.Files.Schemas.Blob do
       end)
     end
 
-    atomic_in_tx_update :reference do
+    update :reference do
+      require_atomic?(true)
       accept([])
       change(filter(expr(not deleting)))
       change(set_attribute(:last_referenced_at, &DateTime.utc_now/0))
     end
 
     update :mark_for_collection do
-      transaction?(false)
       require_atomic?(true)
       accept([])
       change(filter(expr(not deleting and last_referenced_at < ago(1, :day))))
@@ -102,16 +105,24 @@ defmodule Ankole.Files.Schemas.Blob do
       change(set_attribute(:deleting, true))
     end
 
-    atomic_in_tx_update :keep_referenced do
+    update :keep_referenced do
+      require_atomic?(true)
       accept([])
       change(set_attribute(:deleting, false))
     end
 
     destroy :collect do
-      transaction?(false)
       require_atomic?(true)
       change(filter(expr(deleting)))
       change(filter(@unreferenced))
+    end
+
+    # One batch of collection: it removes each marked row and its object while
+    # it holds the row lock, so a failed object delete keeps the row marked.
+    action :collect_marked, :term do
+      run(fn _input, _context ->
+        Ankole.Errors.wrap(Ankole.Files.Jobs.CollectUnreferenced.remove_batch_in_tx())
+      end)
     end
   end
 

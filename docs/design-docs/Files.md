@@ -27,13 +27,22 @@ content. An object store keeps the bytes.
 | `files` | `sha256` (primary key), `size`, `deleting`, `created_at`, `last_referenced_at` | One distinct byte content |
 | `drive_files` | `tenant_id`, nullable `agent_uid`, `path`, `sha256`, `mode`, `content_type`, `source`, `conversation_id`, `message_id`, timestamps; unique `(tenant_id, agent_uid, path) NULLS NOT DISTINCT` | One file in an Agent drive or the tenant's Pod drive |
 
-Both models are Ash resources in `Ankole.Files.Domain`. Blob actions own
-storage refresh, reference renewal, collection marking, and final removal.
-The marking and removal actions use the same live-reference predicate.
-DriveFile actions own path upserts and moves under the existing natural
-identity. The `remove_paths` action uses one native `DELETE ... RETURNING`
-statement for a subtree. It requires the caller's transaction and uses the
-same tenant context as all other drive operations.
+Both models are Ash resources. The root module `Ankole.Files` is their Ash
+domain. Blob actions own storage refresh, reference renewal, collection
+marking, and final removal. The marking and removal actions use the same
+live-reference predicate. DriveFile actions own path upserts, moves, and path
+removal under the existing natural identity. `DriveFile.remove_paths_in_tx/2`
+removes a subtree with one `DELETE ... RETURNING` statement through the
+`remove` action. It requires the caller's transaction and uses the same tenant
+context as all other drive operations.
+
+A commit, move, delete, or snapshot listing is a generic action of `DriveFile`
+(`commit_paths`, `move_paths`, `delete_paths`, `list_snapshot`), and one batch
+of collection is the generic action `collect_marked` of `Blob`. Each generic
+action owns its transaction. `Ankole.Files.commit/3`, `move/3`, `delete/2`, and
+`list/3` with `snapshot: true` run these actions and give the domain reason of
+a failure. Another domain that names files in its own transaction calls
+`commit/4`.
 
 - A path identifies a file. A folder is only a path prefix; there are no folder
   rows. A path is relative, uses `/`, has at most 1024 bytes, and has no empty,

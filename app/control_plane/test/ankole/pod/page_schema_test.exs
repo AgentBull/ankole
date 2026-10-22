@@ -111,10 +111,11 @@ defmodule Ankole.Pod.PageSchemaTest do
       "db_tables_tenant_id_page_id_fkey"
     )
 
-    assert_constraint(
-      action_changeset(DbRecord, record_attrs(foreign_table.id)),
-      "db_records_tenant_id_table_id_fkey"
-    )
+    assert {:error, changeset} =
+             foreign_table.id |> record_attrs() |> DbRecord.create_changeset() |> Repo.insert()
+
+    assert {_message, [constraint: :foreign, constraint_name: "db_records_tenant_id_table_id_fkey"]} =
+             changeset.errors[:table_id]
 
     assert_constraint(
       action_changeset(PageChange, change_attrs(foreign_page.id, :reset)),

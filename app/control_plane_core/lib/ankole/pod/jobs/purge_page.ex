@@ -13,8 +13,8 @@ defmodule Ankole.Pod.Jobs.PurgePage do
 
   alias Ankole.Pod.{
     Access,
+    Database.Records,
     DbField,
-    DbRecord,
     DbTable,
     DbView,
     Page,
@@ -29,7 +29,7 @@ defmodule Ankole.Pod.Jobs.PurgePage do
   @batch_size 1000
   @impl Ankole.Job
   def run(%Oban.Job{args: %{"page_id" => id}}) do
-    case begin_purge(id) do
+    case Ankole.Ash.run_action(Page, :start_purge, %{id: id}) do
       {:ok, nil} -> :ok
       {:ok, _page} -> purge(id)
       {:error, {:retention_not_elapsed, seconds}} -> {:snooze, seconds}
@@ -37,25 +37,24 @@ defmodule Ankole.Pod.Jobs.PurgePage do
     end
   end
 
-  defp begin_purge(id) do
-    Repo.transact(fn _repo ->
-      Pages.lock_tree()
+  @doc false
+  def start_in_tx(id) do
+    Pages.lock_tree()
 
-      case Pages.lock(id) do
-        {:ok, %{deleted_at: nil}} ->
-          {:ok, nil}
+    case Pages.lock(id) do
+      {:ok, %{deleted_at: nil}} ->
+        {:ok, nil}
 
-        {:ok, %{purge_started_at: started} = page} when not is_nil(started) ->
-          {:ok, page}
+      {:ok, %{purge_started_at: started} = page} when not is_nil(started) ->
+        {:ok, page}
 
-        {:ok, page} ->
-          with {:ok, days} <- Ankole.Pod.Config.trash_retention_days(),
-               do: mark_started(page, days)
+      {:ok, page} ->
+        with {:ok, days} <- Ankole.Pod.Config.trash_retention_days(),
+             do: mark_started(page, days)
 
-        {:error, :not_found} ->
-          {:ok, nil}
-      end
-    end)
+      {:error, :not_found} ->
+        {:ok, nil}
+    end
   end
 
   defp mark_started(page, days) do
@@ -71,45 +70,18 @@ defmodule Ankole.Pod.Jobs.PurgePage do
       else: Ankole.Ash.update(page, :begin_purge, %{})
   end
 
+  # Each batch is one statement or one generic action, so an interrupted purge
+  # continues from the remaining rows.
   defp purge(id) do
     ids = descendants(id)
 
-    for resource <- [DbRecord, DbView, DbField] do
-      resource
-      |> Ash.Query.filter(exists(table, page_id in ^ids))
-      |> delete_resources(:remove)
-    end
-
-    DbTable |> Ash.Query.filter(page_id in ^ids) |> delete_resources(:remove)
-
-    for {resource, action} <- [
-          {PageUserState, :purge},
-          {PageChange, :prune},
-          {PageContent, :purge}
-        ] do
-      delete_resources(resource, action, ids)
-    end
-
-    Enum.reduce_while(ids, :ok, fn page_id, :ok ->
-      case Repo.transact(fn repo ->
-             Pages.lock_tree()
-
-             with {:ok, _} <- Files.commit(repo, :pod, [], [Ankole.Pod.Files.prefix(page_id)]) do
-               Access.page_grants(page_id) |> Access.remove_grants()
-               {:ok, :cleaned}
-             end
-           end) do
-        {:ok, _} -> {:cont, :ok}
-        error -> {:halt, error}
-      end
-    end)
-    |> case do
-      :ok ->
-        delete_pages(ids)
-        :ok
-
-      error ->
-        error
+    with :ok <- delete_records(ids),
+         :ok <- delete_resources(DbView, :remove, exists_table(DbView, ids)),
+         :ok <- delete_resources(DbField, :remove, exists_table(DbField, ids)),
+         :ok <- delete_resources(DbTable, :remove, Ash.Query.filter(DbTable, page_id in ^ids)),
+         :ok <- delete_page_resources(ids),
+         :ok <- remove_references(ids) do
+      delete_pages(ids)
     end
   end
 
@@ -126,44 +98,74 @@ defmodule Ankole.Pod.Jobs.PurgePage do
     |> Enum.map(&hd/1)
   end
 
-  defp delete_pages(ids) do
-    count =
-      committed_batch!(fn ->
-        Pages.lock_tree()
-        Page |> Ash.Query.filter(id in ^ids) |> delete_batch(:purge)
-      end)
-
-    if count > 0, do: delete_pages(ids), else: :ok
+  defp delete_records(ids) do
+    if Records.purge(ids, @batch_size) > 0, do: delete_records(ids), else: :ok
   end
 
-  defp delete_resources(resource, action, ids),
-    do: resource |> Ash.Query.filter(page_id in ^ids) |> delete_resources(action)
+  defp exists_table(resource, ids), do: Ash.Query.filter(resource, exists(table, page_id in ^ids))
 
-  defp delete_resources(query, action) do
-    count = committed_batch!(fn -> delete_batch(query, action) end)
-    if count > 0, do: delete_resources(query, action), else: :ok
+  defp delete_page_resources(ids) do
+    Enum.reduce_while(
+      [{PageUserState, :purge}, {PageChange, :prune}, {PageContent, :purge}],
+      :ok,
+      fn {resource, action}, :ok ->
+        case delete_resources(resource, action, Ash.Query.filter(resource, page_id in ^ids)) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end
+    )
   end
 
-  defp committed_batch!(fun) do
-    case Repo.transact(fn _repo -> {:ok, fun.()} end) do
-      {:ok, count} -> count
-      {:error, error} -> raise Ash.Error.to_error_class(error)
+  defp delete_resources(resource, action, query) do
+    case delete_batch(query, resource, action) do
+      {:ok, 0} -> :ok
+      {:ok, _count} -> delete_resources(resource, action, query)
+      error -> error
     end
   end
 
-  defp delete_batch(query, action) do
-    query =
-      query
-      |> Ash.Query.limit(@batch_size)
-      |> Ash.Query.select(Ash.Resource.Info.primary_key(query.resource))
+  defp remove_references(ids) do
+    Enum.reduce_while(ids, :ok, fn page_id, :ok ->
+      case Ankole.Ash.run_action(Page, :purge_page_references, %{id: page_id}) do
+        {:ok, _} -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
 
-    case Ankole.Ash.bulk_destroy(query, action, %{},
-           strategy: [:atomic],
-           return_records?: true,
-           return_errors?: true
-         ) do
-      %Ash.BulkResult{status: :success, records: records} -> length(records)
-      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+  @doc false
+  def remove_references_in_tx(page_id) do
+    Pages.lock_tree()
+
+    with {:ok, _} <- Files.commit(Repo, :pod, [], [Ankole.Pod.Files.prefix(page_id)]) do
+      Access.page_grants(page_id) |> Access.remove_grants()
+      {:ok, :cleaned}
+    end
+  end
+
+  defp delete_pages(ids) do
+    case Ankole.Ash.run_action(Page, :purge_pages, %{ids: ids}) do
+      {:ok, 0} -> :ok
+      {:ok, _count} -> delete_pages(ids)
+      error -> error
+    end
+  end
+
+  @doc false
+  def remove_pages_in_tx(ids) do
+    Pages.lock_tree()
+    delete_batch(Ash.Query.filter(Page, id in ^ids), Page, :purge)
+  end
+
+  defp delete_batch(query, resource, action) do
+    query
+    |> Ash.Query.limit(@batch_size)
+    |> Ash.Query.select(Ash.Resource.Info.primary_key(resource))
+    |> Ankole.Ash.destroy_where(action)
+    |> case do
+      {:ok, records} -> {:ok, length(records)}
+      error -> error
     end
   end
 end
