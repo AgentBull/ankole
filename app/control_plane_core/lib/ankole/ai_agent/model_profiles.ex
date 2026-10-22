@@ -400,9 +400,9 @@ defmodule Ankole.AIAgent.ModelProfiles do
 
   defp fetch_agent(agent_uid) do
     with {:ok, agent_uid} <- Principals.normalize_uid(agent_uid) do
-      case Ankole.Principals.Domain.get_agent(agent_uid) do
-        {:ok, %Agent{} = agent} -> {:ok, agent}
-        {:ok, nil} -> {:error, :agent_not_found}
+      case Principals.get_agent(agent_uid) do
+        {:ok, %{agent: %Agent{} = agent}} -> {:ok, agent}
+        {:error, :not_found} -> {:error, :agent_not_found}
         {:error, _error} = error -> error
       end
     end

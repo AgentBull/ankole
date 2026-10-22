@@ -27,9 +27,8 @@ defmodule Ankole.AIAgent.Library.SkillLessons do
   end
 
   defp ensure_agent(agent_uid) do
-    case Ankole.Principals.Domain.get_agent(agent_uid) do
-      {:ok, %Agent{}} -> :ok
-      {:ok, nil} -> {:error, :not_found}
+    case Principals.get_agent(agent_uid) do
+      {:ok, %{agent: %Agent{}}} -> :ok
       {:error, _error} = error -> error
     end
   end
