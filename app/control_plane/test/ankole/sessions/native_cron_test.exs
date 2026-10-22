@@ -243,7 +243,7 @@ defmodule Ankole.Sessions.NativeCronTest do
                "principal_uid" => to_string(Ankole.ActorRef.from_principal(context.human))
              }
            ),
-         {:ok, %{signal: signal}} <- Schedule.Fire.fire_cron(cron.id, now: cron.next_fire_at),
+         {:ok, %{signal: signal}} <- Schedule.fire_cron(cron.id, now: cron.next_fire_at),
          do: {:ok, signal}
   end
 end

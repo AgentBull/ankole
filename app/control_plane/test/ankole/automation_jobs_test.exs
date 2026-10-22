@@ -704,7 +704,14 @@ defmodule Ankole.AutomationJobsTest do
 
     assert updated.automation_job_id == nil
 
-    assert Schedule.list_cron_runs(schedule.id, 10) == [Repo.reload!(manual)]
+    # The retained manual fire keeps every stored value after the binding edit.
+    fields =
+      Ankole.Schedule.Schemas.ScheduledEvent
+      |> Ash.Resource.Info.attribute_names()
+      |> MapSet.to_list()
+
+    assert Enum.map(Schedule.list_cron_runs(schedule.id, 10), &Map.take(&1, fields)) ==
+             [Map.take(Repo.reload!(manual), fields)]
 
     assert {:ok, %{signal: signal, scheduled_event: automatic}} =
              Schedule.fire_cron(schedule.id, now: first_slot)
