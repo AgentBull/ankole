@@ -3,7 +3,7 @@ defmodule Ankole.Brain.Schemas.Chunk do
   One current retrieval position. A changed position invalidates its embedding;
   a model result can replace vector state only while its input still matches.
   """
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_chunks")
@@ -63,8 +63,6 @@ defmodule Ankole.Brain.Schemas.Chunk do
     defaults([:read])
 
     create :project do
-      transaction?(false)
-
       accept([
         :object_id,
         :chunk_index,
@@ -75,7 +73,8 @@ defmodule Ankole.Brain.Schemas.Chunk do
       ])
     end
 
-    atomic_in_tx_update :replace_projection do
+    update :replace_projection do
+      require_atomic?(true)
       accept([:content_kind, :audience_scope, :chunk_text, :token_count])
       change(set_attribute(:embedding, nil))
       change(set_attribute(:embedding_signature, nil))
@@ -84,7 +83,6 @@ defmodule Ankole.Brain.Schemas.Chunk do
     end
 
     update :record_embedding do
-      transaction?(false)
       require_atomic?(true)
       accept([:embedding, :embedding_signature, :embedding_error, :embedded_at])
 
@@ -108,7 +106,6 @@ defmodule Ankole.Brain.Schemas.Chunk do
     end
 
     destroy :remove_projection do
-      transaction?(false)
       require_atomic?(true)
     end
   end

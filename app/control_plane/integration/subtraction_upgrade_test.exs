@@ -211,7 +211,7 @@ defmodule Ankole.SubtractionUpgradeTest do
         # A no-content-change save computes the runtime baseline from the real
         # stored tags. It must agree with the frozen migration encoding.
         assert {:ok, object} =
-                 Ankole.Brain.Objects.update_object(
+                 Ankole.Brain.update_object(
                    "notes/tagged-upgrade",
                    %{expected_content_hash: tagged_hash},
                    :system

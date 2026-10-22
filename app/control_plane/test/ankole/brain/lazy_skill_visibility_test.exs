@@ -4,11 +4,9 @@ defmodule Ankole.Brain.LazySkillVisibilityTest do
   import Ankole.PrincipalsFixtures
 
   alias Ankole.AIAgent.Library
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Dreaming
   alias Ankole.Brain.GetPage
   alias Ankole.Brain.LibraryKnowledge
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Contradiction
 
@@ -44,7 +42,7 @@ defmodule Ankole.Brain.LazySkillVisibilityTest do
     agent: agent
   } do
     {:ok, page_object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "notes/visible-contradictions", type: "note", title: "Visible contradictions"},
         agent.uid
       )
@@ -52,7 +50,7 @@ defmodule Ankole.Brain.LazySkillVisibilityTest do
     {:ok, %{claim: own_claim}} = fact(page_object.slug, "The launch date is Monday", agent.uid)
 
     {:ok, visible_object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "notes/visible-counterpart", type: "note", title: "Visible counterpart"},
         agent.uid
       )
@@ -86,7 +84,7 @@ defmodule Ankole.Brain.LazySkillVisibilityTest do
   end
 
   defp fact(object_slug, claim, author_uid) do
-    Claims.write_fact(
+    Ankole.Brain.write_fact(
       %{
         object_slug: object_slug,
         claim: claim,

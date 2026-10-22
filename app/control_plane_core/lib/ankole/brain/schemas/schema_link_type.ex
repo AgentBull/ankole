@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.SchemaLinkType do
   @moduledoc "A registered relation predicate and its inverse."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_schema_link_types")
@@ -31,7 +31,6 @@ defmodule Ankole.Brain.Schemas.SchemaLinkType do
     defaults([:read])
 
     create :register do
-      transaction?(false)
       accept([:id, :name, :inverse, :pack_name, :created_at])
     end
   end

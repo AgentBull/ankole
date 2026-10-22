@@ -19,6 +19,7 @@ defmodule Ankole.Brain.Calibration do
   alias Ankole.Brain.ModelCalls
   alias Ankole.Brain.Objects
   alias Ankole.Brain.Schemas.Claim
+  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.TakeDomainAssignment
   alias Ankole.Ecto.UUIDv7
   alias Ankole.Kernel, as: NativeKernel
@@ -274,7 +275,7 @@ defmodule Ankole.Brain.Calibration do
         resolution_provenance: "dreaming grade"
       }
 
-      with {:ok, _resolved} <- Claims.resolve_take(take.id, resolution, grader),
+      with {:ok, _resolved} <- Claims.resolve_take_in_tx(take.id, resolution, grader),
            do: :ok
     else
       :ok
@@ -389,11 +390,11 @@ defmodule Ankole.Brain.Calibration do
       if body == object.body do
         false
       else
-        case Objects.update_object(
-               object.slug,
-               %{body: body, expected_content_hash: object.content_hash},
-               :system
-             ) do
+        case Ankole.Ash.run_action(Object, :update_object, %{
+               slug: object.slug,
+               attrs: %{body: body, expected_content_hash: object.content_hash},
+               writer: :system
+             }) do
           {:ok, _object} -> true
           {:error, _reason} -> false
         end

@@ -67,8 +67,8 @@ defmodule Ankole.Brain.SourcesTest do
                name: "Source"
              })
 
-    assert {:ok, first} = Sources.archive(source.id)
-    assert {:ok, second} = Sources.archive(source.id)
+    assert {:ok, first} = Ankole.Brain.archive_source(source.id)
+    assert {:ok, second} = Ankole.Brain.archive_source(source.id)
     assert second.archived_at == first.archived_at
   end
 
@@ -105,10 +105,10 @@ defmodule Ankole.Brain.SourcesTest do
         })
       end)
 
-    assert {:ok, _archived_file} = Sources.archive(file_source.id)
+    assert {:ok, _archived_file} = Ankole.Brain.archive_source(file_source.id)
     assert Repo.get!(Object, page.id).deleted_at == nil
 
-    assert {:ok, _archived_library} = Sources.archive(library_source.id)
+    assert {:ok, _archived_library} = Ankole.Brain.archive_source(library_source.id)
     assert Repo.get!(Object, page.id).deleted_at != nil
   end
 
@@ -129,7 +129,7 @@ defmodule Ankole.Brain.SourcesTest do
     assert revised.upstream_revision == "revision-1"
     assert %DateTime{} = revised.last_sync_at
 
-    assert {:ok, archived} = Sources.archive(source.id)
+    assert {:ok, archived} = Ankole.Brain.archive_source(source.id)
     assert {:error, :source_archived} = Repo.transact(&Sources.lock_active(&1, archived))
   end
 end
