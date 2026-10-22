@@ -23,9 +23,9 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
     max_attempts: 20,
     unique: [keys: [:agent_uid], period: :infinity, states: [:available, :scheduled, :retryable]]
 
-  import Ecto.Query
+  require Ash.Query
+
   alias Ankole.{Logging, Repo}
-  alias Ankole.Principals.Principal
   alias Ankole.AgentWorkers
 
   alias Ankole.AgentWorkers.Decision
@@ -82,11 +82,8 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   defp loop(uid, steps, previous, prepared) do
     case observe(uid) do
       {:ok, seen} ->
-        {:ok, {step, worker}} =
-          Repo.transact(fn repo ->
-            step = decide(repo, uid, seen, previous, prepared)
-            {:ok, {step, repo.get(AgentWorker, uid)}}
-          end)
+        {:ok, %{step: step, worker: worker}} =
+          AgentWorkers.decide_reconcile_step(uid, seen, previous, prepared)
 
         notify_change(seen.worker, worker)
 
@@ -106,7 +103,7 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   end
 
   defp observe(uid) do
-    case Repo.get(AgentWorker, uid) do
+    case AgentWorkers.get_agent_worker!(uid) do
       nil ->
         :done
 
@@ -125,8 +122,14 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   defp rejected_error({:error, reason}), do: {:error, reason, "rejected"}
   defp rejected_error(result), do: result
 
-  defp decide(repo, uid, seen, previous, prepared) do
-    case AgentWorkers.lock_in_tx(repo, uid) do
+  @doc false
+  def decide_in_tx(%{agent_uid: uid, seen: seen, previous: previous, prepared: prepared}) do
+    step = decide(uid, seen, previous, prepared)
+    {:ok, %{step: step, worker: AgentWorkers.get_agent_worker!(uid)}}
+  end
+
+  defp decide(uid, seen, previous, prepared) do
+    case AgentWorkers.lock_in_tx(Repo, uid) do
       nil ->
         :done
 
@@ -136,13 +139,13 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
 
       worker ->
         if lifecycle(worker) == lifecycle(seen.worker),
-          do: decide_with(repo, worker, seen, previous, prepared),
+          do: decide_with(worker, seen, previous, prepared),
           else: :stale
     end
   end
 
-  defp decide_with(repo, worker, seen, previous, prepared) do
-    %{rows: [[now]]} = repo.query!("SELECT clock_timestamp()")
+  defp decide_with(worker, seen, previous, prepared) do
+    now = Repo.now!()
     observed = record_observation(worker, seen.objects, now)
     facts = facts(observed, seen.provider, seen.kind, seen.objects, now)
     action = Decision.next(facts)
@@ -211,11 +214,8 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   defp run({:call, action, facts}, uid, steps, _previous, prepared) do
     result = call(action, facts)
 
-    {:ok, {recorded, worker}} =
-      Repo.transact(fn repo ->
-        recorded = record(repo, action, facts, result)
-        {:ok, {recorded, repo.get(AgentWorker, uid)}}
-      end)
+    {:ok, %{recorded: recorded, worker: worker}} =
+      AgentWorkers.record_reconcile_result(action, facts, result)
 
     notify_change(facts.worker, worker)
 
@@ -234,21 +234,11 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   end
 
   defp facts(worker, provider, kind, objects, now) do
-    agent =
-      Repo.one(
-        from(p in Principal,
-          where: p.uid == ^worker.agent_uid and p.type == :agent,
-          select: p.status
-        )
-      ) || :deleted
+    agent = AgentWorkers.agent_status(worker.agent_uid)
 
     turn? =
       (worker.load["active_slots"] || 0) > 0 or
-        Repo.exists?(
-          from(j in Ankole.BackgroundAgentJobs.Schemas.Job,
-            where: j.agent_uid == ^worker.agent_uid and j.status == :running
-          )
-        )
+        worker.agent_uid in AgentWorkers.running_turn_agents([worker.agent_uid])
 
     settings =
       Map.merge(Settings.current(), %{
@@ -470,8 +460,14 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   # Result: recorded only while the row keeps the lifecycle state that the
   # call was based on. Another job may have moved the row; the next step
   # observes again.
-  defp record(repo, action, facts, result) do
-    case AgentWorkers.lock_in_tx(repo, facts.worker.agent_uid) do
+  @doc false
+  def record_in_tx(%{call: action, facts: facts, result: result}) do
+    recorded = record(action, facts, result)
+    {:ok, %{recorded: recorded, worker: AgentWorkers.get_agent_worker!(facts.worker.agent_uid)}}
+  end
+
+  defp record(action, facts, result) do
+    case AgentWorkers.lock_in_tx(Repo, facts.worker.agent_uid) do
       nil ->
         :ok
 
@@ -576,17 +572,13 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
 
   defp record_error(uid, reason, kind \\ "transient") do
     text = inspect(reason) |> String.slice(-4_000, 4_000)
-
-    require Ash.Query
+    fields = Map.new(AgentWorker.error_fields(text, kind))
 
     case AgentWorker
          |> Ash.Query.filter(agent_uid == ^uid)
-         |> Ankole.Ash.bulk_update(:record_error, Map.new(AgentWorker.error_fields(text, kind)),
-           strategy: [:atomic],
-           return_errors?: true
-         ) do
-      %Ash.BulkResult{status: :success} -> :ok
-      %Ash.BulkResult{errors: errors} -> raise Ash.Error.to_error_class(errors)
+         |> Ankole.Ash.update_where(:record_error, fields) do
+      {:ok, _workers} -> :ok
+      {:error, error} -> raise error
     end
 
     AgentWorkers.notify_changed(uid)
@@ -594,24 +586,23 @@ defmodule Ankole.AgentWorkers.ReconcileJob do
   end
 
   defp record_prepare_error(uid, provider_id, reason, kind) do
-    {:ok, changed?} =
-      Repo.transact(fn repo ->
-        case AgentWorkers.lock_in_tx(repo, uid) do
-          %AgentWorker{state: :absent, provider_id: ^provider_id} = worker ->
-            write(worker, :observe, AgentWorker.error_fields(inspect(reason), kind))
-            {:ok, true}
-
-          _changed ->
-            {:ok, false}
-        end
-      end)
-
-    if changed?, do: AgentWorkers.notify_changed(uid)
+    {:ok, _worker} = AgentWorkers.record_prepare_error(uid, provider_id, inspect(reason), kind)
     :ok
   end
 
+  @doc false
+  def record_prepare_error_in_tx(%{agent_uid: uid, provider_id: provider_id} = input) do
+    case AgentWorkers.lock_in_tx(Repo, uid) do
+      %AgentWorker{state: :absent, provider_id: ^provider_id} = worker ->
+        {:ok, write(worker, :observe, AgentWorker.error_fields(input.reason, input.kind))}
+
+      _changed ->
+        {:ok, nil}
+    end
+  end
+
   defp prepare_storage(kind, provider, uid) do
-    case Repo.get(AgentWorker, uid) do
+    case AgentWorkers.get_agent_worker!(uid) do
       %AgentWorker{state: :absent, provider_id: provider_id}
       when provider_id == provider.provider_id ->
         kind.prepare_storage(provider, uid)

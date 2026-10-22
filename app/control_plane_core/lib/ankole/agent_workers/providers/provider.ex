@@ -3,7 +3,12 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
 
   use Ankole.Ash.Resource,
     tenancy: :site,
-    domain: Ankole.AgentWorkers.Domain
+    domain: Ankole.AgentWorkers
+
+  alias Ankole.AgentWorkers.Providers
+  alias Ankole.AgentWorkers.Providers.Seed
+  alias Ankole.Errors
+  alias Ankole.Repo
 
   postgres do
     table("worker_providers")
@@ -74,28 +79,61 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
     create :create do
       accept([:provider_id, :kind, :display_name, :config, :is_default])
       argument(:credential_input, :map, allow_nil?: false, default: %{}, sensitive?: true)
-      transaction?(false)
       validate(present([:provider_id, :kind, :display_name, :config, :is_default]))
       change(Ankole.AgentWorkers.Providers.Changes.PrepareConfiguration, only_when_valid?: true)
     end
 
-    in_tx_update :configure do
+    update :configure do
       accept([:provider_id, :kind, :display_name, :config, :is_default])
       argument(:credential_input, :map, allow_nil?: false, default: %{}, sensitive?: true)
       validate(Ankole.AgentWorkers.Providers.ImmutableIdentity)
       change(Ankole.AgentWorkers.Providers.Changes.PrepareConfiguration, only_when_valid?: true)
     end
 
-    atomic_in_tx_update :unset_default do
+    update :unset_default do
+      require_atomic?(true)
       accept([])
       skip_global_validations?(true)
       change(set_attribute(:is_default, false))
     end
 
-    destroy :remove do
-      transaction?(false)
-      require_atomic?(false)
-      atomic_upgrade?(false)
+    destroy(:remove)
+
+    # The registry operations own their transaction and take the registry
+    # lock before they read or change a provider.
+
+    action :add, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:attrs, :map, allow_nil?: false, sensitive?: true)
+
+      run(fn input, _context ->
+        Errors.wrap(Providers.create_in_tx(Repo, input.arguments.attrs))
+      end)
+    end
+
+    action :configure_provider, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
+      argument(:attrs, :map, allow_nil?: false, sensitive?: true)
+      after_commit({Providers, :reconcile_workers})
+
+      run(fn %{arguments: arguments}, _context ->
+        Errors.wrap(Providers.configure_in_tx(Repo, arguments.provider_id, arguments.attrs))
+      end)
+    end
+
+    action :delete_provider, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
+
+      run(fn input, _context ->
+        Errors.wrap(Providers.delete_in_tx(Repo, input.arguments.provider_id))
+      end)
+    end
+
+    action :import_seed do
+      argument(:path, :string, constraints: [trim?: false])
+      run(fn input, _context -> Errors.wrap(Seed.import_in_tx(Repo, input.arguments.path)) end)
     end
   end
 

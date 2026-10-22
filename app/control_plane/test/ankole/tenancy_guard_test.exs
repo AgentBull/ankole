@@ -23,21 +23,11 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole_web/plugs/oidc_cors.ex:call" => 1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:assign_legacy_provider_in_tx" =>
       1,
+    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:assigned_worker" => 1,
     "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:clear_provider_rejections_in_tx" =>
       1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:inventory_with_workers" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers/lambda.ex:rows" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:delete" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:list_projections" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:projection" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:update" => 1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers.ex:validate_disabled_kinds" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers/providers/seed.ex:import_file" =>
-      1,
-    "across_tenants:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex:rows" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_worker_count" => 1,
+    "across_tenants:../control_plane_core/lib/ankole/agent_workers.ex:provider_workers" => 1,
     "across_tenants:../control_plane_core/lib/ankole/brain/config.ex:model_provider_references" =>
       1,
     "across_tenants:../control_plane_core/lib/ankole/browser_sessions.ex:site_principals" => 1,
@@ -83,9 +73,6 @@ defmodule Ankole.TenancyGuardTest do
     "across_tenants:../control_plane_core/lib/ankole/work/owner.ex:read_across_tenants" => 1,
     "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock" => 1,
     "raw_sql:../control_plane_core/lib/ankole/advisory_lock.ex:lock!" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/agent_workers/config.ex:database_now" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/agent_workers/reconcile_job.ex:decide_with" => 1,
-    "raw_sql:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex:sweep_objects" => 1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/provider_configs.ex:provider_references" =>
       1,
     "raw_sql:../control_plane_core/lib/ankole/ai_gateway/response_chain.ex:chain_ids" => 1,
@@ -127,7 +114,6 @@ defmodule Ankole.TenancyGuardTest do
     "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:delete_rows" => 1,
     "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:delete_batch" => 1,
     "raw_sql:../control_plane_core/lib/ankole/tenants/jobs/delete.ex:finish_in_tx" => 1,
-    "sql_fragment:../control_plane_core/lib/ankole/agent_workers/sweep_job.ex:candidates" => 1,
     "sql_fragment:../control_plane_core/lib/ankole/background_agent_jobs/trajectory_reader.ex:lineage_query" =>
       1,
     "sql_fragment:../control_plane_core/lib/ankole/browser_sessions.ex:cleanup_expired" => 1,

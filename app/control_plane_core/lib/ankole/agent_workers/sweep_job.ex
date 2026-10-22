@@ -8,9 +8,8 @@ defmodule Ankole.AgentWorkers.SweepJob do
   """
 
   use Ankole.Job, tenancy: :site, queue: :agent_workers, max_attempts: 1
-  import Ecto.Query
-  alias Ankole.{Logging, Repo}
-  alias Ankole.Principals.Principal
+  alias Ankole.{Logging, Principals, Repo}
+  alias Ankole.AgentWorkers
 
   alias Ankole.AgentWorkers.Decision
   alias Ankole.AgentWorkers.ProviderKind
@@ -19,17 +18,14 @@ defmodule Ankole.AgentWorkers.SweepJob do
   alias Ankole.AgentWorkers.ReconcileJob
 
   alias Ankole.AgentWorkers.Providers.Configuration
-  alias Ankole.AgentWorkers.AgentWorker
 
   @impl true
   def run(job), do: sweep(job)
 
   defp sweep(%Oban.Job{args: args}) do
-    rows(
-      from w in AgentWorker,
-        where: w.state == :deleting and is_nil(w.provider_id),
-        select: w
-    )
+    nil
+    |> AgentWorkers.provider_workers()
+    |> Enum.filter(&(&1.state == :deleting))
     |> Enum.each(&ReconcileJob.enqueue/1)
 
     Enum.each(Providers.list(), fn row ->
@@ -41,7 +37,8 @@ defmodule Ankole.AgentWorkers.SweepJob do
 
         {:error, _reason} ->
           # Reconciliation writes this provider's failure to each affected row.
-          rows(from w in AgentWorker, where: w.provider_id == ^row.provider_id, select: w)
+          row.provider_id
+          |> AgentWorkers.provider_workers()
           |> Enum.each(&ReconcileJob.enqueue/1)
       end
     end)
@@ -49,60 +46,74 @@ defmodule Ankole.AgentWorkers.SweepJob do
     :ok
   end
 
-  # Only the inventory read crosses tenants. Enqueueing binds each selected
-  # row's tenant, and provider I/O runs with no query bypass in force.
-  defp rows(query), do: Repo.across_tenants(fn -> Repo.all(query) end)
-
+  # Only the inventory read crosses tenants. The Agent and Turn facts are read
+  # in the tenant of each row, and provider I/O runs with no query bypass.
   defp candidates(provider) do
-    idle =
-      case Configuration.duration_ms(provider.settings["idleReleaseAfter"]) do
-        :never ->
-          dynamic(false)
+    now = Repo.now!()
+    idle_ms = Configuration.duration_ms(provider.settings["idleReleaseAfter"])
 
-        ms ->
-          dynamic(
-            [w],
-            fragment("coalesce((?->>'active_tasks')::bigint, -1) = 0", w.load) and
-              fragment("coalesce((?->>'idle_for_ms')::bigint, 0) >= ?", w.load, ^ms)
-          )
-      end
+    {due, others} =
+      provider.provider_id
+      |> AgentWorkers.provider_workers()
+      |> Enum.split_with(&lifecycle_due?(&1, provider))
 
-    turn =
-      dynamic(
-        [w],
-        fragment(
-          "EXISTS (SELECT 1 FROM background_agent_jobs j WHERE j.agent_uid = ? AND j.status = 'running') OR coalesce((?->>'active_slots')::bigint, 0) > 0",
-          w.agent_uid,
-          w.load
-        )
-      )
+    agent_due =
+      others
+      |> Enum.filter(&(&1.state in [:absent, :paused, :ready]))
+      |> Enum.group_by(& &1.tenant_id)
+      |> Enum.flat_map(fn {tenant_id, workers} ->
+        Repo.with_tenant(tenant_id, fn -> agent_due(workers, now, idle_ms) end)
+      end)
 
-    conditions =
-      dynamic(
-        [w, p],
-        w.state in [:starting, :stale, :draining, :deleting] or
-          (not is_nil(w.generation) and
-             (w.image != ^provider.runtime.image or
-                w.protocol_version != ^provider.runtime.protocol_version or
-                w.settings_digest != ^provider.settings_digest)) or
-          (w.state in [:absent, :paused] and p.status == :active and
-             (w.initial_start_pending or w.wanted_until > fragment("now()") or ^turn)) or
-          (w.state == :ready and
-             (is_nil(p.uid) or p.status != :active or ^idle or
-                is_nil(w.last_worker_heartbeat_at) or
-                w.last_worker_heartbeat_at <=
-                  fragment("clock_timestamp() - interval '60 seconds'")))
-      )
-
-    rows(
-      from w in AgentWorker,
-        left_join: p in Principal,
-        on: p.uid == w.agent_uid,
-        where: w.provider_id == ^provider.provider_id,
-        where: ^conditions,
-        select: w
-    )
+    due ++ agent_due
   end
+
+  # Work that the Worker row alone shows: a lifecycle step in progress or a
+  # generation with an old launch target.
+  defp lifecycle_due?(worker, provider) do
+    worker.state in [:starting, :stale, :draining, :deleting] or
+      (not is_nil(worker.generation) and
+         (worker.image != provider.runtime.image or
+            worker.protocol_version != provider.runtime.protocol_version or
+            worker.settings_digest != provider.settings_digest))
+  end
+
+  # Work that also depends on the Agent state and on its running Turns.
+  defp agent_due(workers, now, idle_ms) do
+    active = MapSet.new(Principals.list_active_agents(), & &1.principal.uid)
+
+    waiting =
+      for worker <- workers,
+          worker.state != :ready,
+          worker.agent_uid in active,
+          do: worker.agent_uid
+
+    running = if waiting == [], do: MapSet.new(), else: AgentWorkers.running_turn_agents(waiting)
+
+    Enum.filter(workers, fn
+      %{state: :ready} = worker ->
+        worker.agent_uid not in active or idle?(worker, idle_ms) or
+          heartbeat_expired?(worker, now)
+
+      worker ->
+        worker.agent_uid in active and
+          (worker.initial_start_pending or wanted?(worker, now) or
+             (worker.load["active_slots"] || 0) > 0 or worker.agent_uid in running)
+    end)
+  end
+
+  defp idle?(_worker, :never), do: false
+
+  defp idle?(%{load: load}, idle_ms),
+    do: (load["active_tasks"] || -1) == 0 and (load["idle_for_ms"] || 0) >= idle_ms
+
+  defp wanted?(%{wanted_until: nil}, _now), do: false
+  defp wanted?(%{wanted_until: until}, now), do: DateTime.compare(until, now) == :gt
+
+  defp heartbeat_expired?(%{last_worker_heartbeat_at: nil}, _now), do: true
+
+  defp heartbeat_expired?(%{last_worker_heartbeat_at: at}, now),
+    do: DateTime.diff(now, at, :microsecond) >= 60_000_000
 
   defp sweep_objects(provider) do
     {:ok, kind} = ProviderKind.fetch(provider.kind)
@@ -110,10 +121,11 @@ defmodule Ankole.AgentWorkers.SweepJob do
     case kind.list_instances(provider, :all) do
       {:ok, objects} ->
         rows =
-          rows(from w in AgentWorker, where: w.provider_id == ^provider.provider_id)
+          provider.provider_id
+          |> AgentWorkers.provider_workers()
           |> Map.new(&{&1.agent_uid, &1})
 
-        %{rows: [[now]]} = Repo.query!("SELECT clock_timestamp()")
+        now = Repo.now!()
 
         Enum.each(objects, fn object ->
           case rows[object.agent_uid] do
@@ -160,12 +172,9 @@ defmodule Ankole.AgentWorkers.SweepJob do
   defp delete_orphan(provider, kind, object) do
     owner =
       object.agent_uid &&
-        from(w in AgentWorker,
-          where: w.agent_uid == ^object.agent_uid and w.provider_id == ^provider.provider_id,
-          select: w
-        )
-        |> rows()
-        |> List.first()
+        provider.provider_id
+        |> AgentWorkers.provider_workers()
+        |> Enum.find(&(&1.agent_uid == object.agent_uid))
 
     result =
       if owner,

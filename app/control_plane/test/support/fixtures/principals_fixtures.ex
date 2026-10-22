@@ -85,18 +85,19 @@ defmodule Ankole.PrincipalsFixtures do
     result
   end
 
+  # Tests also create Agents inside their own transaction, so the fixture uses
+  # the composition function of the provider registry, not its top-level action.
   def worker_provider_fixture(attrs \\ %{}) do
-    {:ok, provider} =
-      attrs
-      |> Enum.into(%{
+    attrs =
+      Enum.into(attrs, %{
         provider_id: "fixture-worker-#{Ecto.UUID.generate()}",
         display_name: "Test Worker provider",
         kind: "docker",
         config: "network: bridge\n",
         credentials: %{}
       })
-      |> Providers.create()
 
+    {:ok, provider} = Ankole.Repo.transact(fn repo -> Providers.create_in_tx(repo, attrs) end)
     provider
   end
 

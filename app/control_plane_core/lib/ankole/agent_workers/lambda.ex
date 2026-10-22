@@ -2,13 +2,11 @@ defmodule Ankole.AgentWorkers.Lambda do
   @moduledoc "Lambda MicroVMs with one persistent Agent directory on shared EFS."
   @behaviour Ankole.AgentWorkers.ProviderKind
 
-  import Ecto.Query
-  alias Ankole.Repo
+  alias Ankole.AgentWorkers
   alias Ankole.AgentWorkers.Lambda.Client
   alias Ankole.AgentWorkers.Lambda.Images
   alias Ankole.AgentWorkers.ProviderKind.Definition
   alias Ankole.AgentWorkers.Providers.Configuration, as: C
-  alias Ankole.AgentWorkers.AgentWorker
 
   # One object sweep interval (SweepJob runs it every five minutes).
   @orphan_age_seconds 300
@@ -348,11 +346,7 @@ defmodule Ankole.AgentWorkers.Lambda do
          do: collect(images, &Client.list(provider, "/microvms", imageIdentifier: &1["imageArn"]))
   end
 
-  defp rows(provider),
-    do:
-      Repo.across_tenants(fn ->
-        Repo.all(from w in AgentWorker, where: w.provider_id == ^provider.provider_id)
-      end)
+  defp rows(provider), do: AgentWorkers.provider_workers(provider.provider_id)
 
   defp check_create_retry(_provider, %{create_retry?: false}), do: :ok
 

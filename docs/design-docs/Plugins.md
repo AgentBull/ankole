@@ -380,10 +380,13 @@ and next-start selection. A pending disable therefore rejects new assignments.
 The Plugin controls and setup selection use this same check. The
 `plugins.enabled_ids` entry is read-only in general Console settings. Use the
 Control Plane Plugin controls to change it. These writes belong to
-`Ankole.Plugins.Config`; AppConfigure supplies validation, storage, and its
-existing key lock. Only changes that remove Worker kinds also take the Worker
+`Ankole.Plugins.Config`. AppConfigure supplies validation, storage, the
+transaction, and its key lock (`AppConfigure.update_global/2`). In that
+transaction, `Ankole.Plugins.Contracts.veto_disable/3` lets each contract stop
+the change. Only changes that remove Worker kinds also take the Worker
 provider lock and check Worker references. Enabling Plugins and changes to other
-Plugins do not run that check.
+Plugins do not run that check. A stored list that cannot be decoded stops the
+write; delete the key with `Ankole.AppConfigure.delete_global/1` to recover.
 
 Function Compute requires `china-market-ai-providers`; Vercel requires
 `vercel-worker-provider`. Before upgrading an existing installation, use the
@@ -427,6 +430,14 @@ The control plane handles storage, authorization, setup, supervision, and
 database commits. A Plugin implements only the callback contract of the
 subsystem that calls it. Each subsystem document defines that contract.
 Callback declarations use atom keys.
+
+`Ankole.Plugins.Contracts` is the one table of these contracts. Each entry
+names the functions of the owning subsystem: `validate` checks one active
+declaration at Registry startup, `refresh` publishes the subsystem view of the
+boot snapshot, and `veto_disable` can stop a change of the enable list. The
+Registry and `Plugins.Config` call only this table; they do not name a
+subsystem. A new contract adds one entry. A declaration of a contract without
+an entry keeps only the generic shape check of `Plugins.Spec`.
 
 Control Plane Plugins do not control Agent capabilities. A control-plane
 adapter and a related Agent Plugin can have different enabled states.
