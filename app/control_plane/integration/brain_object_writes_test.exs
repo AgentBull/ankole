@@ -22,13 +22,13 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
     {:ok, _} = SchemaPacks.install_packs([])
 
     {:ok, original} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "notes/commit-order", type: "note", title: "Commit order", body: "Original"},
         :system
       )
 
     {:ok, object} =
-      Objects.update_object(
+      Ankole.Brain.update_object(
         original.slug,
         %{body: "Current", expected_content_hash: original.content_hash},
         :system
@@ -42,21 +42,25 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
   for operation <- [:update, :rollback] do
     @operation operation
     test "#{operation} waiting behind a delete cannot change the hidden content", context do
-      deleted = hold(fn -> Objects.soft_delete(context.object.slug, reason: "Obsolete") end)
+      deleted =
+        hold(fn -> Objects.soft_delete_in_tx(context.object.slug, reason: "Obsolete") end)
 
       waiting =
         start(fn ->
-          case @operation do
-            :update ->
-              Objects.update_object(
-                context.object.slug,
-                %{body: "Stale update", expected_content_hash: context.object.content_hash},
-                :system
-              )
+          result =
+            case @operation do
+              :update ->
+                Ankole.Brain.update_object(
+                  context.object.slug,
+                  %{body: "Stale update", expected_content_hash: context.object.content_hash},
+                  :system
+                )
 
-            :rollback ->
-              Objects.rollback(context.object.slug, context.version.id, :system)
-          end
+              :rollback ->
+                Ankole.Brain.rollback_object(context.object.slug, context.version.id, :system)
+            end
+
+          Ankole.Errors.reason(result)
         end)
 
       assert_blocked_by(waiting, deleted)
@@ -78,7 +82,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
   test "a save that commits first remains the content later deleted", context do
     saved =
       hold(fn ->
-        Objects.update_object(
+        Objects.update_object_in_tx(
           context.object.slug,
           %{
             body: "Committed before deletion",
@@ -88,7 +92,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
         )
       end)
 
-    deleted = start(fn -> Objects.soft_delete(context.object.slug) end)
+    deleted = start(fn -> Ankole.Brain.soft_delete_object(context.object.slug) end)
     assert_blocked_by(deleted, saved)
     send(saved.task.pid, :commit)
     assert {:ok, _} = Task.await(saved.task, 5_000)
@@ -123,7 +127,7 @@ defmodule Ankole.BrainObjectWritesIntegrationTest do
     assert stored.embedded_at != nil
 
     assert {:ok, _object} =
-             Objects.update_object(
+             Ankole.Brain.update_object(
                context.object.slug,
                %{
                  body: "Changed after embedding",

@@ -1,6 +1,6 @@
 defmodule Ankole.Brain.Schemas.Source do
   @moduledoc "A stable learning source with explicit archive, sync, and extraction writes."
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.Brain
 
   postgres do
     table("brain_sources")
@@ -60,8 +60,6 @@ defmodule Ankole.Brain.Schemas.Source do
     end
 
     create_if_absent :ensure do
-      transaction?(false)
-
       accept([
         :id,
         :kind,
@@ -77,21 +75,22 @@ defmodule Ankole.Brain.Schemas.Source do
       upsert_identity(:upstream)
     end
 
-    atomic_in_tx_update :archive do
+    update :archive do
+      require_atomic?(true)
       accept([])
       change(filter(expr(is_nil(archived_at))))
       change(set_attribute(:archived_at, &DateTime.utc_now/0))
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
     end
 
-    atomic_in_tx_update :set_default_scope do
+    update :set_default_scope do
+      require_atomic?(true)
       accept([:default_audience_scope])
       change(filter(expr(is_nil(archived_at) and kind == "oidc_client")))
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
     end
 
     update :record_revision do
-      transaction?(false)
       require_atomic?(true)
       accept([:upstream_revision])
       change(filter(expr(is_nil(archived_at))))
@@ -100,7 +99,6 @@ defmodule Ankole.Brain.Schemas.Source do
     end
 
     update :record_sync do
-      transaction?(false)
       require_atomic?(true)
       accept([])
       change(filter(expr(is_nil(archived_at))))
@@ -109,19 +107,41 @@ defmodule Ankole.Brain.Schemas.Source do
     end
 
     update :record_watermark do
-      transaction?(false)
       require_atomic?(true)
       accept([:extracted_through_at, :extracted_through_seq])
       require_attributes([:extracted_through_at, :extracted_through_seq])
       change(filter(expr(is_nil(archived_at))))
     end
 
-    atomic_in_tx_update :invalidate_extraction do
+    update :invalidate_extraction do
+      require_atomic?(true)
       accept([])
       change(set_attribute(:extracted_through_seq, 0))
       change(set_attribute(:extracted_through_at, nil))
       change(set_attribute(:upstream_revision, &Ecto.UUID.generate/0))
       change(set_attribute(:updated_at, &DateTime.utc_now/0))
+    end
+
+    # Each operation owns its transaction; Ankole.Brain.Sources gives the steps.
+    action :archive_source, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:source_id, :uuid, allow_nil?: false)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.Brain.Sources.archive_in_tx(args.source_id))
+      end)
+    end
+
+    action :update_default_scope, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:source_id, :uuid, allow_nil?: false)
+      argument(:scope, :string, constraints: [trim?: false, allow_empty?: true])
+
+      run(fn %{arguments: args}, _context ->
+        args.source_id
+        |> Ankole.Brain.Sources.update_default_scope_in_tx(args[:scope])
+        |> Ankole.Errors.wrap()
+      end)
     end
   end
 

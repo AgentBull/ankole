@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.AuthorizationCode do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC
 
   postgres do
     table("oidc_authorization_codes")
@@ -70,18 +70,18 @@ defmodule Ankole.OIDC.AuthorizationCode do
         :code_challenge,
         :expires_at
       ])
-
-      transaction?(false)
     end
 
-    atomic_in_tx_update :consume_in_tx do
+    update :consume_in_tx do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
       change(filter(expr(is_nil(consumed_at))))
       change(set_attribute(:consumed_at, arg(:at)))
     end
 
-    atomic_in_tx_update :finalize_in_tx do
+    update :finalize_in_tx do
+      require_atomic?(true)
       accept([])
       argument(:family_id, :string, constraints: [trim?: false])
       argument(:replay_retain_until, :utc_datetime_usec, allow_nil?: false)
@@ -92,8 +92,28 @@ defmodule Ankole.OIDC.AuthorizationCode do
     end
 
     destroy :expire_in_tx do
-      transaction?(false)
       require_atomic?(true)
+    end
+
+    action :authorize, :term do
+      argument(:params, :term)
+      argument(:authentication, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.OIDC.Grants.authorize_in_tx(args.params, args.authentication))
+      end)
+    end
+
+    action :exchange, :term do
+      argument(:client, :term)
+      argument(:code, :term)
+      argument(:grant, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(
+          Ankole.OIDC.Grants.exchange_code_in_tx(args.client, args.code, args.grant)
+        )
+      end)
     end
   end
 end

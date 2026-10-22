@@ -1,29 +1,42 @@
 defmodule Ankole.OIDC.Grants do
   @moduledoc false
-  alias Ankole.{OIDC, Repo}
-  alias Ankole.OIDC.{Claims, CodeStore, RefreshStore, Sessions, Tokens}
+  alias Ankole.OIDC
+  alias Ankole.OIDC.{AuthorizationCode, Claims, CodeStore, RefreshStore, RefreshToken}
+  alias Ankole.OIDC.{Sessions, Tokens}
   @refresh_ttl 30 * 24 * 60 * 60
 
   def authorize(params, authentication) do
-    Repo.transact(fn ->
-      with :ok <-
-             Ankole.Principals.HumanAccess.check(
-               authentication["principal_uid"],
-               authentication["access_version"]
-             ),
-           {:ok, session} <- Sessions.ensure(params["client_id"], authentication, params["scope"]),
-           {:ok, code} <-
-             Attesto.AuthorizationCode.issue(CodeStore, %{
-               client_id: params["client_id"],
-               redirect_uri: params["redirect_uri"],
-               code_challenge: params["code_challenge"],
-               subject: authentication["principal_uid"],
-               scope: String.split(params["scope"], " ", trim: true),
-               claims: %{"session_id" => session.id, "nonce" => params["nonce"]}
-             }) do
-        {:ok, code}
-      end
-    end)
+    Ankole.Ash.run_action(AuthorizationCode, :authorize, %{
+      params: params,
+      authentication: authentication
+    })
+  end
+
+  @doc """
+  Issues an authorization code in the transaction of the calling generic action.
+
+  `BrowserSessions.consume_authorization/4` runs its `issue` callback in its
+  transaction, so that callback issues the code with this function.
+  """
+  def authorize_in_tx(params, authentication) do
+    with :ok <-
+           Ankole.Principals.HumanAccess.check(
+             authentication["principal_uid"],
+             authentication["access_version"]
+           ),
+         {:ok, session} <-
+           Sessions.ensure_in_tx(params["client_id"], authentication, params["scope"]),
+         {:ok, code} <-
+           Attesto.AuthorizationCode.issue(CodeStore, %{
+             client_id: params["client_id"],
+             redirect_uri: params["redirect_uri"],
+             code_challenge: params["code_challenge"],
+             subject: authentication["principal_uid"],
+             scope: String.split(params["scope"], " ", trim: true),
+             claims: %{"session_id" => session.id, "nonce" => params["nonce"]}
+           }) do
+      {:ok, code}
+    end
   end
 
   def validate_type(%{"grant_type" => type}) when type in ["authorization_code", "refresh_token"],
@@ -64,7 +77,7 @@ defmodule Ankole.OIDC.Grants do
              ttl: @refresh_ttl,
              rotation_grace_seconds: 10
            ) do
-      case issue_refresh_response(client, rotated) do
+      case Ankole.Ash.run_action(RefreshToken, :refresh, %{client: client, rotated: rotated}) do
         {:ok, _} = result ->
           result
 
@@ -86,28 +99,37 @@ defmodule Ankole.OIDC.Grants do
   def exchange(_, _), do: {:error, "invalid_request", "grant credentials are required"}
 
   defp issue_code_response(client, code, grant) do
-    Repo.transact(fn ->
-      scope = Enum.join(grant.scope, " ")
+    case Ankole.Ash.run_action(AuthorizationCode, :exchange, %{
+           client: client,
+           code: code,
+           grant: grant
+         }) do
+      {:ok, _} = result -> result
+      _ -> invalid_grant()
+    end
+  end
 
-      with {:ok, session, principal, human} <-
-             validate_business(client.id, grant.subject, grant.claims["session_id"], scope, :code),
-           {:ok, access} <- Tokens.mint_access(principal.uid, client.id, scope, session.id),
-           {:ok, id_token} <-
-             Attesto.IDToken.mint(OIDC.attesto_config(), principal.uid, client.id,
-               sid: session.id,
-               nonce: grant.claims["nonce"],
-               auth_time: session.auth_time,
-               access_token: access.token,
-               extra_claims: Claims.project(principal, human, scope)
-             ),
-           {:ok, refresh} <- finalize(code, grant, session) do
-        payload = response(access, scope) |> Map.put(:id_token, id_token)
-        {:ok, if(refresh, do: Map.put(payload, :refresh_token, refresh), else: payload)}
-      else
-        _ -> invalid_grant_result()
-      end
-    end)
-    |> normalize()
+  @doc false
+  def exchange_code_in_tx(client, code, grant) do
+    scope = Enum.join(grant.scope, " ")
+
+    with {:ok, session, principal, human} <-
+           validate_business(client.id, grant.subject, grant.claims["session_id"], scope, :code),
+         {:ok, access} <- Tokens.mint_access(principal.uid, client.id, scope, session.id),
+         {:ok, id_token} <-
+           Attesto.IDToken.mint(OIDC.attesto_config(), principal.uid, client.id,
+             sid: session.id,
+             nonce: grant.claims["nonce"],
+             auth_time: session.auth_time,
+             access_token: access.token,
+             extra_claims: Claims.project(principal, human, scope)
+           ),
+         {:ok, refresh} <- finalize(code, grant, session) do
+      payload = response(access, scope) |> Map.put(:id_token, id_token)
+      {:ok, if(refresh, do: Map.put(payload, :refresh_token, refresh), else: payload)}
+    else
+      _ -> {:error, :invalid_grant}
+    end
   end
 
   defp finalize(code, grant, session) do
@@ -136,17 +158,16 @@ defmodule Ankole.OIDC.Grants do
     end
   end
 
-  defp issue_refresh_response(client, rotated) do
-    Repo.transact(fn ->
-      ctx = rotated.context
-      scope = Enum.join(ctx.scope, " ")
+  @doc false
+  def refresh_in_tx(client, rotated) do
+    ctx = rotated.context
+    scope = Enum.join(ctx.scope, " ")
 
-      with {:ok, session, principal, _} <-
-             validate_business(client.id, ctx.subject, ctx.claims["session_id"], scope, :refresh),
-           {:ok, access} <- Tokens.mint_access(principal.uid, client.id, scope, session.id) do
-        {:ok, response(access, scope) |> Map.put(:refresh_token, rotated.token)}
-      end
-    end)
+    with {:ok, session, principal, _} <-
+           validate_business(client.id, ctx.subject, ctx.claims["session_id"], scope, :refresh),
+         {:ok, access} <- Tokens.mint_access(principal.uid, client.id, scope, session.id) do
+      {:ok, response(access, scope) |> Map.put(:refresh_token, rotated.token)}
+    end
   end
 
   defp validate_business(client_id, subject, sid, scope, kind) do
@@ -192,8 +213,4 @@ defmodule Ankole.OIDC.Grants do
 
   defp invalid_grant,
     do: {:error, "invalid_grant", "authorization grant is invalid, revoked, or expired"}
-
-  defp invalid_grant_result, do: {:error, :invalid_grant}
-  defp normalize({:ok, _} = result), do: result
-  defp normalize(_), do: invalid_grant()
 end

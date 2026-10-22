@@ -38,6 +38,7 @@ defmodule Ankole.Brain.LibraryKnowledge do
   alias Ankole.AIAgent.Library.SourceReader, as: LibrarySourceReader
   alias Ankole.Brain.Config
   alias Ankole.Brain.Objects
+  alias Ankole.Brain.Schemas.Object
   alias Ankole.Brain.Schemas.SchemaType
   alias Ankole.Brain.Schemas.Source
   alias Ankole.Brain.Sources
@@ -433,7 +434,7 @@ defmodule Ankole.Brain.LibraryKnowledge do
   # One page failing must not take the sweep down with it: the page reports
   # as errored and the rest of the set still lands.
   defp project_page(source, page) do
-    case Objects.upsert_library_projection(source, page) do
+    case Ankole.Ash.run_action(Object, :upsert_library_projection, %{source: source, page: page}) do
       {:ok, outcome} -> outcome
       {:error, :source_archived} = error -> error
       {:error, reason} -> page_failed(page, inspect(reason))

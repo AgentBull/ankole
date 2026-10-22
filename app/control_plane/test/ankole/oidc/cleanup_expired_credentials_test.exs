@@ -291,27 +291,31 @@ defmodule Ankole.OIDC.CleanupExpiredCredentialsTest do
   defp insert_refresh_for_session!(session, digest, expiry) do
     deadline = DateTime.to_unix(expiry)
 
-    assert :ok =
-             Ankole.OIDC.RefreshStore.insert(%{
-               token_hash: digest,
-               family_id: digest,
-               generation: 0,
-               data: %{
-                 subject: session.principal_uid,
-                 client_id: session.client_id,
-                 scope: ["openid", "offline_access"],
-                 resource: [],
-                 dpop_jkt: nil,
-                 acr: nil,
-                 auth_time: nil,
-                 family_expires_at: deadline,
-                 claims: %{"session_id" => session.id}
-               },
-               expires_at: deadline,
-               consumed: false,
-               consumed_at: nil,
-               successor: nil
-             })
+    # The code exchange inserts the first token of a family in its transaction.
+    assert {:ok, :ok} =
+             Repo.transact(fn ->
+               {:ok,
+                Ankole.OIDC.RefreshStore.insert(%{
+                  token_hash: digest,
+                  family_id: digest,
+                  generation: 0,
+                  data: %{
+                    subject: session.principal_uid,
+                    client_id: session.client_id,
+                    scope: ["openid", "offline_access"],
+                    resource: [],
+                    dpop_jkt: nil,
+                    acr: nil,
+                    auth_time: nil,
+                    family_expires_at: deadline,
+                    claims: %{"session_id" => session.id}
+                  },
+                  expires_at: deadline,
+                  consumed: false,
+                  consumed_at: nil,
+                  successor: nil
+                })}
+             end)
 
     Repo.get!(RefreshToken, digest)
   end

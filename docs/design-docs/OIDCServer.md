@@ -5,18 +5,23 @@ Ankole is an OpenID Connect Provider for registered relying parties (RPs).
 Client policy, browser authentication, durable sessions, access tokens, and
 PostgreSQL storage. The site has one issuer and one RSA signing key.
 
-Client registration, configuration, group links, and the installation signing
-key use Ash resources and named transaction actions. Only secret rotation can
-change an existing confidential Client's secret. Ordinary configuration cannot
-replace its ID or public/confidential type. The key initialization action
+`Ankole.OIDC` is the root Ash domain of the OIDC resources. Client registration
+and configuration change the Client and its group links in one generic action on
+`Client` (`create_client`, `update_client`); that action owns the transaction.
+Deletion, secret rotation, and signing key initialization are one statement each.
+Only secret rotation can change an existing confidential Client's secret.
+Ordinary configuration cannot replace its ID or public/confidential type. The
+key initialization action
 returns the installed record on conflict without changing its key or timestamps.
 The SigningKey process still validates the stored key before publishing its
 runtime projection. Native tables, keys, and constraints retain Ecto migrations.
 
 OIDC sessions, logout confirmations, and logout deliveries use the same Domain.
-Session actions preserve the original authentication binding, extend expiry with
-`GREATEST`, and retain the first revocation and logout markers. Logout delivery
-actions own the pending, delivering, delivered, and failed transitions. A
+Session authorization is one upsert on the Client and the authentication
+revision. It writes only a later expiry, so it keeps the original
+authentication binding and never shortens a Session. Session actions retain the
+first revocation and logout markers. Logout delivery actions own the pending,
+delivering, delivered, and failed transitions. A
 delivered record cannot restart or consume another attempt. Native constraints
 also enforce positive access and authentication versions and nonnegative
 browser revisions and delivery attempt counts. Historical sessions can retain a
@@ -101,22 +106,29 @@ consent does not prove fresh authentication.
 
 ## Authorization and token issuance
 
-`Ankole.OIDC.Grants` creates an OIDC session and calls
-`Attesto.AuthorizationCode.issue/3` in one database transaction. The code expires
-in 60 seconds. PostgreSQL stores its SHA-256 digest and PKCE challenge, never the
-plaintext code.
+`Ankole.OIDC.Grants.authorize/2` runs the `authorize` generic action on
+`AuthorizationCode`. In its transaction, it creates or extends the OIDC session
+and calls `Attesto.AuthorizationCode.issue/3`. The `issue` callback of
+`BrowserSessions.consume_authorization/4` already runs in a transaction, so it
+calls `Grants.authorize_in_tx/2`. The code expires in 60 seconds. PostgreSQL
+stores its SHA-256 digest and PKCE challenge, never the plaintext code.
 
 Authorization holds the tenant parent lock before the browser serializer and
-the live Human lock. It locks the Client before an existing OIDC session. The
-browser serializer permits one session creation for that Client and
-authentication revision; a repeated authorization extends that row without
-replacing its original authentication facts. Code insertion stays in the same
-transaction. A concurrent Client deletion therefore waits before it can lock
-the session through its cascade.
+the live Human lock. It then locks the Client with `FOR KEY SHARE`. The tenant
+and Client locks are access checks: they keep both parents while the session
+refers to them. The session write is one `INSERT ... ON CONFLICT` on the Client
+and authentication revision. A conflict locks the existing row and changes only
+its expiry, and only to a later value, so a repeated authorization never
+replaces the original authentication facts or shortens a session that live
+refresh tokens use. Concurrent first authorizations converge on one row. Code
+insertion stays in the same transaction. A concurrent Client deletion therefore
+waits before it can lock the session through its cascade.
 
 A code presentation calls `Attesto.AuthorizationCode.redeem/4` before the token
-issuance transaction. `CodeStore.take/1` atomically marks it consumed. A wrong
-Client, redirect URI, verifier, or expired grant cannot restore the code. Token
+issuance transaction. `CodeStore.take/1` atomically marks it consumed. Token
+issuance is the `exchange` generic action on `AuthorizationCode`, and a refresh
+response is the `refresh` generic action on `RefreshToken`. A wrong Client,
+redirect URI, verifier, or expired grant cannot restore the code. Token
 issuance then checks the Client, granted scopes, OIDC session, active Human, and
 AI Gateway policy. The Human row is held with `FOR SHARE` during issuance.
 
@@ -137,15 +149,22 @@ spent and does not create a false completed-grant replay marker.
 
 `Attesto.RefreshToken` owns issuance, scope narrowing, rotation, retry recovery,
 and reuse detection. `Ankole.OIDC.RefreshStore` implements the PostgreSQL
-transaction boundary. The family row owns the absolute 30-day deadline and a
-sticky revocation marker. Each token has a digest, family ID, generation,
-canonical protocol context, expiry, and consumption state. A unique constraint
-on `(family_id, generation)` permits only one child at each generation.
+transaction boundary. Rotation runs the `rotate` generic action on
+`RefreshToken`, and family revocation runs the `revoke_family` generic action on
+`RefreshTokenFamily`; rotation calls the same revocation step in its own
+transaction. The first token of a family is inserted in the code exchange
+transaction, so `insert/1` raises `TransactionRequired` outside a transaction.
+The code store callbacks are single statements. The family row owns the
+absolute 30-day deadline and a sticky revocation marker. Each token has a
+digest, family ID, generation, canonical protocol context, expiry, and
+consumption state. A unique constraint on `(family_id, generation)` permits only
+one child at each generation.
 
 Issuance, rotation, and family revocation lock the tenant, subject Principal,
 and Client with `FOR KEY SHARE`, then the OIDC Session with `FOR UPDATE`, then
 the family and parent token. `Ankole.OIDC.Sessions` owns the shared credential
-parent locks. The subject lock uses its globally unique UID.
+parent locks. The subject lock reads the Human in the credential's tenant; the
+tenant-scoped foreign keys bind the Session's Human to that tenant.
 This follows the native foreign-key parent order and prevents deletion or Human
 revocation from reversing those locks. The Session lock also serializes
 revocation across its families. Rotation checks family revocation,
@@ -224,6 +243,12 @@ checks the exact registered return URI and appends `state`.
 Back-Channel Logout remains a durable Ankole delivery queue. Attesto signs each
 `logout+jwt` with `sub`, `sid`, and the required logout event. Delivery attempts,
 backoff, and deadlines remain in PostgreSQL.
+
+RP logout confirmation is the `confirm` generic action on `LogoutRequest`: it
+ends the browser login with `BrowserSessions.logout_in_tx/2` and confirms the
+request in one transaction. A delivery claim and an operator retry are the
+`claim` and `retry` generic actions on `LogoutDelivery`. The HTTP request runs
+after the claim commits, and the result is one atomic update.
 
 The confirmation action cannot change the browser ID or revision and only
 confirms an unconsumed request. Cleanup uses atomic resource deletes. Its

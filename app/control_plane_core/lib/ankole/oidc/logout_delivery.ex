@@ -2,7 +2,7 @@ defmodule Ankole.OIDC.LogoutDelivery do
   @moduledoc false
   use Ankole.Ash.Resource,
     tenancy: :tenant,
-    domain: Ankole.OIDC.Domain,
+    domain: Ankole.OIDC,
     extensions: [AshStateMachine]
 
   @undelivered_states [:pending, :delivering, :failed]
@@ -49,6 +49,14 @@ defmodule Ankole.OIDC.LogoutDelivery do
     identity(:session, [:session_id], all_tenants?: true)
   end
 
+  relationships do
+    belongs_to :session, Ankole.OIDC.Session do
+      source_attribute(:session_id)
+      define_attribute?(false)
+      attribute_type(Ankole.Ash.Types.UUIDv7)
+    end
+  end
+
   state_machine do
     state_attribute(:status)
     initial_states([:pending])
@@ -66,17 +74,22 @@ defmodule Ankole.OIDC.LogoutDelivery do
   actions do
     defaults([:read])
 
-    create :enqueue_in_tx do
-      accept([:session_id, :endpoint, :deadline, :next_attempt_at])
-      transaction?(false)
+    read :lookup_across_tenants do
+      multitenancy(:allow_global)
     end
 
-    atomic_in_tx_update :restart_in_tx do
+    create :enqueue_in_tx do
+      accept([:session_id, :endpoint, :deadline, :next_attempt_at])
+    end
+
+    update :restart_in_tx do
+      require_atomic?(true)
       accept([:deadline, :next_attempt_at])
       change(transition_state(:pending))
     end
 
-    atomic_in_tx_update :claim_in_tx do
+    update :claim_in_tx do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
       change(transition_state(:delivering))
@@ -84,13 +97,15 @@ defmodule Ankole.OIDC.LogoutDelivery do
       change(set_attribute(:last_attempt_at, arg(:at)))
     end
 
-    atomic_in_tx_update :exhaust_in_tx do
+    update :exhaust_in_tx do
+      require_atomic?(true)
       accept([])
       change(transition_state(:failed))
       change(set_attribute(:next_attempt_at, nil))
     end
 
-    atomic_in_tx_update :acknowledge_in_tx do
+    update :acknowledge_in_tx do
+      require_atomic?(true)
       accept([])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
       change(filter(expr(status != :delivered)))
@@ -101,12 +116,30 @@ defmodule Ankole.OIDC.LogoutDelivery do
       change(set_attribute(:updated_at, arg(:at)))
     end
 
-    atomic_in_tx_update :reschedule_in_tx do
+    update :reschedule_in_tx do
+      require_atomic?(true)
       accept([:next_attempt_at, :last_error])
       argument(:at, :utc_datetime_usec, allow_nil?: false)
       change(filter(expr(status != :delivered)))
       change(transition_state(:pending))
       change(set_attribute(:updated_at, arg(:at)))
+    end
+
+    action :retry, :struct do
+      constraints(instance_of: __MODULE__)
+      argument(:id, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.OIDC.Logout.retry_in_tx(args.id))
+      end)
+    end
+
+    action :claim, :term do
+      argument(:id, :term)
+
+      run(fn %{arguments: args}, _context ->
+        Ankole.Errors.wrap(Ankole.OIDC.Logout.claim_in_tx(args.id))
+      end)
     end
   end
 

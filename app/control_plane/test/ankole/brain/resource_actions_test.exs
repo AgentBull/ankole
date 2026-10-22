@@ -2,7 +2,7 @@ defmodule Ankole.Brain.ResourceActionsTest do
   use Ankole.DataCase, async: true
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.Brain.{Claims, Objects, SchemaPacks}
+  alias Ankole.Brain.{Claims, SchemaPacks}
   alias Ankole.Brain.Schemas.{SchemaPack, SchemaType, TakeDomainAssignment}
 
   setup do
@@ -12,10 +12,13 @@ defmodule Ankole.Brain.ResourceActionsTest do
 
   test "content and source actions fence stale snapshots and ownership at the database" do
     {:ok, object} =
-      Objects.create_object(%{slug: "notes/action-guard", type: "note", title: "Guard"}, :system)
+      Ankole.Brain.create_object(
+        %{slug: "notes/action-guard", type: "note", title: "Guard"},
+        :system
+      )
 
     {:ok, edited} =
-      Objects.update_object(
+      Ankole.Brain.update_object(
         object.slug,
         %{body: "Current", expected_content_hash: object.content_hash},
         :system
@@ -42,7 +45,7 @@ defmodule Ankole.Brain.ResourceActionsTest do
                Ankole.Ash.update(object, :project, %{source_id: source.id, body: "Take over"})
              end)
 
-    {:ok, archived} = Ankole.Brain.Sources.archive(source.id)
+    {:ok, archived} = Ankole.Brain.archive_source(source.id)
 
     assert {:error, %Ash.Error.Invalid{errors: [%Ankole.Errors.Invalid.Stale{}]}} =
              Ankole.Ash.update(source, :record_revision, %{upstream_revision: "Too late"})
@@ -265,7 +268,7 @@ defmodule Ankole.Brain.ResourceActionsTest do
     human = human_fixture().principal
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "notes/" <> Ankole.Ecto.UUIDv7.autogenerate(), type: "note", title: "Timeline"},
         human.uid
       )
@@ -283,13 +286,13 @@ defmodule Ankole.Brain.ResourceActionsTest do
       provenance: "test"
     }
 
-    {:ok, %{claim: a}} = Claims.write_fact(attrs, human.uid, embed: false, dedup: false)
+    {:ok, %{claim: a}} =
+      Ankole.Brain.write_fact(attrs, human.uid, %{options: [embed: false, dedup: false]})
 
     {:ok, %{claim: b}} =
-      Claims.write_fact(%{attrs | claim: "Delivery is in Q4"}, human.uid,
-        embed: false,
-        dedup: false
-      )
+      Ankole.Brain.write_fact(%{attrs | claim: "Delivery is in Q4"}, human.uid, %{
+        options: [embed: false, dedup: false]
+      })
 
     {a, b}
   end
@@ -298,7 +301,7 @@ defmodule Ankole.Brain.ResourceActionsTest do
     human = human_fixture().principal
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "notes/" <> Ankole.Ecto.UUIDv7.autogenerate(), type: "note", title: "Assignment"},
         human.uid
       )

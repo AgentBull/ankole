@@ -1,14 +1,14 @@
 defmodule Ankole.Brain.ClaimActionsTest do
   use Ankole.DataCase, async: true
 
-  alias Ankole.Brain.{Claims, Objects, SchemaPacks}
+  alias Ankole.Brain.{Claims, SchemaPacks}
   alias Ankole.Brain.Schemas.Claim
 
   setup do
     {:ok, _} = SchemaPacks.install_packs([])
 
     {:ok, object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: "notes/claim-actions", type: "note", title: "Claims"},
         :system
       )
@@ -130,7 +130,10 @@ defmodule Ankole.Brain.ClaimActionsTest do
   test "late failure cannot erase a successfully rebuilt vector", %{object: object} do
     original = take!(object)
     vector = Pgvector.new([1.0 | List.duplicate(0.0, 4095)])
-    assert {:ok, :embedded} = Claims.attach_embedding(original, vector, "current-model")
+
+    assert {:ok, :embedded} =
+             Ankole.Brain.attach_claim_embedding(original, vector, "current-model")
+
     embedded = Repo.get!(Claim, original.id)
 
     assert {:ok, :stale} =
@@ -162,7 +165,9 @@ defmodule Ankole.Brain.ClaimActionsTest do
 
   defp fact!(object, overrides \\ %{}) do
     {:ok, %{claim: claim}} =
-      Claims.write_fact(Map.merge(fact_attrs(object), overrides), :system, embed: false)
+      Ankole.Brain.write_fact(Map.merge(fact_attrs(object), overrides), :system, %{
+        options: [embed: false]
+      })
 
     claim
   end

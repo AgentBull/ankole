@@ -2,9 +2,7 @@ defmodule Ankole.Brain.PatternsTest do
   use Ankole.AIGatewayCase
 
   alias Ankole.AppConfigure
-  alias Ankole.Brain.Claims
   alias Ankole.Brain.Markdoc
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.Patterns
   alias Ankole.Brain.Recall
   alias Ankole.Brain.SchemaPacks
@@ -47,7 +45,7 @@ defmodule Ankole.Brain.PatternsTest do
         slug = "projects/pattern-#{index}"
 
         {:ok, _object} =
-          Objects.create_object(
+          Ankole.Brain.create_object(
             %{slug: slug, type: "project", title: "Project #{index}"},
             :system
           )
@@ -141,7 +139,7 @@ defmodule Ankole.Brain.PatternsTest do
       "analysis/patterns/" <> Ankole.Kernel.xxh3_128_hex(context.scope) <> "/existing-note"
 
     {:ok, note} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{slug: conflict_slug, type: "note", title: "Existing note", body: "Keep this note."},
         :system
       )
@@ -211,7 +209,7 @@ defmodule Ankole.Brain.PatternsTest do
 
   defp write_fact!(slug, text, scope, writer) do
     assert {:ok, _result} =
-             Claims.write_fact(
+             Ankole.Brain.write_fact(
                %{
                  object_slug: slug,
                  claim: text,

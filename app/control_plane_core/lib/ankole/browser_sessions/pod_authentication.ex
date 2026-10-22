@@ -3,7 +3,7 @@ defmodule Ankole.BrowserSessions.PodAuthentication do
   use Ankole.Ash.Resource,
     tenancy: :tenant,
     tenant_in_primary_key: true,
-    domain: Ankole.BrowserSessions.Domain
+    domain: Ankole.BrowserSessions
 
   postgres do
     table("browser_pod_authentications")
@@ -31,15 +31,17 @@ defmodule Ankole.BrowserSessions.PodAuthentication do
   actions do
     defaults([:read])
 
+    read :lookup_across_tenants do
+      multitenancy(:allow_global)
+    end
+
     create :record_in_tx do
       accept([:authentication_id, :principal_uid, :access_version])
-      transaction?(false)
       upsert?(true)
       upsert_fields([:principal_uid, :access_version, :updated_at])
     end
 
     destroy :remove_in_tx do
-      transaction?(false)
       require_atomic?(true)
     end
   end

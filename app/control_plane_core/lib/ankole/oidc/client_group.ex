@@ -1,6 +1,6 @@
 defmodule Ankole.OIDC.ClientGroup do
   @moduledoc false
-  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC.Domain
+  use Ankole.Ash.Resource, tenancy: :tenant, domain: Ankole.OIDC
 
   postgres do
     table("oidc_client_groups")
@@ -34,11 +34,9 @@ defmodule Ankole.OIDC.ClientGroup do
 
     create :link_in_tx do
       accept([:client_id, :group_id])
-      transaction?(false)
     end
 
     destroy :unlink_in_tx do
-      transaction?(false)
       require_atomic?(true)
     end
   end

@@ -18,16 +18,14 @@ defmodule Ankole.OIDC.RPLogout do
     with :ok <- validate_hint(request, client),
          {:ok, _} <- confirm_redirect(request, client),
          true <- is_nil(request.state) or is_binary(request.state) do
-      Repo.transact(fn _repo ->
-        Ankole.Ash.create(LogoutRequest, :prepare_in_tx, %{
-          browser_id: browser.id,
-          browser_revision: browser.revision,
-          client_id: if(client, do: client.id),
-          redirect_uri: request.post_logout_redirect_uri,
-          state: request.state,
-          expires_at: DateTime.add(DateTime.utc_now(), 10 * 60)
-        })
-      end)
+      Ankole.Ash.create(LogoutRequest, :prepare_in_tx, %{
+        browser_id: browser.id,
+        browser_revision: browser.revision,
+        client_id: if(client, do: client.id),
+        redirect_uri: request.post_logout_redirect_uri,
+        state: request.state,
+        expires_at: DateTime.add(DateTime.utc_now(), 10 * 60)
+      })
     else
       false -> {:error, :invalid_logout_request}
       error -> error
@@ -60,32 +58,33 @@ defmodule Ankole.OIDC.RPLogout do
   def confirm(ref, id) do
     with {:ok, request} <- confirmation(ref, id) do
       Repo.with_tenant(request.tenant_id, fn ->
-        Repo.transact(fn _repo ->
-          with {:ok, request} <- confirmation(ref, id),
-               {:ok, client} <- current_client(request.client_id),
-               {:ok, redirect_uri} <-
-                 confirm_redirect(
-                   %Attesto.EndSession{
-                     client_id: request.client_id,
-                     post_logout_redirect_uri: request.redirect_uri,
-                     state: request.state
-                   },
-                   client
-                 ),
-               {:ok, browser} <- BrowserSessions.logout(ref, request.browser_revision),
-               {:ok, request} <- Ankole.Ash.update(request, :confirm_in_tx, %{}) do
-            {:ok, %{request: request, browser: browser, redirect_uri: redirect_uri}}
-          end
-        end)
+        Ankole.Ash.run_action(LogoutRequest, :confirm, %{browser_ref: ref, id: id})
       end)
+    end
+  end
+
+  @doc false
+  def confirm_in_tx(ref, id) do
+    with {:ok, request} <- confirmation(ref, id),
+         {:ok, client} <- current_client(request.client_id),
+         {:ok, redirect_uri} <-
+           confirm_redirect(
+             %Attesto.EndSession{
+               client_id: request.client_id,
+               post_logout_redirect_uri: request.redirect_uri,
+               state: request.state
+             },
+             client
+           ),
+         {:ok, browser} <- BrowserSessions.logout_in_tx(ref, request.browser_revision),
+         {:ok, request} <- Ankole.Ash.update(request, :confirm_in_tx, %{}) do
+      {:ok, %{request: request, browser: browser, redirect_uri: redirect_uri}}
     end
   end
 
   def cancel(ref, id) do
     with {:ok, request} <- confirmation(ref, id) do
-      Repo.with_tenant(request.tenant_id, fn ->
-        Repo.transact(fn _repo -> Ankole.Ash.destroy(request, :cancel_in_tx) end)
-      end)
+      Repo.with_tenant(request.tenant_id, fn -> Ankole.Ash.destroy(request, :cancel_in_tx) end)
     end
   end
 

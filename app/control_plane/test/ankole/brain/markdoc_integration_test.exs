@@ -3,9 +3,7 @@ defmodule Ankole.Brain.MarkdocIntegrationTest do
 
   import Ankole.PrincipalsFixtures
 
-  alias Ankole.Brain.Chunks
   alias Ankole.Brain.GetPage
-  alias Ankole.Brain.Objects
   alias Ankole.Brain.SchemaPacks
   alias Ankole.Brain.Schemas.Chunk
   alias Ankole.Brain.Schemas.Object
@@ -22,24 +20,28 @@ defmodule Ankole.Brain.MarkdocIntegrationTest do
     body = leaking_body(context.owner.uid)
 
     assert {:error, :unclosed_audience_tag} =
-             Objects.create_object(
-               %{slug: "notes/rejected-markdoc", type: "note", title: "Rejected", body: body},
-               context.owner.uid
+             Ankole.Errors.reason(
+               Ankole.Brain.create_object(
+                 %{slug: "notes/rejected-markdoc", type: "note", title: "Rejected", body: body},
+                 context.owner.uid
+               )
              )
 
     refute Repo.get_by(Object, slug: "notes/rejected-markdoc")
 
     assert {:ok, editable} =
-             Objects.create_object(
+             Ankole.Brain.create_object(
                %{slug: "notes/editable-markdoc", type: "note", title: "Editable", body: "v1"},
                context.owner.uid
              )
 
     assert {:error, :unclosed_audience_tag} =
-             Objects.update_object(
-               editable.slug,
-               %{body: body, expected_content_hash: editable.content_hash},
-               context.owner.uid
+             Ankole.Errors.reason(
+               Ankole.Brain.update_object(
+                 editable.slug,
+                 %{body: body, expected_content_hash: editable.content_hash},
+                 context.owner.uid
+               )
              )
 
     assert Repo.get_by!(Object, slug: editable.slug).body == "v1"
@@ -65,7 +67,8 @@ defmodule Ankole.Brain.MarkdocIntegrationTest do
       })
       |> Repo.insert!()
 
-    assert {:error, :unclosed_audience_tag} = Chunks.reconcile(corrupt)
+    assert {:error, :unclosed_audience_tag} =
+             Ankole.Errors.reason(Ankole.Brain.reconcile_chunks(corrupt))
 
     assert Repo.aggregate(from(chunk in Chunk, where: chunk.object_id == ^corrupt.id), :count) ==
              0

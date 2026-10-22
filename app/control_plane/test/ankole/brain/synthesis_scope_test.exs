@@ -46,7 +46,7 @@ defmodule Ankole.Brain.SynthesisScopeTest do
     %{principal: bob} = human_fixture()
 
     {:ok, _object} =
-      Objects.create_object(
+      Ankole.Brain.create_object(
         %{
           slug: "companies/acme",
           type: "company",
@@ -139,7 +139,7 @@ defmodule Ankole.Brain.SynthesisScopeTest do
 
   defp write_fact!(agent, claim, audience_scope) do
     {:ok, %{claim: written}} =
-      Claims.write_fact(
+      Ankole.Brain.write_fact(
         %{
           object_slug: "companies/acme",
           claim: claim,
