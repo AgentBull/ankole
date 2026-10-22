@@ -1,5 +1,7 @@
-defmodule Ankole.Repo.Migrations.ReplaceOidcProtocolStorage do
+defmodule Ankole.Repo.Migrations.RotateOidcCredentialStorage do
   use Ecto.Migration
+
+  @credential_tables [:oidc_authorization_codes, :oidc_refresh_tokens]
 
   def up do
     # Authorization challenges were one-way hashes. Only these short-lived
@@ -45,11 +47,7 @@ defmodule Ankole.Repo.Migrations.ReplaceOidcProtocolStorage do
     create(index(:oidc_refresh_token_families, [:session_id]))
 
     alter table(:oidc_refresh_tokens) do
-      add(
-        :family_id,
-        references(:oidc_refresh_token_families, type: :text, on_delete: :delete_all)
-      )
-
+      add(:family_id, :text)
       add(:generation, :integer)
       add(:expires_at, :utc_datetime_usec)
       add(:consumed_at, :utc_datetime_usec)
@@ -58,6 +56,8 @@ defmodule Ankole.Repo.Migrations.ReplaceOidcProtocolStorage do
       add(:context, :map)
     end
 
+    # Each existing refresh token starts its own family at generation 0, so
+    # refresh tokens that are in use continue to rotate after the upgrade.
     execute("""
     INSERT INTO oidc_refresh_token_families (id, tenant_id, session_id, family_expires_at)
     SELECT digest, tenant_id, session_id, absolute_expires_at FROM oidc_refresh_tokens
@@ -111,9 +111,84 @@ defmodule Ankole.Repo.Migrations.ReplaceOidcProtocolStorage do
              AND context->'scope' = to_jsonb(string_to_array(scope, ' '))) IS TRUE
              """
            )
+
+    constrain_session_facts()
+    bind_sessions_to_authentication_browsers()
+    bind_credentials_to_sessions()
   end
 
   def down do
     raise "OIDC credential rotation cannot be rolled back"
+  end
+
+  defp constrain_session_facts do
+    create constraint(:oidc_sessions, :oidc_sessions_access_version_positive,
+             check: "access_version > 0"
+           )
+
+    create constraint(:oidc_sessions, :oidc_sessions_authentication_revision_positive,
+             check: "authentication_revision IS NULL OR authentication_revision > 0"
+           )
+
+    create constraint(:oidc_logout_requests, :oidc_logout_requests_browser_revision_nonnegative,
+             check: "browser_revision >= 0"
+           )
+
+    create constraint(:oidc_logout_deliveries, :oidc_logout_deliveries_attempt_count_nonnegative,
+             check: "attempt_count >= 0"
+           )
+  end
+
+  defp bind_sessions_to_authentication_browsers do
+    create unique_index(:browser_authentications, [:browser_id, :id])
+    execute("ALTER TABLE oidc_sessions DROP CONSTRAINT oidc_sessions_authentication_id_fkey")
+
+    execute("""
+    ALTER TABLE oidc_sessions ADD CONSTRAINT oidc_sessions_authentication_id_fkey
+      FOREIGN KEY (browser_id, authentication_id)
+      REFERENCES browser_authentications (browser_id, id)
+      ON DELETE SET NULL (authentication_id)
+    """)
+  end
+
+  # A credential and its family belong to the session, client, and principal
+  # that issued them. The tenant foreign key migration does not change these keys.
+  defp bind_credentials_to_sessions do
+    create(
+      unique_index(:oidc_sessions, [:tenant_id, :client_id, :principal_uid, :id],
+        name: :oidc_sessions_credential_binding_index
+      )
+    )
+
+    create(
+      unique_index(:oidc_refresh_token_families, [:tenant_id, :session_id, :id],
+        name: :oidc_refresh_token_families_session_binding_index
+      )
+    )
+
+    for table <- @credential_tables do
+      execute("ALTER TABLE #{table} DROP CONSTRAINT #{table}_session_id_fkey")
+
+      execute("""
+      ALTER TABLE #{table} ADD CONSTRAINT #{table}_session_id_fkey
+        FOREIGN KEY (tenant_id, client_id, principal_uid, session_id)
+        REFERENCES oidc_sessions (tenant_id, client_id, principal_uid, id)
+        ON DELETE CASCADE
+      """)
+    end
+
+    execute("""
+    ALTER TABLE oidc_refresh_tokens ADD CONSTRAINT oidc_refresh_tokens_family_id_fkey
+      FOREIGN KEY (tenant_id, session_id, family_id)
+      REFERENCES oidc_refresh_token_families (tenant_id, session_id, id)
+      ON DELETE CASCADE
+    """)
+
+    execute("""
+    ALTER TABLE oidc_authorization_codes ADD CONSTRAINT oidc_authorization_codes_family_id_fkey
+      FOREIGN KEY (tenant_id, session_id, family_id)
+      REFERENCES oidc_refresh_token_families (tenant_id, session_id, id)
+      ON DELETE SET NULL (family_id)
+    """)
   end
 end

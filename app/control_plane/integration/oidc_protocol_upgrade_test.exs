@@ -3,7 +3,7 @@ defmodule Ankole.OIDCProtocolUpgradeTest do
   alias Ecto.Adapters.SQL
   alias Ankole.OIDC.{RefreshStore, RefreshToken, RefreshTokenFamily}
   @tenant "019a2b00-0000-7000-8000-000000000001"
-  @migration 20_261_021_131_000
+  @migration 20_261_023_100_200
   @migrations Path.expand("../priv/repo/migrations", __DIR__)
   @moduletag timeout: 180_000
 
