@@ -116,18 +116,24 @@ defmodule Ankole.AgentWorkers.Providers.Provider do
       argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:attrs, :map, allow_nil?: false, sensitive?: true)
       after_commit({Providers, :reconcile_workers})
-      run(fn input, _context -> Errors.wrap(Providers.configure_in_tx(input.arguments)) end)
+
+      run(fn %{arguments: arguments}, _context ->
+        Errors.wrap(Providers.configure_in_tx(Repo, arguments.provider_id, arguments.attrs))
+      end)
     end
 
     action :delete_provider, :struct do
       constraints(instance_of: __MODULE__)
       argument(:provider_id, :string, allow_nil?: false, constraints: [trim?: false])
-      run(fn input, _context -> Errors.wrap(Providers.delete_in_tx(input.arguments)) end)
+
+      run(fn input, _context ->
+        Errors.wrap(Providers.delete_in_tx(Repo, input.arguments.provider_id))
+      end)
     end
 
     action :import_seed do
       argument(:path, :string, constraints: [trim?: false])
-      run(fn input, _context -> Errors.wrap(Seed.import_in_tx(input.arguments.path)) end)
+      run(fn input, _context -> Errors.wrap(Seed.import_in_tx(Repo, input.arguments.path)) end)
     end
   end
 

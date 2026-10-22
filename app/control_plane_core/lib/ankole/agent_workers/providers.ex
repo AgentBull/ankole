@@ -172,7 +172,7 @@ defmodule Ankole.AgentWorkers.Providers do
 
   def create(attrs), do: Errors.reason(AgentWorkers.add_provider(attrs))
 
-  @doc false
+  @doc "Creates a provider in the caller's transaction (the composition step of `create/1`)."
   def create_in_tx(repo, attrs) do
     with {:ok, input} <- action_input(attrs) do
       changeset = Ankole.Ash.for_create(Provider, :create, input)
@@ -185,9 +185,9 @@ defmodule Ankole.AgentWorkers.Providers do
   def update(provider_id, attrs),
     do: Errors.reason(AgentWorkers.configure_provider(provider_id, attrs))
 
-  @doc false
-  def configure_in_tx(%{provider_id: provider_id, attrs: attrs}) do
-    lock_registry(Repo, :exclusive)
+  @doc "Changes a provider in the caller's transaction (the composition step of `update/2`)."
+  def configure_in_tx(repo, provider_id, attrs) do
+    lock_registry(repo, :exclusive)
 
     with %Provider{} = provider <- lock_provider(provider_id),
          {:ok, input} <- action_input(attrs),
@@ -208,8 +208,8 @@ defmodule Ankole.AgentWorkers.Providers do
 
   def delete(provider_id), do: Errors.reason(AgentWorkers.delete_provider(provider_id))
 
-  @doc false
-  def delete_in_tx(%{provider_id: provider_id}) do
+  @doc "Deletes an unassigned provider in the caller's transaction."
+  def delete_in_tx(_repo, provider_id) do
     case lock_provider(provider_id) do
       nil ->
         {:error, :worker_provider_not_found}
@@ -225,10 +225,10 @@ defmodule Ankole.AgentWorkers.Providers do
   def assign(agent_uid, provider_id),
     do: Errors.reason(AgentWorkers.assign_worker_provider(agent_uid, provider_id))
 
-  @doc false
-  def assign_in_tx(%{agent_uid: agent_uid, provider_id: provider_id}) do
-    with {:ok, provider_id} <- select_in_tx(Repo, provider_id),
-         %AgentWorker{} = worker <- AgentWorkers.lock_in_tx(Repo, agent_uid) do
+  @doc "Assigns a provider to an Agent's Worker in the caller's transaction."
+  def assign_in_tx(repo, agent_uid, provider_id) do
+    with {:ok, provider_id} <- select_in_tx(repo, provider_id),
+         %AgentWorker{} = worker <- AgentWorkers.lock_in_tx(repo, agent_uid) do
       Ankole.Ash.update(worker, :assign_provider, %{provider_id: provider_id})
     else
       nil -> {:error, :agent_not_found}

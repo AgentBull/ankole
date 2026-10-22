@@ -461,7 +461,12 @@ defmodule Ankole.AgentWorkers.AgentWorker do
       argument(:agent_uid, :string, allow_nil?: false, constraints: [trim?: false])
       argument(:provider_id, :string, allow_nil?: true, constraints: [trim?: false])
       after_commit({ReconcileJob, :enqueue})
-      run(fn input, _context -> Errors.wrap(Providers.assign_in_tx(input.arguments)) end)
+
+      run(fn %{arguments: arguments}, _context ->
+        Errors.wrap(
+          Providers.assign_in_tx(Ankole.Repo, arguments.agent_uid, arguments.provider_id)
+        )
+      end)
     end
 
     action :decide_reconcile_step, :term do

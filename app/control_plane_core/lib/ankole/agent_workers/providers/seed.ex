@@ -5,7 +5,6 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
   alias Ankole.AgentWorkers.Providers
   alias Ankole.AgentWorkers.Providers.YAML
   alias Ankole.Errors
-  alias Ankole.Repo
 
   def child_spec(opts), do: %{id: __MODULE__, start: {__MODULE__, :start_link, [opts]}}
 
@@ -18,25 +17,25 @@ defmodule Ankole.AgentWorkers.Providers.Seed do
 
   def import_file(path), do: Errors.reason(AgentWorkers.import_providers(path))
 
-  @doc false
-  def import_in_tx(path) do
-    Providers.lock_registry(Repo, :exclusive)
+  @doc "Imports the seed file in the caller's transaction when no provider exists."
+  def import_in_tx(repo, path) do
+    Providers.lock_registry(repo, :exclusive)
 
     cond do
       Providers.list() != [] -> :ok
       is_nil(path) -> :ok
-      true -> import_entries(path)
+      true -> import_entries(repo, path)
     end
   end
 
-  defp import_entries(path) do
+  defp import_entries(repo, path) do
     with {:ok, text} <- File.read(path),
          {:ok, %{"providers" => entries} = data, _locations} when is_list(entries) <-
            YAML.parse(text),
          true <- Map.keys(data) == ["providers"],
          :ok <- validate_flags(entries),
-         {:ok, legacy_id} <- insert_all(Repo, entries),
-         {:ok, ^legacy_id} <- select_legacy_provider(Repo, legacy_id) do
+         {:ok, legacy_id} <- insert_all(repo, entries),
+         {:ok, ^legacy_id} <- select_legacy_provider(repo, legacy_id) do
       if legacy_id, do: AgentWorkers.assign_legacy_provider_in_tx(legacy_id), else: :ok
     else
       {:error, _reason} = error -> error
