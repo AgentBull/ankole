@@ -2631,7 +2631,7 @@ defmodule AnkoleWeb.AIGatewayControllerTest do
     assert artifact.conversation_id == conversation.id
     assert artifact.content["summary"] == %{"text" => "## Active Task\nhello from compliance"}
 
-    assert %Message{} = row = Repo.get!(Message, artifact_id)
+    assert {:ok, %Message{} = row} = Ankole.AIGateway.get_message(artifact_id)
     assert row.type == :checkpoint
     assert row.status == :complete
     assert row.previous_message_id == anchor.id
