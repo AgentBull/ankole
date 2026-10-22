@@ -28,7 +28,8 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useState, type InputHTMLAttributes } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams, useSearchParams } from 'react-router'
+import { Link, useParams } from '@tanstack/react-router'
+import { linkTarget, useSearchParams } from '../../common/router'
 import {
   ankoleWebAgentControllerShowOptions,
   ankoleWebAgentFileControllerDeleteMutation,
@@ -49,7 +50,7 @@ import { effectiveResourceSearchQuery, matchesResourceSearch } from '../state/re
  */
 export function AgentFilesPage() {
   const { t } = useTranslation()
-  const params = useParams()
+  const params = useParams({ strict: false })
   const agentUID = params.uid ?? ''
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -421,7 +422,7 @@ export function AgentFilesLink({ agentUID }: { agentUID: string }) {
         <p className="text-sm leading-6 text-muted-foreground">{t('console.agent_files.section_description')}</p>
       </div>
       <div>
-        <Link to={agentFilesPath(agentUID)} className="link text-sm">
+        <Link {...linkTarget(agentFilesPath(agentUID))} className="link text-sm">
           {t('console.agent_files.browse')}
         </Link>
       </div>

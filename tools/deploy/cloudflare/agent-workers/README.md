@@ -109,8 +109,7 @@ number of finished or rejected generations.
 Set `stopGraceSeconds` long enough for drain and backup. OOM, SIGKILL, a failed
 backup, or a forced platform stop can lose changes since the last completed
 backup. A control-plane outage beyond the adapter's six-hour keep-alive limit
-can also cause such a stop. These platform and backup paths need real-account
-validation before rollout.
+can also cause such a stop.
 
 ## Upgrade
 
@@ -138,6 +137,4 @@ bun run test
 bun run type-check
 ```
 
-Unit tests replace the Container and DirectoryBackup/R2 boundary. They do not
-prove cloud backup, restore, or platform shutdown behavior. Use
-`bunx wrangler tail ankole-agent-workers` for deployed adapter logs.
+Use `bunx wrangler tail ankole-agent-workers` to inspect deployed adapter logs.

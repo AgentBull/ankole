@@ -29,7 +29,7 @@ Codex는 Job ID와 attempt를 포함하는 `JobTurnRef`를 사용합니다. `ado
 
 ## 파일시스템 계약
 
-Agent Home은 `/workspace`의 영구 스토리지입니다. 이전 경로 `/agents/<agent_uid>`는 Home으로 연결됩니다. 경로 검증은 심볼릭 링크를 해석한 다음 Home 경계를 확인합니다. 구조는 다음과 같습니다.
+Agent Home은 `/workspace`의 영구 스토리지입니다. `/agents/<agent_uid>`는 `/workspace`를 가리키는 심볼릭 링크입니다. 경로 검증은 심볼릭 링크를 해석한 다음 Home 경계를 확인합니다. 구조는 다음과 같습니다.
 
 ```text
 /workspace/
@@ -52,7 +52,7 @@ Home은 인스턴스 삭제와 이미지 변경 후에도 유지됩니다. 재�
 
 control plane 드라이브는 첨부 파일, 게시한 파일, Skill, Automation 스크립트를 따로 저장합니다. `ankole-files`로 읽고 씁니다. Job 작업 공간과 Codex 스레드는 영구 Home에 남습니다. Turn 전에 `installed-skills/`를 드라이브와 동기화합니다.
 
-Codex Home은 `/workspace/.codex`입니다. 스레드 파일은 교체 후에도 유지되며 `/var/cache/ankole/codex`의 SQLite가 없어도 재개할 수 있습니다. Background Job은 `skill_view`로 Skill을 읽으며 Skill 루트를 작업 공간에 복사하지 않습니다.
+Codex Home은 `/workspace/.codex`입니다. 스레드 파일은 교체 후에도 유지되며 `/var/cache/ankole/codex`의 재구축 가능한 SQLite 캐시가 교체되어도 재개할 수 있습니다. Background Job은 `skill_view`로 Skill을 로드합니다.
 
 ## 진행 상황과 용량
 

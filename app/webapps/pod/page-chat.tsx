@@ -13,7 +13,7 @@ import { RiAddLine, RiCloseLine, RiExternalLinkLine, RiHistoryLine } from '@remi
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { lazy, Suspense, useEffect, useState, type RefObject } from 'react'
-import { Link } from 'react-router'
+import { Link } from '@tanstack/react-router'
 import { podLocation } from '../common/browser-context'
 import { pageConversationsQuery } from './api'
 import { ContentError } from './content-primitives'
@@ -98,7 +98,7 @@ export function PageChat({
             size="icon-sm"
             variant="ghost"
             aria-label={t('pod.page_chat.open_chat')}
-            render={<Link to={podLocation(`/conversations/${conversationID}`)} />}
+            render={<Link to={podLocation(`/conversations/${conversationID}`).pathname} />}
             nativeButton={false}>
             <RiExternalLinkLine aria-hidden />
           </Button>

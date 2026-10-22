@@ -24,7 +24,8 @@ import type { TFunction } from 'i18next'
 import i18n from '../common/i18n'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
+import { Link } from '@tanstack/react-router'
+import { linkTarget } from '../common/router'
 import { ankoleWebConsoleReadinessControllerShowOptions } from './api/generated/@tanstack/react-query.gen'
 import type { ConsoleReadinessResponse } from './api/generated/types.gen'
 
@@ -263,7 +264,7 @@ function ReadinessRow({
   return (
     <li>
       <Link
-        to={to}
+        {...linkTarget(to)}
         onClick={onNavigate}
         className={cn(
           'flex min-h-12 gap-2.5 px-4 hover:bg-muted focus-visible:bg-muted focus-visible:-outline-offset-2',

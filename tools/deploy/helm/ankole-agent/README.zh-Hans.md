@@ -7,9 +7,9 @@
 PostgreSQL 18 镜像。该镜像已包含 `pg_search` 和 `vector`。
 
 站点是一套完整部署，可以包含多个租户。各租户拥有独立的人员、Agent、Brain 和外部
-平台连接；站点管理员管理共享的提供商与基础设施。管理员控制台默认位于
-`/site-admin-console`；本次升级后 `/console` 返回 404。需要其他路径时，设置
-Helm values 中的 `controlPlane.siteAdminConsolePath`，并将路径保存在运维配置中。普通用户通过自己的
+平台连接；站点管理员管理共享的提供商与基础设施。站点管理控制台默认位于
+`/site-admin-console`。需要其他绝对路径时，设置
+Helm values 中的 `controlPlane.siteAdminConsolePath`，并将路径保存在运维配置中。普通用户通过所属租户域名或
 OIDC 应用登录，不使用站点管理控制台。
 
 ## 前置条件
@@ -130,7 +130,10 @@ Ecto migration。迁移成功后，控制面才会启动。
 ## 使用外部 PostgreSQL 安装
 
 外部数据库必须是 PostgreSQL 18 或更高版本。它必须 preload `pg_search`，并且
-应用数据库 owner 必须能使用 `pg_search` 和 `vector`。
+应用数据库 owner 必须能使用 `pg_search` 和 `vector`。已安装的扩展与已加载的库版本必须符合
+[Brain 版本契约](../../../../docs/design-docs/BrainV3.md#retrieval-index-recovery)。
+升级已有安装（包括内置 PostgreSQL）时，请先停止控制面，按
+[数据库镜像升级说明](../../../devkit/postgres-for-ankole/README.md)更新扩展后再部署新 Pod。
 
 安装前，在 `DATABASE_URL` 实际指向的服务器上执行：
 
@@ -201,7 +204,7 @@ Agent、聊天渠道绑定和 WorkerEnv 密钥。不要把模型提供商的 API
 
 ## 镜像策略和升级
 
-只支持从 v0.70.0 或更高版本直接升级到本版本。不支持从更早的版本升级。
+只支持从 v0.70.0 或更高版本直接升级。不支持从更早的版本升级。
 
 默认固定控制面 `2.0.0-alpha.5` 和 `values.yaml` 中的 PostgreSQL digest。
 这是预发布版本。请使用同一发布版本的部署文件和镜像；`main-latest` 可能指向
@@ -244,7 +247,7 @@ helm upgrade ankole ./tools/deploy/helm/ankole-agent \
 `worker.agents.persistence.existingClaim` 指定旧 PVC。
 
 旧 Worker 以 root 运行，每个旧 Agent Home 的模式是 0700。新 Worker 的命令、
-Codex、MCP、浏览器和 Automation 以 uid 1000 运行；持有凭证的 Worker 仍以 root 运行。
+Codex、MCP、浏览器和 Automation 以 uid 1000 运行，持有凭证的 Worker 监督进程以 root 运行。
 一次性云盘导入以 uid 10001 读取旧文件。停止全部旧写者后，按存储类型准备旧 PVC：
 
 - **Pod 里的 root 在文件上就是 root**，例如块存储、本地卷，以及以
@@ -279,12 +282,12 @@ kubectl -n ankole exec deployment/ankole-control-plane -c control-plane -- \
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-之后去掉这个值再升级一次。导入会复制每个 Agent 的已安装 Skill 和 Automation Job
-脚本，不覆盖云盘已有文件，并报告跳过或无法读取的文件。用户文件、会话文件和 Job
-工作区留在 Agent Home。
+之后去掉这个值再升级一次。导入会复制每个 Agent 的已安装 Skill、Automation Job
+脚本和待发送的旧版附件字节，不覆盖云盘已有文件，并报告跳过或无法读取的文件。用户文件、会话文件和 Job
+工作区留在 Agent Home。删除旧卷前请处理报告中列出的缺失附件（旧版发送需等待转换完成）。
 
 旧版本删除 Agent 时没有删除它的 Home。导入报告会列出这些目录（“No Agent has the
-UID of …”）。新 Agent 使用自动生成的 UID。确认这些孤立目录的文件不再需要后，
+UID of …”）。确认这些孤立目录的文件不再需要后，
 可以删除目录。经过上面的准备，这些文件属于 uid 1000，所以用 `"runAsUser":1000`
 运行准备 Pod，命令为 `["rm","-rf","/agents/<uid>"]`。
 
@@ -440,12 +443,9 @@ Pod 区分的地址访问控制面时，才在 `controlPlane.extraEnv` 中设置
 节点发现的 headless Service，把 `DNS_CLUSTER_QUERY` 设为这个 Service，把生成的
 `RELEASE_COOKIE` 存入 bootstrap Secret，并把 distribution 端口固定为
 `controlPlane.distributionPort`。只有一个副本时，这些设置不起作用。
-本版本在多个副本下也使用 `Recreate`：旧控制面 Pod 全部停止后，新 Pod 才执行数据库
+Chart 在多个副本下也使用 `Recreate`：旧控制面 Pod 全部停止后，新 Pod 才执行数据库
 迁移。Worker 在新控制面启动后重新连接。升级需要维护窗口，不支持新旧租户 schema
-并行运行。只有最低支持的直接升级起点已包含租户归属，并且新旧受支持版本的 schema、
-写入和持久任务兼容性已通过升级预演，才恢复 RollingUpdate。两个 release 数据步骤还要
-保留到这些升级起点已包含身份配置作用域与每 Agent 的 Slack/Teams 配置键，且预演后
-没有旧行；不能仅因当前站点已升级就删除。
+并行运行。
 
 `networkPolicy.enabled` 默认为 `false`。启用后，控制面策略允许控制面 Pod 访问
 EPMD 和 distribution 端口。HTTP 对所有对端保持开放，因为 ingress controller
@@ -462,15 +462,14 @@ Chart 不配置其他 Worker Provider 或远程浏览器的网络。节点元数
 负责；支持实例元数据 hop limit 的节点应将其设为 1。按英文指南的
 [Worker 出站核验步骤](README.md#verify-worker-egress-in-a-deployment)检查实际部署：
 从同一 Agent 的 `command`、本地浏览器和 Automation Job 请求受控的允许与拒绝
-测试端点，并核对网络插件和端点日志。浏览器 SSRF 拒绝、远程浏览器结果、连接被拒绝
-或超时本身都不能证明 Worker NetworkPolicy 已生效。
+测试端点，并核对网络插件和端点日志。浏览器 SSRF 拒绝、远程浏览器请求、连接被拒绝
+或超时本身都不能单独证明集群 NetworkPolicy 已生效。
 
 `files.store=fs` 只允许一个副本，副本数更多时 Chart 会拒绝渲染；需要多个副本时，
 请使用共享远程存储后端。
 
-在控制面单例进程（定时任务触发、聊天适配器连接、调度器状态加载）经验证可以安全
-运行在多个节点上之前，请把 `controlPlane.replicaCount` 保持为 1。
-迁移 init container 在每个新 Pod 中运行，使用现有数据库迁移锁。
+控制面单例进程（定时任务触发、聊天适配器连接、调度器状态加载）运行在单节点上，请将 `controlPlane.replicaCount` 设为 1。
+迁移 init container 在每个新 Pod 中运行，使用数据库迁移锁。
 
 ## Worker Pod
 

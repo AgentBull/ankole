@@ -20,7 +20,7 @@ import { RiRefreshLine, RiShieldKeyholeLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ConfigFields,
   configFieldServerError,
@@ -123,7 +123,7 @@ export function IdentityProviderEditorPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(IdentityEditorModel)
-  const params = useParams()
+  const params = useParams({ strict: false })
   const providerID = params.providerID
   const mode = providerID ? 'edit' : 'new'
   const locale = i18n.language
@@ -179,7 +179,7 @@ export function IdentityProviderEditorPage() {
       // Stay on the editor so the operator can continue to change the
       // configuration after each save.
       if (mode === 'new' && !model.dirty.value) {
-        navigate(`/identity/${encodeURIComponent(response.identity_provider.provider_id)}`)
+        void navigate({ to: `/identity/${encodeURIComponent(response.identity_provider.provider_id)}` })
       }
     }
   })

@@ -120,7 +120,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Compose は PostgreSQL を待ち、データベース移行と一度限りの Home 移行を完了してから control plane と Caddy を起動します。"
+            "Compose は PostgreSQL を待ち、データベース移行を完了してから control plane と Caddy を起動します。"
           ]
         },
         {
@@ -1289,7 +1289,7 @@ export const modelAdvanced = {
         {
           name: 'Background Agent Jobs',
           description:
-            'coding profile を使って、永続的な Background Agent Jobs を実行します。メッセージにコードが多くても、通常の会話はこの profile を選びません。'
+            '永続的な Background Agent Jobs 用の provider とモデルを選択します（内部では coding profile として保存されます）。'
         },
         {
           name: 'vision_fallback',
@@ -2437,7 +2437,7 @@ Agent が Worker を共有することはありません。同僚がそれぞれ
 
 各デプロイには PostgreSQL、ドライブのファイルストア、Agent ごとの永続 Home が必要です。既定の Kubernetes chart は共有 ReadWriteMany Home PVC と別の ReadWriteOnce キャッシュ PVC を使います。Home はバックアップが必要で、キャッシュは不要です。
 
-1 つのサイトに複数のテナントを配置できます。サイト管理者が共有基盤を管理し、各テナントは人、Agent、Brain、外部接続を持ちます。管理 Console の既定パスは `/site-admin-console` です。起動前に `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm では `controlPlane.siteAdminConsolePath`）で変更できます。旧 `/console` は 404 を返します。
+1 つのサイトに複数のテナントを配置できます。サイト管理者が共有基盤を管理し、各テナントは人、Agent、Brain、外部接続を持ちます。管理 Console の既定パスは `/site-admin-console` です。起動前に `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm では `controlPlane.siteAdminConsolePath`）で変更できます。
 
 <span id="terminology" aria-hidden="true" />
 
@@ -2455,7 +2455,7 @@ Agent が Worker を共有することはありません。同僚がそれぞれ
 | **Channel Provider** | メッセージを受信して Agent の返信を送信する 1 つのチャットアプリまたは bot 設定 | Channel Provider |
 | **Signal Routing Rule (Signal Binding)** | signal ソースから Agent にメッセージまたはイベントを送信するルール | Routing rule |
 | **LLM Provider** | モデルサービスのエンドポイント、credential、利用可能なモデルを保存する設定 | LLM Provider |
-| **Background Agent Jobs profile (内部キー: `coding`)** | Background Agent Jobs の AIGateway provider とモデルを選択します。通常の会話はコード量によってこれを選択しません | Background Agent Jobs |
+| **Background Agent Jobs profile (内部キー: `coding`)** | Background Agent Jobs の AIGateway provider とモデルを選択します | Background Agent Jobs |
 
 ## Agent にセットアップを完了させる
 
@@ -2560,7 +2560,7 @@ Slack、Teams、Lark/Feishu、DingTalk、WeCom はエンタープライズ向け
 
 ### Console で接続を完了する
 
-現在のリリースは直接接続を使用します。1 つの routing ルールが 1 つの Channel Provider を 1 つの Agent に接続します。これは、アダプタ、アプリの credential、ターゲット Agent、グループメッセージの動作を記録します。bot ごとに別のルールを作成してください。
+ルーティングルールは 1 つの Channel Provider を 1 つの Agent に接続します。これは、アダプタ、アプリの credential、ターゲット Agent、グループメッセージの動作を記録します。bot ごとに別のルールを作成してください。
 
 Console で、**Signal Routing → New routing rule** を開き、設定してください：
 

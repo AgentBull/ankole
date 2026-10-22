@@ -5,7 +5,7 @@ section: User guide
 order: 41
 ---
 
-ChatGPT 구독은 평범한 AIGateway provider입니다. 일반 대화와 Background Agent Job을 포함해 어떤 모델 프로필이든 이를 가리킬 수 있습니다. 프로필은 provider 행과 모델을 선택합니다. 행 안의 한 계정을 선택하지는 않습니다.
+ChatGPT 구독은 평범한 AIGateway provider입니다. 일반 대화와 Background Agent Job을 포함해 어떤 모델 프로필이든 이를 가리킬 수 있습니다. 프로필은 provider 행과 모델을 선택합니다.
 
 provider 행은 자격 증명 풀(credential pool)을 소유합니다. control plane은 각 계정 토큰을 암호화하고, OAuth 토큰을 갱신하며, 각 요청에 사용 가능한 풀 멤버를 선택합니다. Agent Computer는 자신의 AIGateway endpoint와 AIGateway 키만 받습니다. ChatGPT refresh token은 절대 받지 않습니다.
 
@@ -32,7 +32,7 @@ Console은 공식 디바이스 로그인을 사용할 수 있을 때 사용합�
 
 각 멤버는 라벨, 우선순위, 소스, health 상태, 요청 수, rate-limit 데이터, 모델 또는 이미지 사용량을 가집니다. 비밀 토큰은 절대 표시되지 않습니다.
 
-선택 전략을 하나 선택하세요. Console은 표시 이름을 변환하지만, API 값과 저장 값은 안정적으로 유지됩니다:
+선택 전략을 하나 선택하세요. Console은 표시 이름을 변환하며, API와 스토리지는 정규 키를 사용합니다:
 
 | Console 라벨 | API 값 | 동작 |
 | --- | --- | --- |

@@ -36,8 +36,6 @@ image also supplies `/repo/internals/skills` and records it in
 when they mount internal Skills. Lambda
 launch hooks receive only the five runtime contract keys.
 
-`DATABASE_URL` is not a Worker input.
-
 ## Filesystem contract
 
 Each Agent has persistent Home storage at `/workspace`. Docker uses a local
@@ -63,7 +61,7 @@ rebuilds its cache.
     └── temp/
 ```
 
-The old `/agents/<agent_uid>` path is a symbolic link to `/workspace`. Path
+`/agents/<agent_uid>` is a symbolic link to `/workspace`. Path
 checks resolve symbolic links before they compare a path with Agent Home.
 Relative paths resolve from the current Session Workspace or Job Workspace.
 The entry, supervisor, and credential-holding Bun Worker run as root.
@@ -96,9 +94,8 @@ files in Home. An image change keeps a configured cache volume or PVC.
 PostgreSQL is authoritative for SOUL, MISSION, DESIGN, and ConfidentialityPolicy. The uppercase files
 are read-only projections. Environment workspace and Codex Job preparation
 write them atomically from the control-plane document snapshot. A failed projection
-stops that execution. Codex uses the supplied snapshot as its instructions; it
-does not read a shared projection file as the source of those instructions. Pure
-model turns read the control-plane facts directly.
+stops that execution. Codex receives the supplied snapshot directly as its
+instructions. Pure model turns read the control-plane facts directly.
 
 Attachments, published files, Skills, and Automation scripts live in the Agent's
 drive in the control plane (`docs/design-docs/Files.md`). The Worker reads and writes the drive through
@@ -132,14 +129,13 @@ Lark credential, mcporter configuration, and browser runtime. Cleanup runs in
 the fixed browser, mcporter, then Lark order and preserves the first failure.
 
 Agent-installed Skill source is
-`/workspace/installed-skills/<skill-name>`. A Job reads Skills through
-the Ankole `skill_view` tool and keeps no Skill copy in its workspace. Database
-overlays remain semantic control-plane state.
+`/workspace/installed-skills/<skill-name>`. A Job reads Skills on demand through
+the Ankole `skill_view` tool. Database overlays are semantic control-plane state.
 
 Built-in Skills and Agent Plugins ship under `/repo/app/library`; internal
 images may also provide `/repo/internals/skills`. Plugin packages control
-enablement and packaging. Skill discovery, paths, configuration, and execution
-remain Skill semantics.
+enablement and packaging, while Skills own discovery, paths, configuration, and
+execution.
 
 ## Runtime behavior
 
@@ -164,7 +160,7 @@ plane serializes each conversation; when the Worker is full, new environment
 execution waits.
 
 The image entrypoint, `scripts/ankole-worker-entry.sh`, prepares storage and the
-old path link, then starts `tini -s -g -- ankole-worker-supervisor bun src/main.ts`
+`/agents/<agent_uid>` symbolic link, then starts `tini -s -g -- ankole-worker-supervisor bun src/main.ts`
 as root. The supervisor runs the Worker in its own session and forwards
 SIGTERM and SIGINT to it once. A Worker exit of 0 (a
 finished drain) ends the container. Any other exit ends the uid 1000 processes

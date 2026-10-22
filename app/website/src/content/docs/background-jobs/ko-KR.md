@@ -59,7 +59,7 @@ Job에 리포지토리, 문서 집합, 또는 설치된 tool이 필요한지 밝
 
 모든 Job은 AIGateway를 사용합니다. Job이 생성될 때 Ankole은 유효한 **Background Agent Jobs** 모델 프로필을 저장합니다. 그 프로필이 비어 있으면 Agent의 `heavy` 프로필이 폴백입니다.
 
-ChatGPT 구독을 사용하려면 먼저 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 만드세요. 그다음 Console에서 **Agents**를 열고 Agent의 모델 프로필에서 **Background Agent Jobs**를 찾아 해당 provider, 자격이 있는 모델, reasoning effort, Fast Mode를 선택하세요. provider의 자격 증명 풀이 계정을 선택하고 순환시킵니다. Job은 계정을 선택하지 않습니다.
+ChatGPT 구독을 사용하려면 먼저 [ChatGPT subscription provider](../chatgpt-subscription-provider/)를 만드세요. 그다음 Console에서 **Agents**를 열고 Agent의 모델 프로필에서 **Background Agent Jobs**를 찾아 해당 provider, 자격이 있는 모델, reasoning effort, Fast Mode를 선택하세요. provider의 자격 증명 풀이 계정을 선택하고 순환시킵니다.
 
 ## Console에서 Job 검사
 

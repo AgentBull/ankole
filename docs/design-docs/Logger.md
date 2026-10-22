@@ -170,12 +170,10 @@ nested fields. It recognizes the `wh_` format from `Ankole.Signals.Webhooks`,
 including percent-encoded forms. Route templates keep `:token`. Phoenix
 parameter filtering also hides the `token` parameter in debug logs.
 
-The formatter also removes old Google special names and the legacy `httpRequest` name.
-
 Do not call the standard Logger directly in control-plane or first-party Plugin
 application code.
 
-A generic library can use the standard Logger when it cannot depend on Ankole modules. The configured formatter still writes JSON for that record.
+A generic library can use the standard Logger when it cannot depend on Ankole modules. The configured formatter writes JSON for that record.
 
 ## Read Logs During Development
 

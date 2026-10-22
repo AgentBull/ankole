@@ -1,8 +1,10 @@
 import { beforeAll, describe, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
+import type { ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { loadLocale } from '../common/i18n'
-import { MemoryRouter, Route, Routes } from 'react-router'
+import { parseRouterSearch, stringifyRouterSearch } from '../common/router'
 import { RowActions, RowViewAction, SubNav } from './console-list-page'
 import { brainObjectPath } from './pages/brain/brain-nav'
 import { BrainObjectDrawer } from './pages/brain/objects'
@@ -10,18 +12,33 @@ import { BrainObjectDrawer } from './pages/brain/objects'
 // Catalogs load on demand; these assertions render translated en-US copy.
 beforeAll(() => loadLocale('en-US'))
 
+async function renderWithRouter(node: ReactNode, initialEntry = '/', path = '$') {
+  const rootRoute = createRootRoute()
+  const route = createRoute({
+    getParentRoute: () => rootRoute,
+    path,
+    component: () => node
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([route]),
+    history: createMemoryHistory({ initialEntries: [initialEntry] }),
+    parseSearch: parseRouterSearch,
+    stringifySearch: stringifyRouterSearch
+  })
+  await router.load()
+  return renderToStaticMarkup(<RouterProvider router={router} />)
+}
+
 describe('SubNav', () => {
-  test('gives sibling resource links a named navigation landmark', () => {
-    const html = renderToStaticMarkup(
-      <MemoryRouter>
-        <SubNav
-          ariaLabel="Access sections"
-          items={[
-            { to: '/access/groups', label: 'Groups' },
-            { to: '/access/principals', label: 'Principals' }
-          ]}
-        />
-      </MemoryRouter>
+  test('gives sibling resource links a named navigation landmark', async () => {
+    const html = await renderWithRouter(
+      <SubNav
+        ariaLabel="Access sections"
+        items={[
+          { to: '/access/groups', label: 'Groups' },
+          { to: '/access/principals', label: 'Principals' }
+        ]}
+      />
     )
 
     expect(html).toContain('<nav aria-label="Access sections"')
@@ -29,21 +46,15 @@ describe('SubNav', () => {
 })
 
 describe('RowActions', () => {
-  test('keeps a reversible row action beside edit in the row menu', () => {
-    const html = renderToStaticMarkup(
-      <MemoryRouter>
-        <table>
-          <tbody>
-            <tr>
-              <RowActions
-                actions={[{ label: 'Enable', onAction: () => {} }]}
-                editLabel="Edit"
-                editTo="/resources/one"
-              />
-            </tr>
-          </tbody>
-        </table>
-      </MemoryRouter>
+  test('keeps a reversible row action beside edit in the row menu', async () => {
+    const html = await renderWithRouter(
+      <table>
+        <tbody>
+          <tr>
+            <RowActions actions={[{ label: 'Enable', onAction: () => {} }]} editLabel="Edit" editTo="/resources/one" />
+          </tr>
+        </tbody>
+      </table>
     )
 
     expect(html).toContain('aria-label="More actions"')
@@ -52,17 +63,15 @@ describe('RowActions', () => {
 })
 
 describe('RowViewAction', () => {
-  test('uses the same compact trailing control for routes and local detail views', () => {
-    const linkHTML = renderToStaticMarkup(
-      <MemoryRouter>
-        <table>
-          <tbody>
-            <tr>
-              <RowViewAction label="View resource details" to="/resources/one" />
-            </tr>
-          </tbody>
-        </table>
-      </MemoryRouter>
+  test('uses the same compact trailing control for routes and local detail views', async () => {
+    const linkHTML = await renderWithRouter(
+      <table>
+        <tbody>
+          <tr>
+            <RowViewAction label="View resource details" to="/resources/one" />
+          </tr>
+        </tbody>
+      </table>
     )
     const buttonHTML = renderToStaticMarkup(
       <table>
@@ -81,18 +90,15 @@ describe('RowViewAction', () => {
 })
 
 describe('BrainObjectDrawer', () => {
-  test('accepts a decoded Unicode slug with a bare percent sign', () => {
-    const render = () =>
-      renderToStaticMarkup(
-        <QueryClientProvider client={new QueryClient()}>
-          <MemoryRouter initialEntries={[brainObjectPath('concepts/增长20%')]}>
-            <Routes>
-              <Route element={<BrainObjectDrawer />} path="/brain/objects/*" />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>
-      )
+  test('accepts a decoded Unicode slug with a bare percent sign', async () => {
+    const html = await renderWithRouter(
+      <QueryClientProvider client={new QueryClient()}>
+        <BrainObjectDrawer />
+      </QueryClientProvider>,
+      brainObjectPath('concepts/增长20%'),
+      '/brain/objects/$'
+    )
 
-    expect(render).not.toThrow()
+    expect(html).toBeDefined()
   })
 })

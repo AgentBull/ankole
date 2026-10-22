@@ -21,7 +21,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { RiKey2Line } from '@remixicon/react'
 import { useDeferredValue, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useParams } from 'react-router'
+import { Link, useParams } from '@tanstack/react-router'
 import {
   ankoleWebAuthZGroupControllerAddMemberMutation,
   ankoleWebAuthZGroupControllerIndexOptions,
@@ -152,7 +152,7 @@ export function PrincipalsListPage() {
 
 export function PrincipalDetailPage() {
   const { t } = useTranslation()
-  const params = useParams()
+  const params = useParams({ strict: false })
   const uid = params.uid ?? ''
   const principal = useQuery(ankoleWebPrincipalControllerShowOptions({ path: { uid } }))
   const localIdentity = useLocalIdentityProvider()

@@ -5,7 +5,7 @@ order: 124
 description: Control-plane task lists, decision questions, and the separate Codex Job input path.
 ---
 
-`todo` and `clarify` are control-plane tools owned by `Ankole.Sessions.Tools.Session`. The Driver validates their arguments, stores their model-visible results through AIGateway, and applies their effects to the current run. The Worker does not own these main-turn tools.
+`todo` and `clarify` are control-plane tools owned by `Ankole.Sessions.Tools.Session`. The Driver validates their arguments, stores their model-visible results through AIGateway, and applies their effects to the current run.
 
 ## Task list
 
@@ -23,6 +23,6 @@ A successful result records the normalized question and choices and ends the cur
 
 ## Background Jobs and operation
 
-Native Codex Jobs use their own input-request path. A request for human input puts a Job into `waiting_on_user` and releases its running slot; the owner's reply resumes it. This is a Job lifecycle contract, rather than execution of the main Agent's `clarify` in the Worker. See [Background Agent Jobs](../background-agent-jobs/).
+Native Codex Jobs use their own input-request path. A request for human input puts a Job into `waiting_on_user` and releases its running slot; the owner's reply resumes it. This is a Job lifecycle contract. See [Background Agent Jobs](../background-agent-jobs/).
 
 Planning state and turn termination have no Console tuning flags. Change the Agent's guidance and capabilities when its choice to plan or ask needs adjustment. See [Agents](../agents/) and [The agent loop](../agent-loop/).

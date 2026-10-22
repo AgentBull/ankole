@@ -120,7 +120,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Compose는 PostgreSQL을 기다리고 데이터베이스 마이그레이션과 일회성 Home 마이그레이션을 마친 뒤 control plane과 Caddy를 시작합니다."
+            "Compose는 PostgreSQL을 기다리고 데이터베이스 마이그레이션을 마친 뒤 control plane과 Caddy를 시작합니다."
           ]
         },
         {
@@ -1289,7 +1289,7 @@ export const modelAdvanced = {
         {
           name: 'Background Agent Jobs',
           description:
-            'coding profile로 영속적인 Background Agent Jobs를 실행합니다. 메시지에 코드가 많아도 일반 대화는 이 profile을 선택하지 않습니다.'
+            '영속적인 Background Agent Jobs용 provider와 모델을 선택합니다(coding profile로 저장됨).'
         },
         {
           name: 'vision_fallback',
@@ -2438,7 +2438,7 @@ Agent는 Worker를 공유하지 않습니다. 동료마다 자기 작업 컴퓨�
 
 각 배포에는 PostgreSQL, 드라이브 파일 저장소, Agent별 영구 Home이 필요합니다. 기본 Kubernetes chart는 공유 ReadWriteMany Home PVC와 별도 ReadWriteOnce 캐시 PVC를 사용합니다. Home은 백업이 필요하고 캐시는 필요하지 않습니다.
 
-한 사이트에 여러 테넌트를 둘 수 있습니다. 사이트 관리자는 공유 인프라를 관리하고 각 테넌트는 사용자, Agent, Brain, 외부 연결을 소유합니다. 관리 Console의 기본 경로는 `/site-admin-console`입니다. 시작 전에 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`(Helm: `controlPlane.siteAdminConsolePath`)로 변경할 수 있습니다. 기존 `/console`은 404를 반환합니다.
+한 사이트에 여러 테넌트를 둘 수 있습니다. 사이트 관리자는 공유 인프라를 관리하고 각 테넌트는 사용자, Agent, Brain, 외부 연결을 소유합니다. 관리 Console의 기본 경로는 `/site-admin-console`입니다. 시작 전에 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`(Helm: `controlPlane.siteAdminConsolePath`)로 변경할 수 있습니다.
 
 <span id="terminology" aria-hidden="true" />
 
@@ -2456,7 +2456,7 @@ Agent는 Worker를 공유하지 않습니다. 동료마다 자기 작업 컴퓨�
 | **Channel Provider** | 메시지를 받고 Agent 답변을 보내는 하나의 채팅 앱 또는 bot 설정 | Channel Provider |
 | **Signal Routing Rule (Signal Binding)** | 시그널 소스에서 Agent로 메시지나 이벤트를 보내는 규칙 | Routing rule |
 | **LLM Provider** | 모델 서비스 endpoint, 자격 증명, 사용 가능한 모델을 저장하는 설정 | LLM Provider |
-| **Background Agent Jobs profile (internal key: `coding`)** | Background Agent Jobs용 AIGateway provider와 모델을 선택합니다. 일반 대화는 코드 양으로 이것을 선택하지 않습니다 | Background Agent Jobs |
+| **Background Agent Jobs profile (internal key: `coding`)** | Background Agent Jobs용 AIGateway provider와 모델을 선택합니다 | Background Agent Jobs |
 
 ## Agent가 setup을 완료하게 하기
 
@@ -2561,7 +2561,7 @@ Slack, Teams, Lark/Feishu, DingTalk, WeCom은 엔터프라이즈 플랫폼입니
 
 ### Console에서 연결 완료
 
-현재 릴리스는 직접 연결을 사용합니다. 하나의 라우팅 규칙이 하나의 Channel Provider를 하나의 Agent에 연결합니다. 규칙은 adapter, 앱 자격 증명, 대상 Agent, 그룹 메시지 동작을 기록합니다. bot마다 별도의 규칙을 만드세요.
+라우팅 규칙은 하나의 Channel Provider를 하나의 Agent에 연결합니다. 규칙은 adapter, 앱 자격 증명, 대상 Agent, 그룹 메시지 동작을 기록합니다. bot마다 별도의 규칙을 만드세요.
 
 Console에서 **Signal Routing → New routing rule**을 열고 설정합니다:
 

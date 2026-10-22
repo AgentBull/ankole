@@ -9,7 +9,7 @@ webhook 위임을 사용하면 Agent가 Ankole 밖에서 일어나는 작업을 
 
 콜백은 wake-up 능력입니다. 요청 본문이 진실이라는 증명은 아닙니다. Agent는 사실을 보고하거나 승인된 변경을 하기 전에 현재 외부 객체를 읽습니다.
 
-GitHub repository webhook이 첫 번째로 지원되는 시나리오입니다. EventBridge와 Flink는 구현되지 않았습니다.
+GitHub repository webhook이 지원되는 시나리오입니다.
 
 ## 언제 사용하나
 

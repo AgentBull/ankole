@@ -19,7 +19,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebAgentControllerCreateMutation,
   ankoleWebAgentControllerDeleteMutation,
@@ -191,7 +191,7 @@ export function agentEditorDetailOptions(uid: string) {
 }
 
 export function AgentEditorPage() {
-  const { uid } = useParams()
+  const { uid } = useParams({ strict: false })
   return <AgentEditor key={uid ?? 'new'} uid={uid} />
 }
 
@@ -251,7 +251,7 @@ function AgentEditor({ uid }: { uid?: string }) {
       toast.success(t('console.agents.saved', { id: response.agent.handle }))
 
       // Land on the new agent's editor so model profiles can be configured next.
-      navigate(`/agents/${encodeURIComponent(response.agent.uid)}`)
+      void navigate({ to: `/agents/${encodeURIComponent(response.agent.uid)}` })
     }
   })
   const updateAgent = useMutation({

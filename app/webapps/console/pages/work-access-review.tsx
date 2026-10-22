@@ -13,7 +13,7 @@ import { useModel } from '@preact/signals-react'
 import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
+import { useNavigate } from '@tanstack/react-router'
 import {
   ankoleWebHumanAccessControllerUnresolvedWorkOptions,
   ankoleWebHumanAccessControllerClassifyWorkMutation
@@ -53,7 +53,7 @@ function WorkReviewRow({ work }: { work: HumanWorkItem }) {
     onSuccess: () => {
       toast.success(t('console.human_access.saved'))
       if (work.kind === 'cron') {
-        void navigate(`/schedules/new?agent=${encodeURIComponent(work.agent_uid)}&cron=${encodeURIComponent(work.id)}`)
+        void navigate({ to: '/schedules/new', search: { agent: work.agent_uid, cron: String(work.id) } })
       }
     },
     onError: error => toast.error(requestErrorMessage(error))

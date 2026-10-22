@@ -29,7 +29,7 @@ Codex 使用带 Job ID 与 attempt 的 `JobTurnRef`。`adopt` 请求保留同一
 
 ## 文件系统契约
 
-Agent Home 是 `/workspace` 上的持久存储。旧路径 `/agents/<agent_uid>` 链接到这里；路径检查先解析符号链接，再校验 Home 边界。目录结构如下：
+Agent Home 是 `/workspace` 上的持久存储。`/agents/<agent_uid>` 是指向 `/workspace` 的符号链接；路径检查先解析符号链接，再校验 Home 边界。目录结构如下：
 
 ```text
 /workspace/
@@ -52,7 +52,7 @@ Home 在删除实例和更换镜像后保留，重建只删除 `/var/cache/ankol
 
 控制面云盘独立保存附件、发布的文件、Skill 和 Automation 脚本。用 `ankole-files` 读写云盘；Job 工作区与 Codex 线程文件留在持久 Home。回合开始前，Worker 将 `installed-skills/` 与云盘同步。
 
-Codex Home 是 `/workspace/.codex`。线程文件跨实例保留；即使 `/var/cache/ankole/codex` 中的 SQLite 丢失，Codex 仍可从线程文件恢复。后台 Job 用 `skill_view` 加载 Skill，不复制 Skill 根目录到工作区。
+Codex Home 是 `/workspace/.codex`。线程文件跨实例保留；即使 `/var/cache/ankole/codex` 中的可重建 SQLite 缓存被替换，Codex 仍可恢复线程。后台 Job 通过 `skill_view` 加载 Skill。
 
 ## 进度与容量
 

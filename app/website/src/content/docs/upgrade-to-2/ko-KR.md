@@ -7,7 +7,7 @@ order: 313
 
 이 가이드는 1.0 또는 이후 1.x에서 2.0으로 옮기는 자체 호스팅 사이트를 위한 문서입니다. 유지보수 시간을 확보하고 이전 버전의 모든 쓰기 프로세스를 중지한 뒤 새 migration을 실행하세요. 이미지 변경으로 데이터베이스 migration을 되돌릴 수 없습니다.
 
-저장소의 Compose 업그레이드 테스트는 마지막 풀형 Worker 릴리스인 `v1.6.18-rc.1`에서 시작합니다. 더 오래된 1.x, 사용자 지정 배포, 수정한 schema는 격리 환경에서 백업으로 같은 절차를 먼저 검증하세요. 이 테스트가 모든 1.x 시작 버전을 검증한 것은 아닙니다.
+프로덕션을 업그레이드하기 전에 격리 환경에서 백업으로 이 절차를 먼저 검증하세요(특히 초기 1.x 버전, 사용자 지정 배포, 수정한 schema인 경우).
 
 ## 달라지는 구성
 
@@ -17,6 +17,7 @@ order: 313
 | Home의 Skill과 Automation 스크립트 | 제어면 드라이브의 `skills/`, `automation/` | 일회성 파일 가져오기 실행 |
 | Worker의 임시 Codex 상태 | `/workspace/.codex`에 스레드, `/var/cache/ankole/codex`에 재구축 가능한 캐시 | Home 유지와 별도 캐시 디스크 준비 |
 | 테넌트 소유권이 없는 데이터와 설정 | 기존 데이터는 `default` 테넌트, 사이트와 테넌트 설정 분리 | 원래 키로 schema와 암호화 설정 이전 |
+| `/console`의 Console | `/site-admin-console`(또는 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`)의 사이트 관리 Console | 북마크와 Ingress 규칙 업데이트 |
 
 이미 전용 Worker나 드라이브를 사용하는 1.x 사이트는 필요한 단계만 실행하세요. 기존 Home이나 드라이브를 빈 저장소로 바꾸지 마세요.
 

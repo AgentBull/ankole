@@ -5,7 +5,7 @@ section: Developer guide
 order: 109
 ---
 
-The Rust Kernel is the control plane's native library. Elixir loads it through Rustler. The Bun Worker uses its own generated protobuf codec and does not load a native kernel addon.
+The Rust Kernel is the control plane's native library. Elixir loads it through Rustler. The Bun Worker uses its own generated protobuf codec.
 
 ## Native Operations
 
@@ -26,7 +26,7 @@ RuntimeFabric structures and protocol version 10 are declared in `proto/ankole/r
 
 ## Build and Transport
 
-One Cargo feature, `nif`, serves development, tests, and production. Rustler translates BEAM values and errors at `src/nif_exports.rs`. JSON-shaped values and byte payloads retain their respective representations at this boundary.
+The `nif` Cargo feature serves the Elixir control plane, and `napi` serves the browser daemon and host tests. Rustler translates BEAM values and errors at `src/nif_exports.rs`. JSON-shaped values and byte payloads retain their respective representations at this boundary.
 
 The shared reqwest client uses HTTP/1.1 and aws-lc-rs TLS in each environment. Upstream WebSocket calls use separate connections. Provider policy and transcript commits stay in [AIGateway](../ai-gateway/).
 

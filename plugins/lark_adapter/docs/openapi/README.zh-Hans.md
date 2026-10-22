@@ -22,12 +22,9 @@
 - 可选的 `Plug` Webhook 适配器
 - WebSocket 事件推送客户端
 
-## Build
+## 构建与测试
 
-This client is part of an internal Ankole Plugin Mix project. Run `mix test`
-from the matching Plugin directory. The host configures and starts the Plugin.
-The client does not start the control plane.
-
+`FeishuOpenAPI` 内置在 `plugins/lark_adapter` Mix 项目中。可在 `plugins/lark_adapter` 目录下运行 `mix test`，或在仓库根目录运行 `bun run lark-adapter:test`。
 
 ## 快速开始
 

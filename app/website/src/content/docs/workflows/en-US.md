@@ -106,7 +106,7 @@ Every task attempt is a complete model turn and can also make paid Web calls. Co
 |---|---:|---:|
 | Concurrent tasks in one run | 8 | 32 |
 | Running Workflow tasks for one Agent | 8 | 64 |
-| Subagent calls in one run | 256 | 1,024 |
+| Subagent calls in one run | 32 | 1,024 |
 | Attempts for one subagent call | up to 3 | 3 |
 | Stored program | — | 256 KiB |
 | Stored `args` | — | 64 KiB |

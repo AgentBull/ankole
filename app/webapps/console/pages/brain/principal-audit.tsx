@@ -4,7 +4,7 @@ import { Badge, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, S
 import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link } from 'react-router'
+import { Link } from '@tanstack/react-router'
 import {
   ankoleWebBrainControllerPrincipalKnowledgeOptions,
   ankoleWebPrincipalControllerIndexOptions

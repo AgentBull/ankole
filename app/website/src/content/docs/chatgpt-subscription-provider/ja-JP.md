@@ -5,7 +5,7 @@ section: User guide
 order: 41
 ---
 
-ChatGPT サブスクリプションは通常の AIGateway provider です。通常の会話や Background Agent Jobs を含め、任意の model profile がそれを指せます。profile は provider 行と model を選択します。行内の 1 つのアカウントは選択しません。
+ChatGPT サブスクリプションは通常の AIGateway provider です。通常の会話や Background Agent Jobs を含め、任意の model profile がそれを指せます。profile は provider 行と model を選択します。
 
 provider 行は credential pool を所有します。control plane は各アカウントの token を暗号化し、OAuth token を更新し、各リクエストに使用可能な pool メンバーを選択します。Agent Computer が受け取るのは、AIGateway のエンドポイントと AIGateway key だけです。ChatGPT の refresh token は決して受け取りません。
 
@@ -32,7 +32,7 @@ Console は、利用可能な場合は公式のデバイスログインを使用
 
 各メンバーには、label、priority、source、ヘルス状態、リクエスト数、レート制限データ、model または画像使用量があります。secret token は決して表示されません。
 
-1 つの選択戦略を選びます。Console は表示名を翻訳しますが、API 値と保存値は安定したままです。
+1 つの選択戦略を選びます。Console は表示名を翻訳し、API とストレージは正規キーを使います。
 
 | Console ラベル | API 値 | 動作 |
 | --- | --- | --- |

@@ -117,13 +117,12 @@ files or reactions.
 
 Markdown conversion changes prose only. The kernel uses CommonMark source
 positions to protect the original bytes of fenced, indented, and inline code.
-The adapter converts the full text once before the existing 12,000-grapheme
-paging step. Live preview timing and message IDs keep their existing rules.
+The adapter converts the full text once before the 12,000-grapheme paging step.
 
 Bot Framework has no read-back API for this path. The adapter does not claim
 reconciliation. Delivery stops an uncertain send as `unknown`. An operator can
 requeue a visible durable reply for one more call with a possible-duplicate
-notice. Other uncertain operations remain stopped.
+notice. Other uncertain operations stay stopped.
 
 ## Import People and Groups
 

@@ -82,7 +82,7 @@ Workflow의 `agent()` 호출은 각 attempt마다 완전한 model turn 하나를
 |---|---:|---:|---|
 | `workflow.max_concurrency_per_run` | 8 | 32 | Workflow 하나가 동시에 실행할 task 수 |
 | `workflow.max_running_per_agent` | 8 | 64 | Agent 하나의 모든 Workflow에서 동시에 실행할 task 수 |
-| `workflow.max_agent_calls_per_run` | 256 | 1,024 | Workflow 하나가 만들 수 있는 총 `agent()` 호출 수 |
+| `workflow.max_agent_calls_per_run` | 32 | 1,024 | Workflow 하나가 만들 수 있는 총 `agent()` 호출 수 |
 
 Workflow 생성 요청의 `concurrency`와 `max_agent_calls`는 배포 상한을 높일 수 없고 더 낮은 값만 요청할 수 있습니다. Workflow v1은 전체 run을 위한 token 또는 금액 예산을 제공하지 않으며, 각 task는 일반 turn의 iteration, output-token, inactivity 상한을 그대로 적용받습니다. 자세한 사용 방법은 [Workflows](../workflows/)를 참조하세요.
 

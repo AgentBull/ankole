@@ -1,9 +1,9 @@
 # Agent Workers
 
 Worker providers belong to the site; Agents and their Worker rows belong to a
-tenant. Globally unique Agent UIDs remain the runtime and storage ownership keys.
+tenant. Globally unique Agent UIDs are the runtime and storage ownership keys.
 Docker and Kubernetes attach tenant labels for diagnosis; those labels do not
-replace the existing generation and ownership checks. Tenant deletion uses the
+replace the generation and ownership checks. Tenant deletion uses the
 same Agent cleanup owner to release instances, Home and cache.
 
 Each Agent has its own Worker and persistent Home at `/workspace`. The control
@@ -50,9 +50,8 @@ the map remains readable while the process is down.
 
 The `china-market-ai-providers` Plugin owns `function_compute` and its model
 providers. The `vercel-worker-provider` Plugin owns `vercel`. Each Plugin keeps
-its API client and platform helpers. The Worker image still supplies Function
-Compute bootstrap and OSS recovery programs. Provider IDs, YAML, encrypted
-credentials, generation settings, and remote storage names keep their values.
+its API client and platform helpers. The Worker image supplies Function
+Compute bootstrap and OSS recovery programs.
 
 After setup, enable the required Plugin and restart before using its kind.
 During setup, all compiled kinds are visible, but a Plugin must also be selected
@@ -75,14 +74,12 @@ guard covers setup, Plugin controls, and the Plugin configuration API. General
 Console settings show the Plugin selection as read-only.
 An inactive implementation does not cause automatic instance or storage deletion.
 
-Before upgrading an installation that uses either kind, save its required
-Plugin ID in `plugins.enabled_ids`. There is no automatic enablement migration.
-The existing configuration API permits pre-authorization before the new Plugin
-is compiled. Keep all other selected IDs. See [Plugins](Plugins.md) for the
+Save the required Plugin ID in `plugins.enabled_ids` before using a
+Plugin-owned provider kind. See [Plugins](Plugins.md) for the
 operator commands. Provider seed import starts after the Plugin cohort, so
 configuration validation can resolve Plugin kinds. Oban starts before Plugins
 because their startup can enqueue work. A recovered job can record
-`worker_provider_missing` for an unassigned legacy Worker before the seed runs.
+`worker_provider_missing` for an unassigned Worker before the seed runs.
 The seed clears that error when it assigns the provider.
 
 The database saves YAML exactly as the operator wrote it. Validation reports
@@ -161,7 +158,7 @@ all file access to uid 1000 cannot preserve root ownership. Codex receives an
 Agent-scoped AIGateway token with the `ankole.ai_gateway` audience; this token
 cannot authenticate a Worker connection.
 
-The instance remains the Agent boundary. Sessions and Jobs share Agent Home.
+The instance is the Agent boundary. Sessions and Jobs share Agent Home.
 Providers mount only this Agent's directory or volume. Storage must permit the
 root Worker to write and give new files to uid 1000, or map all file access to
 uid 1000, as an EFS access point or OSS mount does. An NFS export with root squash
@@ -210,13 +207,13 @@ an incarnation. Lifecycle times come from PostgreSQL.
 The `AgentWorker` Ash resource owns lifecycle transitions and the write
 contracts for generation, admission, demand, capacity, and provider assignment.
 Its state machine admits only the declared transition from the stored state.
-Reconciliation and admission retain their existing row-lock transactions;
-platform requests remain outside them. Disconnect and settlement derive the
+Reconciliation and admission run inside row-lock transactions;
+platform requests run outside them. Disconnect and settlement derive the
 next state from this same machine. State time uses the database clock and
-retains one continuous not-ready budget across `starting` and `stale`. Each action
+keeps one continuous not-ready budget across `starting` and `stale`. Each action
 passes its target state to the clock change. The clock compares that target with
-the stored state; a self-transition retains its time.
-PostgreSQL constraints still enforce generation credentials, connected routes,
+the stored state; a self-transition preserves its time.
+PostgreSQL constraints enforce generation credentials, connected routes,
 ready incarnation, capacity, and paired acquisition errors.
 
 ## Creation and the Single Writer
@@ -381,7 +378,7 @@ and a successful join clear both error fields. A provider update clears old
 
 The Driver requests a Worker once when the model stream first adds a Worker
 function call, using the same tool name and namespace lookup as dispatch.
-This request does not open a workspace. Dispatch remains the request point
+This request does not open a workspace. Dispatch is the request point
 for model providers that do not send that event.
 `reply_attachment` accepts only a drive path. Its declaration and execution
 belong to the control plane, so it does not request a Worker.
@@ -398,15 +395,15 @@ Agent creation sets `initial_start_pending` and queues reconciliation. The
 creation response does not wait for the provider. Reconciliation prepares
 storage and starts the computer; admission clears the initial request when
 the Worker connects. A sweep recovers pending startup after a restart or a
-lost job. Existing Agents keep their current lifecycle during an upgrade.
+lost job.
 Environment calls, Codex placement, and Automation runs renew demand after
 initial startup. Pure questions and control-plane tools do not request or
 wait for a Worker. A disabled Agent does not start; deletion clears the
 initial request and removes its instances and storage.
 
-All provider types default `idleReleaseAfter` to `15m`. An explicit `never`
-remains an operator choice. Existing saved provider YAML keeps its explicit
-value; change it in Console to use finite release. Idle release rotates the
+All provider types default `idleReleaseAfter` to `15m`. An operator can set
+`never` explicitly, or update saved provider YAML in Console to use finite
+release. Idle release rotates the
 generation only when it deletes the instance. A memory pause retains the
 generation and credential, so idle release is not an absolute credential TTL.
 
@@ -439,7 +436,7 @@ release starts. No lock is held during a platform request.
   declared absent because of that delay.
 - A drain permits work to finish within `stopGraceSeconds`. An external stop
   also enters drain. After grace the provider ends the instance; Kubernetes
-  still uses normal deletion. A Job resumes from its persistent thread file,
+  uses normal deletion. A Job resumes from its persistent thread file,
   and a pending environment call is probed by its Driver. Calls whose result
   is unknown run again only if their declaration permits a safe retry.
 
@@ -458,10 +455,10 @@ Each successful provider load in the minute sweep enqueues a site-level
 `PrepareImageJob`. Its unique key is `{provider_id, image, settings_digest}`,
 including executing jobs. It prepares the current target image, snoozes for
 15 seconds while preparation is pending, and lets Oban retry failures.
-The create path still prepares the image and storage before it allocates a
+The create path prepares the image and storage before it allocates a
 generation. Pending preparation sets `last_error_kind` to `pending` and does
 not fail the tool immediately. Background preparation removes image builds
-from the usual first-use path after deployment; completion still depends on
+from the usual first-use path after deployment; completion depends on
 the provider and queue. Kubernetes preparation does no image pull. Operators
 must pre-pull the Worker image on new Kubernetes nodes to avoid a slow first
 start.
@@ -500,9 +497,9 @@ can then start a new clock. Retries and process restarts keep the persisted
 start. A ready result does not reserve a Worker slot or admit a task.
 
 Each caller owns its work-capacity query and admission transaction. It persists
-the result on its Job or Run, retains its wakeup mechanism, and handles the
+the result on its Job or Run, uses its wakeup mechanism, and handles the
 timeout according to its task contract. Background Agent Jobs reserve a Worker
-slot under the existing row lock; Automation Jobs retain their own per-Agent
+slot under the Worker row lock; Automation Jobs enforce their per-Agent
 script limit. This rule does not apply to adoption of an active attempt or to
 environment Workspace acquisition.
 
@@ -565,7 +562,7 @@ Finished generations stay recorded so a delayed create cannot restart them
 or restore an old backup. The adapter recovers a pending destroy through its
 alarm. It keeps a six-hour inactivity timeout and renews it after a Durable
 Object restart; provider scans keep it active. Creation permits five minutes
-for a cold image; timeout still retries the same generation. The public file
+for a cold image; timeout retries the same generation. The public file
 relay requires one control-plane replica.
 
 ### Vercel
@@ -632,7 +629,7 @@ waits for that marker before returning success. This ordering makes AWS
 share this contract. When AWS reports `RUNNING`, the control plane requests
 helper deletion. Only an accepted
 DELETE permits removal of the Worker row. A failed DELETE keeps `storage_ref`
-for the existing reconciliation retry. The helper does not stop itself.
+for the reconciliation retry. The helper does not stop itself.
 
 If AWS reports `TERMINATED` before completion, reconciliation saves that helper
 ID. The next launch derives a new client token from the ID. Retries of that
@@ -663,7 +660,7 @@ The provider uses a second-generation template built from an amd64 image in
 ACR Enterprise. The template captures a root process that waits for
 `/run/ankole/contract.json`. It has no Agent identity or credential. After the
 instance reference commits, the control plane uploads the contract through
-envd. The process reads it once, removes sudo, and starts the existing command
+envd. The process reads it once, removes sudo, and starts the command
 entry, which keeps the trusted Worker as root. Model processes run as uid 1000
 with `NoNewPrivs`. Every Worker entry first
 exports the environment that the image recorded at build time, so the sudo
@@ -693,7 +690,7 @@ The amd64 Worker image includes OSSFS2 2.0.10 and FUSE3 for the custom
 template's OSS mounts. Function Compute does not install OSSFS2 in
 second-generation custom images. The image keeps `/workspace` empty because
 OSSFS2 cannot mount a nonempty directory. Build caches use a temporary mount;
-the existing entry creates runtime directories after the storage mount.
+the entry creates runtime directories after the storage mount.
 OSS mounts only the absolute path `<root>/<agent_uid>` at Home. It does not
 have full POSIX semantics. The entry first checks that uid 1000 can write Home.
 It changes Home ownership only if that check fails. A writable OSS mount can
@@ -750,7 +747,7 @@ new incarnation; Home and generation remain.
 A lost Channel connection leaves environment calls and Codex Turns running.
 The same Worker process reconnects with its incarnation and retained results.
 A Driver uses `probe` for environment calls and `adopt` for the current Job
-attempt. Stop and instance termination still cancel execution; a Session slot
+attempt. Stop and instance termination cancel execution; a Session slot
 is released only after its commands or Codex thread have ended.
 
 The `command` tool runs one foreground command. A Python 3 supervisor starts
@@ -775,7 +772,7 @@ byte path and do not use this collector or supervisor.
 
 Turn-local CLI bridges share a Worker-wide limit of 64 admitted requests. An
 incomplete request has ten seconds from connection acceptance to provide its
-newline. A full request keeps the existing operation budget; the read deadline
+newline. A full request uses the operation budget; the read deadline
 does not cancel a running handler. A request keeps its slot until both the
 handler and socket finish, including after bridge replacement. Busy and read
 timeout errors occur before dispatch and do not imply an operation ran. The
@@ -787,13 +784,13 @@ process. An event-loop gap over 30 seconds resets the disconnect timer and
 starts reconnection, so resumed memory can return through admission.
 
 Each WebSocket connection attempt has a 10-second deadline. Opening the socket
-cancels that deadline. Expiry cancels a pending handshake and uses the existing
+cancels that deadline. Expiry cancels a pending handshake and uses the
 Phoenix reconnect backoff. An explicit disconnect or process stop also cancels
 the deadline. Socket logs include the error type, close code, close reason, and
 clean-close flag when those facts are available. A handshake that never opened
 can report code `1006`, because it cannot send a close frame.
 
-## Bootstrap and Upgrade
+## Bootstrap and Seed Import
 
 Node startup facts are `ANKOLE_AGENT_COMPUTER_IMAGE`,
 `ANKOLE_WORKER_RUNTIME_FABRIC_ENDPOINT`, and `ANKOLE_WORKER_INSTALLATION`.
@@ -803,23 +800,8 @@ instance settings, and secrets are owned by PostgreSQL after import.
 belongs to provider YAML.
 
 Seed import runs only when no provider exists. It imports all providers and
-assigns legacy Agent rows in one transaction. Secret entries refer to an
+assigns any unassigned Agent rows in one transaction. Secret entries refer to an
 environment variable or mounted file. A failed import assigns no Agent.
-
-Compose upgrades run the one-time Home migration before the control plane,
-using `depends_on: service_completed_successfully`. It copies each old
-`agents_data` directory to the Agent's local volume before any empty Home can
-be created. Helm can adopt the old shared PVC after its documented permission
-change. The separate drive import copies Skills and Automation scripts;
-user files and workspaces stay in Home. See the
-[Compose guide](../../tools/deploy/docker-compose/README.md) and
-[Files import](Files.md#upgrade-from-agent-home-files).
 
 Control-plane nodes of different versions must not run together. The Worker
 image and protocol of the running revision are the replacement target.
-Legacy provider assignment ends when no `agent_workers.provider_id` is null
-and upgrades from pooled Worker releases are no longer supported. Then make
-that column NOT NULL and remove seed assignment, Console assignment, and
-the reconciliation and sweep branches for rows without a provider. The pooled
-Worker upgrade e2e pins the last pooled release, `v1.6.18-rc.1`; remove that
-pin and its upgrade path at the same time.

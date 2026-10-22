@@ -1,5 +1,13 @@
 # Changelog
 
+## Version 2.0.0-alpha.21 (2026-10-23)
+
+- Replace React Router with TanStack Router in the Console and Pod web
+  applications.
+- Preserve Agent Library edits made during a conflict reload, including when
+  that read fails. Ignore obsolete Page recovery responses so a late automatic
+  recovery cannot replace edits made after a manual reload.
+
 ## Version 2.0.0-alpha.20 (2026-10-22)
 
 - Keep queued Background Agent Jobs waiting while the Agent's Job limit is full,

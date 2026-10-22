@@ -7,7 +7,7 @@ order: 313
 
 このガイドは、1.0 または後続の 1.x から 2.0 に移行するセルフホストサイト向けです。保守時間を確保し、旧バージョンの全書き込みプロセスを停止してから新しい migration を実行します。イメージを戻してもデータベース migration は取り消せません。
 
-リポジトリの Compose アップグレードテストは、最後のプール型 Worker リリース `v1.6.18-rc.1` を起点とします。それより前の 1.x、独自デプロイ、変更済み schema は、隔離環境でバックアップを使って同じ手順を事前に検証してください。全 1.x 起点の検証を意味するテストではありません。
+本番環境をアップグレードする前に、隔離環境でバックアップを使って同じ手順を事前に検証してください（特に初期の 1.x バージョン、独自デプロイ、変更済み schema の場合）。
 
 ## 変更点
 
@@ -17,6 +17,7 @@ order: 313
 | Home 内の Skill と Automation スクリプト | control plane ドライブの `skills/` と `automation/` | 一度限りのファイルインポートを実行する |
 | Worker の一時的な Codex 状態 | スレッドは `/workspace/.codex`、再構築可能なキャッシュは `/var/cache/ankole/codex` | Home を保持し、別のキャッシュディスクを用意する |
 | tenant 所有権のないデータと設定 | 既存データは `default` tenant、サイト設定と tenant 設定を分離 | 元の鍵で schema と暗号化設定を移行する |
+| `/console` の Console | `/site-admin-console`（または `ANKOLE_SITE_ADMIN_CONSOLE_PATH`）のサイト管理 Console | ブックマークと Ingress ルールを更新する |
 
 既に専用 Worker やドライブを使う 1.x サイトでは、必要な手順だけを実行します。既存 Home やドライブを空のストレージに置き換えないでください。
 

@@ -40,9 +40,7 @@ generated UUIDv7; the database never generates a random UUID for these tables.
 Vector search uses `pgvector` `halfvec` HNSW indexes; text search uses
 `pg_search` BM25 indexes with a configurable tokenizer. Entity identity uses
 exact slugs, redirects, normalized aliases, then exact titles. Ambiguous
-matches return candidates; fuzzy titles do not establish identity. The
-historical BrainV3 migration also installs `pg_trgm`, but identity resolution
-and merge detection do not use it.
+matches return candidates; fuzzy titles do not establish identity.
 
 The tokenizer and embedding model are site settings because BM25 and HNSW
 indexes cover the shared physical tables. Rerank is a tenant setting and does
@@ -50,23 +48,21 @@ not define an index. Every query still filters by tenant.
 Schema packs and library projections are installed separately in each tenant.
 
 Installed relation names and inverse names feed the conversation extraction
-prompt. They are preferred vocabulary, not a closed set: existing and newly
-learned labels remain valid when no installed term fits.
+prompt. They are preferred vocabulary, not a closed set: other
+labels are valid when no installed term fits.
 
-The Console creates and replaces page tags through the existing Object write
+The Console creates and replaces page tags through the Object write
 contract. Tags are exact, case-sensitive strings; input trims surrounding
 whitespace, rejects blank values, and stores one row per distinct tag. An
 omitted `tags` field keeps the current set; `[]` clears it. The content hash
 covers the tag set, and each update snapshots the previous tags with the
-existing ObjectVersion author. Merge refreshes that hash after tags move.
+ObjectVersion author. Merge refreshes that hash after tags move.
 The Console draft keeps tags as an array and edits each tag in a separate
 field. Embedded line breaks and literal backslashes stay inside that tag.
-Version rollback retains its body-and-meta contract and does not restore tags.
-Historical versions have no recoverable tag history. The upgrade refreshes
-baselines for existing tagged pages, so an open draft can require a reload.
+Version rollback restores only body and meta; it does not restore tags.
 
 `ObjectVersion.snapshot` owns immutable body, metadata, tag, and author snapshots.
-It requires the object writer's existing transaction, so a failed edit cannot
+It requires the object writer's transaction, so a failed edit cannot
 leave history without the corresponding page change. `Ankole.Brain.Chunks`
 reconciles positions under the current Object row lock. Its resource actions
 create, replace, or remove projection rows; replacement clears the full vector
@@ -74,7 +70,7 @@ state. An unchanged position retains its row and vector. Embedding results use
 one atomic action that compares the input text, embedding timestamp, and model
 signature before it commits. PostgreSQL checks the complete vector state and
 rejects partial success or failure records. The shared vector type uses the
-existing Pgvector codec and preserves the native vector representation.
+Pgvector codec and preserves the native vector representation.
 
 ## Scope and Disclosure
 
@@ -112,8 +108,8 @@ The normative grammar — CommonMark plus one root-level `audience` tag plus
 `[[slug]]` wikilinks — is owned by the native kernel and specified in
 [`BrainMarkdoc.md`](BrainMarkdoc.md). `Ankole.Brain.Markdoc` delegates to that
 kernel parser without a compatibility path. A page render removes the segments
-whose scope the querier cannot reach or disclose, and a body that no longer
-parses renders empty instead of leaking unfiltered content.
+whose scope the querier cannot reach or disclose, and an unparseable body
+renders empty instead of leaking unfiltered content.
 
 ## Pages, Facts, and Takes
 
@@ -140,8 +136,8 @@ Skill discovery records cannot be forked. Removing a shipped file withdraws
 its page and preserves attached data; a returning file restores the page in
 place. Directory and file reads must complete before a set projects pages or
 withdraws missing pages. Inventory read failures preserve that set's pages
-and Source revision; other sets can still synchronize. A complete read of an
-invalid file still rejects the file and withdraws its old projection.
+and Source revision; other sets synchronize independently. A complete read of an
+invalid file rejects the file and withdraws its projection.
 
 Library writes lock the Source before the Object and check archive state
 and body ownership in the page transaction. Source archive and withdrawal
@@ -229,8 +225,8 @@ contributions. The fused score then multiplies through the ranking factors:
 - Chunks: a graph adjacency boost for pages linked to at least two hits,
   recency from the page's effective date, and salience from the page's active
   Takes (count, average weight, and the share held by people or Agents),
-  with the existing high-emotion tag boost. These factors are calculated at
-  recall time; the old salience columns are rebuildable caches.
+  with the high-emotion tag boost. These factors are calculated at
+  recall time.
 - An optional cross-encoder rerank over the fused chunk candidates when
   `brain.rerank_model` is configured; a timeout keeps the fusion order.
 
@@ -245,8 +241,8 @@ anchor, through earlier checkpoints. It reserves the fresh pack in the
 checkpoint budget and stores it outside the output, before retained user
 originals and the summary when the provider replays it.
 
-Context assembly and volunteer pointers remain best effort. An unexpected
-exception returns the existing empty result and emits one warning with the
+Context assembly and volunteer pointers are best effort. An unexpected
+exception returns an empty result and emits one warning with the
 failure class and stack locations. Logs omit exception messages and function
 arguments. The warning does not stop the Turn or change the injection budget.
 
@@ -256,7 +252,7 @@ the reader and disclosure checks before it enters the result.
 
 Read projections preserve stored text after access and disclosure checks.
 They do not remove words with an injection phrase blacklist. Skill lesson
-writes keep their separate content admission gate (see `SkillLessons.md`).
+writes use their own content admission gate (see `SkillLessons.md`).
 
 ## Tools
 
@@ -298,8 +294,8 @@ stateful Response rather than the model. `docs/design-docs/AIGateway.md`
 describes the declaration, the public items, and the injection. Request input
 stores the caller's originals. Packs and pointer lines are separate local facts;
 provider replay adds them to a copy in a fixed order. Checkpoints do not reopen
-opening injection; pointers can still refresh for new user input. Each new
-checkpoint refreshes its pack from the original task. Existing checkpoints are
+opening injection; pointers refresh for new user input. Each new
+checkpoint refreshes its pack from the original task. Stored checkpoints are
 not rewritten. A checkpoint's missing pack lasts until a later checkpoint or the
 conversation reset at 04:30.
 
@@ -362,7 +358,7 @@ Background learning writes memory without a `remember` call:
   An unset `default_audience_scope` uses `principal:<submitting Human uid>`.
   The configured default is captured in the page metadata on first learning,
   and both the original text and extracted Claims use it. Changing the Source
-  default applies to conversations not yet learned; it does not change existing
+  default applies to conversations not yet learned; it does not change stored
   audiences. Archiving fences later commits and retains stored knowledge.
   Client deletion retains the Source and its evidence. Historical requests
   without trusted Client origin are not backfilled.
@@ -401,7 +397,7 @@ one failing phase is recorded without blocking the rest:
    Each audience batch commits pages and replacement `derived_from` links
    together; citations must name supplied evidence and each body keeps the
    evidence audience. No useful pattern is a successful no-op. Generated
-   pattern pages and legacy daily digests are excluded as new evidence.
+   pattern pages are excluded as new evidence.
 3. `extract_timelines` — extracts dated events from each audience passage.
    It requires the Dreaming model and advances `timelines_extracted_at` only
    after successful extraction. A changed body remains pending.
@@ -467,10 +463,7 @@ projections, and reports drift. It reconciles body-owned wikilink and alias
 mention edges without a Dreaming model. `links_extracted_at` records this
 mechanical work independently of timeline extraction. Reconciliation removes
 only stale edges with its own body provenance and keeps manual or learned
-relations. Existing edges keep their IDs. The upgrade copies the old combined
-watermark into `timelines_extracted_at`, so completed model work is retained.
-It clears the mechanical watermark for one model-free reconciliation of existing
-bodies. Content writes advance the logical `updated_at` timestamp. A body edit
+relations. Unchanged edges keep their IDs. Content writes advance the logical `updated_at` timestamp. A body edit
 triggers both passes; a title edit also triggers timeline extraction because
 the title is part of its model input. Other field edits carry completed
 watermarks to the new timestamp. They do not complete pending work for an
@@ -523,11 +516,7 @@ unready indexes. PostgreSQL can report an index as valid even when its native
 search reader fails. Such a failure needs operator recovery; recall does not
 replace the knowledge boundary with an empty result or a different query.
 
-For a CTID assertion on an older `pg_search` version, first upgrade the
-extension and library. The upstream
-[empty mutable-segment fix](https://github.com/paradedb/paradedb/pull/6396)
-prevents an invalid CTID after index writes and transaction rollback. If the
-reader still fails on the supported version, identify the failing BM25 index
+If a BM25 index reader fails, identify the failing BM25 index
 from the query and confirm the base table is readable. In a maintenance
 window, rebuild that index in the application database:
 

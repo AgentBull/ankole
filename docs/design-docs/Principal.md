@@ -3,10 +3,10 @@
 `Ankole.Principals.Domain` owns the typed persistence actions for Principals,
 Agent and Human profiles, external identities, local credentials, access
 restrictions, audit events, and pending identity mappings. These resources use
-the existing PostgreSQL tables and constraints. The Principal UID codec and
-tenant-qualified ActorRef codec remain the identity and attribution contracts.
+the PostgreSQL tables and constraints. The Principal UID codec and
+tenant-qualified ActorRef codec are the identity and attribution contracts.
 
-The existing aggregate operations own transactions and lock order. Resource
+The aggregate operations own transactions and lock order. Resource
 actions require that transaction. Profile actions accept only profile fields;
 they cannot change identity, status, or access versions. Human revocation
 changes status and the access version in one Principal action. Audit events
@@ -51,15 +51,14 @@ ID.
 APIs remove surrounding spaces and lowercase every UID. PostgreSQL requires the
 stored value to be lowercase.
 
-New UIDs are server-generated UUIDv7 text. Existing UIDs do not change during
-upgrade. An Agent has a separate, editable `handle`, unique within its tenant,
-with this pattern:
+Principal UIDs are server-generated UUIDv7 text. An Agent has a separate,
+editable `handle`, unique within its tenant, with this pattern:
 
 ```text
 ^[a-z0-9][a-z0-9._-]{0,95}$
 ```
 
-API paths, tokens, Worker IDs and Brain page slugs continue to use the stable
+API paths, tokens, Worker IDs and Brain page slugs use the stable
 UID. The console displays the handle. New Agent requests supply `handle`, not
 `uid`. Names never establish identity.
 
@@ -95,9 +94,10 @@ The Human profile action lowercases email addresses.
 It validates mobile numbers as E.164 values through the native kernel.
 
 DingTalk, Lark, WeCom, and Slack normalize observed phone numbers through
-`Ankole.IdentityProviders.Phone.normalize_china_mobile/1` before this validation.
-That helper tries the supplied number first, then a +86 candidate for an
-11-digit number that starts with 1. Other providers keep their own input rules.
+`Ankole.IdentityProviders.Phone.normalize_china_mobile/1` before E.164
+validation. That helper tries the supplied number first, then a +86 candidate
+for an 11-digit number that starts with 1. Other providers use their own input
+rules.
 
 Unique indexes protect non-null email and mobile values.
 
@@ -169,16 +169,16 @@ and manual console mappings all write this same row.
 
 `IdentityProviders.SiteSources` declares trusted site credential authorities at
 build time. Their opaque subject IDs reuse `principal_external_identities` with
-the existing tenant, provider, external ID key. Tenant provider configuration
+the `(tenant_id, provider, external_id)` key. Tenant provider configuration
 cannot claim those source IDs. A private account ID, its email, a Principal UID,
-a Pod, and a Solid WebID remain separate identities.
+a Pod, and a Solid WebID are separate identities.
 
 A site login resolves existing links only. It cannot perform cross-tenant
 contact matching or create a Human. The explicit creation or connection owner
 writes the link. BrowserSessions records access only from a newly created Human
 or a second verified Pod authentication, with the current Human access version.
 Switching alone cannot refresh this evidence or restore a disabled member.
-Pod profile changes and Email adapter identity links retain their existing owner.
+Pod profile changes and Email adapter identity links belong to their domain owners.
 
 ### `identity_mapping_requests`
 
@@ -229,15 +229,15 @@ there; the write logs `identity_providers.directory.email_already_bound` and
 continues.
 
 `IdentityProviders.Directory.sync_users/3` owns user-stream traversal for Slack,
-Google Workspace, and Microsoft 365. Each adapter retains provider pagination,
+Google Workspace, and Microsoft 365. Each adapter owns provider pagination,
 user selection, and profile mapping. The shared loop loads the directory-group
 index once, counts successful writes, and stops on the first page or write
-error. Each user keeps its own transaction; a later failure does not undo prior
-users. WeCom retains its department traversal and user deduplication.
+error. Each user has its own transaction; a later failure does not undo prior
+users. WeCom owns its department traversal and user deduplication.
 
 If another Principal owns the supplied email or mobile number, Ankole ignores
-that field and logs `principals.platform_subject.contact_conflict`. It still
-stores the remaining identity data.
+that field and logs `principals.platform_subject.contact_conflict`. It stores
+the remaining identity data.
 
 ## Match Without Creating
 
@@ -293,6 +293,12 @@ Agent cannot change.
 `update_agent` changes mutable display and subtype fields.
 It cannot change the UID or Principal type.
 
+The Console keeps an independent draft and content hash for each Agent Library
+document. A conflict reload replaces the draft only if the operator has not
+edited it, canceled it, started another reload, or left that source. A failed
+read keeps the draft and its hash, and permits another reload. The Signal model
+checks completion; TanStack Query owns the request and cache.
+
 `HumanAccess.disable/4` records a Human restriction and revokes its credentials.
 AuthZ protects the last active human administrator.
 
@@ -309,7 +315,7 @@ Root setup finishes only after AuthZ creates a valid active human administrator.
 
 AuthZ stores groups, memberships, grants, conditions, and decisions.
 `Ankole.Principals` supplies identity, active or disabled status, and the Human
-revocation generation. AuthZ continues to own permissions.
+revocation generation. AuthZ owns permissions.
 
 Authorization fails closed for these cases:
 
@@ -319,6 +325,16 @@ Authorization fails closed for these cases:
 - Malformed resource or action input.
 
 See [AuthZ](AuthZ.md) for the decision contract.
+
+## Audit Actors
+
+The Console API projects an audit actor as an object with `tenant_id` and `uid`.
+
+Ownership is a real Principal foreign key when it controls permission or
+work authorization. Audit-only actor fields use `Ankole.ActorRef`, stored as
+`ankole:<tenant_id>:principal/<uid>`. For example, Agent `created_by` and Brain
+`author` keep the original actor's tenant when a site administrator works in
+another tenant. Removing the actor does not remove the historical reference.
 
 ## Rules
 
@@ -331,13 +347,3 @@ See [AuthZ](AuthZ.md) for the decision contract.
 - Prefer `platform_subject` when provider records refer to the same human.
 - Verify a channel identity before Ankole trusts it to act for a Principal.
 - Keep groups and grants inside AuthZ.
-
-## Audit Actors
-
-The Console API projects an audit actor as an object with `tenant_id` and `uid`.
-
-Ownership remains a real Principal foreign key when it controls permission or
-work authorization. Audit-only actor fields use `Ankole.ActorRef`, stored as
-`ankole:<tenant_id>:principal/<uid>`. For example, Agent `created_by` and Brain
-`author` keep the original actor's tenant when a site administrator works in
-another tenant. Removing the actor does not remove the historical reference.

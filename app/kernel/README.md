@@ -47,10 +47,8 @@ The current surface is:
 `Ankole.Kernel.gen_uuid_v7/0` supplies UUIDv7 identifiers to Elixir.
 Control-plane Ecto schemas use `Ankole.Ecto.UUIDv7` for opaque PostgreSQL `uuid`
 row IDs. Database migrations declare UUID primary keys without PostgreSQL
-defaults such as `gen_random_uuid()`.
-
-Semantic keys remain semantic. Principal `uid`, provider channel IDs, and
-composite provider/runtime keys do not become opaque UUIDs for uniformity.
+defaults such as `gen_random_uuid()`. Principal `uid`, provider channel IDs,
+and composite provider/runtime keys use their domain-defined semantic formats.
 
 ## Boundary
 
@@ -156,8 +154,6 @@ for capabilities. The shared V8 termination authority also owns cancellation
 and heap pressure. A custom ArrayBuffer allocator rejects external allocations
 that exceed the memory budget. V8 interrupts check the combined JS heap and
 external buffer allocation. This includes SharedArrayBuffer backing stores.
-Retained console logs and outstanding capability arguments use this same
-budget. They do not have a separate count or byte quota. Memory-pressure tests
-run in a subprocess and check that a later invocation still succeeds. The
-isolate shares the host OS process, so a V8 vulnerability
+Retained console logs and outstanding capability arguments share this memory
+budget. The isolate shares the host OS process, so a V8 vulnerability
 is outside this boundary. A committed capability write is not rolled back.

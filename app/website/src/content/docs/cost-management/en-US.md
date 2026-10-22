@@ -67,7 +67,7 @@ Each Workflow `agent()` attempt is a complete model turn. One call can make at m
 |---|---:|---:|---|
 | `workflow.max_concurrency_per_run` | 8 | 32 | Tasks from one run that can execute at the same time |
 | `workflow.max_running_per_agent` | 8 | 64 | Running Workflow tasks across one Agent's runs |
-| `workflow.max_agent_calls_per_run` | 256 | 1,024 | Total subagent calls one run can create |
+| `workflow.max_agent_calls_per_run` | 32 | 1,024 | Total subagent calls one run can create |
 
 Concurrency changes elapsed time; it does not reduce the total number of model calls. Set the call limit from the finite input size, and request only the concurrency that the deployment needs. A run can request lower `concurrency` and `max_agent_calls` values, but it cannot change the cross-run `max_running_per_agent` limit or raise an AppConfigure limit.
 

@@ -7,7 +7,7 @@ order: 202
 
 These are startup variables for PostgreSQL, deployment secrets, the file store, and process settings. Worker provider settings are stored in PostgreSQL as YAML.
 
-The [AppConfigure](../app-configuration/) guide now owns the runtime settings that an administrator can change while the instance runs. Do not put those settings in `.env` or a Kubernetes Secret.
+See [Application configuration](../app-configuration/) for runtime settings that an administrator can change while the instance runs. Do not put those settings in `.env` or a Kubernetes Secret.
 
 ## Bootstrap and secrets (process start)
 

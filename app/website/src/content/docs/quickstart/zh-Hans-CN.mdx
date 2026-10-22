@@ -116,7 +116,7 @@ export const deploymentTabs = [
             }
           ],
           body: [
-            "Compose 等待 PostgreSQL 就绪，完成数据库迁移和一次性 Home 迁移后，再启动控制面与 Caddy。"
+            "Compose 等待 PostgreSQL 就绪，完成数据库迁移后，再启动控制面与 Caddy。"
           ]
         },
         {
@@ -1272,7 +1272,7 @@ export const modelAdvanced = {
         {
           name: '后台 Agent 任务',
           description:
-            '使用 coding 档案运行持久的后台 Agent 任务。普通对话不会因为代码较多而选择这个档案。'
+            '选择持久后台 Agent 任务使用的 Provider 和模型（内部存储为 coding 档案）。'
         },
         {
           name: 'vision_fallback',
@@ -2412,7 +2412,7 @@ Agent 之间从不共用 Worker，就像每位同事都有自己的工作电脑�
 
 每个部署需要 PostgreSQL、云盘文件存储和每个 Agent 的持久 Home。默认 Kubernetes chart 使用共享 ReadWriteMany Home PVC 与独立的 ReadWriteOnce 缓存 PVC。Home 需要备份，缓存不需要。
 
-一个站点可以包含多个租户。站点管理员管理共享基础设施；各租户拥有独立的人员、Agent、Brain 和外部平台连接。管理员控制台默认位于 `/site-admin-console`。需要修改时，在启动前设置 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm 使用 `controlPlane.siteAdminConsolePath`）。旧路径 `/console` 返回 404。
+一个站点可以包含多个租户。站点管理员管理共享基础设施；各租户拥有独立的人员、Agent、Brain 和外部平台连接。管理员控制台默认位于 `/site-admin-console`。需要修改时，在启动前设置 `ANKOLE_SITE_ADMIN_CONSOLE_PATH`（Helm 使用 `controlPlane.siteAdminConsolePath`）。
 
 <span id="terminology" aria-hidden="true" />
 
@@ -2435,7 +2435,7 @@ Agent 之间从不共用 Worker，就像每位同事都有自己的工作电脑�
 | **投递（Delivery）** | 向外部对话发言的持久意图、尝试和结果 | 投递 |
 | **信号路由规则（Signal Binding）** | 决定把哪个信号源收到的消息或事件交给哪个 Agent | 路由规则 |
 | **大语言模型提供商（LLM Provider）** | 保存模型服务地址、凭证和可用模型的配置 | 模型提供商 |
-| **后台 Agent 任务档案（内部键：`coding`）** | 选择后台 Agent 任务使用的 AIGateway Provider 和模型；普通对话不会根据代码量切换到它 | 后台 Agent 任务 |
+| **后台 Agent 任务档案（内部键：`coding`）** | 选择后台 Agent 任务使用的 AIGateway Provider 和模型 | 后台 Agent 任务 |
 
 ## 让 Agent 帮你完成安装
 
@@ -2540,7 +2540,7 @@ Slack、Teams、飞书 / Lark、钉钉和企业微信是企业平台：它们的
 
 ### 在 Console 中完成连接
 
-当前版本使用直连：一条路由规则把一个聊天渠道连接到一个 Agent。它记录使用哪个适配器、哪套应用凭证、由哪个 Agent 回复，以及怎样处理群聊消息。多个机器人要分别创建多条路由规则。
+一条路由规则把一个聊天渠道连接到一个 Agent。它记录使用哪个适配器、哪套应用凭证、由哪个 Agent 回复，以及怎样处理群聊消息。多个机器人要分别创建多条路由规则。
 
 打开 **Console → 信号路由 → 新增路由规则**，依次设置：
 

@@ -1,8 +1,9 @@
 import { beforeAll, expect, test } from 'bun:test'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createMemoryHistory, createRootRoute, createRoute, createRouter, RouterProvider } from '@tanstack/react-router'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { MemoryRouter } from 'react-router'
 import { loadLocale } from '../../common/i18n'
+import { parseRouterSearch, stringifyRouterSearch } from '../../common/router'
 import {
   ankoleWebConsoleReadinessControllerShowQueryKey,
   ankoleWebAiGatewayProviderControllerIndexQueryKey,
@@ -14,18 +15,12 @@ import { HomePage } from './home'
 
 beforeAll(() => loadLocale('en-US'))
 
-test('shows global job counts independently of the recent jobs page', () => {
+test('shows global job counts independently of the recent jobs page', async () => {
   const client = new QueryClient()
   client.setQueryData(ankoleWebBackgroundAgentJobControllerHealthQueryKey(), { running_count: 12, queued_count: 17 })
   client.setQueryData(ankoleWebBackgroundAgentJobControllerIndexQueryKey({ query: { limit: 20 } }), { jobs: [] })
 
-  const html = renderToStaticMarkup(
-    <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>
-    </QueryClientProvider>
-  )
+  const html = await providerHTML(client)
   const jobMetric = html.match(/<a[^>]*href="\/background-agent-jobs"[^>]*>[\s\S]*?<\/a>/)?.[0]
   expect(jobMetric).toContain('>12<')
   expect(jobMetric).toContain('17 queued')
@@ -50,30 +45,41 @@ function providerClient(complete: boolean) {
   client.setQueryData(ankoleWebConsoleReadinessControllerShowQueryKey(), readiness)
   return client
 }
-function providerHTML(client: QueryClient) {
+async function providerHTML(client: QueryClient) {
+  const rootRoute = createRootRoute()
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: '/',
+    component: HomePage
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: ['/'] }),
+    parseSearch: parseRouterSearch,
+    stringifySearch: stringifyRouterSearch
+  })
+  await router.load()
   return renderToStaticMarkup(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
-        <HomePage />
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   )
 }
-test('warns about missing usable LLM credentials while enabled non-LLM providers retain their count', () => {
+test('warns about missing usable LLM credentials while enabled non-LLM providers retain their count', async () => {
   const client = providerClient(false)
-  const html = providerHTML(client)
+  const html = await providerHTML(client)
   expect(html).toContain('No usable LLM provider')
   expect(html).toContain('href="/providers"')
   const providerMetric = html.match(/<a[^>]*href="\/providers"[^>]*>[\s\S]*?<\/a>/g)?.find(item => item.includes('>1<'))
   expect(providerMetric).toContain('>1<')
   client.clear()
 })
-test('has no provider warning after the readiness snapshot confirms usable LLM credentials', () => {
+test('has no provider warning after the readiness snapshot confirms usable LLM credentials', async () => {
   const client = providerClient(true)
-  expect(providerHTML(client)).not.toContain('No usable LLM provider')
+  expect(await providerHTML(client)).not.toContain('No usable LLM provider')
   client.clear()
 })
-test('shows a readiness error without a provider warning when a refetch fails with old data', () => {
+test('shows a readiness error without a provider warning when a refetch fails with old data', async () => {
   const client = providerClient(false)
   client
     .getQueryCache()
@@ -82,7 +88,7 @@ test('shows a readiness error without a provider warning when a refetch fails wi
       status: 'error',
       error: new Error('readiness unavailable')
     })
-  const html = providerHTML(client)
+  const html = await providerHTML(client)
   expect(html).toContain('readiness unavailable')
   expect(html).not.toContain('No usable LLM provider')
   client.clear()

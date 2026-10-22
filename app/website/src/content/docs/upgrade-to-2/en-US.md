@@ -7,7 +7,7 @@ order: 313
 
 This guide is for self-hosted sites that move from 1.0 or a later 1.x version to 2.0. Schedule a maintenance window. Stop all old-version writers before you run the new migrations. An image change cannot undo database migrations.
 
-The repository's Compose upgrade test starts at `v1.6.18-rc.1`, the last pooled Worker release. For earlier 1.x versions, custom deployments, or modified schemas, first rehearse this procedure with backups in an isolated environment. That test does not verify every 1.x upgrade origin.
+Rehearse this procedure with backups in an isolated environment before upgrading production, especially for earlier 1.x versions, custom deployments, or modified schemas.
 
 ## What changes
 
@@ -17,6 +17,7 @@ The repository's Compose upgrade test starts at `v1.6.18-rc.1`, the last pooled 
 | Installed Skills and Automation scripts in Home | `skills/` and `automation/` in the control-plane drive | Run the one-time file import |
 | Transient Codex state in Workers | Threads in `/workspace/.codex`; rebuildable cache in `/var/cache/ankole/codex` | Keep Home and provide a separate cache disk |
 | Data and configuration without tenant ownership | Original data in the `default` tenant; separate site and tenant configuration | Run schema and encrypted-configuration migrations with the original key |
+| Console at `/console` | Site administration Console at `/site-admin-console` (or `ANKOLE_SITE_ADMIN_CONSOLE_PATH`) | Update bookmarks and ingress rules |
 
 If a 1.x site already has private Workers or drives, apply only the steps it still needs. Do not replace existing Home or drive storage with empty storage.
 

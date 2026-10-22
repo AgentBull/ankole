@@ -5,7 +5,7 @@ order: 118
 description: 제어 플레인의 주 Agent 지침과 Codex Job 컨텍스트 구성 경로.
 ---
 
-제어 플레인이 주 Agent의 모델 지침을 구성합니다. `Ankole.Sessions.Context.resolve/2`가 현재 도메인 정보를 읽고, `Ankole.Sessions.Prompt.system/1`이 렌더링하며, `Ankole.Sessions.Driver`가 AIGateway로 보냅니다. Worker는 환경 작업과 Codex Job을 받고 주 Agent 프롬프트를 렌더링하지 않습니다. [Agent loop](../agent-loop/)를 참조하세요.
+제어 플레인이 주 Agent의 모델 지침을 구성합니다. `Ankole.Sessions.Context.resolve/2`가 현재 도메인 정보를 읽고, `Ankole.Sessions.Prompt.system/1`이 렌더링하며, `Ankole.Sessions.Driver`가 AIGateway로 보냅니다. Worker는 환경 작업과 Codex Job을 받습니다. [Agent loop](../agent-loop/)를 참조하세요.
 
 ## 현재 컨텍스트
 
@@ -17,7 +17,7 @@ Agent의 신원과 문서, 유효한 Skill과 플러그인, 대화 시작 채널
 
 ## 설정과 기록
 
-`AgentConfig`는 테넌트 설정을 해석합니다. `ai_agent.max_iterations`의 기본값은 90, `ai_agent.max_output_tokens`는 명시적 제한 없음, `ai_agent.inactivity_timeout_ms`는 30분입니다. 제어 플레인 턴을 제한하며 Worker의 주 루프 설정이 아닙니다.
+`AgentConfig`는 테넌트 설정을 해석합니다. `ai_agent.max_iterations`의 기본값은 90, `ai_agent.max_output_tokens`는 명시적 제한 없음, `ai_agent.inactivity_timeout_ms`는 30분입니다. 이 값들은 제어 플레인 턴을 제한합니다.
 
 AIGateway가 대화 기록과 감사용 모델 요청을 보관합니다. 현재 입력과 provider 관측은 `Prompt.Input`을 통해 사용자 메시지가 되며 시스템 지침에 중복하지 않습니다. 제어 플레인은 실행마다 현재 컨텍스트로 지침을 렌더링합니다.
 

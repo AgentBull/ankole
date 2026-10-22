@@ -84,7 +84,7 @@ does not reveal whether the account exists.
 
 The change ticket carries the verified credential's `updated_at` value as a
 scalar version. Completion locks the credential row and requires that version
-and `must_change_password` to still match. A password reset changes the version,
+and `must_change_password` to match. A password reset changes the version,
 so it invalidates earlier tickets and keeps the new one-time password in force.
 
 Console-created accounts and password resets produce a generated 16-character
@@ -109,12 +109,12 @@ durable, so a rescue reset from another OS process also unlocks the account.
 The guard and credential timestamps use the OS clock. The VM
 system clock can differ from the OS clock during clock correction. The guard
 compares credential and attempt times in microseconds. An attempt
-at the credential timestamp still counts; only an earlier attempt is removed.
+at the credential timestamp counts; only an earlier attempt is removed.
 
 A capacity lock applies only to that tenant. The tenant can hold at most
 10,000 fixed-size email hashes; its next new key waits until an admitted key
-expires. Unexpired histories are not evicted. Other tenants retain their own
-10,000 keys and are not subject to that tenant's capacity lock. A sweep once
+expires. Unexpired histories are not evicted. Other tenants have their own
+10,000-key limit and are not subject to that tenant's capacity lock. A sweep once
 per window removes old entries. Memory grows with the number of configured
 tenants.
 
@@ -129,7 +129,7 @@ Each tenant can queue two sign-ins for up to one second. Tenants receive free
 permits in round-robin order. A full or expired queue returns HTTP 429 with
 `retry_busy`, `retryAfterSeconds: 1`, and `Retry-After: 1`. A busy request does
 not reserve an account attempt. The five-attempt lock returns `retry_locked`
-and the remaining wait in seconds. Shared CPU can still increase waits for
+and the remaining wait in seconds. Shared CPU can increase waits for
 all tenants; this queue does not provide separate compute resources.
 
 A supervised verifier keeps its permit if the HTTP caller exits. During a

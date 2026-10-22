@@ -5,7 +5,7 @@ section: Developer guide
 order: 109
 ---
 
-Rust Kernel は Control Plane のネイティブライブラリです。Elixir が Rustler を通じて読み込みます。Bun Worker は生成された protobuf コーデックを使い、Kernel のネイティブモジュールを読み込みません。
+Rust Kernel は Control Plane のネイティブライブラリです。Elixir が Rustler を通じて読み込みます。Bun Worker は生成された protobuf コーデックを使います。
 
 ## ネイティブ機能
 
@@ -26,7 +26,7 @@ RuntimeFabric の構造とプロトコルバージョン 10 は `proto/ankole/ru
 
 ## ビルドと通信
 
-開発、テスト、本番で Cargo feature `nif` を共用します。Rustler は `src/nif_exports.rs` で BEAM の値とエラーを変換します。JSON 形式の値とバイトデータは、この境界でそれぞれの表現を保持します。
+Cargo feature `nif` は Elixir Control Plane 向け、`napi` はブラウザデーモンとホストテスト向けです。Rustler は `src/nif_exports.rs` で BEAM の値とエラーを変換します。JSON 形式の値とバイトデータは、この境界でそれぞれの表現を保持します。
 
 共有 reqwest client は各環境で HTTP/1.1 と aws-lc-rs TLS を使います。上流の WebSocket 呼び出しには別の接続を使います。プロバイダーポリシーと transcript のコミットは [AIGateway](../ai-gateway/) が所有します。
 

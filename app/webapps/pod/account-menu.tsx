@@ -23,7 +23,7 @@ import {
 import { useMutation, useQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useLocation } from 'react-router'
+import { useLocation } from '@tanstack/react-router'
 import { activateBrowserAccount, browserSession } from '../common/api/generated/sdk.gen'
 import type { BrowserAccount } from '../common/api/generated/types.gen'
 import { authenticationRef, podID } from '../common/browser-context'
@@ -50,7 +50,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
       activateBrowserAccount({ body: { authenticationRef: account.authenticationRef } }),
     onSuccess: ({ podURL }, account) => {
       const sameTenant = account.tenant.id === podID()
-      window.location.assign(sameTenant ? location.pathname + location.search + location.hash : podURL)
+      window.location.assign(sameTenant ? location.href : podURL)
     },
     onError: error => toast.error(requestErrorMessage(error))
   })
@@ -66,7 +66,7 @@ export function AccountMenu({ extra }: { extra?: ReactNode }) {
   const tenantName = data?.tenant?.displayName ?? ''
   const current = (account: BrowserAccount) =>
     account.tenant.id === podID() && account.principalUID === data?.principalUID
-  const returnTo = encodeURIComponent(location.pathname + location.search + location.hash)
+  const returnTo = encodeURIComponent(location.href)
   return (
     <DropdownMenu onOpenChange={open => open && void session.refetch()}>
       <DropdownMenuTrigger

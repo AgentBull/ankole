@@ -46,4 +46,4 @@ Finish the requested path: source, tests, declarations, migrations, generated fi
 
 Run the checks in CONTRIBUTING.md that protect the changed boundary. When a required check cannot run, report the command and the blocker; do not report its guarantee as verified.
 
-Write the [changelog entry](CONTRIBUTING.md#changelog) before any commit. Write English documentation and comments in ASD-STE100 Simplified Technical English.
+Write the [changelog entry](CONTRIBUTING.md#changelog) before any commit. Write English documentation and comments in ASD-STE100 Simplified Technical English. In timeless documentation (all docs except `CHANGELOG.md` and dedicated upgrade guides), describe the current system contract directly: never write diff-relative or upgrade-anchored phrasing (`after this upgrade`, `no longer`, `retains its existing`), negative-space residue for deleted paths, prompt-constraint echoes, or paragraphs tacked onto the end of a file outside the owning section.

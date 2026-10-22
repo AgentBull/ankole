@@ -9,7 +9,7 @@ webhook 委譲を使うと、Agent は Ankole の外で起こる作業を待つ�
 
 コールバックは wakeup の能力です。リクエストボディが真実であることの証明ではありません。Agent は、事実を報告するか認可された変更を行う前に、現在の外部オブジェクトを読み取ります。
 
-最初にサポートされたシナリオは GitHub repository webhook です。EventBridge と Flink は実装されていません。
+サポートされているシナリオは GitHub repository webhook です。
 
 ## 使う場面
 

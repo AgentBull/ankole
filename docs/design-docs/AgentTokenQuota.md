@@ -44,7 +44,7 @@ These requests do not count:
 - Embedding, rerank, web search, web fetch, and image generation tool usage.
 - Requests with an OIDC Human token.
 
-The ledger starts empty at deployment. Usage before that is not counted.
+The ledger starts empty at deployment.
 
 The limit is a soft limit. AIGateway checks the usage before it sends a request
 and rejects the request when the usage is at or above the limit. One request
@@ -70,8 +70,8 @@ can therefore end above the limit by its own usage.
 An index on `(subject_uid, inserted_at)` serves the window sum. A partial
 index on `job_id` and one on `(session_id, inserted_at)` serve per-Job and
 per-Session sums. The attribution columns are read from the request context
-of the round; a value of the wrong shape is dropped and the row is still
-written, because the quota count must not depend on attribution. Rows are
+of the round; a value of the wrong shape is dropped and the row is written
+with NULL in that column, because the quota count must not depend on attribution. Rows are
 never updated or deleted while the Agent exists. Deleting the Agent Principal
 removes its ledger with its other AIGateway records. A ledger write failure,
 including a database error, logs a warning and does not fail the response.
@@ -156,7 +156,7 @@ failure as `credential_pool_exhausted`. When the control plane settles a Job
 attempt, it checks the Agent quota. An exhausted quota produces the terminal
 `agent_token_quota_exceeded` verdict.
 
-AIGateway records ledger rows at its two existing usage observation points:
+AIGateway records ledger rows at its two usage observation points:
 the streaming terminal event in `ResponseStream` and the completed
 non-streaming request in `AIGateway`. Every transport uses one of them.
 
@@ -166,8 +166,8 @@ Before a main or Workflow Session turn starts, `Sessions.Admission`
 checks the quota through `Ankole.AIAgent.TokenQuota`. Job admission skips this
 check. At the limit, `Sessions.Notices` closes the input and commits one
 localized Delivery notice for a reply-eligible event. It first restores any
-existing tool records and applied inputs, so a failed preflight does not erase
-work that already committed. The Delivery keeps the `ai-token-quota-exceeded`
+committed tool records and applied inputs, so a failed preflight does not erase
+work that already committed. The Delivery uses the `ai-token-quota-exceeded`
 key prefix. The notice uses `conversations.delivery.reply.token_quota_exceeded` and
 states the used tokens, limit, and window end in the installation timezone
 (`system.timezone`). An ambient `im.message.may_intervene` input completes
@@ -186,7 +186,7 @@ replays a blocked message.
 Job creation and admission do not check the quota. The first Codex request of
 an over-limit Job is rejected. The Worker reports `credential_pool_exhausted`.
 The control plane checks the Agent quota and fails the Job with
-`agent_token_quota_exceeded` through the existing terminal path. The Job does
+`agent_token_quota_exceeded` through the terminal Job path. The Job does
 not return to `queued`
 and does not wait for the next window. The owner session receives the ordinary
 `background_agent_job.failed` event. When the main Agent is also at its limit,

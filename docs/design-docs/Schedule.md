@@ -16,11 +16,11 @@ cron fires create an `scheduled_events` history row when they fire.
 Cron definitions and scheduled fires use AshStateMachine actions. Cron pause,
 delete, and completion clear the next-fire deadline in the same write. PostgreSQL
 rejects a deadline on any Cron state other than `active`. Updates, fires,
-and human-access revocation keep the same lock order and caller transaction.
+and human-access revocation use the same lock order and caller transaction.
 
 ScheduledEvent actions declare their durable types and required input directly.
 Structured provenance, wake payloads, and errors use the shared strict JSON
-object type. The existing TimeZone owner validates changed timezone inputs.
+object type. The TimeZone owner validates changed timezone inputs.
 Failure and cancellation actions validate their own evidence, so they can
 persist compensation for a legacy row with a broken execution target.
 
@@ -91,11 +91,11 @@ The Oban job arguments identify its owning event or rule.
 starts as `scheduled`; a rejected cron fire creates cancelled history through
 `record_cancelled`. This preserves the slot index, which excludes cancelled
 rows. The `fire`, `cancel`, and `fail` actions make planned work terminal;
-`reschedule` and `record_error` retain `scheduled`. No action revives a terminal
+`reschedule` and `record_error` keep `scheduled`. No action revives a terminal
 row. `Schedule.Store` runs updates in the caller's transaction, after the owning
 row lock. A failed delivery records its diagnostic without validating the
 unrelated target again, so an invalid retained target cannot block failure
-persistence. Creation and rescheduling still validate the complete target.
+persistence. Creation and rescheduling validate the complete target.
 Rescheduling accepts only the due time, time zone, wake payload, consumer,
 reply route, and last fire error. It cannot change the owner, authorization,
 source, request key, or creation time. Reauthorization has its own action.
@@ -103,7 +103,7 @@ source, request key, or creation time. Reauthorization has its own action.
 Schedule and raw Webhook delivery call `Signals.Trigger.deliver_in_tx/5`.
 The trigger's strong `automation_job_id` foreign key selects a durable
 AutomationJob run; an unbound trigger appends its owning domain's Signal.
-Each source table retains its typed Signal and AutomationJob run references.
+Each source table keeps its typed Signal and AutomationJob run references.
 
 Checkbacks and manual cron runs use this request idempotency key:
 
@@ -121,8 +121,8 @@ Automatic cron events also use this partial unique key:
 WHERE trigger = scheduled AND status != cancelled
 ```
 
-Thus, a canceled row releases its slot. A fired or failed row continues to
-consume its logical slot. Manual runs do not use this slot key.
+Thus, a canceled row releases its slot. A fired or failed row consumes its
+logical slot. Manual runs do not use this slot key.
 
 Schedule inserts automatic history before it creates work, in the same
 transaction. The slot key rejects a second fire of that slot.
@@ -143,8 +143,7 @@ The `status` value is one of:
 - `completed`
 
 PostgreSQL accepts these four states only. A failed fire belongs to its
-`ScheduledEvent` history row; it does not add a Cron state. An upgrade rejects
-an unsupported retained Cron state without changing its history.
+`ScheduledEvent` history row; it does not add a Cron state.
 
 Each row stores the Agent, the owner Session (`owner_session_id`),
 binding, time rule, time zone, input, and delivery targets. It also records
@@ -278,7 +277,7 @@ result without executing the termination tool again. Scheduled turns do not
 use a JSON response format or a separate format-repair round.
 
 A turn that ends with nonempty ordinary text and no accepted termination result
-completes as a visible reply. Silent success still requires an accepted
+completes as a visible reply. Silent success requires an accepted
 `finish_scheduled` call. A turn with neither result becomes a dead letter.
 The same transaction stores its failure reason and Response anchor, ends the
 applied input prefix, releases the turn, and queues the standard failure notice
@@ -288,7 +287,7 @@ expiry cannot run the failed task again; recorded tool results stay in the tape.
 
 Raw scheduled model text is never streamed to a channel, including after a
 preview owner changes. The accepted tool reply or the completed ordinary text
-enters the final intent. Clarify and attachment tools keep their existing delivery contracts.
+enters the final intent. Clarify and attachment tools use their delivery contracts.
 Text markers have no control meaning.
 
 Updating a pending checkback changes the same row in place, so `checkback_id`
@@ -357,8 +356,8 @@ route and failure policy after execution.
 An operator can add targets through the Console or REST API. An Agent tool
 request can create or replace only the current turn route. An Agent can change
 `quiet_success` on an operator-managed multi-target rule without replacing its
-targets. An operator route update that omits `quiet_success` keeps the existing
-value.
+targets. An operator route update that omits `quiet_success` preserves the
+stored value.
 
 The control plane accepts only the target-list delivery form. Delivery uses
 public Conversation UUIDs; it does not use opaque provider room IDs as keys.
@@ -466,7 +465,7 @@ Checkback and cron updates can clear or replace this binding.
 A turn in a rule's execution session can use only `list`, `get`, `runs`, and
 `pause`, and only on that rule. Pause lets a fire stop work whose task says to
 stop once a condition is met. Pause does not end the rule's AIGateway conversation,
-so the turn still delivers its reply. The turn cannot add rules, change its own
+so the turn delivers its reply. The turn cannot add rules, change its own
 instruction, resume itself, run itself again, or remove its rule; removal ends
 the AIGateway conversation that the turn uses.
 

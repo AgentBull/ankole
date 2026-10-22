@@ -9,12 +9,12 @@ plane, and Caddy HTTPS. The control plane creates one Agent Computer Worker
 container for each Agent that needs one, through the Docker socket.
 
 A site is one complete deployment. It may contain several tenants, each with
-its own people, Agents, Brain and integrations. Site operators manage shared
-providers and infrastructure. The administrator Console defaults to
-`/site-admin-console`; `/console` returns 404 after this upgrade. Set
-`ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup to choose another absolute path.
-Keep that path in operator configuration. Normal users sign in through their
-OIDC application rather than the site administration Console.
+its own people, Agents, Brain, and integrations. Site operators manage shared
+providers and infrastructure. The site administration Console defaults to
+`/site-admin-console`. Set `ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup to
+choose another absolute path, and keep that path in operator configuration.
+Normal users sign in through their tenant host or OIDC application rather than
+the site administration Console.
 
 ## Requirements
 
@@ -192,9 +192,9 @@ immutable digest. That digest also fixes the Worker image. You can also pin
 `ANKOLE_POSTGRESQL_IMAGE`. Before an upgrade, check both overrides in `.env`;
 an old override takes precedence over the new deployment defaults.
 
-This release requires `RELEASE_COOKIE` in `.env`. An upgraded deployment that
-has no value stops at the first `docker compose` command with a message that
-names the variable. Add it before the upgrade:
+When upgrading from an older deployment that did not define `RELEASE_COOKIE` in
+`.env`, add one before running `docker compose` (an unset `RELEASE_COOKIE`
+stops Compose with an error naming the variable):
 
 ```sh
 printf 'RELEASE_COOKIE=%s\n' "$(openssl rand -hex 32)" >> .env
@@ -228,13 +228,13 @@ that mounts the old `ankole_agents_data` volume. It copies the directory of each
 Agent that still exists to that Agent's exclusive volume, changes ownership to
 uid 1000, and records completion in the old volume. The old release did not
 remove the Home of a deleted Agent. The service skips these orphan directories
-and keeps the old volume. New Agents receive generated UIDs. Reserve as much free
+and keeps the old volume. Reserve as much free
 disk space as the old volume uses. If a copy fails, the service fails and the
 control plane does not start. A later `docker compose up` retries unfinished
 copies. Completed copies are never applied again.
 
-The old `/agents/<agent_uid>` path is a symbolic link to `/workspace` inside
-each Worker. User files, session files, and Job workspaces stay in Agent Home.
+Inside each Worker, `/agents/<agent_uid>` is a symbolic link to `/workspace`.
+User files, session files, and Job workspaces stay in Agent Home.
 The control plane keeps shared Agent drives in `files_data`. Import installed
 Skills, Automation Job scripts, and unsent legacy attachments into those drives
 once after an upgrade from a release without Agent drives:

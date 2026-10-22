@@ -33,7 +33,7 @@ docker compose exec -T postgresql \
   pg_dump -U ankole -d ankole -Fc > ankole-backup.dump
 ```
 
-volume과 버킷은 스토리지의 백업 기능을 사용하세요. 업그레이드와 파괴적 유지보수 전에도 백업합니다. 이미지 변경은 데이터베이스 마이그레이션을 되돌리지 않습니다. 이전 풀 방식 Home volume은 Compose 일회성 마이그레이션과 파일 확인이 끝날 때까지 유지하세요.
+volume과 버킷은 스토리지의 백업 기능을 사용하세요. 업그레이드와 파괴적 유지보수 전에도 백업합니다. 이미지 변경은 데이터베이스 마이그레이션을 되돌리지 않습니다.
 
 ## 복원과 검증
 

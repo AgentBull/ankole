@@ -94,7 +94,7 @@ dependencies:
       bearer_token_env_var: MY_MCP_TOKEN
 ```
 
-The dependency is available only while the Skill is enabled. It is not registered as a native model tool. In `SKILL.md`, name the domain tools and selection rules, tell the Agent to inspect only the selected tool with `mcporter list server.tool --schema --json`, and call it with JSON on stdin. See [MCP reference](../mcp/) for the complete contract.
+The dependency is available only while the Skill is enabled. In `SKILL.md`, name the domain tools and selection rules, tell the Agent to inspect only the selected tool with `mcporter list server.tool --schema --json`, and call it with JSON on stdin. See [MCP reference](../mcp/) for the complete contract.
 
 ### Verify the Skill
 

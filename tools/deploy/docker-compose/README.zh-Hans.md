@@ -8,9 +8,9 @@ Docker 必须能够运行 Linux `amd64` 或 `arm64` 容器。项目包含 Postgr
 Worker 的 Agent 创建一个 Agent Computer Worker 容器。
 
 站点是一套完整部署，可以包含多个租户。各租户拥有独立的人员、Agent、Brain 和外部
-平台连接；站点管理员管理共享的提供商与基础设施。管理员控制台默认位于
-`/site-admin-console`；本次升级后 `/console` 返回 404。需要其他路径时，在启动前设置
-`ANKOLE_SITE_ADMIN_CONSOLE_PATH`，并将路径保存在运维配置中。普通用户通过自己的
+平台连接；站点管理员管理共享的提供商与基础设施。站点管理控制台默认位于
+`/site-admin-console`。需要其他绝对路径时，在启动前设置
+`ANKOLE_SITE_ADMIN_CONSOLE_PATH`，并将路径保存在运维配置中。普通用户通过所属租户域名或
 OIDC 应用登录，不使用站点管理控制台。
 
 ## 前置条件
@@ -166,8 +166,8 @@ PostgreSQL 容器使用 `C.utf8`，空卷首次初始化为 UTF8。更新镜像�
 这个 digest 同时固定 Worker 镜像。也可以固定 `ANKOLE_POSTGRESQL_IMAGE`。
 升级前检查 `.env` 中这两个覆盖值；已有覆盖值的优先级高于新版部署文件的默认值。
 
-本版本要求 `.env` 中有 `RELEASE_COOKIE`。升级后的部署如果没有这个值，
-第一条 `docker compose` 命令就会停止，并提示该变量名。请在升级前加上：
+从早期未配置 `RELEASE_COOKIE` 的部署升级时，需先在 `.env` 中补齐该变量（缺少 `RELEASE_COOKIE` 时，
+第一条 `docker compose` 命令就会停止并提示该变量名）：
 
 ```sh
 printf 'RELEASE_COOKIE=%s\n' "$(openssl rand -hex 32)" >> .env
@@ -196,13 +196,13 @@ docker compose ps
 从池化 Worker 版本升级时，`migrate-agent-homes` 先停止所有挂载旧卷
 `ankole_agents_data` 的容器，再把仍然存在的每个 Agent 的目录复制到它的独享卷，修正
 属主为 uid 1000，并在旧卷记录完成状态。旧版本删除 Agent 时没有删除它的 Home；迁移
-跳过这些孤立目录并保留旧卷。新 Agent 使用自动生成的 UID。迁移前须预留与旧卷用量相同的空闲空间。
+跳过这些孤立目录并保留旧卷。迁移前须预留与旧卷用量相同的空闲空间。
 复制失败会让服务失败，控制面不会启动。再次执行 `docker compose up` 会重试未完成的
 复制，已完成的目录不会再次覆盖。
 
 每个 Worker 内的 `/agents/<agent_uid>` 是指向 `/workspace` 的符号链接。用户文件、
 会话文件和 Job 工作区留在 Agent Home。控制面的共享 Agent 云盘位于 `files_data`。
-从没有云盘的版本升级后，把已安装 Skill 和 Automation Job 脚本一次性导入云盘：
+从没有云盘的版本升级后，把已安装 Skill、Automation Job 脚本和待发送的旧版附件一次性导入云盘：
 
 ```sh
 docker compose run --rm --no-deps --user root --entrypoint chmod \
@@ -211,7 +211,7 @@ docker compose run --rm -v ankole_agents_data:/agents control-plane \
   /app/bin/ankole eval 'Ankole.Upgrade202610.import_agent_home("/agents")'
 ```
 
-导入不会覆盖云盘已有文件，并会报告无法读取的文件。确认迁移后的 Agent Home 与导入
+导入不会覆盖云盘已有文件，并会报告无法读取的文件。确认待发送附件已全部转换，并处理导入报告中列出的缺失附件（旧版发送需等待转换完成）。确认迁移后的 Agent Home 与导入
 报告无误后，才执行 `docker volume rm ankole_agents_data` 删除旧卷。
 
 ## 备份

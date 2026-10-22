@@ -38,7 +38,8 @@ import {
 } from '@remixicon/react'
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, NavLink } from 'react-router'
+import { Link, useLocation } from '@tanstack/react-router'
+import { linkTarget } from '../common/router'
 import { PageHeader, PageStack, RefreshButton } from './console-page'
 import { ErrorBlock } from '../common/error-block'
 import { scheduleResourceSearchCommit } from './state/resource-search'
@@ -111,7 +112,7 @@ export function ResourceListPage({
   const createControl =
     createAction ??
     (createTo ? (
-      <Link to={createTo} className={cn(buttonVariants({ size: 'sm' }))}>
+      <Link {...linkTarget(createTo)} className={cn(buttonVariants({ size: 'sm' }))}>
         {createLabel ?? t('common.new')}
       </Link>
     ) : null)
@@ -239,25 +240,32 @@ export function SubNav({
    */
   items: { to: string; label: string; end?: boolean; active?: boolean }[]
 }) {
+  const location = useLocation()
   return (
     <nav aria-label={ariaLabel} className="-mt-1 flex min-w-0 flex-wrap gap-1 border-b border-border">
-      {items.map(item => (
-        <NavLink
-          key={item.to}
-          end={item.end}
-          to={item.to}
-          className={({ isActive }) =>
-            cn(
+      {items.map(item => {
+        const target = linkTarget(item.to)
+        const isActive =
+          item.active ??
+          (item.end
+            ? location.pathname === target.to
+            : location.pathname === target.to || location.pathname.startsWith(`${target.to}/`))
+        return (
+          <Link
+            key={item.to}
+            {...target}
+            activeOptions={{ exact: Boolean(item.end), includeSearch: false }}
+            className={cn(
               'relative -mb-px border-b-2 border-transparent px-4 py-2 text-sm transition-colors focus-visible:-outline-offset-2',
               'after:absolute after:inset-x-0 after:bottom-[-1px] after:h-0.5 after:bg-foreground after:opacity-0 after:transition-opacity after:duration-(--duration-feedback) after:ease-productive',
-              (item.active ?? isActive)
+              isActive
                 ? 'font-medium text-foreground after:opacity-100'
                 : 'text-muted-foreground fine-hover:hover:text-foreground'
-            )
-          }>
-          {item.label}
-        </NavLink>
-      ))}
+            )}>
+            {item.label}
+          </Link>
+        )
+      })}
     </nav>
   )
 }
@@ -531,7 +539,7 @@ export function RowViewAction(
           aria-label={props.label}
           className={cn(buttonVariants({ size: 'icon-sm', variant: 'ghost' }))}
           title={props.label}
-          to={props.to}>
+          {...linkTarget(props.to)}>
           <RiArrowRightLine aria-hidden />
         </Link>
       ) : (
@@ -581,7 +589,7 @@ export function RowActions({
         <Link
           aria-label={editLabel}
           title={editLabel}
-          to={editTo}
+          {...linkTarget(editTo)}
           className={cn(buttonVariants({ size: 'icon-sm', variant: 'ghost' }))}>
           <RiPencilLine />
         </Link>
@@ -607,7 +615,7 @@ export function RowActions({
           <RiMore2Fill />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem render={<Link to={editTo} />}>
+          <DropdownMenuItem render={<Link {...linkTarget(editTo)} />}>
             <RiPencilLine />
             {editLabel}
           </DropdownMenuItem>

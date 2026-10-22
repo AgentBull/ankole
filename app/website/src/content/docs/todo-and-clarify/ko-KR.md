@@ -5,7 +5,7 @@ order: 124
 description: 제어 플레인의 작업 목록과 질문 및 Codex Job 입력 경로.
 ---
 
-`todo`와 `clarify`는 `Ankole.Sessions.Tools.Session`이 소유하는 제어 플레인 도구입니다. Driver는 인수를 검증하고 AIGateway로 모델에 보이는 결과를 저장한 뒤 현재 실행에 반영합니다. Worker는 이 주 턴 도구를 소유하지 않습니다.
+`todo`와 `clarify`는 `Ankole.Sessions.Tools.Session`이 소유하는 제어 플레인 도구입니다. Driver는 인수를 검증하고 AIGateway로 모델에 보이는 결과를 저장한 뒤 현재 실행에 반영합니다.
 
 ## 작업 목록
 
@@ -23,6 +23,6 @@ description: 제어 플레인의 작업 목록과 질문 및 Codex Job 입력 �
 
 ## Background Job과 운영
 
-Native Codex Job은 별도의 입력 요청 경로를 사용합니다. 사람의 입력을 요청하면 Job이 `waiting_on_user`가 되어 실행 슬롯을 해제하고 소유자의 답변으로 계속합니다. 이는 Job 수명 주기 계약이며 Worker에서 주 Agent의 `clarify`를 실행하는 경로가 아닙니다. [Background Agent Jobs](../background-agent-jobs/)를 참조하세요.
+Native Codex Job은 별도의 입력 요청 경로를 사용합니다. 사람의 입력을 요청하면 Job이 `waiting_on_user`가 되어 실행 슬롯을 해제하고 소유자의 답변으로 계속합니다. 이는 Job 수명 주기 계약입니다. [Background Agent Jobs](../background-agent-jobs/)를 참조하세요.
 
 계획 상태와 턴 종료 동작에는 Console 조정 플래그가 없습니다. 계획하거나 질문하는 방식을 바꾸려면 Agent의 지침과 기능을 조정합니다. [Agents](../agents/)와 [Agent loop](../agent-loop/)를 참조하세요.

@@ -128,9 +128,8 @@ in PostgreSQL. Slack only transports the source events.
 
 The adapter sends only operations already stored as Delivery intents. It uses
 `chat.postMessage`, `chat.update`, `chat.delete`, and reaction methods. It
-renders rich replies with its own Block Kit renderer and text with Slack
-`mrkdwn`. It does not call another chat adapter or translate another provider's
-card payload.
+renders rich replies with its Block Kit renderer and text with Slack
+`mrkdwn`.
 
 One in-progress Agent reply owns one or more Slack messages. The adapter edits
 those messages with `chat.update`, keeps every page in the source thread, and
@@ -147,11 +146,11 @@ asks the user to reply in the same Slack thread.
 The adapter supports one outbound attachment per Delivery intent. It uses Slack
 external upload operations for that attachment: it requests an upload URL with
 `files.getUploadURLExternal`, uploads the bytes, and completes the upload with
-`files.completeUploadExternal`. The file row does not repeat the final answer as
-an `initial_comment`; the rich or text reply owns the answer. Long text can
+`files.completeUploadExternal`. The rich or text reply carries the message text;
+the file upload carries only the attachment. Long text can
 create more than one Slack message, and all reply chunks keep the same thread.
 
-Retryable transport, rate-limit, and server failures keep their retry schedule.
+Retryable transport, rate-limit, and server failures follow the retry schedule.
 Deterministic Slack rejections, including a missing `files:write` scope, block
 the Delivery intent until an operator repairs and saves the binding. The stored error
 contains the Slack error code and required scope without storing the raw response.
@@ -178,7 +177,7 @@ scope list is in the website Quick start guide.
 
 OIDC login normalizes Slack claims. If a bot token is present, it also tries to
 load the full user through `users.info`. The Principal login flow receives that
-user, but AuthZ still decides whether the person can use Ankole.
+user, and AuthZ decides whether the person can use Ankole.
 
 Full sync imports users and user groups. Real-time user and user-group events
 update the same Principal and AuthZ records. If a user-group event omits

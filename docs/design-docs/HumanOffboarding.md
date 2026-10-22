@@ -33,11 +33,11 @@ restriction operation without automatic detection.
 | Console and OIDC authentication | Reject disabled Humans and revoked credentials at their own request boundaries. |
 | OIDC | Provide standard logout notifications and Introspection, and own Client/session records and notification delivery. |
 | Signals, Sessions, Schedule, Background Agent Jobs, Workflow, and Automation Jobs | Store the Human association of work, check it at execution admission, and stop future execution. |
-| Agent Computer | Execute admitted attempts through the existing Worker contract. It does not own Human status or a separate permission list. |
+| Agent Computer | Execute admitted attempts through the Worker contract. It does not own Human status or a separate permission list. |
 | Console | Submit authorized operations and show account, sync, and affected-work results. |
 
 The Elixir control plane owns durable state in PostgreSQL. Each work subsystem
-keeps its existing lifecycle and public entry points. Oban can deliver durable
+owns its lifecycle and public entry points. Oban can deliver durable
 follow-up work; it does not own the Human access decision. Operator settings
 belong to the owning subsystem's AppConfigure keys.
 
@@ -57,8 +57,8 @@ Human disablement stops future work across all tenants by that UID. Tenant
 deletion uses the same path and completes durable work cleanup before removing
 the Human. Other tenants retain the stopped work and its original authorization.
 Their work-review list permits explicit reauthorization of paused cron rules;
-other terminal work must be replaced through its existing owner.
-The existing WorkCleanup owner records its completed access-version sweep in
+other terminal work must be replaced through its owner.
+WorkCleanup records its completed access-version sweep in
 Human access history; deletion processes bounded batches and retries safely.
 
 Tenant suspension rejects new work and treats Human OIDC tokens as inactive.
@@ -100,7 +100,7 @@ proof for the disabled Human.
 Restoration does not update these proofs. A new real authentication, or an
 explicit connection using a second current Pod proof, must verify the restored
 version. Ordinary navigation cannot copy the latest `access_version` into an
-old proof. The existing Principal lock and transaction revocation check enforce
+old proof. The Principal lock and transaction revocation check enforce
 this boundary; no separate recovery clock is required. See
 [Browser Sessions](BrowserSessions.md#site-sources-and-human-recovery).
 
@@ -177,9 +177,9 @@ Acknowledge an event only after its result or its pending processing record is
 durable. Duplicate events must be safe. Failed processing must be retryable.
 Use provider ordering evidence when available. A stale update cannot undo a
 disablement. If ordering is uncertain, query current provider state and keep
-the existing restriction until recovery is authorized.
+the restriction until recovery is authorized.
 
-Use the existing directory-sync path for periodic and manual reconciliation.
+Use the directory-sync path for periodic and manual reconciliation.
 The default is one full sync every 15 minutes. Before disabling missing
 members, require all of these conditions:
 
@@ -198,7 +198,7 @@ valid profile updates, but it is never evidence that unseen people departed.
 
 ## Disable the Human
 
-An effective administrator with the existing Human-management permission can
+An effective administrator with the Human-management permission can
 disable an account from Console. The server checks permission and the current
 target state. Repeated requests return the current result. Manual operations
 protect against self-disablement and removal of the last effective Human
@@ -223,9 +223,9 @@ remains. Run `mix ankole.admin.recover HUMAN_UID OPERATOR REASON --identity-veri
 from the control-plane directory with the deployment configuration. The command
 records the operator and reason. It rejects a disabled target and refuses to run
 while an active administrator exists. Establish and verify the replacement
-Human through the existing Principal and identity-provider owners first. Zero active administrators must not
+Human through the Principal and identity-provider owners first. Zero active administrators must not
 reopen public first-administrator setup or automatically restore the departed
-person. See [AuthZ](AuthZ.md) for the existing administrator boundary.
+person. See [AuthZ](AuthZ.md) for the administrator boundary.
 
 ## Reject New Authentication and Requests
 
@@ -250,7 +250,7 @@ the authentication path. A process restart or node change cannot erase it.
 
 A request that already passed its check can complete. Do not interrupt an
 existing response stream or recheck the Human between tools within an admitted
-attempt. This does not remove existing token, Agent, resource, or turn-fence
+attempt. This does not remove token, Agent, resource, or turn-fence
 checks. Ankole does not guarantee reversal of an external operation, including
 one sent before `T0` that completes afterward.
 
@@ -284,7 +284,7 @@ proof that every Client has already blocked access.
 
 ## Associate Work with the Human
 
-Agent and Session ownership keep their current meanings. An Agent's creator,
+Agent and Session ownership are separate from Human work authorization. An Agent's creator,
 a task display name, or a reply channel alone does not identify whose account
 must remain active for that task.
 
@@ -292,7 +292,7 @@ The control plane must retain the Human Principal associated with work accepted
 on that person's behalf. Derive it from authenticated input and retain it
 through child work, schedules, automation triggers, retries, and recovery.
 The association is a control-plane fact, not a model-supplied owner field. Use
-existing source records where they prove the association; each work owner must
+source records where they prove the association; each work owner must
 persist any missing information needed after restart or source cleanup.
 
 Work associated with the disabled Human stops future execution even if its
@@ -302,16 +302,15 @@ system work with no Human dependency continues under its own authorization.
 Do not disable an entire shared Agent or Session because one sender departed.
 Reject that sender's pending instructions and retain other valid work.
 
-Existing work with insufficient evidence of its Human association requires
-operator classification before another execution. Do not interpret a missing
-field as proof of independent service authorization. This is a migration and
-manual recovery requirement, not a new delegation or task-ownership framework.
+Work with insufficient evidence of its Human association (`review_required`)
+requires operator classification before another execution. Do not interpret a
+missing field as proof of independent service authorization.
 
 Each durable work owner stores `authorization_kind`, `human_uid`, and
 `human_access_version`. `human` requires a Human and captured version; `service`
 requires an evidenced independent source; `review_required` cannot execute.
 `Ankole.Principals.WorkAccess` checks this fact in the owner's transaction and
-provides the explicit legacy classification operation. It does not schedule
+provides the explicit classification operation. It does not schedule
 work or select an Agent. PostgreSQL checks the three-field shape.
 
 `Ankole.Work.Provenance` declares these fields and each owner's review states
@@ -351,7 +350,7 @@ and retain the Human association.
 | Retry, resumed attempt, Workflow continuation, or separately dispatched child | Check again and reject the invalid Human authorization. |
 | Pending Human approval or confirmation | Reject that Human's response; another authorized Human must make a new decision. |
 
-Use existing lifecycle operations in [Schedule](Schedule.md),
+Use the lifecycle operations in [Schedule](Schedule.md),
 [Background Agent Job](BackgroundAgentJob.md), [Workflow](Workflow.md), and
 [Automation Jobs](AutomationJobs.md). Do not invent a common task engine or
 force all of these objects into one terminal status. An admitted attempt's
@@ -359,12 +358,12 @@ completion must not reactivate a cancelled definition, plan a valid next fire,
 or revive stopped work.
 
 Ending future work requires no handover approval. Show affected objects and
-their reasons in Console. The existing work-review list includes unknown
+their reasons in Console. The work-review list includes unknown
 sources and missing, disabled, or revoked Human authority in the selected
 tenant. A paused cron rule can receive explicit new authority and then resume
 through Cron. The review records the previous Human UID and access version;
 it does not resume the rule. Other work that cleanup has made terminal must
-be replaced through its existing owner. Changing a label or an owner field
+be replaced through its owner. Changing a label or an owner field
 cannot transfer the departed person's credentials.
 
 ## Restore Access Explicitly
@@ -384,9 +383,9 @@ rows merely labelled historical.
 memberships, computed group definitions, and their possible grants. Computed
 rules remain request-dependent; the preview does not assert that every rule
 applies to every resource. Remove unwanted grants or memberships through their
-existing editors, then approve the current fingerprint. The restore operation
+AuthZ editors, then approve the current fingerprint. The restore operation
 rejects a changed fingerprint and records the approved rules and identity check.
-This review uses existing AuthZ rules and does not add a second permission model.
+This review uses AuthZ rules and does not add a second permission model.
 
 The fingerprint includes the Principal display name and avatar URL because
 AuthZ exposes both fields to computed groups and grant conditions. A directory
@@ -446,42 +445,27 @@ scope can delay detection;
 manual disable remains available. After the local commit, new authentication
 and execution checks must reject the disabled Human without waiting for cleanup.
 
-## Migration and Rollback
+## Unresolved Work Classification
 
 Before enabling automatic missing-member handling, review provider permissions,
 event subscriptions, the full admission scope, and the initial differences.
-Backfill work associations only from reliable records. Require manual review
-for unresolved work. Preserve existing UIDs and identity bindings.
+Preserve UIDs and identity bindings.
 
-The migration backfills Human senders and work with a recorded source event
-from that Human. This includes automation jobs that have such an event.
-Pending or failed cron fires without a source event inherit the established
-authorization of their recorded cron rule for the same Agent. The repair retains
-the rule's captured access version and each fire's status and error. It does
-not renew revoked access or replay failed fires; use the rule's manual run action
-when a missed task must run. Canceled and completed fires keep their history. A
-legacy Console cron with only `created_by.principal_uid`, work without a proven
-source, and events from non-Human senders remain `review_required`. Inspect
-the unresolved-work list before rollout; its size depends on the stored facts.
+Work without a proven source, a Console cron with only
+`created_by.principal_uid`, and events from non-Human senders use
+`authorization_kind = review_required`.
 
 An unresolved queued Signal enters `dead_letter` when execution admission
 first rejects it with `work_authorization_review_required`. Review and classify
-it in Console. If execution is still required, use `/retry signal::<id>`
-only when the event meets the existing
+it in Console. If execution is required, use `/retry signal::<id>`
+only when the event meets the
 [exact retry conditions](Sessions.md#retry-reset-and-recovery). A rejected
 event with no visible durable reply cannot use that command; submit the
 original request again under current authorization. Classification alone does
 not replay a dead letter or restart stopped work. Other work types use their
-existing owner's resume or restart action
+owner's resume or restart action
 after classification. Select independent service authorization only when the
 recorded source proves that it has no Human dependency.
 
-At rollout, require fresh authentication for sessions that lack the new
-revocation mechanism. Inform users before invalidating those sessions. A rollback
-must retain disabled accounts, revoked authorizations, and stopped future work;
-an older runtime that cannot honor them must not resume serving those paths.
-
-Include the OIDC Client/session records and pending notifications in migration
-and rollback checks. A Client receives `sid` only in ID Tokens issued after this
-mechanism exists; a Client session established before that has no
-session-specific logout coverage. Preserve pending notification work on rollback.
+An OIDC Client session without a recorded `sid` has no session-specific
+Back-Channel Logout coverage.

@@ -15,7 +15,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import { Link } from 'react-router'
+import { Link } from '@tanstack/react-router'
 import {
   ankoleWebAgentControllerIndexOptions,
   ankoleWebAiGatewayProviderControllerModelsOptions,
@@ -166,7 +166,8 @@ export function BrainSettingsEditor({
           {maintainerAgentUID ? (
             <Link
               className="link w-fit text-sm"
-              to={`/agents/${encodeURIComponent(maintainerAgentUID)}#model-profiles`}>
+              to={`/agents/${encodeURIComponent(maintainerAgentUID)}`}
+              hash="model-profiles">
               {t('console.settings.brain_maintainer_agent_models', {
                 agent: selectedAgent?.display_name ?? maintainerAgentUID
               })}

@@ -4,7 +4,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebPrincipalControllerShowOptions,
   ankoleWebPrincipalControllerUpdateMutation
@@ -20,7 +20,7 @@ export function PrincipalEditPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(PrincipalEditorModel)
-  const params = useParams()
+  const params = useParams({ strict: false })
   const uid = params.uid ?? ''
   const detailPath = `/access/principals/${encodeURIComponent(uid)}`
   const principal = useQuery(ankoleWebPrincipalControllerShowOptions({ path: { uid } }))
@@ -57,7 +57,7 @@ export function PrincipalEditPage() {
         () => update.mutateAsync({ body: model.updateBody(), path: { uid: loadedPrincipal.uid } }),
         clean => {
           toast.success(t('console.principals.profile_saved'))
-          if (clean) void navigate(detailPath)
+          if (clean) void navigate({ to: detailPath })
         }
       )
       .catch(() => {

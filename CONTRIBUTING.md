@@ -5,14 +5,7 @@ Thank you for contributing to Ankole. This guide is for both human contributors 
 > [!WARNING]
 > Ankole is in active development. Public APIs do not yet have a compatibility contract, so interfaces and subsystem boundaries can change between releases.
 
-A site is one complete deployment. It may contain several tenants, each with
-its own people, Agents, Brain and integrations. Site operators manage shared
-providers and infrastructure. The administrator Console defaults to
-`/site-admin-console`; `/console` returns 404 after this upgrade. Set
-`ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup to choose another absolute path.
-Keep that path in operator configuration. Active Humans sign in on their tenant's
-slug host (locally, `http://<tenant-slug>.ankole.localhost:4000/`) through its providers. An OIDC application can also start login.
-The site administration Console keeps its separate administrator gate.
+A site is one complete deployment. It can contain several tenants, each with its own people, Agents, Brain, and integrations. Site operators manage shared providers and infrastructure in the site administration Console at `/site-admin-console` (or the absolute path set in `ANKOLE_SITE_ADMIN_CONSOLE_PATH` before startup). Active Humans sign in on their tenant's slug host (locally, `http://<tenant-slug>.ankole.localhost:4000/`) through its configured identity providers, or start login from an OIDC application.
 
 ## Source builds
 
@@ -53,9 +46,8 @@ The SaaS source has these required inputs:
 `Ankole.Release.migrate/0`. Versions, filenames, and literal module names must
 be unique across both directories, including files whose versions already ran.
 SaaS releases place private files in `priv/repo/internal_migrations`, beside
-public migrations. Both use the same `schema_migrations` ledger and retain the
-`Upgrade202610` data upgrade. Removing private source does not reverse its
-schema changes.
+public migrations. Both use the same `schema_migrations` ledger. Removing
+private source does not reverse its schema changes.
 
 From `app/control_plane`:
 
@@ -78,14 +70,9 @@ docker build -f app/control_plane/Dockerfile \
   --build-context ankole-internals=./internals .
 ```
 
-The existing internal resource image can still add private Agent resources to
-an assembled image. Copying resources into that image does not compile a SaaS
+The internal resource image can also add private Agent resources to an
+assembled image. Copying resources into that image does not compile a SaaS
 backend. Use the source build for private server and frontend code.
-
-The browser authentication migration requires existing browsers to sign in
-again. It keeps Human identities, work, offline grants, and logout delivery
-records. A rollback across this migration requires the matching database backup.
-See [Browser Sessions](docs/design-docs/BrowserSessions.md).
 
 ## What a successful setup means
 
@@ -257,22 +244,6 @@ bun dev
 ```
 
 Keep this terminal open. The devkit starts or verifies PostgreSQL, creates and migrates the local database, builds a missing or stale Worker image, and starts Phoenix and the frontend assets with the Docker Worker provider. Agent creation requests a Worker container, which runs the local Agent Computer source in watch mode.
-
-During development, connection reconcilers wait for Phoenix when compilation
-temporarily unloads an application module. The error handler stays outside the
-Mix compile paths. Missing functions and other code errors still raise normally.
-Restart the development server after updating this handler.
-
-`mix ecto.migrate` also runs the temporary 2026-10 data upgrade from
-`Ankole.Upgrade202610`. `ecto.setup`, `kit app-db` and `bun dev` use this same
-entry point. Release runs the same data steps through `Release.migrate`.
-Keep the original encryption key and stop every old control-plane replica
-before an upgrade. To repeat only the data steps after schema migration, run:
-
-```bash
-cd app/control_plane
-mix run --no-start -e 'Ankole.Upgrade202610.run()'
-```
 
 The first run may spend substantial time building the Agent Computer image. Wait while there is active build output.
 
@@ -1081,7 +1052,14 @@ proves that production path.
 
 ## Keep design docs and the changelog current
 
-A significant or cross-subsystem change should update or add a document under [`docs/design-docs/`](docs/design-docs/). Explain the chosen contract and ownership boundary, not abandoned drafting alternatives.
+A significant or cross-subsystem change should update or add a document under [`docs/design-docs/`](docs/design-docs/).
+
+All timeless documentation (`README*`, `CONTRIBUTING.md`, `docs/`, `app/website/src/content/docs/`, and package `README.md` or `SPEC.md` files, except dedicated upgrade guides and `CHANGELOG.md`) describes the current system state directly:
+
+- Do not use temporal or diff-relative phrasing (`after this upgrade`, `in this release`, `no longer`, `previously`, `retains its existing...`, `keeps its existing...`, `remains unchanged`).
+- Do not document deleted routes, removed columns, or abandoned alternatives in negative space (for example, do not write that an obsolete route returns 404 in a general guide; record upgrade changes in `CHANGELOG.md` and the upgrade guide).
+- Do not echo task-prompt constraints, internal test-coverage disclaimers, or cleanup TODOs into user or architecture documentation.
+- Integrate new facts into the section that owns the topic instead of appending patch paragraphs to the bottom of a file or after `## Rules`. Keep every localized document in its target language.
 
 ### Changelog
 

@@ -13,7 +13,7 @@ import {
   RiStarLine
 } from '@remixicon/react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams } from 'react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import type { PodPageMove } from '../common/api/generated/types.gen'
 import { podLocation, podRouteID } from '../common/browser-context'
 import { requestErrorMessage } from '../common/request-errors'
@@ -59,7 +59,7 @@ function usePageMove(pages: Page[]) {
 function usePageTrash() {
   const client = useQueryClient()
   const navigate = useNavigate()
-  const { pageID } = useParams()
+  const { pageID } = useParams({ strict: false })
   const restore = useMutation({
     mutationFn: pageAPI.restore,
     onSuccess: () => client.invalidateQueries({ queryKey: contentKeys.all }),
@@ -69,7 +69,7 @@ function usePageTrash() {
     mutationFn: (page: Page) => pageAPI.remove(page.id),
     onSuccess: async (_result, page) => {
       await client.invalidateQueries({ queryKey: contentKeys.all })
-      if (podRouteID(pageID) === page.id) navigate(podLocation('/content/space'))
+      if (podRouteID(pageID) === page.id) void navigate({ to: podLocation('/content/space').pathname })
       toast.success(t('pod.sidebar.page_trashed', { title: title(page) }), {
         action: { label: t('pod.sidebar.undo'), onClick: () => restore.mutate(page.id) }
       })

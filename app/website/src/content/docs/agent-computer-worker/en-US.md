@@ -29,7 +29,7 @@ An open environment workspace and a running Codex turn each use one Worker slot.
 
 ## The filesystem contract
 
-Agent Home is persistent storage at `/workspace`. The old `/agents/<agent_uid>` path links to it; path checks resolve symbolic links before checking the Home boundary. Its layout is:
+Agent Home is persistent storage at `/workspace`. `/agents/<agent_uid>` is a symbolic link to `/workspace`; path checks resolve symbolic links before checking the Home boundary. Its layout is:
 
 ```text
 /workspace/
@@ -52,7 +52,7 @@ Home survives instance deletion and image changes. A rebuild removes only `/var/
 
 The control-plane drive separately holds attachments, published files, Skills, and Automation scripts. Use `ankole-files` to read or publish drive files. Job workspaces and Codex threads remain in persistent Home. Before a turn, the Worker brings `installed-skills/` in step with the drive.
 
-Codex Home is `/workspace/.codex`. Thread files survive replacement; Codex can resume them without the old SQLite cache at `/var/cache/ankole/codex`. Background Jobs load Skills through `skill_view` without copying Skill roots into their workspaces.
+Codex Home is `/workspace/.codex`. Thread files survive replacement; Codex can resume them even after the rebuildable SQLite cache at `/var/cache/ankole/codex` is replaced. Background Jobs load Skills through `skill_view`.
 
 ## Progress and capacity
 

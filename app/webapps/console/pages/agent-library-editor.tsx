@@ -93,13 +93,14 @@ export function AgentLibraryEditor({
   }
 
   const reloadLatest = async (kind: AgentLibraryDocumentKind) => {
-    const result = await documents.refetch()
-    const latest = result.data?.library_documents[kind] as AgentLibraryDocumentSnapshot | undefined
-    if (latest) {
-      model.reload(kind, latest)
-      return
+    try {
+      await model.reload(kind, async () => {
+        const result = await documents.refetch({ throwOnError: true })
+        return result.data!.library_documents[kind] as AgentLibraryDocumentSnapshot
+      })
+    } catch (error) {
+      model.setError(kind, requestErrorMessage(error), true)
     }
-    if (result.error) model.setError(kind, requestErrorMessage(result.error))
   }
 
   return (

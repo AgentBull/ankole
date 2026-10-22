@@ -26,7 +26,7 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import {
   ankoleWebAuthZGroupControllerAddMemberMutation,
   ankoleWebAuthZGroupControllerCreateMutation,
@@ -173,7 +173,7 @@ export function PrincipalGroupEditorPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(PrincipalGroupEditorModel)
-  const params = useParams()
+  const params = useParams({ strict: false })
   const name = params.name
   const mode = name ? 'edit' : 'new'
 
@@ -204,7 +204,9 @@ export function PrincipalGroupEditorPage() {
       toast.success(t('console.principal_groups.saved', { id: response.principal_group.name }))
 
       // Land on the new group's editor so members and grants can be managed next.
-      if (!model.dirty.value) navigate(`/access/groups/${encodeURIComponent(response.principal_group.name)}`)
+      if (!model.dirty.value) {
+        void navigate({ to: `/access/groups/${encodeURIComponent(response.principal_group.name)}` })
+      }
     }
   })
   const updateGroup = useMutation({

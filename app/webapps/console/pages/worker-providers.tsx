@@ -20,7 +20,7 @@ import { RiServerLine } from '@remixicon/react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { requestErrorDetailList, requestErrorMessage } from '../../common/request-errors'
 import {
   ankoleWebWorkerProviderControllerCheckOptions,
@@ -135,7 +135,7 @@ function ProviderAvailability({ providerID }: { providerID: string }) {
 }
 
 export function WorkerProviderEditorPage() {
-  const { providerID } = useParams()
+  const { providerID } = useParams({ strict: false })
   return <WorkerProviderEditor key={providerID ?? 'new'} providerID={providerID} />
 }
 
@@ -172,7 +172,9 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
       })
       if (!accepted) return
       saved()
-      if (!model.dirty.value) navigate(`${providersPath}/${encodeURIComponent(response.worker_provider.provider_id)}`)
+      if (!model.dirty.value) {
+        void navigate({ to: `${providersPath}/${encodeURIComponent(response.worker_provider.provider_id)}` })
+      }
     }
   })
   const update = useMutation({
@@ -187,7 +189,7 @@ function WorkerProviderEditor({ providerID }: { providerID?: string }) {
     onMutate: () => window.location.href,
     onSuccess: (_response, _variables, sourceURL) => {
       if (window.location.href !== sourceURL) return
-      navigate(providersPath)
+      void navigate({ to: providersPath })
     }
   })
   const saveError = create.error ?? update.error

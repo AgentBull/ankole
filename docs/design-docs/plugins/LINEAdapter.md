@@ -33,8 +33,7 @@ observation and delivery route, not the owner of the platform room.
 The settings are the channel ID, the encrypted channel secret, and the
 encrypted long-lived channel access token from the LINE Developers Console. One
 channel can belong to only one enabled LINE binding, because two Agents behind
-one Official Account would both answer every message. The adapter does not use
-a LINE SDK.
+one Official Account would both answer every message.
 
 The adapter supports all three group modes: `addressed_only`, `observe_all`,
 and `may_intervene`. LINE delivers every group message to the bot, so no extra
@@ -108,7 +107,7 @@ with `/retry signal::<id>`.
 
 A database error while checking the quoted author fails ingress. It must not
 turn a quote of the Agent into ordinary group input. Provider redelivery uses
-the existing durable source keys to prevent duplicate accepted input.
+the durable source keys to prevent duplicate accepted input.
 
 Conversations applies the binding's group mode to other group messages. LINE
 indexes and character limits count UTF-16 code units; the shared
@@ -133,21 +132,14 @@ A LINE user ID belongs to the LINE Developers provider that owns the channel.
 The same person has a different user ID under channels of different
 providers, so such bindings need separate mappings.
 
-The binding owns `unmatched_sender_policy`. One standard consumer IM setup uses
-this sequence:
-
-1. An administrator signs in through LocalPassword and creates a human
-   Principal.
-2. The LINE binding selects `manual_review`.
-3. An unmatched user receives the fixed mapping notice. Conversations.IdentityAdmission creates
-   a mapping request with the LINE display name and does not store the
-   original message.
-4. The administrator maps the LINE external identity to the existing
-   Principal.
-5. The user sends the message again, and Conversations.IdentityAdmission admits it to the Agent.
-
-This sequence describes a common setup. It is not a dependency between
-LocalPassword and LINE. The mapping target can be any existing human Principal.
+The binding owns `unmatched_sender_policy` (`manual_review` or
+`create_standalone`). With `manual_review`, an unmatched addressed sender
+receives the fixed mapping notice while `Conversations.IdentityAdmission`
+creates a mapping request with the LINE display name without storing the
+original message; an administrator can then bind the LINE external identity to
+any existing human Principal. With `create_standalone`,
+`Conversations.IdentityAdmission` creates a human Principal and binds the LINE
+user ID.
 
 ## Materialize Attachments
 
@@ -200,7 +192,8 @@ change.
 Outbound attachments are outside the contract. A bot can send only image,
 video, and audio messages, each by a public HTTPS URL, and Ankole serves no
 public file. An attachment row stops with a permanent
-`outbound_attachments_not_supported` error; the text row still goes out.
+`outbound_attachments_not_supported` error; the text intent is delivered
+separately.
 
 ## Failures and Secrets
 

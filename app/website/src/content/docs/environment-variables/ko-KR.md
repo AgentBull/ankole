@@ -7,7 +7,7 @@ order: 202
 
 이 페이지는 PostgreSQL, 배포 비밀 정보, 파일 저장소, 프로세스 설정의 시작 변수입니다. Worker provider 설정은 PostgreSQL에 YAML로 저장됩니다.
 
-[AppConfigure](../app-configuration/) 가이드가 이제 인스턴스 실행 중에 관리자가 변경할 수 있는 runtime 설정을 담당합니다. 그런 설정을 `.env`나 Kubernetes Secret에 넣지 마십시오.
+인스턴스 실행 중에 관리자가 변경할 수 있는 runtime 설정은 [애플리케이션 설정](../app-configuration/)을 참조하십시오. 그런 설정을 `.env`나 Kubernetes Secret에 넣지 마십시오.
 
 ## Bootstrap과 secret(프로세스 시작)
 

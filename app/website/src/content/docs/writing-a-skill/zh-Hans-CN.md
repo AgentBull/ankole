@@ -94,7 +94,7 @@ dependencies:
       bearer_token_env_var: MY_MCP_TOKEN
 ```
 
-只有启用该 Skill 时，这个依赖才可用；它不会注册成模型原生工具。在 `SKILL.md` 中写明领域工具和选择规则，只用 `mcporter list server.tool --schema --json` 检查已选工具，并用 stdin JSON 调用。完整合同见 [MCP 参考](../mcp/)。
+只有启用该 Skill 时，这个依赖才可用。在 `SKILL.md` 中写明领域工具和选择规则，只用 `mcporter list server.tool --schema --json` 检查已选工具，并用 stdin JSON 调用。完整合同见 [MCP 参考](../mcp/)。
 
 ### 验证 Skill
 

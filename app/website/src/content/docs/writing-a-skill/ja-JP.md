@@ -94,7 +94,7 @@ dependencies:
       bearer_token_env_var: MY_MCP_TOKEN
 ```
 
-この依存が利用できるのは、Skill が有効である間だけです。ネイティブな model tool としては登録されません。`SKILL.md` では、domain tool と選択規則を名前で示し、Agent には `mcporter list server.tool --schema --json` で選択した tool だけを検査させ、stdin への JSON で呼び出させます。完全な contract は [MCP リファレンス](../mcp/) を参照してください。
+この依存が利用できるのは、Skill が有効である間だけです。`SKILL.md` では、domain tool と選択規則を名前で示し、Agent には `mcporter list server.tool --schema --json` で選択した tool だけを検査させ、stdin への JSON で呼び出させます。完全な contract は [MCP リファレンス](../mcp/) を参照してください。
 
 ### Skill を検証する
 

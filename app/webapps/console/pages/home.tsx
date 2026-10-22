@@ -15,8 +15,9 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import type { ComponentType, ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { isRouteErrorResponse, Link, useLocation, useRouteError } from 'react-router'
+import { Link, useLocation } from '@tanstack/react-router'
 import { requestErrorMessage } from '../../common/request-errors'
+import { linkTarget } from '../../common/router'
 import {
   ankoleWebAgentWorkerControllerIndexOptions,
   ankoleWebAgentControllerIndexOptions,
@@ -224,7 +225,7 @@ export function HomePage() {
               {jobRows.slice(0, 5).map(job => (
                 <li key={job.id}>
                   <Link
-                    to={`/background-agent-jobs?job=${job.id}`}
+                    {...linkTarget(`/background-agent-jobs?job=${job.id}`)}
                     className="grid gap-1 border-b border-border px-4 py-3 last:border-b-0 hover:bg-accent">
                     <div className="flex min-w-0 items-start justify-between gap-3">
                       <span className="min-w-0 truncate text-sm text-foreground">{job.title ?? `#${job.id}`}</span>
@@ -329,18 +330,18 @@ export function NotFoundPage() {
  * console. This keeps the operator inside the product and offers both a retry
  * and a way home, and still shows the message so a bug report can quote it.
  */
-export function RouteErrorPage() {
+export function RouteErrorPage({ error }: { error?: unknown }) {
   const { t } = useTranslation()
-  const error = useRouteError()
   // Loader failures reject with the parsed JSON error body, so the fallback
   // goes through the shared envelope reader instead of String(object).
-  const detail = isRouteErrorResponse(error)
-    ? `${error.status} ${error.statusText}`
-    : error instanceof Error
-      ? error.message
-      : error
-        ? requestErrorMessage(error)
-        : ''
+  const detail =
+    error instanceof Response
+      ? `${error.status} ${error.statusText}`
+      : error instanceof Error
+        ? error.message
+        : error
+          ? requestErrorMessage(error)
+          : ''
 
   return (
     <PageStack className="mx-auto max-w-2xl py-10">
@@ -490,7 +491,7 @@ function NextStep({
 }) {
   return (
     <Link
-      to={to}
+      {...linkTarget(to)}
       className="grid content-start gap-2 border border-border bg-card p-4 transition-colors fine-hover:hover:border-foreground/30">
       <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
         <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />

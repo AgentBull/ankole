@@ -990,7 +990,7 @@ class TilePointer {
 
   tileAfter() {
     const { tile, index } = this
-    if (tile.isText) return tile
+    if (tile.isAtom) return tile
     return index < tile.children.length ? tile.children[index] : null
   }
 
@@ -1015,25 +1015,27 @@ class TilePointer {
 
   matchingWidget(widget: Widget<any>, sideFlag: number, reused: Map<Tile, Reused>) {
     let { index, tile, parent } = this
-    for (;;) {
-      if (!index) {
-        if (!parent || (tile instanceof EltTile ? tile.tag : !(tile instanceof TextTile))) {
-          break
-        }
-        ;({ index, tile, parent } = parent)
-      } else {
-        if (tile instanceof TextTile) break
-        const before = tile.children[--index]!
-        if (!before.isPoint) break
-        if (
-          !reused.has(before) &&
-          before instanceof WidgetTile &&
-          before.widget.eq(widget) &&
-          (before.flags & TileFlag.PointSide) == sideFlag &&
-          !(before.flags & TileFlag.Dirty)
-        ) {
-          reused.set(before, Reused.Full)
-          return before
+    if (!tile.isAtom) {
+      for (;;) {
+        if (!index) {
+          if (!parent || (tile instanceof EltTile ? tile.tag : !(tile instanceof TextTile))) {
+            break
+          }
+          ;({ index, tile, parent } = parent)
+        } else {
+          if (tile instanceof TextTile) break
+          const before = tile.children[--index]!
+          if (!before.isPoint) break
+          if (
+            !reused.has(before) &&
+            before instanceof WidgetTile &&
+            before.widget.eq(widget) &&
+            (before.flags & TileFlag.PointSide) == sideFlag &&
+            !(before.flags & TileFlag.Dirty)
+          ) {
+            reused.set(before, Reused.Full)
+            return before
+          }
         }
       }
     }
@@ -1136,7 +1138,7 @@ class ContentUpdate {
     // kept range.
     if (this.deco.endWidgets) {
       for (let nw: CompositeTile = this.new, { tile, index, parent } = this.old, pos = this.posB; pos < end;) {
-        if (tile instanceof TextTile) {
+        if (tile.isAtom) {
           pos += tile.length - index
           ;({ tile, index, parent } = parent!)
           index++

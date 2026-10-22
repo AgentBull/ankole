@@ -2,7 +2,7 @@
 
 The Discord Adapter connects one Discord bot to one Agent binding. Discord is a
 consumer IM. The category changes catalog and Console presentation only; the
-adapter uses the same Signals and Signals and Conversations contracts as every other Signal adapter.
+adapter uses the same Signals and Conversations contracts as every other Signal adapter.
 
 Read [Signals](../Signals.md), [Conversations](../Conversations.md),
 [Sessions](../Sessions.md), [Principal](../Principal.md), and
@@ -30,10 +30,9 @@ observation and delivery route, not the owner of the platform room.
 | Gateway client | `IMTransport.WebSocket` through the Discord socket |
 
 The only setting is the required encrypted `botToken`. One token can belong to
-only one enabled Discord binding. The adapter does not use a Discord library.
-Its narrow client must return Discord message IDs for durable reply
-checkpoints, and its gateway owner must not advance the session sequence before
-Conversations accepts the event.
+only one enabled Discord binding. Its client returns Discord message IDs for
+durable reply checkpoints, and its gateway owner advances the session sequence
+only after Conversations accepts the event.
 
 The adapter supports all three group modes: `addressed_only`, `observe_all`,
 and `may_intervene`. The last two also need the privileged message-content
@@ -65,9 +64,8 @@ of the last event it handled, and a `RESUME` replays everything after it. The
 owner therefore advances the sequence only after ingress durably accepted the
 event or the adapter explicitly ignored it. Each queued event keeps the gateway
 session that received it, so an old task cannot move a new session's sequence.
-The owner retains received events across a dropped connection and
-Signals deduplicates a replay with its durable source keys, so Discord
-needs no second table.
+The owner keeps received events across a dropped connection, and Signals
+deduplicates replayed events with its durable source keys.
 
 Event handling runs in one supervised task at a time. The owner keeps reading
 frames and answering heartbeats while that task runs, because a slow ingress or
@@ -140,22 +138,13 @@ The author provider is always `discord`, and the stable external identity is
 the Discord user snowflake. Username and global name are display hints. They
 are not identity keys or verified contact information.
 
-The binding owns `unmatched_sender_policy`. Discord does not force
-`manual_review` and does not disable `create_standalone`. One standard consumer
-IM setup uses this sequence:
-
-1. An administrator signs in through LocalPassword and creates a human
-   Principal.
-2. The Discord binding selects `manual_review`.
-3. An unmatched user receives the fixed mapping notice. Conversations.IdentityAdmission creates
-   a mapping request and does not store the original message.
-4. The administrator maps the Discord external identity to the existing
-   Principal.
-5. The user sends the message again, and Conversations.IdentityAdmission admits it to the Agent.
-
-This sequence describes a common setup. It is not a dependency between
-LocalPassword and Discord. The mapping target can be any existing human
-Principal and does not need a LocalPassword credential.
+The binding owns `unmatched_sender_policy` (`manual_review` or
+`create_standalone`). With `manual_review`, an unmatched addressed sender
+receives the fixed mapping notice while `Conversations.IdentityAdmission`
+creates a mapping request without storing the original message; an administrator
+can then bind the Discord external identity to any existing human Principal.
+With `create_standalone`, `Conversations.IdentityAdmission` creates a human
+Principal and binds the Discord user ID.
 
 ## Materialize Attachments
 
@@ -214,7 +203,7 @@ a message that is already gone is the outcome the intent asked for, so `404`
 on those two operations is a success.
 
 Edits, deletes, and reaction changes are safe to repeat, so a transport or
-server failure on those operations remains retryable. A successful message
+server failure on those operations is retryable. A successful message
 create that has no message ID is unknown because Ankole cannot checkpoint it
 without risking a duplicate.
 

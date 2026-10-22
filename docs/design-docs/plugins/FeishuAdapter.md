@@ -54,10 +54,9 @@ The chat configuration contains these fields:
 | `identityProvider` | References the identity provider that owns the Principal subject namespace; a single provider is adopted by default, several require a choice, `:standalone` keeps the adapter default |
 | `userName` | Sets the outbound display name |
 
-The Signal Binding, not these AppConfigure settings, selects how the
-Agent handles unaddressed group messages.
+The Signal Binding configures how the Agent handles unaddressed group messages.
 
-Bot identity is not an AppConfigure setting. `ConnectionReconciler` resolves
+`ConnectionReconciler` resolves
 the bot `open_id` from `bot/v3/info` in the reconciler process before it
 starts a connection owner, and keeps it only in the owner's process-local chat
 consumer config as `runtimeBotOpenID`. `Ankole.Plugins.LarkAdapter.BotIdentity`
@@ -79,12 +78,11 @@ a different `domain` and `appID` pair across the deployment instance. A
 disabled binding releases its pair. The binding save transaction validates
 this ownership before it writes the binding and its encrypted configuration.
 
-Each new or saved binding gets a configuration key derived from its normalized
-Agent UID and binding name. Existing `config_ref` values remain readable. A
-save moves an old binding to its binding-owned key, so no encrypted-data
-migration is needed. New writes use the separate `binding_configs` root,
-so no historical Agent UID can overlap the new key. The old `bindings` root
-remains registered for existing `config_ref` values.
+Each binding stores its configuration under
+`signals.lark.binding_configs.<binding-digest>`, where `<binding-digest>` is
+derived from the normalized Agent UID and binding name. The `signals.lark.bindings`
+root is also registered so `config_ref` values under that prefix remain
+readable.
 
 ## Connect to Feishu or Lark
 
@@ -143,14 +141,13 @@ email, that normalized email becomes the primary external ID and the webhook
 IDs become aliases before admission continues.
 
 An inbound Turn exposes its public Conversation UUID in
-`<agent_environment_info>`. A display name remains a separate optional fact.
+`<agent_environment_info>`. A display name is a separate optional fact.
 The message webhook does not supply one, so identity admission projects a name
 already synchronized from Contact into the current event. For a group message,
 the control-plane prompt renderer writes `speaker` as `name(uid)` and repeats
-the `uid` when no name is known. New Human Principal UIDs are opaque UUIDv7
-values; the normalized email and Lark IDs remain provider-scoped external
-identities. Existing Principal UIDs remain unchanged. The Lark Agent Plugin reads the stored provider identity metadata to
-obtain the `open_id` required by its direct-message shortcut.
+the `uid` when no name is known. Human Principal UIDs are opaque UUIDv7
+values; the normalized email and Lark IDs are provider-scoped external
+identities.
 
 Reaction events use the operator `user_id` when it is present. They use the
 operator `open_id` as the stable reaction actor key when Feishu omits
@@ -171,7 +168,7 @@ Conversations assigns the attachment's numeric ID before the download. A
 successful download gets the scoped drive path
 `chats/<public conversation UUID>/inbox/<digest>/<filename>`, where
 `<digest>` is the start of the content SHA-256 and `<filename>` is the provider
-filename. Provider message IDs and file keys remain stored adapter details;
+filename. Provider message IDs and file keys are stored adapter details;
 they do not appear in the drive path.
 
 The pending observation time is the attachment settle anchor. A slow download
@@ -230,7 +227,7 @@ as requiring operator action with a stable code such as
 the same invalid attachment forever. Documented cloud
 permission, quota, and root-capacity errors also require operator action.
 Invalid multipart plans and invalid provider responses are permanent errors.
-Other provider errors retain their normal intent retry behavior.
+Other provider errors use the normal intent retry policy.
 
 The cloud fallback emits
 `lark_adapter.intent.large_file_upload_started`,
@@ -241,10 +238,6 @@ emits `lark_adapter.intent.large_file_cleanup_failed`. The
 duration, file size, and block count. Its metadata reports the outcome, failed
 stage, fallback reason, and recipient member type without file content or an
 access URL.
-
-Delivery intents that stopped on `234006` before this fallback was deployed need one
-manual retry after the application has the required cloud-space access. The
-retry uses the stored attachment and sends the cloud-space link.
 
 If a reply target no longer exists, the adapter can post to the chat instead.
 If Lark rejects a final edit because of its edit limit, the adapter can send a
@@ -264,24 +257,22 @@ addresses before each request, including redirects. The connection uses a
 checked IP while HTTP Host, TLS SNI, and certificate verification keep the
 original hostname. Cloud metadata addresses are always rejected; private
 addresses follow `security.ssrf_filter`, whose default permits intranet access.
-A DNS failure or blocked target leaves a text link. Downloads retain the
+A DNS failure or blocked target leaves a text link. Downloads enforce a
 20 MiB streaming limit and do not retry transport failures.
 
 The Signal checkpoint is the durable CardKit ledger. It records card IDs,
 message IDs, source pages, the active page, stream state, the last confirmed
 presentation, and the sequence high-water mark. A restarted process renders
 the durable active page as one complete card and replaces the existing message.
-It then uses whole-message card edits for that page. It does not infer the
-element topology of an old provider card. If the answer needs another page, the
-sealed recovered page stays inline and the new tail returns to CardKit.
+It then uses whole-message card edits for that page. If the answer needs another
+page, the sealed recovered page stays inline and the new tail returns to CardKit.
 
 Each provider mutation uses a strictly increasing sequence. A retry reuses the
 same logical UUID and sequence. A changed mutation gets a later sequence.
 
 Working cards use CardKit element and content mutations. Finalization replaces
 an existing streamed message with one complete closed card and records that
-page as inline. It does not send terminal element batches against provider
-topology that can have changed. A card created from an already terminal reply
+page as inline. A card created from an already terminal reply
 stays CardKit because its complete content was sent once.
 
 The first card for an automatic cron wake starts with a small quoted note that
@@ -315,23 +306,25 @@ refresh that fails with a not-retryable error records a blocked
 `recovery_state` on the checkpoint and stops; an operator update to the
 binding requeues blocked previews together with blocked intent replies.
 Terminal recovery renders the terminal presentation from the durable intent,
-even when the last confirmed CardKit checkpoint still contains a working
+even when the last confirmed CardKit checkpoint contains a working
 presentation. If CardKit requires a plain-text fallback during that refresh,
-the preview records a non-retry fallback and stops; the intent remains the sole
+the preview records a non-retry fallback and stops; the intent is the sole
 owner of provider-visible terminal delivery.
 
-Preview updates can disappear. The final assistant reply remains in its Delivery intent.
+Preview updates can disappear. The final assistant reply is stored in its Delivery intent.
 Conversations records that reply only after the provider confirms it.
 
 ## Let a Job Use Lark Tools
 
 An enabled `lark` Agent Plugin can use a compatible Lark binding. WorkerEnv
 selects the current signal route's binding and resolves one tenant token when
-the execution starts. A sole available Lark binding remains implicit. If an
+the execution starts. A sole available Lark binding is implicit. If an
 Agent has several available Lark bindings and the execution has no matching
-route, WorkerEnv supplies no Lark credential variables. It never selects a
-binding by list order. A route that names a disabled or unavailable binding
-does not fall back to another Lark binding. WorkerEnv projects these variables:
+route, WorkerEnv supplies no Lark credential variables. A route that names a
+disabled or unavailable binding does not fall back to another Lark binding. The
+Lark Agent Plugin reads the stored provider identity metadata to obtain the
+`open_id` required by its direct-message shortcut. WorkerEnv projects these
+variables:
 
 - `LARKSUITE_CLI_APP_ID`
 - `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`
@@ -352,7 +345,7 @@ decimal access version. The control plane rejects a Human turn without a
 positive access version. The Worker receives only the prepared profile and
 the active-human marker; it receives no Principal or access-version fields.
 After disablement and reviewed restoration, the new profile requires new app
-registration and user authorization. Old profiles remain on disk for admitted
+registration and user authorization. Old profiles stay on disk for admitted
 attempts, but future turns cannot select them through the trusted wrapper. This
 does not revoke provider credentials outside Ankole.
 
@@ -388,18 +381,17 @@ under
 `auth-login.json`. The profile directory has mode `0700`, and each state file
 has mode `0600` and an absolute expiry. A complete command takes no device code.
 Each derived profile owns at most one state file for each flow; a new begin
-atomically replaces only that file. The wrapper retains a pending flow, and it
+atomically replaces only that file. The wrapper keeps a pending flow, and it
 removes a successful, denied, expired, or invalid flow. The path contains only
-the HMAC-derived profile, not the Principal UID. App-registration failures keep
-the provider error code, description, and HTTP status instead of mapping every
-terminal error to expiry.
+the HMAC-derived profile, not the Principal UID. App-registration failures
+report the provider error code, description, and HTTP status.
 
 `auth login` does not create the app. The wrapper never asks the user for an app
 secret and never puts one in a command argument or WorkerEnv. User login cannot
 grant app scopes. If upload reports `app_scope_not_applied`, the Skill gives the
 provider scope link to the user and stops instead of changing app permissions.
 
-Lark CLI strict mode remains `bot` in the binding WorkerEnv. Each user profile
+Lark CLI strict mode is `bot` in the binding WorkerEnv. Each user profile
 has a profile-level `strict-mode=off` override because it must supply both the
 user token and the PersonalAgent app tenant token. The wrapper removes the
 environment strict-mode value and pins the identity for each command.
@@ -435,13 +427,10 @@ and grants.
 
 The adapter converts provider events, runs connections, renders CardKit, and
 classifies provider errors. Agent Computer never receives the application
-secret.
-
-Callback failure logs keep the failure class and source locations. They omit
-exception messages, function arguments, and callback data. Token fetch and
-refresh errors keep fixed public messages; their original causes stay in the
-redacted `details` field. A failed card callback returns a fixed HTTP 500
-response so that the provider can retry without receiving private error data.
+secret. Callback failure logs record the failure class and source locations
+without exception messages, function arguments, or callback data; token fetch
+and refresh errors use fixed public messages with redacted `details`, and a
+failed card callback returns a fixed HTTP 500 response.
 
 A control-plane restart rebuilds long connections. The startup job refreshes
 stored IM groups, and a full directory sync repairs identity drift. CardKit

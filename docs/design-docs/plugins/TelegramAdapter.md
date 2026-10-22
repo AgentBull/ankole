@@ -30,9 +30,9 @@ observation and delivery route, not the owner of the platform room.
 | Bot API client | Project `Req` client |
 
 The only setting is the required encrypted `botToken`. One token can belong to
-only one enabled Telegram binding. The adapter does not use `telegram_ex`. Its
-narrow client must return Telegram message IDs for durable reply checkpoints,
-and its poll owner must not confirm an update before Conversations accepts it.
+only one enabled Telegram binding. Its client returns Telegram message IDs for
+durable reply checkpoints, and its poll owner confirms an update only after
+Conversations accepts it.
 
 The adapter supports all three group modes: `addressed_only`, `observe_all`,
 and `may_intervene`.
@@ -56,8 +56,8 @@ delete configuration that another operator or system owns.
 The owner calls `getUpdates` with a positive timeout and processes updates in
 `update_id` order. It advances the in-memory offset only after durable ingress
 succeeds or the adapter explicitly ignores the update. A control-plane crash
-can therefore deliver an update again. Signals deduplicates that update
-with its durable source keys, so Telegram needs no second offset table.
+can therefore deliver an update again. Signals deduplicates replayed updates
+with its durable source keys.
 
 The connection reconciler reads the current enabled bindings. A token change
 replaces the old owner, and a disabled or deleted binding stops its owner. A
@@ -67,7 +67,7 @@ control-plane restart rebuilds the owners from binding state.
 
 The adapter accepts private chats, groups, supergroups, and independent forum
 topics. The `provider_conversation_id` includes the Bot ID and chat ID. A forum topic also
-includes `message_thread_id`, so topics remain separate Agent sessions.
+includes `message_thread_id`, so each topic has a separate Agent Session.
 
 Reaction updates have no topic ID. The adapter reads the message's saved
 conversation before it accepts a reaction. A missing reference uses the base
@@ -95,22 +95,13 @@ The author provider is always `telegram`, and the stable external identity is
 the decimal Telegram `User.id`. Username, name, and language are display hints.
 They are not identity keys or verified contact information.
 
-The binding owns `unmatched_sender_policy`. Telegram does not force
-`manual_review` and does not disable `create_standalone`. One standard consumer
-IM setup uses this sequence:
-
-1. An administrator signs in through LocalPassword and creates a human
-   Principal.
-2. The Telegram binding selects `manual_review`.
-3. An unmatched user receives the fixed mapping notice. Conversations.IdentityAdmission creates
-   a mapping request and does not store the original message.
-4. The administrator maps the Telegram external identity to the existing
-   Principal.
-5. The user sends the message again, and Conversations.IdentityAdmission admits it to the Agent.
-
-This sequence describes a common setup. It is not a dependency between
-LocalPassword and Telegram. The mapping target can be any existing human
-Principal and does not need a LocalPassword credential.
+The binding owns `unmatched_sender_policy` (`manual_review` or
+`create_standalone`). With `manual_review`, an unmatched addressed sender
+receives the fixed mapping notice while `Conversations.IdentityAdmission`
+creates a mapping request without storing the original message; an administrator
+can then bind the Telegram external identity to any existing human Principal.
+With `create_standalone`, `Conversations.IdentityAdmission` creates a human
+Principal and binds the Telegram user ID.
 
 ## Materialize Attachments
 

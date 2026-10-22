@@ -5,7 +5,7 @@ section: Developer guide
 order: 109
 ---
 
-Rust Kernel 是控制面的原生库，由 Elixir 通过 Rustler 加载。Bun Worker 使用自己生成的 protobuf 编解码器，不加载 Kernel 原生模块。
+Rust Kernel 是控制面的原生库，由 Elixir 通过 Rustler 加载。Bun Worker 使用自己生成的 protobuf 编解码器。
 
 ## 原生能力
 
@@ -26,7 +26,7 @@ RuntimeFabric 的结构和协议版本 10 在 `proto/ankole/runtime_fabric/v1/en
 
 ## 构建与传输
 
-开发、测试和生产共用 Cargo feature `nif`。Rustler 在 `src/nif_exports.rs` 中转换 BEAM 值和错误。JSON 形状的值与二进制数据在边界上保留各自表示。
+Cargo feature `nif` 服务 Elixir 控制面，`napi` 服务浏览器守护进程与宿主测试。Rustler 在 `src/nif_exports.rs` 中转换 BEAM 值和错误。JSON 形状的值与二进制数据在边界上保留各自表示。
 
 各环境的共享 reqwest client 都使用 HTTP/1.1 和 aws-lc-rs TLS。上游 WebSocket 使用独立连接。提供方策略和 transcript 提交仍由 [AIGateway](../ai-gateway/)负责。
 

@@ -223,7 +223,7 @@ When the parent is a cron turn, the Job reply route also freezes that cron
 event's delivery targets. A terminal Job notification keeps this snapshot. The
 parent Agent still handles the notification once. Sessions.Presentation commits
 one native Message or external Delivery intent per target from its final reply. Jobs
-created from ordinary turns keep the existing one-target route.
+created from ordinary turns use a one-target route.
 
 Success, failure, and `waiting_on_user` write a notification for the originating
 conversation. A success notification includes the final Codex response.
@@ -343,8 +343,8 @@ with their positions and item keys. Append-only `background_agent_job_turn_items
 rows store that stream, and they are the one storage and read-path owner of
 Turn content: every trajectory reader projects `ankole_chatml` messages from
 the stored items at read time. An item whose projection is empty stays stored
-for thread replay. A Turn recorded before the item stream existed has no item
-rows: it renders empty, and its thread falls back to the Workspace rebuild
+for thread replay. A Turn with no item
+rows returns an empty trajectory, and its thread falls back to the Workspace rebuild
 below when replay finds no items.
 
 A stored tool-result message keeps the stable execution mechanism in metadata.
@@ -388,7 +388,7 @@ complete lines and the final line without a newline. The limit is 64 MiB of
 wire bytes. Unowned thread notifications share bounds of 256 messages and
 64 MiB of serialized UTF-8. These are protocol and retention bounds, not heap
 size guarantees. Crossing either notification bound ends and reaps this
-Agent's app-server through the existing runtime-loss path. It does not discard
+Agent's app-server through the runtime-loss path. It does not discard
 completion events and continue with an incomplete view of the thread tree.
 
 The Job session serializes ordinary lead-Turn completions and deduplicates them
@@ -396,9 +396,9 @@ by thread and Turn ID. A retry may finish in the same app-server output batch
 as its start response; its completion waits for the preceding recovery rather
 than being discarded. Explicit compaction completion resolves its handshake
 immediately, outside that serial order, because recovery waits for it before
-starting the retry. These rules preserve the existing recovery budgets.
+starting the retry. These rules preserve the recovery budgets.
 
-A thread that was created before raw notifications were enabled can resume
+A thread without raw notifications can resume
 without the exact collaboration call. For this case, `subAgentActivity` stores a
 minimal lifecycle pair with the stable child identity. An ambiguous interaction
 uses `collaboration.agent_interaction`; it does not guess whether the original
@@ -461,8 +461,9 @@ root. It must
 exist as a directory and must not be a Git repository. The directory is on
 persistent Home and survives Worker replacement.
 
-Agent Home is `/workspace`. The entrypoint links the former
-`/agents/<agent_uid>` path to it so existing task paths still work.
+Agent Home is `/workspace`. The entrypoint links
+`/agents/<agent_uid>` to it so persisted task paths under that prefix resolve
+to Home.
 
 A Job can see other files in the same Agent Home. Job workspaces separate
 current work, but they do not hide all files owned by the same Agent.
@@ -583,7 +584,7 @@ See [MCP-backed Skills](MCPBackedSkills.md#model-visible-mcp-boundary).
 Agent Computer enables Codex native code mode for each Job. Code mode gives a
 Job one isolated JavaScript executor that can call eligible local tools,
 but MCP-backed Skills do not enter that tool registry. A Job follows the Skill
-and runs mcporter through its terminal. Code mode remains the Codex client-side
+and runs mcporter through its terminal. Code mode is the Codex client-side
 programmatic calling path for eligible local tools. It is not the Responses API
 `programmatic_tool_calling` wire type, which the pinned Codex runtime does not
 consume. The JavaScript global can combine the namespace and leaf name, but the
@@ -635,8 +636,7 @@ For AIGateway, the Agent Codex Home selects the `ankole_aigateway` provider.
 Its configured name is `OpenAI`, which tells the pinned Codex runtime that this
 hop can carry remote compaction. The provider ID does not change. Every Job uses
 that one protocol: Codex appends `compaction_trigger` to a normal Responses
-request and AIGateway answers it. A Job no longer carries a switch between two compaction
-protocols.
+request and AIGateway answers it.
 
 Whether AIGateway answers with its own summary or forwards the trigger to the
 Provider is the `upstream` field of the instance `ai_gateway.compaction`
@@ -698,12 +698,12 @@ must cover that work; a shorter default returned early and the lead started to
 redo the child's work. It does not set the
 maximum, so Codex keeps its default. This reduces repeated model turns after
 empty waits, as tracked in [openai/codex#35259](https://github.com/openai/codex/issues/35259).
-A resumed thread keeps the existing project `AGENTS.md`; the template applies
+A resumed thread keeps its project `AGENTS.md`; the template applies
 when a Job initializes its Workspace.
 The runner also gives Codex these drive rules as developer instructions. After
 it resumes a native thread, it adds the current instructions to the thread with
 `thread/inject_items`. This keeps the rules in the model context without
-rewriting the existing project documents.
+rewriting the project documents.
 
 ## Prepare Skills for Each Run
 
@@ -756,7 +756,7 @@ Each Job preparation performs only thread-owned selection:
 3. Project any enabled Skill-owned MCP servers separately.
 
 A Job does not pass Plugin Skill roots to Codex. A later disable removes the
-member from the loader, and an active Job receives the existing disable notice.
+member from the loader, and an active Job receives the disable notice.
 A Job does not call `plugin/install`, trust Hooks, or mutate Plugin cache and
 user config.
 
@@ -866,7 +866,7 @@ keep their bounded recovery, because AIGateway rotates its credential pool and
 a later attempt can reach a healthy credential or a recovered upstream.
 
 A retry runs on the Agent's one Worker. A replacement mounts the same Home,
-so the retry uses the existing Job Workspace and resumes the Codex thread
+so the retry uses the Job Workspace and resumes the Codex thread
 from its persistent file.
 
 AIGateway quota exhaustion with a known future recovery time returns the Job
@@ -909,7 +909,7 @@ attempt. Before the first Turn exists, it uses the Job's `updated_at`.
 
 One hour without durable progress counts as a stall. A delegated child has its
 own Turn row, so its checkpoints keep the Job clock alive while the lead waits.
-Worker heartbeats do not move this clock. The existing Oban sweep checks it;
+Worker heartbeats do not move this clock. The Oban sweep checks it;
 there is no activation lease or separate deadline process.
 
 A stall interrupts the current attempt's Turns through the Job owner, leaves
@@ -935,11 +935,10 @@ listed in [Agent Workers](AgentWorkers.md#cloudflare).
 
 ### Replacement threads
 
-If Codex still cannot resume its thread, one attempt can create one
+If Codex cannot resume its thread, one attempt can create one
 replacement thread:
 
-1. Replay, only for an existing Job marked `legacy_thread_replay` by the
-   one-time migration. The Worker pages the
+1. Replay, only for a Job marked `legacy_thread_replay`. The Worker pages the
    stored lead-thread turn items of the Job's workspace lineage over
    `background_agent_job.turn_items.list`, converts them back to wire response
    items, and injects them into a fresh thread. Each replayed `function_call`
@@ -947,7 +946,7 @@ replacement thread:
    restart during a deployment cannot turn a namespaced tool into a root tool.
    Codex re-compacts when the replayed history exceeds the model window. The
    Job metadata records `runtime_checkpoint_recovery: replayed_from_transcript`.
-2. Workspace rebuild. For a new Job, or when a legacy replay has no items
+2. Workspace rebuild. For a Job without `legacy_thread_replay`, or when replay has no items
    or fails, the fresh thread starts from the Job task, the
    durable Workspace, and a short history of earlier attempts. A continued Job
    also receives its source Job's task and final report from the source row.
@@ -957,8 +956,7 @@ replacement thread:
 Both outcomes are disclosed, bounded to one replacement per attempt, and apply
 to first-turn resume and to a thread lost inside a running attempt alike.
 The first successful runtime anchor clears `legacy_thread_replay`. Continued
-Jobs inherit it only while it remains set. Remove this migration path after
-all Jobs running or waiting at the upgrade have ended.
+Jobs inherit it only while it remains set.
 
 ## Create and Dispatch a Job Once
 
@@ -1023,7 +1021,7 @@ fields.
 
 `continued_from_job_id` is unique. One terminal Job can have only one direct
 successor, so two live Jobs cannot write to the same Codex thread and Workspace.
-A retry from the same parent tool call returns the existing successor. A
+A retry from the same parent tool call returns the stored successor. A
 different request for a source that already has a successor fails and identifies
 that successor.
 
@@ -1073,7 +1071,7 @@ A running Codex Turn receives the text through `turn/steer`. A Job in
 its answer.
 
 The send request uses the source tool-call ID as its stable Signal source
-key. A retry of the same parent Turn returns the existing command event and does
+key. A retry of the same parent Turn returns the stored command event and does
 not send the message twice.
 
 When `wait_reply=true`, the parent Session Driver reads the persisted
@@ -1093,7 +1091,7 @@ Revoked fresh input becomes terminal without reaching the Worker.
 Codex must produce a lead runtime notification within 60 seconds after
 `turn/start` succeeds. Missing first progress is a retryable runtime failure;
 it cannot leave a Job indefinitely `running` merely because the Worker process
-continues to emit generic heartbeats.
+emits generic heartbeats.
 
 The result is ready when the causal Turn is terminal and the Job has committed
 `waiting_on_user`, `succeeded`, `failed`, or `stopped`. It is also ready when a
@@ -1134,7 +1132,7 @@ user's decision, approval, or information.
 
 ## Hand Off a Lifecycle Notification
 
-Success, failure, and `waiting_on_user` still create an open lifecycle
+Success, failure, and `waiting_on_user` create an open lifecycle
 Signal for the originating conversation. The waiting tool can consume that
 event only after it records its tool result in the AIGateway history.
 
@@ -1203,6 +1201,29 @@ accepts only `drive_path` and records the file's current digest. A file under
 The caller must provide a structured attachment record. Ankole never searches
 prose for an outbound file path.
 
+## Console background activity coverage
+
+The Home background activity area reads queued, running and waiting-on-user Jobs
+for one selected Agent in the current tenant. It uses the
+`background_agent_jobs` read permission, owner Session and source Signal links,
+native status, admission timestamps and bounded error summaries. Its query
+filters activity before cursor pagination and does not load task text, result
+bodies, metadata or Turn trajectories; the Job detail is the
+inspection surface for those facts. An absent error summary stays unknown.
+
+The Background Job health metrics describe this domain only. The
+activity area separately displays [Workflow](Workflow.md#console-activity-inspection)
+and [Automation runs](AutomationJobs.md#live-activity-in-console-home), with their
+own permissions, observation times and page cursors. It does not total parent
+Workflow rows, child calls and delegated Jobs as execution slots, and it does not
+cover all conversation Turns, Worker processes or resource utilization.
+
+`Ankole.ModelIntegerID` owns the shared `1000..9007199254740991` bounds and
+canonical decimal wire parsing. Workflow IDs use the same contract. Worker
+and Control Plane checks use the vectors in
+`app/kernel/proto/ankole/runtime_fabric/v1/model_integer_id_vectors.json`.
+Session workspace IDs use a lower bound of `10000`.
+
 ## Tests Required for Changes
 
 Changes to this subsystem must validate these paths when their environments are
@@ -1232,26 +1253,3 @@ available:
 - Turn stall detection, its retryable abort, its exhausted Job failure, and
   deadline rearming from storage.
 - Real Deep Research and Office artifact Jobs in the Worker image.
-
-## Console background activity coverage
-
-The Home background activity area reads queued, running and waiting-on-user Jobs
-for one selected Agent in the current tenant. It retains the existing
-`background_agent_jobs` read permission, owner Session and source Signal links,
-native status, admission timestamps and bounded error summaries. Its query
-filters activity before cursor pagination and does not load task text, result
-bodies, metadata or Turn trajectories; the existing Job detail remains the
-inspection surface for those facts. An absent error summary stays unknown.
-
-The existing Background Job health metrics describe this domain only. The
-activity area separately displays [Workflow](Workflow.md#console-activity-inspection)
-and [Automation runs](AutomationJobs.md#live-activity-in-console-home), with their
-own permissions, observation times and page cursors. It does not total parent
-Workflow rows, child calls and delegated Jobs as execution slots, and it does not
-cover all conversation Turns, Worker processes or resource utilization.
-
-`Ankole.ModelIntegerID` owns the shared `1000..9007199254740991` bounds and
-canonical decimal wire parsing. Workflow IDs use the same contract. Worker
-and Control Plane checks use the vectors in
-`app/kernel/proto/ankole/runtime_fabric/v1/model_integer_id_vectors.json`.
-Session workspace IDs retain their tighter lower bound of `10000`.

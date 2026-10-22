@@ -55,7 +55,7 @@ Agent 생성 시 provider 선택과 Worker 행을 저장하며 인스턴스는 �
 | Lambda MicroVMs | EFS의 Agent 디렉터리 | 메모리를 유지하며 중지 |
 | Function Compute | Agent별 AgenticSpace 또는 OSS prefix | 메모리를 유지하며 중지 |
 
-Vercel `sessionTimeoutSeconds`는 계정 제한 내에서 설정하세요. 기본값은 86400초이며, 45분 제한이면 2700초로 설정합니다. Lambda는 실행 중이거나 일시 중지된 Worker 외에 스토리지 삭제용 인스턴스의 메모리 할당량도 확보해야 합니다. 배포 전에 저장소 CONTRIBUTING의 명령으로 대상 환경을 검증하세요. [제공자 검증 근거](https://github.com/AgentBull/ankole/blob/main/docs/design-docs/AgentWorkers.md#provider-verification-evidence)에서 각 제공자의 클라우드 검사와 남은 검증 항목을 확인하세요. 재개는 Worker 이미지의 OSS 재연결 도우미에 의존하므로 버전이 일치하는 Worker 이미지와 컨트롤 플레인을 함께 배포하세요. AgenticFS도 실제 환경 검증이 필요합니다. ACS는 기본 메모리 유지가 확인되지 않아 등록하지 않았습니다.
+Vercel `sessionTimeoutSeconds`는 계정 제한 내에서 설정하세요. 기본값은 86400초이며, 45분 제한이면 2700초로 설정합니다. Lambda는 실행 중이거나 일시 중지된 Worker 외에 스토리지 삭제용 인스턴스의 메모리 할당량도 확보해야 합니다. Function Compute 재개는 Worker 이미지의 OSS 재연결 도우미를 사용하므로 버전이 일치하는 Worker 이미지와 control plane을 함께 배포하세요.
 
 Home은 인스턴스 삭제와 이미지 변경 후에도 유지됩니다. Codex 스레드는 `/workspace/.codex`, SQLite 캐시는 `/var/cache/ankole/codex`에 있습니다. 재구축은 캐시만 삭제합니다. Docker 로컬 volume은 호스트 손실을 견디지 못합니다. Cloudflare가 강제로 중지되면 마지막 백업 이후 쓰기가 손실될 수 있습니다. Home과 [Agent 드라이브](../file-management/)를 모두 백업하세요.
 

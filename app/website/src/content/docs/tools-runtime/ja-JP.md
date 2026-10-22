@@ -30,4 +30,4 @@ Driver は宣言に従って並列または順次実行します。永続的な�
 
 ## ツールの追加
 
-ドメインツールはコントロールプレーンの所有者に宣言と実装を置きます。環境ツールは Worker に追加して `worker_tools.json` を再生成します。`WorkerAgentTool` と Zod は Worker の実装契約であり、メインモデルループの所有者ではありません。Schema と実行境界を一致させてください。
+ドメインツールはコントロールプレーンの所有者に宣言と実装を置きます。環境ツールは Worker に追加して `worker_tools.json` を再生成します。`WorkerAgentTool` と Zod は Worker ツールの実装契約を定義します。Schema と実行境界を一致させてください。

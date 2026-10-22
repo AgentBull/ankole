@@ -27,7 +27,8 @@ import { useSignals } from '@preact/signals-react/runtime'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { useSearchParams } from '../../common/router'
 import {
   ankoleWebWorkerEnvControllerDecryptTenantMutation,
   ankoleWebWorkerEnvControllerDecryptMutation,
@@ -154,10 +155,10 @@ export function WorkerEnvsListPage() {
       description={t('console.worker_envs.description')}
       createAction={
         <div className="flex gap-2">
-          <Button render={<Link to="new?scope=global" />} size="sm" variant="outline">
+          <Button render={<Link to="new" search={{ scope: 'global' }} />} size="sm" variant="outline">
             {t('console.worker_envs.new_global')}
           </Button>
-          <Button render={<Link to="new?scope=tenant" />} size="sm">
+          <Button render={<Link to="new" search={{ scope: 'tenant' }} />} size="sm">
             {t('console.worker_envs.new_tenant')}
           </Button>
         </div>
@@ -206,7 +207,7 @@ function WorkerEnvValueCell({ item, scope }: { item?: WorkerEnvItem; scope: 'glo
         <div className="flex flex-wrap items-center gap-2">
           <WorkerEnvSourceBadge source={item.source} />
           {item.secret ? <Badge variant="info">{t('console.worker_envs.secret')}</Badge> : null}
-          <Link className="link text-xs" to={`${encodeURIComponent(item.name)}?scope=${scope}`}>
+          <Link className="link text-xs" to={encodeURIComponent(item.name)} search={{ scope }}>
             {t('common.edit')}
           </Link>
         </div>
@@ -220,7 +221,7 @@ export function WorkerEnvEditorPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const model = useModel(WorkerEnvEditorModel)
-  const params = useParams()
+  const params = useParams({ strict: false })
   const [searchParams] = useSearchParams()
   const scope = searchParams.get('scope') === 'global' ? 'global' : 'tenant'
   const api = WORKER_ENV_API[scope]
@@ -264,7 +265,7 @@ export function WorkerEnvEditorPage() {
       toast.success(t('console.worker_envs.saved', { name: response.worker_env.name }))
       setPlaintextConfirmOpen(false)
 
-      if (!model.dirty.value) navigate('/worker-envs')
+      if (!model.dirty.value) void navigate({ to: '/worker-envs' })
     }
   })
   const remove = useMutation({
@@ -275,7 +276,7 @@ export function WorkerEnvEditorPage() {
       toast.success(t('console.worker_envs.deleted', { name: variables.path.name }))
       model.resetSource()
 
-      navigate('/worker-envs')
+      void navigate({ to: '/worker-envs' })
     },
     onError: error => toast.error(requestErrorMessage(error))
   })

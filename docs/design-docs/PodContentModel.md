@@ -35,8 +35,8 @@ pins the codec, and `app/kernel/test/vectors/pod_url.json` pins the Pod browser
 path and query grammar that the control plane and the browser share.
 Local development uses `<slug>.ankole.localhost:<port>`. Normal links have no `/pod`
 prefix or tenant query. Logged-in accounts are shared across Pod subdomains;
-switching uses the existing BrowserSessions authentication and activation owners.
-Each open document retains its selected identity, and every tenant request still
+switching uses the BrowserSessions authentication and activation owners.
+Each open document keeps its selected identity, and every tenant request
 checks that identity's admission. The content context supplies the same links to
 document embeds and full pages.
 
@@ -62,8 +62,8 @@ can steer at the Main loop's next boundary or wait for a separate reply. The
 durable queue supports editing, removal, ordering, and releasing one input;
 stale edits fail without overwriting newer changes. Stop cancels current work
 and pauses all pending inputs across refresh. Only Continue resumes the queue.
-Last-turn editing and regeneration reuse the existing retry and model-history
-owners, retain completed content changes, and reject changes to running or
+Last-turn editing and regeneration use the retry and model-history
+owners, keep completed content changes, and reject changes to running or
 superseded turns. Earlier messages load in bounded windows into the same remote
 cache while keeping the current reading position.
 
@@ -71,13 +71,13 @@ A first send keeps its local draft and request IDs until the server confirms it.
 Opening a new standalone Chat while that request is unfinished uses a separate
 draft. An unconfirmed first send remains available for recovery, with its original
 attachments and retry IDs.
-Late request results apply only to the captured draft and message. The existing
-Chat draft owner retains this work in memory for the current document.
+Late request results apply only to the captured draft and message. The
+Chat draft owner keeps this work in memory for the current document.
 
-Returning to a Chat restores the visible message and its offset. The existing
+Returning to a Chat restores the visible message and its offset. The
 Chat draft model keeps this position in memory for the current document. Page
 panels and Conversation views keep separate positions because their widths can
-differ. A Chat at the bottom continues to follow new content. The latest-message
+differ. A Chat at the bottom follows new content. The latest-message
 action resumes that behavior. Reloading starts at the latest message.
 
 Model choices belong to the Chat, with null following the Agent default. Each
@@ -92,10 +92,10 @@ save retains the draft. Inline configuration belongs to its document embed.
 Invalid filter and calculation fields require repair instead of silently
 selecting another field.
 
-Ankole's settled differences remain: records are not pages and have no separate
+Ankole's settled differences are: records are not pages and have no separate
 page trash; permanent record and field deletion requires confirmation. Moving
 a page keeps direct shares, including a move into Private. The move and share
-interfaces state this difference. Agents still require explicit admission, and
+interfaces state this difference. Agents require explicit admission, and
 applets run as their current Human.
 
 File uploads capture the selected file and loaded revision. Pending uploads
@@ -118,10 +118,11 @@ Without a sibling, the page goes last.
 
 `Ankole.Pod.Access` uses Principal and AuthZ. The actions are `page_view`,
 `page_edit`, and `page_manage`; the roles are `view`, `edit`, and `manage`.
-Page grants remain rows in `permission_grants`. The general Console grant API
+Page grants are rows in `permission_grants`. The general Console grant API
 cannot create, change, or delete page authority. Tenant creation initializes
 the space policy once. Reads and scaffold repair do not restore removed grants.
-The upgrade initializes only tenants with no Pod pages and no page grants.
+Tenant initialization seeds default Pod pages only when the tenant has no Pod
+pages and no page grants.
 
 - Active Humans have the space's default role. Space administrators can manage
   unrestricted space pages even when the default role is `edit`.
@@ -160,7 +161,7 @@ Tenant deletion removes records and other children in batches before pages.
 Deletion marks a page as trash and hides its subtree. A scheduled purge starts
 after `pod.trash_retention_days` (default 30). The purge marks its start in the
 same transaction that checks eligibility. Restore is rejected after that mark.
-The existing job removes records, file references, grants, and child pages in
+The purge job removes records, file references, grants, and child pages in
 batches; an interrupted job resumes from the remaining rows. It does not use
 foreign-key cascades to perform bulk deletion.
 
@@ -171,8 +172,8 @@ Page, PageContent, PageChange, and PageUserState facts. Their actions require th
 calling aggregate transaction. Page revision increments run as database
 expressions. PageChange entries are immutable; the write transaction appends and
 prunes them with the content update. Favorite and visit upserts change only the
-fields that the caller supplies. The existing tree lock and AuthZ proof remain
-part of the aggregate transaction.
+fields that the caller supplies. The tree lock and AuthZ proof belong to
+the aggregate transaction.
 
 `page_contents` stores
 canonical page-tree XML and derived plain text. The Rust kernel validates the
@@ -193,7 +194,7 @@ plane validates the XML before the write transaction. The transaction checks
 write authority. Under the page lock, it checks page access, type, and
 `base_revision` before it returns an XML validation error or commits the parsed
 document.
-XML bytes cross the existing signed WorkerFiles relay. They do not consume the
+XML bytes cross the signed WorkerFiles relay. They do not consume the
 RuntimeFabric RPC payload budget. A whole-page write creates a `reset` entry
 and advances the page revision atomically.
 
@@ -212,9 +213,15 @@ the client rebases, prepares the pending edits again, and uses a new sequence.
 
 `page_changes` retains the last `pod.ot_replay_window` batches (default 1,000).
 Pruning occurs in the write transaction. A client outside the window reloads.
-Replay also respects the existing 32 MiB transport budget; an oversized replay
+Replay also respects the 32 MiB transport budget; an oversized replay
 requires a reload instead of constructing a response that cannot cross the socket.
 A reset or unavailable replay keeps unconfirmed edits as a recoverable draft.
+The PageDraft model accepts only the current recovery read. A later read, a
+source change, or editor disposal revokes an earlier read. A response cannot
+replace edits made during its request or reduce the acknowledged revision.
+The component rebuilds the editor only for an accepted response. Failed reads
+keep the draft available for export and retry; recovery copies remain until
+the user discards them.
 The log is an OT transport window, not a user-visible version history.
 
 ACL and tree changes recheck topic membership immediately. A reconnect, return
@@ -290,7 +297,7 @@ a field counts rows; a count with a field counts its non-null values.
 A small table can be fetched in full for browser evaluation. The browser uses
 local operations only where they reproduce PostgreSQL semantics. It sends
 numeric comparisons, numeric formula operations, sum, average, and operations
-that depend on an unsupported database locale through the existing server query
+that depend on an unsupported database locale through the server query
 or aggregate path. PostgreSQL `numeric` precision is not replaced by JavaScript
 Number arithmetic. The server reports locale capabilities with the schema;
 shared fixtures cover both results and the route selection.
@@ -312,14 +319,14 @@ the document embed. The host validates this configuration before rendering a
 view; invalid input remains available for repair. An embed with an unsupported
 view type offers the same repair to grid.
 New fields, reverse fields, and views append after the last position by default.
-An explicit position remains authoritative. These writes use the existing table
+An explicit position is authoritative. These writes use the table
 locks; a new self-link also reserves its uninserted forward field's position.
 
 `database.copy` makes an independent table under a target document. It applies
 the source filter, assigns new IDs, and adds references to existing attachment
 bytes. Copied formulas refer to the copy's own fields. Links become fixed
 multiple-select options with the original record IDs and their current titles;
-they no longer read the linked table. View configuration changes only field
+they do not read the linked table. View configuration changes only field
 references, not business values that happen to equal a field ID. Later source
 edits do not change the copy.
 
@@ -364,17 +371,17 @@ format features and installed fonts; online Office editing is outside this
 version.
 
 A native Conversation message carries page links and verified attachments.
-Humans can upload, paste, and drop files without creating a Page. The existing
-Files owner stores bytes; accepted Messages retain canonical attachment facts.
+Humans can upload, paste, and drop files without creating a Page. The
+Files owner stores bytes; accepted Messages keep canonical attachment facts.
 Each message gets its own incoming file paths so later Agent edits cannot change
 the bytes received by a subsequent message. Download checks current Chat
 membership and reads frozen bytes. Losing Page access prevents new Page-context
-input but does not revoke a participant's existing personal Chat attachments.
+input but does not revoke a participant's personal Chat attachments.
 Unsent local Files survive panel and route changes; refreshing before acceptance
 requires choosing those local files again. The unload guard protects that draft.
 Images and text can open in a read-only dialog in the same Chat. The dialog uses
-the existing authorized attachment URL, restores focus when it closes, and
-retains the original download and new-tab actions. Text previews read a bounded
+the authorized attachment URL, restores focus when it closes, and
+keeps the download and new-tab actions. Text previews read a bounded
 prefix and identify incomplete content. Closing the dialog cancels its request
 and releases preview data. Previewing a file does not create a Page.
 Saving an attachment to a file page uses the visible message's blob reference;
@@ -418,7 +425,7 @@ UIKit components use its root export; UIKit component subpaths and stylesheet
 imports fail the build with a correction message. The host already loads those styles.
 A changed or removed file requested with an expected digest returns a
 publication conflict after page authorization. The host rereads the manifest;
-page access denial still stops the load. On a stale-revision response,
+page access denial stops the load. On a stale-revision response,
 the host cancels an in-flight page read before it fetches the current snapshot.
 The new fetch must not reuse a read taken before publication. The host does not
 replay the rejected write. A revision gets a new Garfish
@@ -434,21 +441,21 @@ hostile-code security boundary. Arbitrary host-body DOM and styles are outside
 its cleanup and entry-style guarantees.
 
 The SDK uses the current Human's ordinary Pod APIs and a shared QueryClient.
-`useRecords` and `useAggregate` retain live subscriptions. An explicit HTTP
+`useRecords` and `useAggregate` keep live subscriptions. An explicit HTTP
 401, 403, or 404 hides cached data even while the live connection is unavailable.
 The first denial applies while a Query retry is pending, not only after its
 final error. A later temporary failure or component remount cannot make denied
 data visible; a successful read restores it. A new subscriber to a table with
 revoked access receives the revocation immediately. It does not join that
-table's channel again while any existing subscriber retains the revoked entry.
+table's channel again while any subscriber keeps the revoked entry.
 Temporary network failures before
 a denial keep the last data. Pending writes cannot make
 denied data visible again. Record updates and
-deletes require the caller to retain its record at the start of editing and pass
+deletes require the caller to capture its record at the start of editing and pass
 its field versions explicitly; a later query refresh cannot replace that edit
 snapshot. An attachment upload ends its cell edit when it settles, including
 a transport failure. A later edit takes the latest field versions. A failed
-record save still retains its attempted value and versions for explicit retry;
+record save keeps its attempted value and versions for explicit retry;
 upload cleanup does not clear that attempt or call an unmounted editor.
 Pending mutation inputs preview existing record values without
 changing the confirmed query cache. A failure removes that preview and retains
@@ -492,20 +499,20 @@ runtime returns HTTP 503 with `applet_busy`.
 The isolate shares the control-plane OS process; it does not protect that
 process from a native V8 vulnerability.
 
-`AnkoleRuntime` capabilities call existing domain owners with the caller's
+`AnkoleRuntime` capabilities call domain owners with the caller's
 identity and tenant: `db.schema`, `db.query`, `db.aggregate`, `db.write`,
 `file.list`, `file.read`, and `file.write`. Each call repeats authorization;
 write calls also enforce current RunRef or Job authority. GET handlers cannot
 write. Database writes keep field-version conflicts and normal broadcasts.
 There is no transaction across capability calls. A guarded inventory update
 reads the record, writes with its field versions, and rereads after a conflict.
-Files use existing page-type, revision, and upload-size rules; byte values in
+Files use the page-type, revision, and upload-size rules; byte values in
 the handler are `Uint8Array`.
 
 `ai.generateText` resolves only an LLM profile of the Agent configured by
 `pod.applet.ai_agent_uid`. It accepts `model`, `effort`, optional `system`, and
 `prompt`, and returns `text`, `finishReason`, and token `usage`. It rejects raw
-provider/model identifiers. Missing `light` uses the existing primary fallback.
+provider/model identifiers. Missing `light` falls back to the primary profile.
 Usage belongs to the configured Agent without its token-quota admission check.
 An unset or disabled Agent yields `ai_not_configured`; model and effort errors
 use 422, and unavailable providers use 502.
@@ -514,18 +521,18 @@ use 422, and unavailable providers use 502.
 declared route parameters, preserve Query options and result objects, and use
 the loaded publication's revision and identity in the route cache prefix.
 Queries abort on unmount and hide cached data after an authoritative 401, 403,
-or 404. Temporary failures retain prior data. Route writes have no optimistic
+or 404. Temporary failures keep prior data. Route writes have no optimistic
 update or automatic invalidation. The Applet chooses which queries to refresh
 with its shared QueryClient and `routes.key()`.
 
 Backend routes do not create Pages or schema, schedule work, receive events,
 access connectors or secrets, make network requests, stream responses, or
-return binary HTTP bodies. Source and backend code remain readable to viewers;
+return binary HTTP bodies. Source and backend code are readable to viewers;
 they must contain no secrets.
 
 An Agent's Worker browser has its own profile. It does not inherit the
 requesting Human's Pod login. Build checks and persisted-data reads are separate
-from authenticated host interaction. The runtime Skill uses the existing browser
+from authenticated host interaction. The runtime Skill uses the browser
 contract for rendered checks, returns the saved page link, and states any
 unverified host behavior. Its verification traces each requested action through
 the full write payload and saved result, including naming fields and derived

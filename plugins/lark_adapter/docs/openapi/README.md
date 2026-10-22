@@ -22,29 +22,9 @@ This makes it a good fit if you want one small client that can call any Feishu/L
 - Optional `Plug` webhook adapter
 - WebSocket event-push client
 
-## Setup
+## Build and Test
 
-Add the dependency to `mix.exs`:
-
-```elixir
-def deps do
-  [
-    {:feishu_openapi, "~> 0.1.0"}
-  ]
-end
-```
-
-If you want to use `FeishuOpenAPI.Event.Server` or `FeishuOpenAPI.CardAction.Server`,
-also add `:plug` in your app:
-
-```elixir
-def deps do
-  [
-    {:feishu_openapi, "~> 0.1.0"},
-    {:plug, "~> 1.16"}
-  ]
-end
-```
+`FeishuOpenAPI` is part of the `plugins/lark_adapter` Mix project. Run `mix test` from `plugins/lark_adapter` (or `bun run lark-adapter:test` from the repository root).
 
 ## Quick Start
 

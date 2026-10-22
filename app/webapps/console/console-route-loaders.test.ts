@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import type { QueryClient } from '@tanstack/react-query'
-import type { LoaderFunctionArgs } from 'react-router'
 import { ankoleWebBackgroundAgentJobControllerIndexOptions } from './api/generated/@tanstack/react-query.gen'
 import { resourceID } from './console-primitives'
 import { createConsoleRouteLoaders } from './console-route-loaders'
@@ -28,9 +27,10 @@ describe('console route identifiers', () => {
         return Promise.resolve({})
       }
     } as unknown as QueryClient
-    const request = new Request('http://localhost/console/background-agent-jobs?agent=agent-a&q=quarterly+report')
 
-    await createConsoleRouteLoaders(queryClient).backgroundAgentJobs({ request } as LoaderFunctionArgs)
+    await createConsoleRouteLoaders(queryClient).backgroundAgentJobs({
+      location: { searchStr: '?agent=agent-a&q=quarterly+report' }
+    })
 
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({
@@ -48,11 +48,10 @@ describe('console route identifiers', () => {
         return Promise.resolve({})
       }
     } as unknown as QueryClient
-    const request = new Request(
-      'http://localhost/console/conversations?agent=agent-a&q=hello&active=true&min_messages=0&cursor=abc'
-    )
 
-    await createConsoleRouteLoaders(queryClient).conversations({ request } as LoaderFunctionArgs)
+    await createConsoleRouteLoaders(queryClient).conversations({
+      location: { searchStr: '?agent=agent-a&q=hello&active=true&min_messages=0&cursor=abc' }
+    })
 
     expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({

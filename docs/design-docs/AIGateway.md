@@ -34,7 +34,7 @@ authentication file.
 Every stored AIGateway record belongs to one Principal through `subject_uid`.
 AIGateway stores caller metadata without interpreting it. A subject-scoped history lookup can use
 `include_ended: true` to read retained model state after a conversation ends.
-Stateful request admission still requires an active conversation.
+Stateful request admission requires an active conversation.
 
 A completed Response means that one model request ended. It does not mean that
 the Agent turn ended.
@@ -64,7 +64,7 @@ for URL Source learning. If `web_fetch` is absent or its provider request
 fails, URL Source learning returns a fetch error. Brain fetches URL sources
 through AIGateway and does not request a Worker. Every Brain model request uses the maintainer Agent as its `subject_uid`,
 so execution policy and observed usage belong to that Agent. Brain embedding
-and rerank calls use that identity while retaining the site's embedding
+and rerank calls use that identity with the site's embedding
 selector and the tenant's rerank selector.
 The maintainer Agent must be active. If it is disabled, Brain reports the
 identity as unhealthy and stops model requests and URL fetching until
@@ -324,7 +324,7 @@ rate limit or a quota failure. AIGateway marks only the attributed credential
 unavailable for its recovery interval and selects another usable credential.
 If none is available, a temporary rate limit allows one more attempt with the
 same credential before the first response event. This attempt waits at least
-until that credential's recovery time and uses the existing backoff. It runs
+until that credential's recovery time and uses the standard backoff. It runs
 only when the delay is at most four seconds. A longer wait or a quota failure
 returns immediately with the recovery time. This does not limit the number
 of requests that independent callers can submit to the provider.
@@ -334,8 +334,8 @@ of requests that independent callers can submit to the provider.
 provider error extraction, and quota detection. Credential attempts and hosted
 image requests read these results. A terminal `response.failed` constructs the
 same failure for credential health without its body excerpt. Stored public
-error maps keep their existing reader. Native errors after a stream is ready
-keep the public terminal projection of that stream.
+error maps use the public error reader. Native errors after a stream is ready
+use the public terminal projection of that stream.
 
 Connection, read, and timeout failures and HTTP 502, 503, and 504 responses
 belong to the route or Provider endpoint. Before the first response event,
@@ -392,7 +392,7 @@ uses an OpenRouter router model. `prompt_cache_key` groups requests that can
 reuse the same prompt prefix. AIGateway does not copy one value into the other.
 
 An explicit body `session_id` has first priority. The official `x-session-id`
-header is next, followed by the existing session and thread header forms. When
+header is next, followed by the session and thread header forms. When
 none is present, a stateful request uses its durable AIGateway Conversation
 UUID. A stateless request with no session identifier omits `session_id` and
 lets OpenRouter use its fallback routing. AIGateway preserves each supplied
@@ -446,7 +446,7 @@ marks an OAuth or Enterprise entry `dead` and selects another entry.
 
 The upstream ChatGPT transport always uses `store=false` and requests
 `reasoning.encrypted_content`. This is a Codex-provider transport rule, not the
-main Agent's public lifecycle: a main Agent Response still uses AIGateway
+main Agent's public lifecycle: a main Agent Response uses AIGateway
 `store=true` state and local tool-result journals. AIGateway stores and replays
 the encrypted reasoning content and does not use upstream response storage.
 When upstream compaction is enabled, the compaction trigger is forwarded to the
@@ -456,7 +456,7 @@ The provider prepares the Codex protocol as follows:
 
 - It removes downstream-only and unsupported request fields, including caller
   `metadata`, `max_output_tokens`, and `truncation`, before dispatch. AIGateway
-  still stores metadata locally and applies its own history limits.
+  stores metadata locally and applies its own history limits.
 - It converts standard string input to one user message because the Codex
   endpoint accepts only an input-item list.
 - It supplies an empty `instructions` value when the client omits it.
@@ -494,7 +494,7 @@ that sends them is asking for its identity to reach the model, which some
 upstreams use to decide service level. This is a pass-through on every
 OpenAI-family provider and every transport, because a WebSocket upgrade carries
 these as ordinary headers too. Provider-owned values, such as the ChatGPT
-Subscription session and account identity, still overwrite them.
+Subscription session and account identity, overwrite them.
 
 Agent Computer sends the current execution Session as `Session-Id` on every
 AIGateway model request. Different execution Sessions keep different values even
@@ -777,8 +777,8 @@ behind one selector can still change the real upstream without changing the
 issuer, and AIGateway does not detect that. The Provider 400 recovery above is
 what answers it.
 
-A message stored before AIGateway recorded issuers has no issuer and replays
-unchanged. Its sealed state either still belongs to the current Provider, or
+A stored message without an `issuer` field has no proven issuer and replays
+unchanged. Its sealed state either belongs to the current Provider, or
 the Provider rejects the request and the recovery above rebuilds the history
 without it.
 
@@ -804,11 +804,11 @@ Conversation and Message are Ash resources. Conversation actions own the active
 subject/key identity and preserve the first metadata on an `ensure` retry.
 Message actions own initial facts and the `generating` to `complete`, `error`,
 or `retracted` transitions. Elixir records use atoms; PostgreSQL and public
-Responses keep their existing strings. Stream completion appends output and
+Responses use strings. Stream completion appends output and
 merges metadata in the same conditional database update as the terminal state.
 Progress-only writes do not renew the response lease.
 
-Tool journals use the existing partial expression index over
+Tool journals use the partial expression index over
 `metadata.tool_result_idempotency_key`. An immutable upsert returns the first
 journal on retry. The lookup must use that index and remain tenant-scoped;
 an identity collision in another tenant returns a stale-record error. A
@@ -875,7 +875,7 @@ change the material revision and remove that request from the evidence.
 
 Brain pulls this read contract through its OIDC Client Source. AIGateway does
 not enqueue Brain jobs in the response commit. Internal Agent requests have no
-OIDC origin and remain outside this Source path. Existing unmarked records are
+OIDC origin and remain outside this Source path. Unmarked records are
 not attributed to a Client by inference.
 
 `ai_gateway_usage_records` stores one append-only row for each provider round
@@ -969,7 +969,7 @@ caller. Both modes preserve one public response lifecycle across later provider
 rounds.
 
 A settled Tool Search call and output remain provider history when a later
-request no longer declares Tool Search. Every client-loaded contract in the
+request omits Tool Search. Every client-loaded contract in the
 effective input stays callable across later user turns. Removing a contract
 from its surviving `tool_search_output` removes that contract from the loaded
 set. Local compaction keeps the minimum complete client call/output pairs that
@@ -1012,7 +1012,7 @@ A settled program call and output remain readable provider history when a
 later request has no PTC declaration. This can occur when a release, Skill
 change, or temporary tool-catalog failure removes the last programmatic
 binding. AIGateway projects the completed pair without adding a new program
-tool. An unsettled program still requires the PTC declaration and its frozen
+tool. An unsettled program requires the PTC declaration and its frozen
 bindings before AIGateway can resume it.
 
 A first-party OpenAI Responses request keeps Tool Search and Programmatic Tool
@@ -1066,11 +1066,10 @@ pending calls, output, heap, runtime, and concurrent isolates. These limits fail
 the affected response or program explicitly instead of dropping a dependency
 edge.
 
-Histories written before this registry existed can contain contradictory pair
-identities, including duplicate items produced by the earlier PTC bug. Such a
-history has no safe compaction or truncation boundary. AIGateway rejects it
+Legacy histories that contain contradictory pair identities or duplicate items
+have no safe compaction or truncation boundary. AIGateway rejects them
 instead of guessing or rewriting durable facts. The operator must start a new
-conversation, or use the existing validated tail retraction or deletion when
+conversation, or use validated tail retraction or deletion when
 the invalid rows form the current removable tail.
 
 ## Recall and Write Memory inside a Response
@@ -1125,23 +1124,13 @@ summary or another branch's user text as the task source. The typed compaction
 candidate carries this pack to the artifact's separate `brain_context_pack`
 field. A checkpoint replaces the opening pack in subsequent replay. A
 conversation without an opening claim gets no checkpoint pack. Pointer lines
-can still be refreshed for new user input. A request without a stateful
+are refreshed for new user input. A request without a stateful
 conversation gets no injection. An injection failure leaves the request
 unchanged; a checkpoint pack failure records a warning and stores no pack.
 
-The upgrade migration extracts legacy OIDC injection items and pointer suffixes
-once, in bounded batches, and preserves the caller's original input and
-environment. It retains item positions when a legacy pack was not a prefix.
-For old Agent conversations without injection metadata, it retains the stored
-content and copies the conversation's opening claim to its messages before it
-removes the conversation marker. Replay does not add a second opening pack.
-Take a database backup before
-upgrading: the extraction migration cannot restore the old mixed representation
-on rollback. Restoring that version requires the backup.
-
 ## Record Tool Results before the Next Model Call
 
-The Driver records a whole round through the existing transaction-owned tool
+The Driver records a whole round through the transaction-owned tool
 result API. The anchor must be a completed `previous_response_id`, with at
 least one client tool output. The same transaction completes satisfied wait
 input and deletes the round's control-plane tool receipts. This is a direct
@@ -1369,7 +1358,7 @@ The local summary always uses the Agent's `light` profile, whatever model the
 compacted conversation itself used. The summarizer is internal work with its
 own cost and latency profile, so it does not follow the request model. An Agent
 that configures no `light` profile resolves it to `primary`. The local
-checkpoint budget still uses the request model's context length.
+checkpoint budget uses the request model's context length.
 
 `ai_gateway_compaction_artifacts` stores each compaction result. Version 2 is a
 local artifact. It contains one summary object and a list of output items. Its
@@ -1411,9 +1400,9 @@ only the items after the last Provider compaction item. The artifact stores the
 Provider items through that item verbatim as an opaque prefix, and both replay
 surfaces emit that prefix ahead of the local checkpoint: handle resolution for
 a stateless continuation, and checkpoint materialization for a stored one. The
-reply still carries exactly one compaction item. AIGateway logs a warning when
-it preserves a prefix. Replayed Provider state still reads only on a
-compatible upstream; a Provider change keeps the existing stateless contract.
+reply carries exactly one compaction item. AIGateway logs a warning when
+it preserves a prefix. Replayed Provider state reads only on a
+compatible upstream.
 
 The kernel preserves provider-native compaction items on the Responses wire.
 It rejects those items on other wires with
@@ -1448,7 +1437,7 @@ Earlier checkpoint packs never enter a new summary.
 
 Manual `/compress` requests one compaction without waiting for the automatic
 usage threshold. Local compaction can summarize a short, nonempty history even
-when it has fewer rows than the preferred tail. It still requires a safe,
+when it has fewer rows than the preferred tail. It requires a safe,
 completed prefix and uses the same retention budget. If no such prefix exists,
 the command returns `Nothing to compress.` without creating a checkpoint.
 
@@ -1460,7 +1449,7 @@ The summarizer uses the standard streaming Responses preparation and stream
 owner. AIGateway creates its request context before model resolution and keeps
 the same cache key when it prepares the provider request. It reads the stream
 until a terminal Response arrives. A completed Response supplies the summary,
-and a `max_output_tokens` incomplete Response can start the existing larger
+and a `max_output_tokens` incomplete Response can start the larger
 output retry. A failed Response or a stream that closes before a terminal
 Response cannot produce a compaction artifact.
 
@@ -1493,7 +1482,7 @@ stable-tail checkpoint replaces the prior fixed summary instead of stacking
 another copy, but it keeps a real earlier compaction summary.
 
 A suffix size cannot be derived from cumulative snapshots, so this path reports
-no exact post-truncation Provider token count. It still applies the local
+no exact post-truncation Provider token count. It applies the local
 checkpoint estimator to the fixed summary, retained client Tool Search pairs,
 selected tail, and current input before it stores the artifact. When no valid
 boundary fits, the request returns `context_overflow`.
@@ -1511,7 +1500,7 @@ atomic expiry and failed-response predicates.
 CompactionArtifact has one create action and no update action. UsageRecord is
 an append-only resource with nonnegative token counts. The usage window sums
 its input and output columns in one tenant-scoped aggregate query. Usage
-normalization remains the existing pure `Usage` contract.
+normalization uses the pure `Usage` contract.
 
 
 Uploaded files require `purpose=vision`.
@@ -1579,8 +1568,8 @@ statuses plus the execution stage.
 Unexpected replay recovery and program cancellation failures emit warnings
 with the failure class and stack locations. Logs omit exception messages and
 function arguments. Recovery keeps the original Provider failure, and
-cancellation keeps its existing best-effort result.
-Codex vision fallback crashes use the same diagnostics before the existing
+cancellation returns its best-effort result.
+Codex vision fallback crashes use the same diagnostics before the
 fallback removes image parts.
 
 One failure diagnostic owner normalizes synchronous, streaming, and hosted-tool
@@ -1671,7 +1660,7 @@ control plane decodes the original `user.id`, and the carrier does not reach a
 model Provider. Worker spans use a lazy OpenTelemetry tracer provider and
 return provider-neutral protobuf OTLP batches through the authenticated Runtime
 Fabric RPC lane.
-The Worker RPC route continues to use the Agent Principal, not `user.id`. The
+The Worker RPC route uses the Agent Principal, not `user.id`. The
 control plane applies the selected Provider mapping at this export boundary and
 forwards the result to its configured receiver, so receiver credentials and
 vendor semantics never leave the control plane. The generic `opentelemetry`
@@ -1679,8 +1668,8 @@ Provider forwards the original bytes unchanged. Export and forwarding are best
 effort and cannot change a Turn result.
 
 Within a traced Agent Turn, each `chat {model}` provider round is a direct child
-of the Turn root. The redundant `ai_gateway.response` wrapper is absent. A
-standalone or non-Agent AIGateway request keeps one `ai_gateway.response` root,
+of the Turn root. A
+standalone or non-Agent AIGateway request uses one `ai_gateway.response` root,
 with each provider round as its child. AIGateway accepts the carried Turn user
 only from an authenticated Agent request with a valid `traceparent`. A direct
 request, or another request that cannot use the carried value, uses
@@ -1734,20 +1723,19 @@ boundary instead of retaining duplicate payloads. The common layer removes
 credentials, headers, generic caller metadata, encrypted reasoning and tool
 fields, and `__ankole_*` control fields. It replaces inline `data:` media with
 its byte count and omits an input or output payload that exceeds 1 MiB. Enabling
-the feature still sends model content outside Ankole, so the operator must
+the feature sends model content outside Ankole, so the operator must
 treat the receiver as a trusted system.
 
 For Langfuse v4, use a base endpoint such as
 `https://cloud.langfuse.com/api/public/otel`. Put a Basic `Authorization` value
 and `x-langfuse-ingestion-version: 4` in the encrypted header map. The
-`langfuse` Provider writes the derived `user.id` as the Langfuse user and keeps
-the existing session key as the Langfuse session. It writes
+`langfuse` Provider writes the derived `user.id` as the Langfuse user and writes
+the session key as the Langfuse session. It writes
 `ANKOLE_VERSION` as `langfuse.release`, and writes the Agent Principal, caller,
 and originator facts as filterable trace metadata. Langfuse reads the
 environment from the exported resource. It marks Worker Agent and tool spans
 as `agent` and `tool` observations and maps their concrete input and available
-output to the observation fields. This mapping applies only to spans that the
-updated processes create. It does not update historical Langfuse records.
+output to the observation fields.
 
 For LangSmith, use the regional base endpoint ending in `/otel`, an `x-api-key`
 header, and an optional `Langsmith-Project` header. When a Response belongs to
@@ -1789,7 +1777,7 @@ consume read credit and enter the same ordered Response lifecycle.
 
 Before the first normalized response event, a failure ends the native attempt
 with `StreamError`. It does not create response events. Elixir can then apply
-its existing recovery or credential retry policy. Once an event is queued or
+its recovery or credential retry policy. Once an event is queued or
 delivered, every detected Provider or transport failure goes through the
 resolver and produces one `response.failed` terminal. The kernel delivers that
 terminal in order under read credit before it reports native termination.
@@ -1799,7 +1787,7 @@ not read it. The kernel never selects credentials or retries a Provider call.
 Mid-stream batches use the pending byte window. A terminal batch can contain
 the complete output accumulated during the call and can exceed that window.
 It uses the same terminal delivery path whether the resolver finishes on an
-event or on upstream close. Every terminal chunk still consumes read credit.
+event or on upstream close. Every terminal chunk consumes read credit.
 
 Elixir chooses the Provider, model, eligible endpoints, credentials, and
 headers. It supplies the prepared request and removes Ankole-only state fields.
@@ -1960,7 +1948,7 @@ A continuation rebuilds one Anthropic assistant turn from the several Responses
 items that describe it. It merges each run of assistant items into one message,
 puts the decoded thinking blocks first, and converts each stored function call to
 a `tool_use` block. Visible text and tool calls come from the public items, so a
-turn whose envelope was dropped still replays as a valid tool-calling turn
+turn whose envelope was dropped replays as a valid tool-calling turn
 without private reasoning.
 
 ## Preserve Encrypted Tool Fields at Their Owner
