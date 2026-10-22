@@ -37,12 +37,12 @@ defmodule Ankole.WorkflowTest do
 
       assert {:ok, _} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, call.id, agent.uid, 1)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 1)
                end)
 
       assert {:error, :workflow_agent_at_capacity} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, waiting.id, agent.uid, 1)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, waiting.id, agent.uid, 1)
                end)
 
       deferred_at = DateTime.add(DateTime.utc_now(:microsecond), 30, :second)
@@ -54,7 +54,7 @@ defmodule Ankole.WorkflowTest do
 
       assert {:ok, %{released_slot?: true} = transition} =
                Repo.transact(fn repo ->
-                 Workflow.submit_result_in_tx(
+                 Workflow.TaskLifecycle.submit_result_in_tx(
                    repo,
                    call.id,
                    agent.uid,
@@ -71,7 +71,7 @@ defmodule Ankole.WorkflowTest do
 
       assert {:ok, %{call: %{status: :running}}} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, waiting.id, agent.uid, 1)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, waiting.id, agent.uid, 1)
                end)
     end
   end
@@ -89,7 +89,7 @@ defmodule Ankole.WorkflowTest do
     for call <- [active, releasing] do
       assert {:ok, _} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, call.id, agent.uid, 2)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 2)
                end)
     end
 
@@ -98,7 +98,7 @@ defmodule Ankole.WorkflowTest do
     for call <- [blocked, waiting] do
       assert {:error, :workflow_agent_at_capacity} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, call.id, agent.uid, 2)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 2)
                end)
 
       assert {:ok, _} =
@@ -107,7 +107,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, _} =
              Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  releasing.id,
                  agent.uid,
@@ -168,11 +168,13 @@ defmodule Ankole.WorkflowTest do
     assert dispatch.human_uid == human.uid
 
     assert {:ok, %{call: call}} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 1) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 1)
+             end)
 
     assert {:ok, %{accepted: true}} =
              Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  call.id,
                  agent.uid,
@@ -230,13 +232,15 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "integer", "minimum" => 1})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     session_id = Workflow.task_session_id(call.id)
 
     assert {:error, :workflow_result_null} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
+               Workflow.TaskLifecycle.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
                  "ok" => true,
                  "value" => nil
                })
@@ -244,7 +248,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:error, {:workflow_result_type_mismatch, [], "integer"}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
+               Workflow.TaskLifecycle.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
                  "ok" => true,
                  "value" => "7"
                })
@@ -252,7 +256,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{accepted: true, call: submitted}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
+               Workflow.TaskLifecycle.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
                  "ok" => true,
                  "value" => 7
                })
@@ -268,11 +272,13 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "boolean"})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     assert {:ok, %{accepted: true, call: submitted}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  call.id,
                  agent.uid,
@@ -301,11 +307,13 @@ defmodule Ankole.WorkflowTest do
     assert %Run{memo_bytes: ^arguments_bytes} = Repo.get!(Run, run.id)
 
     {:ok, %{call: first}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, first.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, first.id, agent.uid, 8)
+      end)
 
     assert {:ok, %{run: %Run{memo_bytes: ^arguments_bytes}, call: requeued}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  first.id,
                  agent.uid,
@@ -322,14 +330,16 @@ defmodule Ankole.WorkflowTest do
     assert requeued.status == :queued
 
     {:ok, %{call: first}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, first.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, first.id, agent.uid, 8)
+      end)
 
     success_envelope = %{"ok" => true, "value" => "done"}
     after_success = arguments_bytes + byte_size(Torque.encode!(success_envelope))
 
     assert {:ok, %{run: %Run{memo_bytes: ^after_success}}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  first.id,
                  agent.uid,
@@ -342,14 +352,16 @@ defmodule Ankole.WorkflowTest do
              end)
 
     {:ok, %{call: second}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, second.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, second.id, agent.uid, 8)
+      end)
 
     failure_envelope = %{"ok" => false, "code" => "fatal", "summary" => "No result."}
     after_failure = after_success + byte_size(Torque.encode!(failure_envelope))
 
     assert {:ok, %{run: %Run{memo_bytes: ^after_failure}}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  second.id,
                  agent.uid,
@@ -373,13 +385,15 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "string", "minLength" => 3})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     session_id = Workflow.task_session_id(call.id)
 
     assert {:error, {:workflow_result_schema_mismatch, _errors}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
+               Workflow.TaskLifecycle.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
                  "ok" => true,
                  "value" => "x"
                })
@@ -390,7 +404,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{accepted: true, call: corrected}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
+               Workflow.TaskLifecycle.submit_result_in_tx(repo, call.id, agent.uid, session_id, %{
                  "ok" => true,
                  "value" => "fixed"
                })
@@ -421,14 +435,20 @@ defmodule Ankole.WorkflowTest do
     for expected_attempt <- 1..2 do
       assert {:ok, %{call: claimed}} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
                end)
 
       assert claimed.attempts == expected_attempt
 
       assert {:ok, %{call: requeued}} =
                Ankole.Repo.transact(fn repo ->
-                 Workflow.submit_result_in_tx(repo, call.id, agent.uid, session_id, failure)
+                 Workflow.TaskLifecycle.submit_result_in_tx(
+                   repo,
+                   call.id,
+                   agent.uid,
+                   session_id,
+                   failure
+                 )
                end)
 
       assert requeued.status == :queued
@@ -436,13 +456,21 @@ defmodule Ankole.WorkflowTest do
     end
 
     assert {:ok, %{call: claimed}} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+             end)
 
     assert claimed.attempts == 3
 
     assert {:ok, %{call: failed} = terminal} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(repo, call.id, agent.uid, session_id, failure)
+               Workflow.TaskLifecycle.submit_result_in_tx(
+                 repo,
+                 call.id,
+                 agent.uid,
+                 session_id,
+                 failure
+               )
              end)
 
     assert {:ok, _} = Workflow.cleanup_terminal_transition({:ok, terminal})
@@ -462,11 +490,13 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     assert {:error, :workflow_task_not_found} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  call.id,
                  other_agent.uid,
@@ -477,10 +507,16 @@ defmodule Ankole.WorkflowTest do
 
     assert {:error, :workflow_task_session_mismatch} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(repo, call.id, agent.uid, "wf_task:9999", %{
-                 "ok" => true,
-                 "value" => "wrong session"
-               })
+               Workflow.TaskLifecycle.submit_result_in_tx(
+                 repo,
+                 call.id,
+                 agent.uid,
+                 "wf_task:9999",
+                 %{
+                   "ok" => true,
+                   "value" => "wrong session"
+                 }
+               )
              end)
 
     assert Repo.get!(AgentCall, call.id).status == :running
@@ -496,21 +532,28 @@ defmodule Ankole.WorkflowTest do
     for expected_attempt <- 1..2 do
       assert {:ok, %{call: claimed}} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
                end)
 
       assert claimed.attempts == expected_attempt
 
       assert {:ok, %{call: requeued}} =
                Repo.transact(fn repo ->
-                 Workflow.compensate_turn_error_in_tx(repo, event, reason, DateTime.utc_now())
+                 Workflow.TaskLifecycle.compensate_turn_error_in_tx(
+                   repo,
+                   event,
+                   reason,
+                   DateTime.utc_now()
+                 )
                end)
 
       assert requeued.status == :queued
     end
 
     assert {:ok, %{call: claimed}} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+             end)
 
     assert claimed.attempts == 3
 
@@ -521,7 +564,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{call: failed}} =
              Repo.transact(fn repo ->
-               Workflow.compensate_turn_error_in_tx(
+               Workflow.TaskLifecycle.compensate_turn_error_in_tx(
                  repo,
                  event,
                  oversized_reason,
@@ -570,10 +613,14 @@ defmodule Ankole.WorkflowTest do
     {:ok, queued} = insert_call(run, 1, %{"type" => "string"})
 
     {:ok, %{call: running}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, running.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, running.id, agent.uid, 8)
+      end)
 
     assert {:ok, %{run: cancelled, running_session_ids: [session_id]}} =
-             Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
+             Repo.transact(fn repo ->
+               Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+             end)
 
     assert cancelled.status == :cancelled
     assert session_id == Workflow.task_session_id(running.id)
@@ -582,10 +629,16 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{accepted: false, call: late}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(repo, running.id, agent.uid, session_id, %{
-                 "ok" => true,
-                 "value" => "late"
-               })
+               Workflow.TaskLifecycle.submit_result_in_tx(
+                 repo,
+                 running.id,
+                 agent.uid,
+                 session_id,
+                 %{
+                   "ok" => true,
+                   "value" => "late"
+                 }
+               )
              end)
 
     assert late.status == :cancelled
@@ -595,7 +648,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{call: %AgentCall{status: :running}}} =
              Repo.transact(fn repo ->
-               Workflow.claim_task_in_tx(repo, next_call.id, agent.uid, 1)
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, next_call.id, agent.uid, 1)
              end)
   end
 
@@ -605,7 +658,9 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     assert {:ok, %{job: %Job{} = job}} =
              BackgroundAgentJobs.create_with_dispatch(%{
@@ -619,7 +674,9 @@ defmodule Ankole.WorkflowTest do
              })
 
     assert {:ok, %{run: %Run{status: :cancelled, cleanup_completed_at: %DateTime{}}}} =
-             Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
+             Repo.transact(fn repo ->
+               Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+             end)
              |> Workflow.cleanup_terminal_transition()
 
     assert %Job{status: :stopped} = Repo.get!(Job, job.id)
@@ -631,10 +688,14 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     assert {:ok, %{run: %Run{status: :cancelled}}} =
-             Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
+             Repo.transact(fn repo ->
+               Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+             end)
              |> Workflow.cleanup_terminal_transition()
 
     assert {:error, {:workflow_run_terminal, :cancelled}} =
@@ -657,7 +718,9 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     source = terminal_delegated_job_fixture(agent.uid, call)
 
@@ -672,7 +735,9 @@ defmodule Ankole.WorkflowTest do
              })
 
     assert {:ok, %{run: %Run{status: :cancelled, cleanup_completed_at: %DateTime{}}}} =
-             Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
+             Repo.transact(fn repo ->
+               Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+             end)
              |> Workflow.cleanup_terminal_transition()
 
     assert %Job{status: :stopped} = Repo.get!(Job, successor.id)
@@ -684,12 +749,16 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     source = terminal_delegated_job_fixture(agent.uid, call)
 
     assert {:ok, %{run: %Run{status: :cancelled, cleanup_completed_at: %DateTime{}}}} =
-             Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
+             Repo.transact(fn repo ->
+               Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+             end)
              |> Workflow.cleanup_terminal_transition()
 
     assert {:error, {:workflow_run_terminal, :cancelled}} =
@@ -711,7 +780,9 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     {:ok, %{job: job}} =
       BackgroundAgentJobs.create_with_dispatch(%{
@@ -742,7 +813,9 @@ defmodule Ankole.WorkflowTest do
              })
 
     assert {:ok, %{run: %Run{status: :cancelled}} = cancellation} =
-             Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
+             Repo.transact(fn repo ->
+               Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+             end)
 
     assert {:error, {:workflow_run_terminal, :cancelled}} =
              BackgroundAgentJobs.commit_status_with_wakeup(running.id, agent.uid, %{
@@ -766,7 +839,9 @@ defmodule Ankole.WorkflowTest do
     {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     run
     |> AshPostgres.DataLayer.to_ecto()
@@ -774,7 +849,9 @@ defmodule Ankole.WorkflowTest do
     |> Repo.update!()
 
     assert {:ok, %{run: %Run{status: :cancelled} = pending, cleanup_errors: [error]}} =
-             Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
+             Repo.transact(fn repo ->
+               Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+             end)
              |> Workflow.cleanup_terminal_transition()
 
     assert pending.cleanup_completed_at == nil
@@ -788,7 +865,7 @@ defmodule Ankole.WorkflowTest do
       |> Repo.update!()
 
     assert {:ok, %Run{cleanup_completed_at: %DateTime{}}} =
-             Workflow.cleanup_terminal_run(repaired)
+             Workflow.Lifecycle.cleanup_terminal_run(repaired)
   end
 
   test "claim enforces per-run capacity after the run and call locks" do
@@ -798,11 +875,13 @@ defmodule Ankole.WorkflowTest do
     {:ok, second} = insert_call(run, 1, %{"type" => "string"})
 
     assert {:ok, %{call: %AgentCall{status: :running}}} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, first.id, agent.uid, 8) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, first.id, agent.uid, 8)
+             end)
 
     assert {:error, :workflow_agent_at_capacity} =
              Repo.transact(fn repo ->
-               Workflow.claim_task_in_tx(repo, second.id, agent.uid, 8)
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, second.id, agent.uid, 8)
              end)
 
     assert Repo.get!(AgentCall, second.id).status == :queued
@@ -811,33 +890,34 @@ defmodule Ankole.WorkflowTest do
   test "concurrent claims serialize and only one occupies a capacity-one run" do
     parent = self()
 
-    {:ok, {tenant, agent_uid, first_id, second_id}} =
+    arguments = %{
+      namespace: nil,
+      name: "agent",
+      arguments: %{"prompt" => "Research the question.", "schema" => %{"type" => "string"}}
+    }
+
+    {tenant, agent_uid, first_id, second_id} =
       Sandbox.unboxed_run(Repo, fn ->
-        Repo.transact(fn _repo ->
-          tenant =
-            create_committed_tenant(%{
-              slug: "workflow-#{Ankole.Ecto.UUIDv7.autogenerate()}",
-              display_name: "Workflow capacity race"
-            })
+        {:ok, {tenant, agent_uid, run_id}} =
+          Repo.transact(fn _repo ->
+            tenant =
+              create_committed_tenant(%{
+                slug: "workflow-#{Ankole.Ecto.UUIDv7.autogenerate()}",
+                display_name: "Workflow capacity race"
+              })
 
-          Repo.with_tenant(tenant.id, fn ->
-            %{principal: agent} = agent_fixture()
-            run = run_fixture(agent.uid, concurrency: 1)
-
-            arguments = %{
-              namespace: nil,
-              name: "agent",
-              arguments: %{
-                "prompt" => "Research the question.",
-                "schema" => %{"type" => "string"}
-              }
-            }
-
-            {:ok, %{new_calls: [first, second]}} =
-              Workflow.commit_replay_pending(run.id, [arguments, arguments], 0)
-
-            {:ok, {tenant, agent.uid, first.id, second.id}}
+            Repo.with_tenant(tenant.id, fn ->
+              %{principal: agent} = agent_fixture()
+              run = run_fixture(agent.uid, concurrency: 1)
+              {:ok, {tenant, agent.uid, run.id}}
+            end)
           end)
+
+        Repo.with_tenant(tenant.id, fn ->
+          {:ok, %{new_calls: [first, second]}} =
+            Workflow.commit_replay_pending(run_id, [arguments, arguments], 0)
+
+          {tenant, agent_uid, first.id, second.id}
         end)
       end)
 
@@ -857,7 +937,7 @@ defmodule Ankole.WorkflowTest do
             receive do
               :claim ->
                 Repo.transact(fn repo ->
-                  Workflow.claim_task_in_tx(repo, call_id, agent_uid, 8)
+                  Workflow.TaskLifecycle.claim_task_in_tx(repo, call_id, agent_uid, 8)
                 end)
             end
           end)
@@ -879,7 +959,7 @@ defmodule Ankole.WorkflowTest do
     assert Enum.count(results, &(&1 == {:error, :workflow_agent_at_capacity})) == 1
   end
 
-  test "a final watchdog failure wakes a capacity waiter only after its transaction commits" do
+  test "a final watchdog failure wakes a capacity waiter in its after-commit work" do
     %{principal: agent} = agent_fixture()
     run = run_fixture(agent.uid, concurrency: 1)
     {:ok, stale} = insert_call(run, 0, %{"type" => "string"})
@@ -889,18 +969,24 @@ defmodule Ankole.WorkflowTest do
     for attempt <- 1..3 do
       assert {:ok, %{call: %{attempts: ^attempt}}} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, stale.id, agent.uid, 8)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, stale.id, agent.uid, 8)
                end)
 
       if attempt < 3 do
         assert {:ok, %{call: %{status: :queued}}} =
                  Repo.transact(fn repo ->
-                   Workflow.submit_result_in_tx(repo, stale.id, agent.uid, session_id, %{
-                     "ok" => false,
-                     "code" => "retry",
-                     "summary" => "Retry the task.",
-                     "retryable" => true
-                   })
+                   Workflow.TaskLifecycle.submit_result_in_tx(
+                     repo,
+                     stale.id,
+                     agent.uid,
+                     session_id,
+                     %{
+                       "ok" => false,
+                       "code" => "retry",
+                       "summary" => "Retry the task.",
+                       "retryable" => true
+                     }
+                   )
                  end)
       end
     end
@@ -916,18 +1002,16 @@ defmodule Ankole.WorkflowTest do
       set: [progress_at: DateTime.add(now, -3_601, :second)]
     )
 
-    assert {:ok, %{reconciled: 1, released_slot?: true} = transition} =
+    assert {:ok, %{reconciled: 1, released_slot?: true}} =
              Workflow.reconcile_stale_tasks(run.id, DateTime.add(now, -3_600, :second), now)
 
     assert %{status: :failed, attempts: 3} = Repo.get!(AgentCall, stale.id)
-    assert Repo.get!(Signal, event.id).available_at == deferred_at
-    assert {:ok, _} = Workflow.cleanup_terminal_transition({:ok, transition})
     assert DateTime.compare(Repo.get!(Signal, event.id).available_at, deferred_at) == :lt
     assert %{status: :queued, attempts: 0} = Repo.get!(AgentCall, waiting.id)
 
     assert {:ok, %{call: %{status: :running, attempts: 1}}} =
              Repo.transact(fn repo ->
-               Workflow.claim_task_in_tx(repo, waiting.id, agent.uid, 8)
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, waiting.id, agent.uid, 8)
              end)
   end
 
@@ -944,7 +1028,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{accepted: true, call: failed, run: same_run}} =
              Repo.transact(fn repo ->
-               Workflow.fail_unstarted_task_in_tx(
+               Workflow.TaskLifecycle.fail_unstarted_task_in_tx(
                  repo,
                  call.id,
                  agent.uid,
@@ -1011,10 +1095,14 @@ defmodule Ankole.WorkflowTest do
     sibling = Repo.get!(AgentCall, sibling.id)
 
     {:ok, %{call: call}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+      end)
 
     {:ok, %{call: sibling}} =
-      Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, sibling.id, agent.uid, 8) end)
+      Repo.transact(fn repo ->
+        Workflow.TaskLifecycle.claim_task_in_tx(repo, sibling.id, agent.uid, 8)
+      end)
 
     sibling_session_id = Workflow.task_session_id(sibling.id)
 
@@ -1027,7 +1115,7 @@ defmodule Ankole.WorkflowTest do
               cleanup_errors: []
             }} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  call.id,
                  agent.uid,
@@ -1083,7 +1171,7 @@ defmodule Ankole.WorkflowTest do
 
     assert {:ok, %{call: %AgentCall{status: :running}}} =
              Repo.transact(fn repo ->
-               Workflow.claim_task_in_tx(repo, next_call.id, agent.uid, 1)
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, next_call.id, agent.uid, 1)
              end)
   end
 
@@ -1158,13 +1246,15 @@ defmodule Ankole.WorkflowTest do
       {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
       {:ok, %{call: call}} =
-        Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+        Repo.transact(fn repo ->
+          Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+        end)
 
       session_id = Workflow.task_session_id(call.id)
 
       assert {:ok, %{call: sleeping}} =
                Ankole.Repo.transact(fn repo ->
-                 Workflow.sleep_task_in_tx(repo, call.id, agent.uid, session_id, %{
+                 Workflow.TaskLifecycle.sleep_task_in_tx(repo, call.id, agent.uid, session_id, %{
                    wake_after_ms: 3_600_000,
                    note: "Waiting for background job 1234.",
                    attention: false
@@ -1191,7 +1281,7 @@ defmodule Ankole.WorkflowTest do
       # The wake claim reuses the ordinary claim gates.
       assert {:ok, %{call: woken}} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
                end)
 
       assert woken.status == :running
@@ -1208,15 +1298,23 @@ defmodule Ankole.WorkflowTest do
 
       assert {:error, {:workflow_task_not_running, :queued}} =
                Ankole.Repo.transact(fn repo ->
-                 Workflow.sleep_task_in_tx(repo, call.id, agent.uid, session_id, params)
+                 Workflow.TaskLifecycle.sleep_task_in_tx(
+                   repo,
+                   call.id,
+                   agent.uid,
+                   session_id,
+                   params
+                 )
                end)
 
       {:ok, %{call: call}} =
-        Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+        Repo.transact(fn repo ->
+          Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+        end)
 
       assert {:error, :invalid_workflow_wake_after} =
                Ankole.Repo.transact(fn repo ->
-                 Workflow.sleep_task_in_tx(repo, call.id, agent.uid, session_id, %{
+                 Workflow.TaskLifecycle.sleep_task_in_tx(repo, call.id, agent.uid, session_id, %{
                    params
                    | wake_after_ms: 1
                  })
@@ -1224,7 +1322,7 @@ defmodule Ankole.WorkflowTest do
 
       assert {:error, :invalid_workflow_sleep_note} =
                Ankole.Repo.transact(fn repo ->
-                 Workflow.sleep_task_in_tx(repo, call.id, agent.uid, session_id, %{
+                 Workflow.TaskLifecycle.sleep_task_in_tx(repo, call.id, agent.uid, session_id, %{
                    params
                    | note: "  "
                  })
@@ -1232,7 +1330,13 @@ defmodule Ankole.WorkflowTest do
 
       assert {:error, :workflow_task_session_mismatch} =
                Ankole.Repo.transact(fn repo ->
-                 Workflow.sleep_task_in_tx(repo, call.id, agent.uid, "wf_task:999999", params)
+                 Workflow.TaskLifecycle.sleep_task_in_tx(
+                   repo,
+                   call.id,
+                   agent.uid,
+                   "wf_task:999999",
+                   params
+                 )
                end)
 
       call
@@ -1242,7 +1346,13 @@ defmodule Ankole.WorkflowTest do
 
       assert {:error, :workflow_task_wake_budget_exhausted} =
                Ankole.Repo.transact(fn repo ->
-                 Workflow.sleep_task_in_tx(repo, call.id, agent.uid, session_id, params)
+                 Workflow.TaskLifecycle.sleep_task_in_tx(
+                   repo,
+                   call.id,
+                   agent.uid,
+                   session_id,
+                   params
+                 )
                end)
     end
 
@@ -1254,11 +1364,13 @@ defmodule Ankole.WorkflowTest do
 
       for call <- [first, second] do
         {:ok, _claimed} =
-          Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+          Repo.transact(fn repo ->
+            Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+          end)
 
         assert {:ok, %{call: sleeping}} =
                  Ankole.Repo.transact(fn repo ->
-                   Workflow.sleep_task_in_tx(
+                   Workflow.TaskLifecycle.sleep_task_in_tx(
                      repo,
                      call.id,
                      agent.uid,
@@ -1290,13 +1402,15 @@ defmodule Ankole.WorkflowTest do
       {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
       {:ok, %{call: call}} =
-        Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+        Repo.transact(fn repo ->
+          Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+        end)
 
       session_id = Workflow.task_session_id(call.id)
 
       {:ok, _sleeping} =
         Ankole.Repo.transact(fn repo ->
-          Workflow.sleep_task_in_tx(repo, call.id, agent.uid, session_id, %{
+          Workflow.TaskLifecycle.sleep_task_in_tx(repo, call.id, agent.uid, session_id, %{
             wake_after_ms: 3_600_000,
             note: "Waiting.",
             attention: false
@@ -1308,11 +1422,18 @@ defmodule Ankole.WorkflowTest do
 
       for expected_attempts <- [1, 2] do
         {:ok, %{call: _running}} =
-          Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+          Repo.transact(fn repo ->
+            Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+          end)
 
         assert {:ok, %{call: compensated}} =
                  Repo.transact(fn repo ->
-                   Workflow.compensate_turn_error_in_tx(repo, event, reason, DateTime.utc_now())
+                   Workflow.TaskLifecycle.compensate_turn_error_in_tx(
+                     repo,
+                     event,
+                     reason,
+                     DateTime.utc_now()
+                   )
                  end)
 
         assert compensated.status == :queued
@@ -1322,11 +1443,18 @@ defmodule Ankole.WorkflowTest do
       end
 
       {:ok, %{call: _running}} =
-        Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+        Repo.transact(fn repo ->
+          Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+        end)
 
       assert {:ok, %{call: failed}} =
                Repo.transact(fn repo ->
-                 Workflow.compensate_turn_error_in_tx(repo, event, reason, DateTime.utc_now())
+                 Workflow.TaskLifecycle.compensate_turn_error_in_tx(
+                   repo,
+                   event,
+                   reason,
+                   DateTime.utc_now()
+                 )
                end)
 
       assert failed.status == :failed
@@ -1339,11 +1467,13 @@ defmodule Ankole.WorkflowTest do
       {:ok, call} = insert_call(run, 0, %{"type" => "string"})
 
       {:ok, %{call: call}} =
-        Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+        Repo.transact(fn repo ->
+          Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+        end)
 
       {:ok, _sleeping} =
         Ankole.Repo.transact(fn repo ->
-          Workflow.sleep_task_in_tx(
+          Workflow.TaskLifecycle.sleep_task_in_tx(
             repo,
             call.id,
             agent.uid,
@@ -1357,7 +1487,9 @@ defmodule Ankole.WorkflowTest do
         end)
 
       assert {:ok, %{run: cancelled}} =
-               Repo.transact(fn repo -> Workflow.cancel_in_tx(repo, run.id, agent.uid) end)
+               Repo.transact(fn repo ->
+                 Workflow.Lifecycle.cancel_in_tx(repo, run.id, agent.uid)
+               end)
 
       assert cancelled.status == :cancelled
       assert %AgentCall{status: :cancelled} = Repo.get!(AgentCall, call.id)
@@ -1371,11 +1503,13 @@ defmodule Ankole.WorkflowTest do
 
       for call <- [with_event, without_event] do
         {:ok, _claimed} =
-          Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+          Repo.transact(fn repo ->
+            Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+          end)
 
         {:ok, _sleeping} =
           Ankole.Repo.transact(fn repo ->
-            Workflow.sleep_task_in_tx(
+            Workflow.TaskLifecycle.sleep_task_in_tx(
               repo,
               call.id,
               agent.uid,
@@ -1470,11 +1604,13 @@ defmodule Ankole.WorkflowTest do
              |> Repo.aggregate(:count) == 1
 
       {:ok, %{call: call}} =
-        Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+        Repo.transact(fn repo ->
+          Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+        end)
 
       {:ok, _submitted} =
         Ankole.Repo.transact(fn repo ->
-          Workflow.submit_result_in_tx(
+          Workflow.TaskLifecycle.submit_result_in_tx(
             repo,
             call.id,
             agent.uid,
@@ -1514,7 +1650,9 @@ defmodule Ankole.WorkflowTest do
         )
 
       {:ok, %{call: claimed}} =
-        Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+        Repo.transact(fn repo ->
+          Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+        end)
 
       assert claimed.status == :running
 
@@ -1577,11 +1715,9 @@ defmodule Ankole.WorkflowTest do
     pending_calls =
       Enum.map(arguments, &%{namespace: nil, name: "agent", arguments: &1})
 
-    # This fixture tests domain transitions. Oban remains manual until the
-    # transaction ends; the passive Driver then receives later delivery.
-    case Repo.transact(fn _repo ->
-           Workflow.commit_replay_pending(run.id, pending_calls, memo_length)
-         end) do
+    # This fixture tests domain transitions. Oban stays manual; the passive
+    # Driver then receives later delivery.
+    case Workflow.commit_replay_pending(run.id, pending_calls, memo_length) do
       {:ok, %{new_calls: [call]}} ->
         Ankole.SessionsCase.stub_driver(%{
           agent_uid: run.agent_uid,

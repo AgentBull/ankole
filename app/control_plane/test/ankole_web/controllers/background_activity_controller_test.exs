@@ -52,7 +52,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
 
     assert {:ok, _} =
              Repo.transact(fn repo ->
-               Workflow.stop_human_work_in_tx(
+               Workflow.Lifecycle.stop_human_work_in_tx(
                  repo,
                  human.uid,
                  human.access_version + 1,
@@ -81,7 +81,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
 
     assert {:ok, %{call: sleeping}} =
              Repo.transact(fn repo ->
-               Workflow.sleep_task_in_tx(
+               Workflow.TaskLifecycle.sleep_task_in_tx(
                  repo,
                  sleeping.id,
                  agent.uid,
@@ -97,7 +97,7 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     cleanup = workflow(agent.uid, source, "Cleanup after cancellation")
 
     assert {:ok, %{run: %{cleanup_completed_at: nil}}} =
-             Repo.transact(&Workflow.cancel_in_tx(&1, cleanup.id, agent.uid))
+             Repo.transact(&Workflow.Lifecycle.cancel_in_tx(&1, cleanup.id, agent.uid))
 
     capacity_run = workflow(agent.uid, source, "Waiting for Agent capacity")
     capacity_call = queued_call(capacity_run)
@@ -226,16 +226,14 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     run = workflow(agent.uid, source, "Two live calls")
 
     {:ok, %{new_calls: calls}} =
-      Repo.transact(fn _ ->
-        Workflow.commit_replay_pending(
-          run.id,
-          for(
-            n <- 1..2,
-            do: %{namespace: nil, name: "agent", arguments: %{"prompt" => "Question #{n}"}}
-          ),
-          0
-        )
-      end)
+      Workflow.commit_replay_pending(
+        run.id,
+        for(
+          n <- 1..2,
+          do: %{namespace: nil, name: "agent", arguments: %{"prompt" => "Question #{n}"}}
+        ),
+        0
+      )
 
     for call <- calls,
         do:
@@ -430,20 +428,18 @@ defmodule AnkoleWeb.BackgroundActivityControllerTest do
     call = queued_call(run)
 
     {:ok, %{call: call}} =
-      Repo.transact(&Workflow.claim_task_in_tx(&1, call.id, run.agent_uid, 8))
+      Repo.transact(&Workflow.TaskLifecycle.claim_task_in_tx(&1, call.id, run.agent_uid, 8))
 
     call
   end
 
   defp queued_call(run) do
     {:ok, %{new_calls: [call]}} =
-      Repo.transact(fn _ ->
-        Workflow.commit_replay_pending(
-          run.id,
-          [%{namespace: nil, name: "agent", arguments: %{"prompt" => "Inspect evidence"}}],
-          0
-        )
-      end)
+      Workflow.commit_replay_pending(
+        run.id,
+        [%{namespace: nil, name: "agent", arguments: %{"prompt" => "Inspect evidence"}}],
+        0
+      )
 
     Ankole.SessionsCase.stub_driver(%{
       agent_uid: run.agent_uid,

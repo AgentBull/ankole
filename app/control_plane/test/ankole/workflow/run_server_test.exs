@@ -204,7 +204,9 @@ defmodule Ankole.Workflow.RunServerTest do
              Workflow.commit_replay_pending(run.id, [pending_call(first_arguments)], 0)
 
     assert {:ok, %{call: running}} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+             end)
 
     parent = self()
     counter = :atomics.new(1, signed: false)
@@ -234,7 +236,7 @@ defmodule Ankole.Workflow.RunServerTest do
 
     assert {:ok, %{accepted: true, call: %AgentCall{status: :succeeded}}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  running.id,
                  agent.uid,
@@ -281,7 +283,7 @@ defmodule Ankole.Workflow.RunServerTest do
 
       assert {:ok, %{call: running}} =
                Repo.transact(fn repo ->
-                 Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8)
+                 Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
                end)
 
       parent = self()
@@ -309,7 +311,7 @@ defmodule Ankole.Workflow.RunServerTest do
 
       assert {:ok, %{accepted: true}} =
                Ankole.Repo.transact(fn repo ->
-                 Workflow.submit_result_in_tx(
+                 Workflow.TaskLifecycle.submit_result_in_tx(
                    repo,
                    running.id,
                    agent.uid,
@@ -386,11 +388,13 @@ defmodule Ankole.Workflow.RunServerTest do
     wait_for(fn -> is_nil(RunServer.whereis(run.id)) end)
 
     assert {:ok, %{call: running}} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+             end)
 
     assert {:ok, %{call: %AgentCall{status: :succeeded}}} =
              Ankole.Repo.transact(fn repo ->
-               Workflow.submit_result_in_tx(
+               Workflow.TaskLifecycle.submit_result_in_tx(
                  repo,
                  running.id,
                  agent.uid,
@@ -432,7 +436,9 @@ defmodule Ankole.Workflow.RunServerTest do
     call = wait_for(fn -> Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) end)
 
     assert {:ok, %{call: running}} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+             end)
 
     stale_at = DateTime.add(DateTime.utc_now(:microsecond), -5, :second)
 
@@ -491,7 +497,9 @@ defmodule Ankole.Workflow.RunServerTest do
     call = wait_for(fn -> Repo.get_by(AgentCall, run_id: run.id, call_seq: 0) end)
 
     assert {:ok, %{call: running}} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+             end)
 
     stale_at = DateTime.add(DateTime.utc_now(:microsecond), -5, :second)
 
@@ -677,7 +685,9 @@ defmodule Ankole.Workflow.RunServerTest do
              Workflow.commit_replay_pending(run.id, [pending_call(%{"prompt" => "Run."})], 0)
 
     assert {:ok, %{call: call}} =
-             Repo.transact(fn repo -> Workflow.claim_task_in_tx(repo, call.id, agent.uid, 8) end)
+             Repo.transact(fn repo ->
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, call.id, agent.uid, 8)
+             end)
 
     run
     |> AshPostgres.DataLayer.to_ecto()
@@ -726,7 +736,7 @@ defmodule Ankole.Workflow.RunServerTest do
 
     assert {:ok, %{call: running}} =
              Repo.transact(fn repo ->
-               Workflow.claim_task_in_tx(repo, running.id, agent.uid, 8)
+               Workflow.TaskLifecycle.claim_task_in_tx(repo, running.id, agent.uid, 8)
              end)
 
     assert {:ok, result} = cancel_workflow(run.id, agent.uid)

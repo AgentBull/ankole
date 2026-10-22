@@ -165,7 +165,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
 
         {:error, :background_agent_job_not_found} ->
           with :ok <-
-                 Workflow.authorize_delegated_job_owner_in_tx(
+                 Workflow.TaskLifecycle.authorize_delegated_job_owner_in_tx(
                    repo,
                    attrs["agent_uid"],
                    attrs["owner_session_id"]
@@ -197,7 +197,7 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
                :ok <- validate_respawn_source(source_job),
                :ok <- ensure_no_successor(source_job),
                :ok <-
-                 Workflow.authorize_delegated_job_owner_in_tx(
+                 Workflow.TaskLifecycle.authorize_delegated_job_owner_in_tx(
                    repo,
                    attrs["agent_uid"],
                    attrs["owner_session_id"]
@@ -326,7 +326,12 @@ defmodule Ankole.BackgroundAgentJobs.Dispatch do
   @doc false
   def authorize_steer_successor_in_tx(repo, job, applied_ids) do
     if JobSignals.open?(job.id, job.agent_uid, ["command.steer"], applied_ids),
-      do: Workflow.authorize_delegated_job_owner_in_tx(repo, job.agent_uid, job.owner_session_id),
+      do:
+        Workflow.TaskLifecycle.authorize_delegated_job_owner_in_tx(
+          repo,
+          job.agent_uid,
+          job.owner_session_id
+        ),
       else: :ok
   end
 
