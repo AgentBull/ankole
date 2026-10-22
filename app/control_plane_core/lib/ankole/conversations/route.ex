@@ -357,7 +357,10 @@ defmodule Ankole.Conversations.Route do
            Conversation
            |> Ash.Query.filter(
              id == ^id and kind == :native and
-               exists(participants, principal_uid == ^agent_uid and role == :agent)
+               exists(
+                 Ankole.Conversations.Participant,
+                 conversation_id == parent(id) and principal_uid == ^agent_uid and role == :agent
+               )
            )
            |> Ash.Query.select([:id])
            |> Ankole.Ash.read_one!() do
@@ -377,10 +380,10 @@ defmodule Ankole.Conversations.Route do
       )
 
   defp agent_call(id, uid),
-    do: first(Ankole.Workflow.Domain.list_agent_calls!(query: [filter: [id: id, agent_uid: uid]]))
+    do: first(Ankole.Workflow.list_agent_calls!(query: [filter: [id: id, agent_uid: uid]]))
 
   defp agent_run(id, uid),
-    do: first(Ankole.Workflow.Domain.list_runs!(query: [filter: [id: id, agent_uid: uid]]))
+    do: first(Ankole.Workflow.list_runs!(query: [filter: [id: id, agent_uid: uid]]))
 
   defp first([record]), do: record
   defp first([]), do: nil

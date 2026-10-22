@@ -3,7 +3,7 @@ defmodule Ankole.Conversations.Attachments do
   require Ash.Query
   alias Ecto.Adapters.SQL
   alias Ankole.{Files, Repo}
-  alias Ankole.Conversations.{External, Message}
+  alias Ankole.Conversations.{External, ExternalMessageRef, Message}
   @attachment_id_sequence "conversation_attachment_id_seq"
   @attachment_id_min 10_000
   @attachment_id_max 9_007_199_254_740_991
@@ -506,18 +506,23 @@ defmodule Ankole.Conversations.Attachments do
     rows = Keyword.get(opts, :message_limit, max(20, limit))
 
     # The window is short, so the newest rows are sorted after the read.
-    Message
-    |> Ash.Query.filter(
-      conversation_id == ^conversation_id and
-        exists(
-          external_ref,
+    provider_times =
+      ExternalMessageRef
+      |> Ash.Query.filter(
+        conversation_id == ^conversation_id and
           fragment("?->>'id' = ?", author, ^author_id) and provider_time >= ^since and
-            provider_time <= ^at
-        )
-    )
-    |> Ash.Query.load(:external_ref)
+          provider_time <= ^at
+      )
+      |> Ash.Query.select([:message_id, :provider_time])
+      |> Ankole.Ash.read!()
+      |> Map.new(&{&1.message_id, &1.provider_time})
+
+    message_ids = Map.keys(provider_times)
+
+    Message
+    |> Ash.Query.filter(conversation_id == ^conversation_id and id in ^message_ids)
     |> Ankole.Ash.read!()
-    |> Enum.sort_by(&{&1.external_ref.provider_time, &1.seq}, &newer_or_equal?/2)
+    |> Enum.sort_by(&{Map.fetch!(provider_times, &1.id), &1.seq}, &newer_or_equal?/2)
     |> Enum.take(rows)
     |> Enum.flat_map(& &1.attachments)
     |> Enum.take(limit)

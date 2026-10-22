@@ -109,28 +109,17 @@ defmodule Ankole.Conversations.Message do
     )
   end
 
-  relationships do
-    # The provider reference of an external Message.
-    has_one :external_ref, Ankole.Conversations.ExternalMessageRef do
-      source_attribute(:id)
-      destination_attribute(:message_id)
-      public?(false)
-    end
-
-    # The native inputs that admitted this Message to a turn.
-    has_many :inputs, Ankole.Signals.Signal do
-      source_attribute(:id)
-      destination_attribute(:message_id)
-      public?(false)
-    end
-  end
-
   calculations do
     # A removed native input withdraws its Message from the public facts.
     calculate(
       :withdrawn,
       :boolean,
-      expr(exists(inputs, fragment("? @> '{\"removed\": true}'::jsonb", data)))
+      expr(
+        exists(
+          Ankole.Signals.Signal,
+          message_id == parent(id) and fragment("? @> '{\"removed\": true}'::jsonb", data)
+        )
+      )
     )
   end
 

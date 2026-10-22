@@ -1,24 +1,30 @@
 defmodule Ankole.Conversations.Context do
   @moduledoc "Renders public Messages for conversation history and ambient observation."
   require Ash.Query
-  alias Ankole.Conversations.Message
+  alias Ankole.Conversations.{ExternalMessageRef, Message}
 
   @ambient_rows 80
   @backdrop_rows 10
   @history_rows 200
   @history_tokens 8_000
 
-  # The public Messages of a conversation, each with its provider reference.
-  defp observations(conversation_id) do
-    Message
-    |> Ash.Query.filter(conversation_id == ^conversation_id)
-    |> Ash.Query.load(:external_ref)
+  defp observations(conversation_id),
+    do: Ash.Query.filter(Message, conversation_id == ^conversation_id)
+
+  # Each public Message with its provider reference, or nil for a native Message.
+  defp read_observations(query) do
+    messages = Ankole.Ash.read!(query)
+    refs = external_refs(Enum.map(messages, & &1.id))
+    Enum.map(messages, &%{message: &1, external_ref: Map.get(refs, &1.id)})
   end
 
-  defp read_observations(query) do
-    query
+  defp external_refs([]), do: %{}
+
+  defp external_refs(message_ids) do
+    ExternalMessageRef
+    |> Ash.Query.filter(message_id in ^message_ids)
     |> Ankole.Ash.read!()
-    |> Enum.map(&%{message: &1, external_ref: &1.external_ref})
+    |> Map.new(&{&1.message_id, &1})
   end
 
   def ambient_scene_fingerprint(_repo, conversation_id) do

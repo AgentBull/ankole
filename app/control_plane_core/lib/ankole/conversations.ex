@@ -297,6 +297,22 @@ defmodule Ankole.Conversations do
     )
   end
 
+  @doc """
+  Gives a native conversation that the active Human takes part in.
+
+  This read takes no lock and opens no transaction, so a caller can use it in
+  its own transaction. `get/3` gives the complete detail.
+  """
+  def visible_native_conversation(human_uid, id) do
+    with {:ok, id} <- cast_id(id),
+         %Conversation{} = conversation <- visible_conversation(human_uid, id) do
+      {:ok, conversation}
+    else
+      {:error, _} = error -> error
+      nil -> {:error, :conversation_not_found}
+    end
+  end
+
   def model_preferences(human_uid, id) do
     with {:ok, id} <- cast_id(id),
          %Conversation{} = conversation <- visible_conversation(human_uid, id),
@@ -355,8 +371,9 @@ defmodule Ankole.Conversations do
       query =
         Ash.Query.filter(
           Conversation,
-          kind == :native and exists(participants, principal_uid == ^human_uid) and
-            exists(participants, role == :agent)
+          kind == :native and
+            exists(Participant, conversation_id == parent(id) and principal_uid == ^human_uid) and
+            exists(Participant, conversation_id == parent(id) and role == :agent)
         )
 
       query = if page_id, do: Ash.Query.filter(query, page_id == ^page_id), else: query
@@ -1127,9 +1144,10 @@ defmodule Ankole.Conversations do
             (is_nil(session_id) or session_id != ^session_id or is_nil(author_uid) or
                author_uid != ^agent_uid) and id not in ^excluded_ids and not withdrawn and
             not exists(
-              inputs,
-              conversation_id == ^id and producer == :kernel and type == ^@addressed and
-                status in [:queued, :running] and is_nil(last_attempt_at)
+              Signal,
+              message_id == parent(id) and conversation_id == ^id and producer == :kernel and
+                type == ^@addressed and status in [:queued, :running] and
+                is_nil(last_attempt_at)
             )
         )
         |> Ash.Query.sort(seq: :desc)
@@ -1164,7 +1182,11 @@ defmodule Ankole.Conversations do
   defp native_conversations_of_agent(uid) do
     Ash.Query.filter(
       Conversation,
-      kind == :native and exists(participants, principal_uid == ^uid and role == :agent)
+      kind == :native and
+        exists(
+          Participant,
+          conversation_id == parent(id) and principal_uid == ^uid and role == :agent
+        )
     )
   end
 
@@ -1468,7 +1490,8 @@ defmodule Ankole.Conversations do
       query =
         Ash.Query.filter(
           Conversation,
-          id == ^id and kind == :native and exists(participants, principal_uid == ^human_uid)
+          id == ^id and kind == :native and
+            exists(Participant, conversation_id == parent(id) and principal_uid == ^human_uid)
         )
 
       query = if opts[:lock], do: Ash.Query.lock(query, :for_update), else: query

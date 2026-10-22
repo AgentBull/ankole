@@ -760,8 +760,7 @@ defmodule Ankole.Pod.Pages do
       if principal.type == :agent do
         Ankole.Conversations.Target.conversation_for_agent_in_tx(Repo, uid, id)
       else
-        with {:ok, %{conversation: conversation}} <- Ankole.Conversations.get(uid, id),
-             do: {:ok, conversation}
+        Ankole.Conversations.visible_native_conversation(uid, id)
       end
     end
   end

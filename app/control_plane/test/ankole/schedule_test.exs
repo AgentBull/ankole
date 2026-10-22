@@ -1910,25 +1910,22 @@ defmodule Ankole.ScheduleTest do
         )
 
       {:ok, [received]} =
-        Repo.transact(fn _repo ->
-          MockInbound.handle_message_receive(
-            "message.receive",
-            %{
-              source_event_id: "mock-dashboard-cron-request",
-              conversation_id: "mock:chat:dashboard",
-              provider_message_id: "mock-dashboard-request-message",
-              provider_thread_id: "mock-dashboard-thread",
-              text: "Every morning at 7 check https://status.internal and report each service.",
-              explicit: true,
-              now: @base_time,
-              provider_time: @base_time
-            },
-            [consumer]
-          )
-        end)
+        MockInbound.handle_message_receive(
+          "message.receive",
+          %{
+            source_event_id: "mock-dashboard-cron-request",
+            conversation_id: "mock:chat:dashboard",
+            provider_message_id: "mock-dashboard-request-message",
+            provider_thread_id: "mock-dashboard-thread",
+            text: "Every morning at 7 check https://status.internal and report each service.",
+            explicit: true,
+            now: @base_time,
+            provider_time: @base_time
+          },
+          [consumer]
+        )
 
-      {:ok, received} =
-        Repo.transact(fn _repo -> {:ok, maybe_finalize_test_inbound_batch(received)} end)
+      received = maybe_finalize_test_inbound_batch(received)
 
       source = received.signal
       run = admit_input(source, @base_time)

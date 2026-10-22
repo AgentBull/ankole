@@ -95,7 +95,7 @@ defmodule Ankole.Conversations.Attachments.Native do
   @doc "Reads frozen bytes through the current Human's Conversation membership."
   def read_to_file(uid, conversation_id, message_id, path, local_path) do
     with {:ok, message_id} <- Ecto.UUID.cast(message_id),
-         {:ok, _} <- Ankole.Conversations.get(uid, conversation_id),
+         {:ok, _} <- Ankole.Conversations.visible_native_conversation(uid, conversation_id),
          %Message{attachments: attachments} <-
            Message
            |> Ash.Query.filter(id == ^message_id and conversation_id == ^conversation_id)

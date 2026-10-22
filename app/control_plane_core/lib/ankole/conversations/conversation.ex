@@ -116,21 +116,6 @@ defmodule Ankole.Conversations.Conversation do
     )
   end
 
-  relationships do
-    has_many :participants, Ankole.Conversations.Participant do
-      source_attribute(:id)
-      destination_attribute(:conversation_id)
-      public?(false)
-    end
-
-    # The Signals that this conversation admitted or answered.
-    has_many :signals, Ankole.Signals.Signal do
-      source_attribute(:id)
-      destination_attribute(:conversation_id)
-      public?(false)
-    end
-  end
-
   actions do
     defaults([:read])
 

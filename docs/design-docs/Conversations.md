@@ -52,10 +52,11 @@ action and give the domain reason through `Ankole.Errors.reason/1`.
 
 The domain reads the rows of other domains through their code interface
 functions. `Conversations.Locks` locks Principal and Signal rows through those
-functions and gives each locked read to the lock-order check. The
-`participants`, `signals`, `inputs`, and `external_ref` relationships let one
-query filter by related rows. A Message is `withdrawn` when one of its native
-inputs is removed; history, context, and detail reads exclude these Messages.
+functions and gives each locked read to the lock-order check. A query filters by
+the rows of a related resource with a resource-based `exists` expression; the
+resources declare no relationships, so their Ecto structs do not change. A
+Message is `withdrawn` when one of its native inputs is removed; history,
+context, and detail reads exclude these Messages.
 
 Membership retries retain the first role, and native creation retries cannot
 replace stored facts. External observation actions can change content and

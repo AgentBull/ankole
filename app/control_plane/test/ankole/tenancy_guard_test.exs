@@ -144,10 +144,6 @@ defmodule Ankole.TenancyGuardTest do
       1,
     "sql_fragment:../control_plane_core/lib/ankole/conversations/inbound_batches.ex:observed_entry_batch" =>
       1,
-    "sql_fragment:../control_plane_core/lib/ankole/conversations/input_revisions.ex:candidate_events_for_source_entry" =>
-      1,
-    "sql_fragment:../control_plane_core/lib/ankole/conversations/input_revisions.ex:event_for_supplement_source_entry" =>
-      1,
     "sql_fragment:../control_plane_core/lib/ankole/oidc.ex:cleanup_expired_credentials" => 1,
     "sql_fragment:../control_plane_core/lib/ankole/sessions/console_queries.ex:maybe_filter_min_messages" =>
       1,

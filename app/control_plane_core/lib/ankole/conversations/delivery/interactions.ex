@@ -379,8 +379,9 @@ defmodule Ankole.Conversations.Delivery.Interactions do
             checkpoint
           ) and
           exists(
-            signal,
-            agent_uid == ^newer_event.agent_uid and session_id == ^newer_event.session_id and
+            Signal,
+            id == parent(signal_id) and agent_uid == ^newer_event.agent_uid and
+              session_id == ^newer_event.session_id and
               queue_sequence < ^newer_event.queue_sequence
           )
       )

@@ -239,7 +239,11 @@ defmodule Ankole.Conversations.Delivery.Preview do
     |> Ash.Query.filter(
       fragment("?->>'stream_signal_id' = ?", checkpoint, ^stream_signal_id) and
         fragment("COALESCE((?->>'presentation_owner')::boolean, false)", checkpoint) and
-        exists(signal, agent_uid == ^new_owner.agent_uid and session_id == ^new_owner.session_id)
+        exists(
+          Signal,
+          id == parent(signal_id) and agent_uid == ^new_owner.agent_uid and
+            session_id == ^new_owner.session_id
+        )
     )
     |> Ash.Query.sort(owner_generation: :desc)
     |> Ash.Query.limit(1)

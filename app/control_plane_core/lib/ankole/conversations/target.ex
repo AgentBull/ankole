@@ -56,7 +56,11 @@ defmodule Ankole.Conversations.Target do
          %Conversation{} = conversation <-
            Conversation
            |> Ash.Query.filter(
-             id == ^id and exists(participants, principal_uid == ^agent_uid and role == :agent)
+             id == ^id and
+               exists(
+                 Ankole.Conversations.Participant,
+                 conversation_id == parent(id) and principal_uid == ^agent_uid and role == :agent
+               )
            )
            |> Ankole.Ash.read_one!(),
          do: {:ok, conversation},

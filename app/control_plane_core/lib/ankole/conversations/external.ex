@@ -93,7 +93,11 @@ defmodule Ankole.Conversations.External do
     |> Ash.Query.filter(
       kind == :external and external_kind == :im_dm and
         fragment("?->>'dm_peer_principal_uid'", metadata) == ^principal_uid and
-        exists(signals, agent_uid == ^binding.agent_uid and reply_binding_name == ^binding.name)
+        exists(
+          Ankole.Signals.Signal,
+          conversation_id == parent(id) and agent_uid == ^binding.agent_uid and
+            reply_binding_name == ^binding.name
+        )
     )
     |> Ash.Query.limit(2)
     |> Ankole.Ash.read!()

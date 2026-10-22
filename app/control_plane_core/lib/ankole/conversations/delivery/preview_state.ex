@@ -41,15 +41,6 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
     )
   end
 
-  relationships do
-    belongs_to :signal, Ankole.Signals.Signal do
-      source_attribute(:signal_id)
-      destination_attribute(:id)
-      define_attribute?(false)
-      public?(false)
-    end
-  end
-
   calculations do
     calculate(
       :owner_generation,
@@ -651,7 +642,11 @@ defmodule Ankole.Conversations.Delivery.PreviewState do
       __MODULE__
       |> Ash.Query.filter(
         fragment("?->'recovery_state'->>'state' = 'blocked'", checkpoint) and
-          exists(signal, agent_uid == ^agent_uid and reply_binding_name == ^binding_name)
+          exists(
+            Signal,
+            id == parent(signal_id) and agent_uid == ^agent_uid and
+              reply_binding_name == ^binding_name
+          )
       )
       |> Ash.Query.select([:signal_id])
       |> Ankole.Ash.read!()
